@@ -63,6 +63,18 @@ saas-agency/
       App.jsx          # rotas
 ```
 
+## Publicar no ar (Render)
+
+1. Crie um repositório no GitHub e envie este projeto
+2. No [Render](https://dashboard.render.com): **New → Blueprint** e conecte o repositório
+3. O `render.yaml` cuida de tudo: build do frontend, backend, **disco persistente**
+   (banco + arquivos dos clientes em `/var/data`) e segredo JWT gerado
+4. Primeira conta criada em `/login → Cadastre-se` vira admin
+5. Domínio próprio: em **Settings → Custom Domains**, adicione
+   `hub.suaagencia.com.br` e crie o CNAME no seu provedor de DNS
+
+Portal do cliente: `https://seu-dominio/portal`
+
 ## Endpoints principais
 - `POST /api/auth/login` · `POST /api/auth/register` · `GET /api/auth/me`
 - `GET/POST/PUT/DELETE /api/clients|projects|tasks|financial|contracts|goals|events`
