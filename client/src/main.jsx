@@ -1,0 +1,49 @@
+import React, { useMemo, useState } from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import { ThemeProvider, CssBaseline } from "@mui/material";
+import { getTheme } from "./theme.js";
+import { ColorModeContext } from "./ColorModeContext.jsx";
+import { AuthProvider } from "./auth/AuthContext.jsx";
+import App from "./App.jsx";
+
+function Root() {
+  const [mode, setMode] = useState(() => {
+    const stored = localStorage.getItem("color_mode");
+    if (stored === "light" || stored === "dark") return stored;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
+
+  const theme = useMemo(() => getTheme(mode), [mode]);
+  const colorMode = useMemo(
+    () => ({
+      mode,
+      toggle: () =>
+        setMode((m) => {
+          const next = m === "light" ? "dark" : "light";
+          localStorage.setItem("color_mode", next);
+          return next;
+        }),
+    }),
+    [mode]
+  );
+
+  return (
+    <ColorModeContext.Provider value={colorMode}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <BrowserRouter>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
+    </ColorModeContext.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <Root />
+  </React.StrictMode>
+);

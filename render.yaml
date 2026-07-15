@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: saas-agency
+    runtime: node
+    plan: starter # necessário para disco persistente (banco + arquivos)
+    buildCommand: cd client && npm ci && npm run build && cd ../server && npm ci
+    startCommand: cd server && npm start
+    healthCheckPath: /api/health
+    disk:
+      name: dados
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
+      - key: PORT
+        value: 8080
+      - key: JWT_SECRET
+        generateValue: true # segredo forte gerado pelo Render
+      - key: DB_PATH
+        value: /var/data/agency.db
+      - key: UPLOADS_DIR
+        value: /var/data/uploads
