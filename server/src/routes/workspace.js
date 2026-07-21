@@ -36,8 +36,8 @@ function publicItem(row) {
 
 // GET /api/workspace?client_id= — itens (com senha decifrada para a equipe)
 router.get("/", (req, res) => {
-  const where = req.query.client_id ? "WHERE w.client_id = ?" : "";
-  const args = req.query.client_id ? [req.query.client_id] : [];
+  const where = req.query.client_id ? "WHERE w.org_id = ? AND w.client_id = ?" : "WHERE w.org_id = ?";
+  const args = req.query.client_id ? [req.orgId, req.query.client_id] : [req.orgId];
   const rows = db
     .prepare(
       `SELECT w.*, c.name AS client_name
@@ -53,10 +53,12 @@ router.post("/", (req, res) => {
   if (!b.client_id || !b.title) {
     return res.status(400).json({ error: "Cliente e título são obrigatórios." });
   }
+  const client = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(b.client_id, req.orgId);
+  if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
   const info = db
     .prepare(
-      `INSERT INTO workspace_items (client_id, kind, title, content, username, secret, url)
-       VALUES (@client_id, @kind, @title, @content, @username, @secret, @url)`
+      `INSERT INTO workspace_items (client_id, kind, title, content, username, secret, url, org_id)
+       VALUES (@client_id, @kind, @title, @content, @username, @secret, @url, @org_id)`
     )
     .run({
       client_id: b.client_id,
@@ -66,6 +68,7 @@ router.post("/", (req, res) => {
       username: b.username ?? null,
       secret: encrypt(b.secret),
       url: b.url ?? null,
+      org_id: req.orgId,
     });
   const row = db.prepare("SELECT * FROM workspace_items WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json(publicItem(row));
@@ -74,16 +77,16 @@ router.post("/", (req, res) => {
 // PUT /api/workspace/reorder — arrastar e soltar: nova ordem (e coluna) dos itens.
 router.put("/reorder", (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
-  const upd = db.prepare("UPDATE workspace_items SET position = ?, client_id = ? WHERE id = ?");
+  const upd = db.prepare("UPDATE workspace_items SET position = ?, client_id = ? WHERE id = ? AND org_id = ?");
   const tx = db.transaction(() => {
-    items.forEach((i) => upd.run(i.position, i.client_id, i.id));
+    items.forEach((i) => upd.run(i.position, i.client_id, i.id, req.orgId));
   });
   tx();
   res.json({ ok: true, count: items.length });
 });
 
 router.put("/:id", (req, res) => {
-  const cur = db.prepare("SELECT * FROM workspace_items WHERE id = ?").get(req.params.id);
+  const cur = db.prepare("SELECT * FROM workspace_items WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Item não encontrado." });
   const b = req.body || {};
   const merged = {
@@ -91,18 +94,19 @@ router.put("/:id", (req, res) => {
     ...b,
     secret: b.secret !== undefined ? encrypt(b.secret) : cur.secret,
     id: req.params.id,
+    org_id: req.orgId,
   };
   db.prepare(
     `UPDATE workspace_items SET client_id=@client_id, kind=@kind, title=@title,
      content=@content, username=@username, secret=@secret, url=@url, position=@position
-     WHERE id=@id`
+     WHERE id=@id AND org_id=@org_id`
   ).run(merged);
   const row = db.prepare("SELECT * FROM workspace_items WHERE id = ?").get(req.params.id);
   res.json(publicItem(row));
 });
 
 router.delete("/:id", (req, res) => {
-  db.prepare("DELETE FROM workspace_items WHERE id = ?").run(req.params.id);
+  db.prepare("DELETE FROM workspace_items WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
 });
 

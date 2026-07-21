@@ -20,6 +20,7 @@ import Reports from "./pages/Reports.jsx";
 import Users from "./pages/Users.jsx";
 import Settings from "./pages/Settings.jsx";
 import NotFound from "./pages/NotFound.jsx";
+import Organizations from "./pages/Organizations.jsx";
 import PortalLogin from "./pages/PortalLogin.jsx";
 import Portal from "./pages/Portal.jsx";
 
@@ -61,6 +62,7 @@ export default function App() {
         <Route path="/workspace" element={<Workspace />} />
         <Route path="/events" element={<Events />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/organizations" element={<Organizations />} />
         <Route path="/users" element={<Users />} />
         <Route path="/settings" element={<Settings />} />
       </Route>

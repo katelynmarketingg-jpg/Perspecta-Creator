@@ -6,14 +6,17 @@ import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 
 const router = Router();
 
-function notifyAgency(clientId, taskId, message) {
+function notifyAgency(clientId, taskId, message, orgId) {
   db.prepare(
-    "INSERT INTO notifications (audience, client_id, task_id, message) VALUES ('agency', ?, ?, ?)"
-  ).run(clientId, taskId, message);
+    "INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, ?, ?, ?)"
+  ).run(clientId, taskId, message, orgId);
 }
 
-function findStageByName(pattern) {
-  return db.prepare("SELECT * FROM kanban_stages WHERE name LIKE ? ORDER BY position LIMIT 1").get(pattern);
+// A etapa é sempre a do escritório dono do cliente.
+function findStageByName(pattern, orgId) {
+  return db
+    .prepare("SELECT * FROM kanban_stages WHERE name LIKE ? AND org_id = ? ORDER BY position LIMIT 1")
+    .get(pattern, orgId);
 }
 
 // ---------------------------------------------------------------------------
@@ -28,7 +31,7 @@ router.post("/login", (req, res) => {
     return res.status(401).json({ error: "E-mail ou senha inválidos." });
   }
   const token = jwt.sign(
-    { portal: true, client_id: client.id, name: client.name },
+    { portal: true, client_id: client.id, name: client.name, org_id: client.org_id },
     JWT_SECRET,
     { expiresIn: "12h" }
   );
@@ -86,7 +89,7 @@ router.get("/calendar", (req, res) => {
 // ---- Aprovações -------------------------------------------------------------
 // Posts do cliente que estão na etapa "Aprovação".
 router.get("/approvals", (req, res) => {
-  const stage = findStageByName("%Aprova%");
+  const stage = findStageByName("%Aprova%", req.client.org_id);
   if (!stage) return res.json([]);
   const rows = db
     .prepare(
@@ -109,10 +112,10 @@ function getOwnTask(req, res) {
 router.post("/approvals/:id/approve", (req, res) => {
   const task = getOwnTask(req, res);
   if (!task) return;
-  const next = findStageByName("%Programa%");
+  const next = findStageByName("%Programa%", task.org_id);
   db.prepare("UPDATE tasks SET approval_status = 'approved', stage_id = COALESCE(?, stage_id) WHERE id = ?")
     .run(next?.id ?? null, task.id);
-  notifyAgency(task.client_id, task.id, `✅ ${req.client.name} aprovou "${task.title}".`);
+  notifyAgency(task.client_id, task.id, `✅ ${req.client.name} aprovou "${task.title}".`, task.org_id);
   res.json({ ok: true });
 });
 
@@ -125,12 +128,12 @@ router.post("/approvals/:id/request-changes", (req, res) => {
   if (!client_caption && !client_note) {
     return res.status(400).json({ error: "Edite a legenda ou escreva uma observação." });
   }
-  const back = findStageByName("%andamento%");
+  const back = findStageByName("%andamento%", task.org_id);
   db.prepare(
     `UPDATE tasks SET approval_status = 'changes_requested',
      client_caption = ?, client_note = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
   ).run(client_caption ?? null, client_note ?? null, back?.id ?? null, task.id);
-  notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`);
+  notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`, task.org_id);
   res.json({ ok: true });
 });
 

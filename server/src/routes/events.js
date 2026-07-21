@@ -15,24 +15,26 @@ const SELECT = `
 
 // ---- Tipos de evento ----------------------------------------------------
 router.get("/types", (req, res) => {
-  res.json(db.prepare("SELECT * FROM event_types ORDER BY name").all());
+  res.json(db.prepare("SELECT * FROM event_types WHERE org_id = ? ORDER BY name").all(req.orgId));
 });
 
 router.post("/types", (req, res) => {
   const { name, color = "#EA580C" } = req.body || {};
   if (!name) return res.status(400).json({ error: "Nome do tipo é obrigatório." });
-  const info = db.prepare("INSERT INTO event_types (name, color) VALUES (?, ?)").run(name, color);
+  const info = db
+    .prepare("INSERT INTO event_types (name, color, org_id) VALUES (?, ?, ?)")
+    .run(name, color, req.orgId);
   res.status(201).json(db.prepare("SELECT * FROM event_types WHERE id = ?").get(info.lastInsertRowid));
 });
 
 router.delete("/types/:id", (req, res) => {
-  db.prepare("DELETE FROM event_types WHERE id = ?").run(req.params.id);
+  db.prepare("DELETE FROM event_types WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
 });
 
 // ---- Eventos ------------------------------------------------------------
 router.get("/", (req, res) => {
-  res.json(db.prepare(`${SELECT} ORDER BY e.start_at`).all());
+  res.json(db.prepare(`${SELECT} WHERE e.org_id = ? ORDER BY e.start_at`).all(req.orgId));
 });
 
 router.post("/", (req, res) => {
@@ -41,9 +43,9 @@ router.post("/", (req, res) => {
   const info = db
     .prepare(
       `INSERT INTO events (title, type_id, client_id, start_at, end_at, notes,
-                           owner_id, doc_content, link_url, visible_to_client)
+                           owner_id, doc_content, link_url, visible_to_client, org_id)
        VALUES (@title, @type_id, @client_id, @start_at, @end_at, @notes,
-               @owner_id, @doc_content, @link_url, @visible_to_client)`
+               @owner_id, @doc_content, @link_url, @visible_to_client, @org_id)`
     )
     .run({
       title: b.title,
@@ -56,30 +58,32 @@ router.post("/", (req, res) => {
       doc_content: b.doc_content ?? null,
       link_url: b.link_url ?? null,
       visible_to_client: b.visible_to_client === false ? 0 : 1,
+      org_id: req.orgId,
     });
   res.status(201).json(db.prepare(`${SELECT} WHERE e.id = ?`).get(info.lastInsertRowid));
 });
 
 router.put("/:id", (req, res) => {
-  const cur = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);
+  const cur = db.prepare("SELECT * FROM events WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Evento não encontrado." });
   const merged = {
     ...cur,
     ...req.body,
     visible_to_client: req.body.visible_to_client === undefined ? cur.visible_to_client : req.body.visible_to_client ? 1 : 0,
     id: req.params.id,
+    org_id: req.orgId,
   };
   db.prepare(
     `UPDATE events SET title=@title, type_id=@type_id, client_id=@client_id,
      start_at=@start_at, end_at=@end_at, notes=@notes, owner_id=@owner_id,
      doc_content=@doc_content, link_url=@link_url, visible_to_client=@visible_to_client
-     WHERE id=@id`
+     WHERE id=@id AND org_id=@org_id`
   ).run(merged);
   res.json(db.prepare(`${SELECT} WHERE e.id = ?`).get(req.params.id));
 });
 
 router.delete("/:id", (req, res) => {
-  db.prepare("DELETE FROM events WHERE id = ?").run(req.params.id);
+  db.prepare("DELETE FROM events WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
 });
 

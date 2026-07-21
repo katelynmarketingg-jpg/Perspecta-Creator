@@ -20,41 +20,46 @@ function hydrate(row) {
 
 // ---- Etapas do Kanban ---------------------------------------------------
 router.get("/stages", (req, res) => {
-  res.json(db.prepare("SELECT * FROM kanban_stages ORDER BY position, id").all());
+  res.json(db.prepare("SELECT * FROM kanban_stages WHERE org_id = ? ORDER BY position, id").all(req.orgId));
 });
 
 router.post("/stages", (req, res) => {
   const { name, is_done = 0 } = req.body || {};
   if (!name) return res.status(400).json({ error: "Nome da etapa é obrigatório." });
-  const pos = db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM kanban_stages").get().p;
+  const pos = db
+    .prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM kanban_stages WHERE org_id = ?")
+    .get(req.orgId).p;
   const info = db
-    .prepare("INSERT INTO kanban_stages (name, position, is_done) VALUES (?, ?, ?)")
-    .run(name, pos, is_done ? 1 : 0);
+    .prepare("INSERT INTO kanban_stages (name, position, is_done, org_id) VALUES (?, ?, ?, ?)")
+    .run(name, pos, is_done ? 1 : 0, req.orgId);
   res.status(201).json(db.prepare("SELECT * FROM kanban_stages WHERE id = ?").get(info.lastInsertRowid));
 });
 
 router.put("/stages/:id", (req, res) => {
-  const cur = db.prepare("SELECT * FROM kanban_stages WHERE id = ?").get(req.params.id);
+  const cur = db.prepare("SELECT * FROM kanban_stages WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Etapa não encontrada." });
-  const merged = { ...cur, ...req.body, id: req.params.id, is_done: (req.body.is_done ?? cur.is_done) ? 1 : 0 };
-  db.prepare("UPDATE kanban_stages SET name=@name, position=@position, is_done=@is_done WHERE id=@id").run(merged);
+  const merged = {
+    ...cur, ...req.body, id: req.params.id, org_id: req.orgId,
+    is_done: (req.body.is_done ?? cur.is_done) ? 1 : 0,
+  };
+  db.prepare("UPDATE kanban_stages SET name=@name, position=@position, is_done=@is_done WHERE id=@id AND org_id=@org_id").run(merged);
   res.json(db.prepare("SELECT * FROM kanban_stages WHERE id = ?").get(req.params.id));
 });
 
 router.delete("/stages/:id", (req, res) => {
-  db.prepare("DELETE FROM kanban_stages WHERE id = ?").run(req.params.id);
+  db.prepare("DELETE FROM kanban_stages WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
 });
 
 // ---- Tarefas ------------------------------------------------------------
 router.get("/", (req, res) => {
   const { assignee_id, client_id, project_id } = req.query;
-  const where = [];
-  const params = {};
+  const where = ["t.org_id = @org_id"];
+  const params = { org_id: req.orgId };
   if (assignee_id) { where.push("t.assignee_id = @assignee_id"); params.assignee_id = assignee_id; }
   if (client_id) { where.push("t.client_id = @client_id"); params.client_id = client_id; }
   if (project_id) { where.push("t.project_id = @project_id"); params.project_id = project_id; }
-  const sql = `${SELECT} ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY t.position, t.id`;
+  const sql = `${SELECT} WHERE ${where.join(" AND ")} ORDER BY t.position, t.id`;
   res.json(db.prepare(sql).all(params).map(hydrate));
 });
 
@@ -64,8 +69,8 @@ router.post("/", (req, res) => {
   // criação em lote: cria N tarefas idênticas (máx 100)
   const count = Math.min(Math.max(Number(b.quantity) || 1, 1), 100);
   const stmt = db.prepare(
-    `INSERT INTO tasks (title, description, client_id, project_id, assignee_id, stage_id, priority, tags, due_date, content_type, caption, scheduled_at)
-     VALUES (@title, @description, @client_id, @project_id, @assignee_id, @stage_id, @priority, @tags, @due_date, @content_type, @caption, @scheduled_at)`
+    `INSERT INTO tasks (title, description, client_id, project_id, assignee_id, stage_id, priority, tags, due_date, content_type, caption, scheduled_at, org_id)
+     VALUES (@title, @description, @client_id, @project_id, @assignee_id, @stage_id, @priority, @tags, @due_date, @content_type, @caption, @scheduled_at, @org_id)`
   );
   const base = {
     title: b.title,
@@ -73,13 +78,15 @@ router.post("/", (req, res) => {
     client_id: b.client_id ?? null,
     project_id: b.project_id ?? null,
     assignee_id: b.assignee_id ?? null,
-    stage_id: b.stage_id ?? db.prepare("SELECT id FROM kanban_stages ORDER BY position LIMIT 1").get()?.id ?? null,
+    stage_id: b.stage_id ??
+      db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? ORDER BY position LIMIT 1").get(req.orgId)?.id ?? null,
     priority: b.priority ?? "medium",
     tags: JSON.stringify(b.tags ?? []),
     due_date: b.due_date ?? null,
     content_type: b.content_type ?? null,
     caption: b.caption ?? null,
     scheduled_at: b.scheduled_at ?? null,
+    org_id: req.orgId,
   };
   const created = [];
   const tx = db.transaction(() => {
@@ -94,19 +101,21 @@ router.post("/", (req, res) => {
 });
 
 router.put("/:id", (req, res) => {
-  const cur = db.prepare("SELECT * FROM tasks WHERE id = ?").get(req.params.id);
+  const cur = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Tarefa não encontrada." });
   const merged = {
     ...cur,
     ...req.body,
     tags: JSON.stringify(req.body.tags ?? JSON.parse(cur.tags || "[]")),
     id: req.params.id,
+    org_id: req.orgId,
   };
   db.prepare(
     `UPDATE tasks SET title=@title, description=@description, client_id=@client_id,
      project_id=@project_id, assignee_id=@assignee_id, stage_id=@stage_id, priority=@priority,
      tags=@tags, due_date=@due_date, completed_at=@completed_at, position=@position,
-     content_type=@content_type, caption=@caption, scheduled_at=@scheduled_at WHERE id=@id`
+     content_type=@content_type, caption=@caption, scheduled_at=@scheduled_at
+     WHERE id=@id AND org_id=@org_id`
   ).run(merged);
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
@@ -115,9 +124,9 @@ router.put("/:id", (req, res) => {
 // Ao mover para a etapa de conclusão, a data de programação é obrigatória.
 router.put("/:id/status", (req, res) => {
   const { stage_id, position, scheduled_at } = req.body || {};
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(req.params.id);
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!task) return res.status(404).json({ error: "Tarefa não encontrada." });
-  const stage = db.prepare("SELECT * FROM kanban_stages WHERE id = ?").get(stage_id);
+  const stage = db.prepare("SELECT * FROM kanban_stages WHERE id = ? AND org_id = ?").get(stage_id, req.orgId);
 
   const finalScheduledAt = scheduled_at ?? task.scheduled_at;
   if (stage?.is_done && !finalScheduledAt) {
@@ -125,12 +134,13 @@ router.put("/:id/status", (req, res) => {
   }
 
   const completed_at = stage?.is_done ? new Date().toISOString() : null;
-  db.prepare("UPDATE tasks SET stage_id = ?, position = ?, completed_at = ?, scheduled_at = ? WHERE id = ?").run(
+  db.prepare("UPDATE tasks SET stage_id = ?, position = ?, completed_at = ?, scheduled_at = ? WHERE id = ? AND org_id = ?").run(
     stage_id ?? null,
     position ?? 0,
     completed_at,
     finalScheduledAt ?? null,
-    req.params.id
+    req.params.id,
+    req.orgId
   );
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
@@ -140,34 +150,43 @@ router.get("/:id/attachments", (req, res) => {
   const rows = db
     .prepare(
       `SELECT f.id, f.original_name, f.mime, f.size
-       FROM task_attachments ta JOIN files f ON f.id = ta.file_id
-       WHERE ta.task_id = ?`
+       FROM task_attachments ta
+       JOIN files f ON f.id = ta.file_id
+       JOIN tasks t ON t.id = ta.task_id
+       WHERE ta.task_id = ? AND t.org_id = ?`
     )
-    .all(req.params.id);
+    .all(req.params.id, req.orgId);
   res.json(rows);
 });
 
 // PUT /api/tasks/:id/attachments — substitui a lista de anexos
 router.put("/:id/attachments", (req, res) => {
+  const task = db.prepare("SELECT id FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!task) return res.status(404).json({ error: "Tarefa não encontrada." });
   const ids = Array.isArray(req.body?.file_ids) ? req.body.file_ids : [];
+  // Só anexa arquivos do próprio escritório.
+  const owned = ids.filter((fid) =>
+    db.prepare("SELECT 1 FROM files WHERE id = ? AND org_id = ?").get(fid, req.orgId)
+  );
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM task_attachments WHERE task_id = ?").run(req.params.id);
     const ins = db.prepare("INSERT OR IGNORE INTO task_attachments (task_id, file_id) VALUES (?, ?)");
-    ids.forEach((fid) => ins.run(req.params.id, fid));
+    owned.forEach((fid) => ins.run(req.params.id, fid));
   });
   tx();
-  res.json({ ok: true, count: ids.length });
+  res.json({ ok: true, count: owned.length });
 });
 
 // PUT /api/tasks/:id/tags
 router.put("/:id/tags", (req, res) => {
   const tags = Array.isArray(req.body?.tags) ? req.body.tags : [];
-  db.prepare("UPDATE tasks SET tags = ? WHERE id = ?").run(JSON.stringify(tags), req.params.id);
+  db.prepare("UPDATE tasks SET tags = ? WHERE id = ? AND org_id = ?")
+    .run(JSON.stringify(tags), req.params.id, req.orgId);
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
 
 router.delete("/:id", (req, res) => {
-  db.prepare("DELETE FROM tasks WHERE id = ?").run(req.params.id);
+  db.prepare("DELETE FROM tasks WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
 });
 

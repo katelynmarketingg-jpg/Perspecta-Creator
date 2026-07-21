@@ -17,8 +17,8 @@ const SELECT = `
 router.get("/", (req, res) => {
   const from = req.query.from || new Date().toISOString().slice(0, 10);
   const to = req.query.to || from;
-  const where = ["date(e.start_at) BETWEEN @from AND @to"];
-  const params = { from, to };
+  const where = ["e.org_id = @org_id", "date(e.start_at) BETWEEN @from AND @to"];
+  const params = { org_id: req.orgId, from, to };
   if (req.query.owner_id) { where.push("e.owner_id = @owner_id"); params.owner_id = req.query.owner_id; }
   res.json(db.prepare(`${SELECT} WHERE ${where.join(" AND ")} ORDER BY e.start_at`).all(params));
 });
@@ -26,8 +26,8 @@ router.get("/", (req, res) => {
 // GET /api/agenda/day?date=&owner_id= — eventos de um dia
 router.get("/day", (req, res) => {
   const date = req.query.date || new Date().toISOString().slice(0, 10);
-  const where = ["date(e.start_at) = @date"];
-  const params = { date };
+  const where = ["e.org_id = @org_id", "date(e.start_at) = @date"];
+  const params = { org_id: req.orgId, date };
   if (req.query.owner_id) { where.push("e.owner_id = @owner_id"); params.owner_id = req.query.owner_id; }
   res.json(db.prepare(`${SELECT} WHERE ${where.join(" AND ")} ORDER BY e.start_at`).all(params));
 });

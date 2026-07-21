@@ -22,6 +22,7 @@ import workspaceRoutes from "./routes/workspace.js";
 import portalRoutes from "./routes/portal.js";
 import notificationsRoutes from "./routes/notifications.js";
 import servicesRoutes from "./routes/services.js";
+import organizationsRoutes from "./routes/organizations.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -49,6 +50,7 @@ app.use("/api/workspace", workspaceRoutes);
 app.use("/api/portal", portalRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/services", servicesRoutes);
+app.use("/api/organizations", organizationsRoutes);
 
 // Serve o build do frontend (client/dist) em produção
 const clientDist = join(__dirname, "../../client/dist");

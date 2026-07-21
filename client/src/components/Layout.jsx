@@ -3,7 +3,7 @@ import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
   AppBar, Box, Drawer, IconButton, List, ListItemButton, ListItemIcon,
   ListItemText, Toolbar, Typography, Avatar, Menu, MenuItem, Divider, Tooltip,
-  Badge,
+  Badge, Button,
 } from "@mui/material";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import api from "../api/client.js";
@@ -19,6 +19,8 @@ import EventIcon from "@mui/icons-material/Event";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import FolderCopyIcon from "@mui/icons-material/FolderCopy";
 import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
+import ApartmentIcon from "@mui/icons-material/Apartment";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -36,6 +38,7 @@ const SIDEBAR_BG = "#0C0A09";
 const SIDEBAR_BORDER = "#26221F";
 
 const NAV = [
+  { to: "/organizations", label: "Escritórios", icon: <ApartmentIcon />, masterOnly: true },
   { to: "/", label: "Dashboard", icon: <DashboardIcon />, end: true },
   { to: "/clients", label: "Clientes", icon: <PeopleIcon /> },
   { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
@@ -53,7 +56,7 @@ const NAV = [
 ];
 
 export default function Layout() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, isMaster, viewingOrg, leaveOrg } = useAuth();
   const { mode, toggle } = useColorMode();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -80,7 +83,13 @@ export default function Layout() {
     setNotifs((ns) => ns.map((n) => ({ ...n, is_read: 1 })));
   }
 
-  const items = NAV.filter((n) => !n.adminOnly || isAdmin);
+  // O master só vê as telas de dados quando entra num escritório.
+  const items = NAV.filter((n) => {
+    if (n.masterOnly) return isMaster;
+    if (n.adminOnly && !isAdmin) return false;
+    if (isMaster && !viewingOrg) return false;
+    return true;
+  });
 
   const drawer = (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: SIDEBAR_BG }}>
@@ -92,11 +101,13 @@ export default function Layout() {
           }}>
             SA
           </Box>
-          <Box>
-            <Typography sx={{ fontWeight: 700, lineHeight: 1, color: "#FAFAF9", fontFamily: '"Outfit", sans-serif' }}>
-              SaaS Agency
+          <Box sx={{ minWidth: 0 }}>
+            <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1, color: "#FAFAF9", fontFamily: '"Outfit", sans-serif' }}>
+              {viewingOrg?.name || user?.org_name || "Perspecta Media"}
             </Typography>
-            <Typography variant="caption" sx={{ color: "#78716C" }}>Gestão para agências</Typography>
+            <Typography variant="caption" sx={{ color: "#78716C" }}>
+              {viewingOrg ? "visto pelo Perspecta Media" : isMaster ? "administração" : "gestão da agência"}
+            </Typography>
           </Box>
         </Box>
       </Toolbar>
@@ -148,6 +159,13 @@ export default function Layout() {
           <IconButton edge="start" sx={{ mr: 1, display: { md: "none" } }} onClick={() => setMobileOpen(true)}>
             <MenuIcon />
           </IconButton>
+          {viewingOrg && (
+            <Button size="small" startIcon={<ArrowBackIcon />}
+              onClick={() => { leaveOrg(); navigate("/organizations"); }}
+              sx={{ mr: 1 }}>
+              Voltar aos escritórios
+            </Button>
+          )}
           <Box sx={{ flex: 1 }} />
           <Tooltip title="Notificações">
             <IconButton onClick={openNotifs} sx={{ mr: 0.5 }}>

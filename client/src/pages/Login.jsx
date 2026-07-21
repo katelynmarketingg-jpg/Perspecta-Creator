@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Box, Card, CardContent, TextField, Button, Typography, Alert, Stack, Link,
+  Box, Card, CardContent, TextField, Button, Typography, Alert, Stack,
 } from "@mui/material";
 import { useAuth } from "../auth/AuthContext.jsx";
 
 export default function Login() {
-  const { login, register } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState("login");
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ organization: "", username: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -20,9 +19,8 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      if (mode === "login") await login(form.email, form.password);
-      else await register(form.name, form.email, form.password);
-      navigate("/");
+      const user = await login(form.organization, form.username, form.password);
+      navigate(user.role === "superadmin" ? "/organizations" : "/");
     } catch (err) {
       setError(err.response?.data?.error || "Não foi possível entrar.");
     } finally {
@@ -45,11 +43,11 @@ export default function Login() {
         <CardContent sx={{ p: 4 }}>
           <Stack alignItems="center" spacing={1} sx={{ mb: 3 }}>
             <Box sx={{ width: 52, height: 52, borderRadius: 2.5, bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 20, fontFamily: '"Outfit", sans-serif' }}>
-              SA
+              PM
             </Box>
-            <Typography variant="h6">SaaS Agency</Typography>
-            <Typography variant="body2" color="text.secondary">
-              {mode === "login" ? "Entre para gerenciar sua agência" : "Crie a primeira conta (admin)"}
+            <Typography variant="h6">Perspecta Media</Typography>
+            <Typography variant="body2" color="text.secondary" align="center">
+              Entre com o seu escritório, nome e senha
             </Typography>
           </Stack>
 
@@ -57,22 +55,20 @@ export default function Login() {
 
           <form onSubmit={submit}>
             <Stack spacing={2}>
-              {mode === "register" && (
-                <TextField label="Nome" value={form.name} onChange={set("name")} fullWidth required />
-              )}
-              <TextField label="E-mail" type="email" value={form.email} onChange={set("email")} fullWidth required />
-              <TextField label="Senha" type="password" value={form.password} onChange={set("password")} fullWidth required />
+              <TextField label="Escritório" value={form.organization} onChange={set("organization")}
+                fullWidth required autoFocus placeholder="Perspectiva" />
+              <TextField label="Nome" value={form.username} onChange={set("username")}
+                fullWidth required placeholder="Katy" />
+              <TextField label="Senha" type="password" value={form.password} onChange={set("password")}
+                fullWidth required />
               <Button type="submit" variant="contained" size="large" disabled={loading}>
-                {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}
+                {loading ? "Aguarde..." : "Entrar"}
               </Button>
             </Stack>
           </form>
 
-          <Typography variant="body2" align="center" sx={{ mt: 2.5 }} color="text.secondary">
-            {mode === "login" ? "Não tem conta? " : "Já tem conta? "}
-            <Link component="button" type="button" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>
-              {mode === "login" ? "Cadastre-se" : "Entrar"}
-            </Link>
+          <Typography variant="caption" color="text.secondary" align="center" sx={{ display: "block", mt: 2.5 }}>
+            É cliente da agência? Use a <Box component="a" href="/portal" sx={{ color: "primary.main" }}>área do cliente</Box>.
           </Typography>
         </CardContent>
       </Card>

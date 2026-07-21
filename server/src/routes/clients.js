@@ -26,12 +26,16 @@ function loadServices(clientId) {
     .all(clientId);
 }
 
-function saveServices(clientId, services) {
+function saveServices(clientId, services, orgId) {
   if (!Array.isArray(services)) return;
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM client_services WHERE client_id = ?").run(clientId);
     const ins = db.prepare("INSERT OR IGNORE INTO client_services (client_id, service_id, price) VALUES (?, ?, ?)");
-    services.forEach((s) => ins.run(clientId, s.service_id, Number(s.price) || 0));
+    services.forEach((s) => {
+      // Só aceita serviços do próprio escritório.
+      const owned = db.prepare("SELECT 1 FROM services WHERE id = ? AND org_id = ?").get(s.service_id, orgId);
+      if (owned) ins.run(clientId, s.service_id, Number(s.price) || 0);
+    });
   });
   tx();
 }
@@ -125,8 +129,8 @@ function generateContract(client, services) {
 
   const info = db
     .prepare(
-      `INSERT INTO contracts (client_id, title, value, duration_months, start_date, first_due_date, status, notes)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`
+      `INSERT INTO contracts (client_id, title, value, duration_months, start_date, first_due_date, status, notes, org_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`
     )
     .run(
       client.id,
@@ -135,7 +139,8 @@ function generateContract(client, services) {
       duration,
       client.work_start ?? null,
       firstDue,
-      body
+      body,
+      client.org_id
     );
   return info.lastInsertRowid;
 }
@@ -155,14 +160,15 @@ function upsertPlanProject(client) {
       .run(posts, videos, existing.id);
   } else {
     db.prepare(
-      `INSERT INTO projects (name, client_id, description, status, monthly_posts, monthly_videos)
-       VALUES (?, ?, ?, 'active', ?, ?)`
+      `INSERT INTO projects (name, client_id, description, status, monthly_posts, monthly_videos, org_id)
+       VALUES (?, ?, ?, 'active', ?, ?, ?)`
     ).run(
       `Plano mensal — ${client.name}`,
       client.id,
       `Base de conteúdo: ${posts} posts + ${videos} vídeos por mês. Use "Lançar mês" para criar as tarefas.`,
       posts,
-      videos
+      videos,
+      client.org_id
     );
   }
 }
@@ -178,8 +184,8 @@ function generateReceivables(client, total, durationMonths) {
   const months = Math.min(durationMonths || 12, 24);
   const start = client.work_start ? new Date(`${client.work_start}T00:00:00`) : new Date();
   const ins = db.prepare(
-    `INSERT INTO financial_entries (type, description, amount, client_id, status, due_date)
-     VALUES ('income', ?, ?, ?, 'pending', ?)`
+    `INSERT INTO financial_entries (type, description, amount, client_id, status, due_date, org_id)
+     VALUES ('income', ?, ?, ?, 'pending', ?, ?)`
   );
   const tx = db.transaction(() => {
     for (let m = 0; m < months; m++) {
@@ -189,7 +195,8 @@ function generateReceivables(client, total, durationMonths) {
         `Mensalidade ${client.name} — ${String(due.getMonth() + 1).padStart(2, "0")}/${due.getFullYear()}`,
         total,
         client.id,
-        due.toISOString().slice(0, 10)
+        due.toISOString().slice(0, 10),
+        client.org_id
       );
     }
   });
@@ -200,14 +207,17 @@ function generateReceivables(client, total, durationMonths) {
 // ---------------------------------------------------------------------------
 
 router.get("/", (req, res) => {
-  const rows = db.prepare("SELECT * FROM clients ORDER BY name").all();
+  const rows = db.prepare("SELECT * FROM clients WHERE org_id = ? ORDER BY name").all(req.orgId);
   // agrupa serviços numa única query para evitar N+1
   const all = db
     .prepare(
       `SELECT cs.client_id, cs.service_id, cs.price, s.name
-       FROM client_services cs JOIN services s ON s.id = cs.service_id`
+       FROM client_services cs
+       JOIN services s ON s.id = cs.service_id
+       JOIN clients c ON c.id = cs.client_id
+       WHERE c.org_id = ?`
     )
-    .all();
+    .all(req.orgId);
   const grouped = {};
   all.forEach((r) => { (grouped[r.client_id] ||= []).push(r); });
   rows.forEach((r) => { grouped[r.id] ||= []; });
@@ -215,7 +225,7 @@ router.get("/", (req, res) => {
 });
 
 router.get("/:id", (req, res) => {
-  const row = db.prepare("SELECT * FROM clients WHERE id = ?").get(req.params.id);
+  const row = db.prepare("SELECT * FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!row) return res.status(404).json({ error: "Cliente não encontrado." });
   res.json(publicClient(row));
 });
@@ -228,13 +238,14 @@ router.post("/", (req, res) => {
       `INSERT INTO clients (name, email, phone, company, drive_url, status, notes,
                             segment, address, work_start, work_end, payment_day,
                             posts_per_month, videos_per_month,
-                            portal_email, portal_password_hash)
+                            portal_email, portal_password_hash, org_id)
        VALUES (@name, @email, @phone, @company, @drive_url, @status, @notes,
                @segment, @address, @work_start, @work_end, @payment_day,
                @posts_per_month, @videos_per_month,
-               @portal_email, @portal_password_hash)`
+               @portal_email, @portal_password_hash, @org_id)`
     )
     .run({
+      org_id: req.orgId,
       posts_per_month: b.posts_per_month ? Number(b.posts_per_month) : null,
       videos_per_month: b.videos_per_month ? Number(b.videos_per_month) : null,
       name: b.name,
@@ -253,7 +264,7 @@ router.post("/", (req, res) => {
       portal_password_hash: b.portal_password ? hashPassword(b.portal_password) : null,
     });
 
-  saveServices(info.lastInsertRowid, b.services);
+  saveServices(info.lastInsertRowid, b.services, req.orgId);
   const client = db.prepare("SELECT * FROM clients WHERE id = ?").get(info.lastInsertRowid);
   upsertPlanProject(client); // projeto base criado automaticamente
   if (b.generate_contract && Array.isArray(b.services) && b.services.length) {
@@ -266,7 +277,7 @@ router.post("/", (req, res) => {
 });
 
 router.put("/:id", (req, res) => {
-  const cur = db.prepare("SELECT * FROM clients WHERE id = ?").get(req.params.id);
+  const cur = db.prepare("SELECT * FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Cliente não encontrado." });
   const b = req.body || {};
   const merged = {
@@ -279,6 +290,7 @@ router.put("/:id", (req, res) => {
     // Senha do portal: só troca se veio uma nova; nunca aceita hash de fora.
     portal_password_hash: b.portal_password ? hashPassword(b.portal_password) : cur.portal_password_hash,
     id: req.params.id,
+    org_id: req.orgId,
   };
   db.prepare(
     `UPDATE clients SET name=@name, email=@email, phone=@phone, company=@company,
@@ -286,10 +298,10 @@ router.put("/:id", (req, res) => {
      segment=@segment, address=@address, work_start=@work_start, work_end=@work_end,
      payment_day=@payment_day, posts_per_month=@posts_per_month,
      videos_per_month=@videos_per_month, portal_email=@portal_email,
-     portal_password_hash=@portal_password_hash WHERE id=@id`
+     portal_password_hash=@portal_password_hash WHERE id=@id AND org_id=@org_id`
   ).run(merged);
 
-  if (b.services !== undefined) saveServices(req.params.id, b.services);
+  if (b.services !== undefined) saveServices(req.params.id, b.services, req.orgId);
   const client = db.prepare("SELECT * FROM clients WHERE id = ?").get(req.params.id);
   upsertPlanProject(client); // mantém o projeto base em dia
   if (b.generate_contract) {
@@ -304,7 +316,7 @@ router.put("/:id", (req, res) => {
 });
 
 router.delete("/:id", (req, res) => {
-  db.prepare("DELETE FROM clients WHERE id = ?").run(req.params.id);
+  db.prepare("DELETE FROM clients WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
 });
 

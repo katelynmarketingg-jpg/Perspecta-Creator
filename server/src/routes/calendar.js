@@ -9,8 +9,8 @@ router.use(authRequired);
 // Posts programados (tarefas com scheduled_at) no mês, com cliente e legenda.
 router.get("/", (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7);
-  const where = ["strftime('%Y-%m', t.scheduled_at) = @month"];
-  const params = { month };
+  const where = ["t.org_id = @org_id", "strftime('%Y-%m', t.scheduled_at) = @month"];
+  const params = { org_id: req.orgId, month };
   if (req.query.client_id) {
     where.push("t.client_id = @client_id");
     params.client_id = req.query.client_id;

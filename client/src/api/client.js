@@ -9,6 +9,12 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // Quando o Perspecta Media está dentro de um escritório, as chamadas
+  // passam a valer para aquele escritório.
+  try {
+    const viewing = JSON.parse(localStorage.getItem("viewing_org") || "null");
+    if (viewing?.id) config.headers["X-Org-Id"] = String(viewing.id);
+  } catch { /* sem escritório selecionado */ }
   return config;
 });
 

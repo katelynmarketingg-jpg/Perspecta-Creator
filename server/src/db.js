@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import bcrypt from "bcryptjs";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import "dotenv/config";
@@ -15,12 +16,23 @@ db.pragma("foreign_keys = ON");
 // projetos, tarefas (kanban), financeiro, contratos, metas, agenda, eventos.
 // ---------------------------------------------------------------------------
 db.exec(`
+-- Cada escritório/agência que usa o sistema. O escritório 'master' é o dono
+-- do sistema (Perspecta Media) e enxerga todos os outros.
+CREATE TABLE IF NOT EXISTS organizations (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  name          TEXT NOT NULL UNIQUE,
+  is_master     INTEGER NOT NULL DEFAULT 0,
+  active        INTEGER NOT NULL DEFAULT 1,
+  notes         TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT NOT NULL,
   email         TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  role          TEXT NOT NULL DEFAULT 'member',      -- 'admin' | 'member'
+  role          TEXT NOT NULL DEFAULT 'member',      -- 'superadmin' | 'admin' | 'member'
   permissions   TEXT NOT NULL DEFAULT '{}',          -- JSON: { módulo: bool }
   active        INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -233,5 +245,75 @@ ensureColumn("financial_entries", "payment_link", "payment_link TEXT");
 ensureColumn("financial_entries", "pix_code", "pix_code TEXT");
 ensureColumn("financial_entries", "boleto_url", "boleto_url TEXT");
 ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
+
+// ---------------------------------------------------------------------------
+// Multi-escritório: cada agência só enxerga os próprios dados. O escritório
+// master (Perspecta Media) enxerga todos.
+// ---------------------------------------------------------------------------
+// Login por nome de usuário (em vez de e-mail).
+ensureColumn("users", "username", "username TEXT");
+
+// Toda tabela de dados carrega o escritório dona da linha.
+export const TENANT_TABLES = [
+  "users", "clients", "projects", "tasks", "kanban_stages", "financial_entries",
+  "contracts", "goals", "events", "event_types", "services", "workspace_items",
+  "folders", "files", "notifications",
+];
+TENANT_TABLES.forEach((t) => ensureColumn(t, "org_id", "org_id INTEGER"));
+
+// Índices para as consultas filtradas por escritório.
+TENANT_TABLES.forEach((t) => {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_org ON ${t}(org_id)`);
+});
+
+// --- Semente: o escritório master e o primeiro escritório cliente -----------
+function seedOrganizations() {
+  const insertOrg = db.prepare("INSERT INTO organizations (name, is_master) VALUES (?, ?)");
+  const findOrg = db.prepare("SELECT * FROM organizations WHERE name = ?");
+
+  let master = findOrg.get("Perspecta Media");
+  if (!master) {
+    insertOrg.run("Perspecta Media", 1);
+    master = findOrg.get("Perspecta Media");
+  }
+  let perspectiva = findOrg.get("Perspectiva");
+  if (!perspectiva) {
+    insertOrg.run("Perspectiva", 0);
+    perspectiva = findOrg.get("Perspectiva");
+  }
+
+  // Usuários fixos pedidos: admin (master) e Katy (Perspectiva).
+  const upsertUser = ({ name, username, email, password, role, orgId }) => {
+    const existing = db.prepare("SELECT id FROM users WHERE lower(username) = lower(?) AND org_id = ?").get(username, orgId);
+    if (existing) return;
+    const byEmail = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+    const hash = bcrypt.hashSync(password, 10);
+    if (byEmail) {
+      db.prepare("UPDATE users SET name=?, username=?, password_hash=?, role=?, org_id=? WHERE id=?")
+        .run(name, username, hash, role, orgId, byEmail.id);
+    } else {
+      db.prepare(
+        "INSERT INTO users (name, username, email, password_hash, role, org_id) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(name, username, email, hash, role, orgId);
+    }
+  };
+
+  upsertUser({
+    name: "Perspecta Media", username: "admin", email: "admin@perspectamedia.com",
+    password: "001", role: "superadmin", orgId: master.id,
+  });
+  upsertUser({
+    name: "Katy", username: "Katy", email: "katy@perspectiva.com",
+    password: "001", role: "admin", orgId: perspectiva.id,
+  });
+
+  // Dados que existiam antes do multi-escritório passam a ser da Perspectiva.
+  TENANT_TABLES.forEach((t) => {
+    db.prepare(`UPDATE ${t} SET org_id = ? WHERE org_id IS NULL`).run(perspectiva.id);
+  });
+  // O usuário master não pertence a nenhum escritório cliente.
+  db.prepare("UPDATE users SET org_id = ? WHERE role = 'superadmin'").run(master.id);
+}
+seedOrganizations();
 
 export default db;

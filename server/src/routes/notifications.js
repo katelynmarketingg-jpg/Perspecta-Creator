@@ -11,20 +11,20 @@ router.get("/", (req, res) => {
     .prepare(
       `SELECT n.*, c.name AS client_name
        FROM notifications n LEFT JOIN clients c ON c.id = n.client_id
-       WHERE n.audience = 'agency'
+       WHERE n.audience = 'agency' AND n.org_id = ?
        ORDER BY n.created_at DESC LIMIT 30`
     )
-    .all();
+    .all(req.orgId);
   res.json(rows);
 });
 
-router.put("/:id/read", (req, res) => {
-  db.prepare("UPDATE notifications SET is_read = 1 WHERE id = ?").run(req.params.id);
+router.put("/read-all", (req, res) => {
+  db.prepare("UPDATE notifications SET is_read = 1 WHERE audience = 'agency' AND org_id = ?").run(req.orgId);
   res.json({ ok: true });
 });
 
-router.put("/read-all", (req, res) => {
-  db.prepare("UPDATE notifications SET is_read = 1 WHERE audience = 'agency'").run();
+router.put("/:id/read", (req, res) => {
+  db.prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
 });
 
