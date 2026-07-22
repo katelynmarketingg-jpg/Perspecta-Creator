@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Card, CardContent, Typography, Stack, TextField, Button, IconButton, Chip,
   List, ListItem, ListItemText, FormControlLabel, Switch, Box, Divider,
-  Dialog, DialogTitle, DialogContent, DialogActions,
+  Dialog, DialogTitle, DialogContent, DialogActions, Alert,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
@@ -24,6 +24,19 @@ export default function Settings() {
   const [isDone, setIsDone] = useState(false);
   const [services, setServices] = useState([]);
   const [svc, setSvc] = useState(null); // draft do serviço em edição
+  const [pwd, setPwd] = useState({ atual: "", nova: "" });
+  const [pwdMsg, setPwdMsg] = useState(null);
+
+  async function trocarSenha() {
+    try {
+      await api.put("/auth/password", { current_password: pwd.atual, new_password: pwd.nova });
+      setPwd({ atual: "", nova: "" });
+      setPwdMsg({ tipo: "success", texto: "Senha trocada." });
+    } catch (err) {
+      setPwdMsg({ tipo: "error", texto: err.response?.data?.error || "Não foi possível trocar a senha." });
+    }
+    setTimeout(() => setPwdMsg(null), 5000);
+  }
 
   const load = () => api.get("/tasks/stages").then((r) => setStages(r.data));
   const loadServices = () => api.get("/services").then((r) => setServices(r.data));
@@ -126,7 +139,24 @@ export default function Settings() {
             <Typography variant="h6" sx={{ mb: 1 }}>Conta</Typography>
             <Typography variant="body2"><strong>Nome:</strong> {user?.name}</Typography>
             <Typography variant="body2"><strong>E-mail:</strong> {user?.email}</Typography>
-            <Typography variant="body2"><strong>Papel:</strong> {user?.role === "admin" ? "Administrador" : "Colaborador"}</Typography>
+            <Typography variant="body2"><strong>Papel:</strong> {user?.role === "superadmin" ? "Perspecta Media" : user?.role === "admin" ? "Administrador" : "Colaborador"}</Typography>
+            <Typography variant="body2"><strong>Escritório:</strong> {user?.org_name || "—"}</Typography>
+            <Typography variant="body2"><strong>Entra como:</strong> {user?.username || "—"}</Typography>
+
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Trocar a minha senha</Typography>
+            {pwdMsg && <Alert severity={pwdMsg.tipo} sx={{ mb: 1.5 }}>{pwdMsg.texto}</Alert>}
+            <Stack spacing={1.5}>
+              <TextField label="Senha atual" type="password" size="small" value={pwd.atual}
+                onChange={(e) => setPwd((p) => ({ ...p, atual: e.target.value }))} />
+              <TextField label="Nova senha" type="password" size="small" value={pwd.nova}
+                onChange={(e) => setPwd((p) => ({ ...p, nova: e.target.value }))} />
+              <Box>
+                <Button variant="outlined" onClick={trocarSenha} disabled={!pwd.atual || !pwd.nova}>
+                  Trocar senha
+                </Button>
+              </Box>
+            </Stack>
           </CardContent>
         </Card>
       </Stack>

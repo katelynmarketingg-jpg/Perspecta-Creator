@@ -4,10 +4,10 @@ import { mkdirSync, existsSync, unlinkSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { db } from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, moduleAllowed } from "../auth.js";
 
 const router = Router();
-router.use(authRequired);
+router.use(authRequired, moduleAllowed("arquivos"));
 
 // Os arquivos são gravados em disco exatamente como chegaram (byte a byte).
 // Nenhuma compressão ou conversão — a qualidade original é preservada.

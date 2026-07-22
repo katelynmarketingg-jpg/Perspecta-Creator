@@ -24,10 +24,15 @@ function findStageByName(pattern, orgId) {
 // ---------------------------------------------------------------------------
 router.post("/login", (req, res) => {
   const { email, password } = req.body || {};
-  const client = db
+  // Dois escritórios podem ter clientes com o mesmo e-mail: confere a senha
+  // em cada candidato em vez de assumir o primeiro.
+  const candidates = db
     .prepare("SELECT * FROM clients WHERE portal_email = ? AND status = 'active'")
-    .get((email || "").toLowerCase());
-  if (!client || !client.portal_password_hash || !verifyPassword(password || "", client.portal_password_hash)) {
+    .all((email || "").toLowerCase());
+  const client = candidates.find(
+    (c) => c.portal_password_hash && verifyPassword(password || "", c.portal_password_hash)
+  );
+  if (!client) {
     return res.status(401).json({ error: "E-mail ou senha inválidos." });
   }
   const token = jwt.sign(

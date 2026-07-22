@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired, hashPassword } from "../auth.js";
+import { authRequired, hashPassword, moduleAllowed } from "../auth.js";
 
 const router = Router();
-router.use(authRequired);
+router.use(authRequired, moduleAllowed("clientes"));
 
 // Nunca expõe o hash da senha do portal; informa apenas se há acesso ativo.
 function publicClient(row, servicesByClient) {

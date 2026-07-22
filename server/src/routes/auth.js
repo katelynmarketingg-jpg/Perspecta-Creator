@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { verifyPassword, signToken, authRequired } from "../auth.js";
+import { verifyPassword, hashPassword, signToken, authRequired } from "../auth.js";
 
 const router = Router();
 
@@ -50,6 +50,20 @@ router.get("/me", authRequired, (req, res) => {
   if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
   const org = db.prepare("SELECT * FROM organizations WHERE id = ?").get(user.org_id);
   res.json(publicUser(user, org));
+});
+
+// PUT /api/auth/password — cada um troca a própria senha.
+router.put("/password", authRequired, (req, res) => {
+  const { current_password, new_password } = req.body || {};
+  if (!new_password || new_password.length < 3) {
+    return res.status(400).json({ error: "A nova senha precisa ter ao menos 3 caracteres." });
+  }
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!user || !verifyPassword(current_password || "", user.password_hash)) {
+    return res.status(401).json({ error: "Senha atual incorreta." });
+  }
+  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(new_password), user.id);
+  res.json({ ok: true });
 });
 
 export default router;

@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, moduleAllowed } from "../auth.js";
 
 const router = Router();
-router.use(authRequired);
+router.use(authRequired, moduleAllowed("contratos"));
 
 const SELECT = `
   SELECT ct.*, c.name AS client_name

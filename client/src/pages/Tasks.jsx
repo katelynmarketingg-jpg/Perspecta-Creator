@@ -34,7 +34,11 @@ export default function Tasks() {
   // Anexos (arte do post): arquivos do cliente selecionados na tarefa.
   const [clientFiles, setClientFiles] = useState([]);
   const [attachments, setAttachments] = useState([]);
+  const [filterClient, setFilterClient] = useState("");
+  const [filterAssignee, setFilterAssignee] = useState("");
+  const [search, setSearch] = useState("");
   const draggingRef = useRef(false);
+  const me = JSON.parse(localStorage.getItem("user") || "null");
 
   // Carrega os arquivos do cliente escolhido para o seletor de anexos.
   useEffect(() => {
@@ -54,12 +58,27 @@ export default function Tasks() {
     api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
   }, []);
 
+  // Filtros: com dezenas de tarefas o quadro vira uma parede sem isso.
+  const filtered = useMemo(() => {
+    return tasks.filter((t) => {
+      if (filterClient && t.client_id !== filterClient) return false;
+      if (filterAssignee === "__me" && t.assignee_id !== me?.id) return false;
+      if (filterAssignee === "__none" && t.assignee_id) return false;
+      if (filterAssignee && !String(filterAssignee).startsWith("__") && t.assignee_id !== filterAssignee) return false;
+      if (search && !`${t.title} ${t.client_name || ""} ${(t.tags || []).join(" ")}`.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+  }, [tasks, filterClient, filterAssignee, search, me]);
+
   const byStage = useMemo(() => {
     const map = {};
     stages.forEach((s) => (map[s.id] = []));
-    tasks.forEach((t) => { (map[t.stage_id] ||= []).push(t); });
+    filtered.forEach((t) => { (map[t.stage_id] ||= []).push(t); });
     return map;
-  }, [stages, tasks]);
+  }, [stages, filtered]);
+
+  // Tarefas sem etapa não apareceriam em coluna nenhuma — avisa em vez de sumir.
+  const orfas = filtered.filter((t) => !stages.some((s) => s.id === t.stage_id));
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
 
@@ -171,6 +190,36 @@ export default function Tasks() {
         action={<Button variant="contained" startIcon={<AddIcon />} onClick={openNew}>Nova tarefa</Button>}
       />
 
+      {/* Filtros */}
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2.5, flexWrap: "wrap", gap: 1.5 }}>
+        <TextField size="small" placeholder="Buscar por título, cliente ou tag…" value={search}
+          onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 260, flex: 1 }} />
+        <TextField select size="small" label="Cliente" value={filterClient}
+          onChange={(e) => setFilterClient(e.target.value)} sx={{ minWidth: 170 }}>
+          <MenuItem value="">Todos os clientes</MenuItem>
+          {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+        </TextField>
+        <TextField select size="small" label="Responsável" value={filterAssignee}
+          onChange={(e) => setFilterAssignee(e.target.value)} sx={{ minWidth: 170 }}>
+          <MenuItem value="">Todo mundo</MenuItem>
+          <MenuItem value="__me">Só as minhas</MenuItem>
+          <MenuItem value="__none">Sem responsável</MenuItem>
+          {team.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+        </TextField>
+        {(search || filterClient || filterAssignee) && (
+          <Button size="small" onClick={() => { setSearch(""); setFilterClient(""); setFilterAssignee(""); }}>
+            Limpar
+          </Button>
+        )}
+      </Stack>
+
+      {orfas.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {orfas.length} tarefa(s) sem etapa não aparecem no quadro. Abra e escolha uma etapa,
+          ou crie as etapas em Configurações.
+        </Alert>
+      )}
+
       <Box sx={{ display: "flex", gap: 2, overflowX: "auto", pb: 2, alignItems: "flex-start" }}>
         {stages.map((stage, sIdx) => (
           <Box
@@ -226,6 +275,22 @@ export default function Tasks() {
                       )}
                       {t.due_date && !t.scheduled_at && <Chip size="small" variant="outlined" label={formatDate(t.due_date)} />}
                       {t.attachment_count > 0 && <Chip size="small" variant="outlined" label={`📎 ${t.attachment_count}`} />}
+                      {/* O que falta para este post poder ir à aprovação */}
+                      {t.content_type && !t.completed_at && !t.caption && (
+                        <Tooltip title="Sem legenda — o cliente não consegue aprovar assim">
+                          <Chip size="small" color="warning" variant="outlined" label="sem legenda" />
+                        </Tooltip>
+                      )}
+                      {t.content_type && !t.completed_at && !t.attachment_count && (
+                        <Tooltip title="Sem arte anexada — anexe o arquivo na tarefa">
+                          <Chip size="small" color="warning" variant="outlined" label="sem arte" />
+                        </Tooltip>
+                      )}
+                      {!t.assignee_name && !t.completed_at && (
+                        <Tooltip title="Ninguém designado para esta tarefa">
+                          <Chip size="small" variant="outlined" label="sem responsável" />
+                        </Tooltip>
+                      )}
                       {t.approval_status === "approved" && <Chip size="small" color="success" label="Aprovado ✓" />}
                       {t.approval_status === "changes_requested" && (
                         <Tooltip title={t.client_note || "O cliente pediu ajustes"}>

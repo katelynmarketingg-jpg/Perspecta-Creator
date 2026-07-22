@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, moduleAllowed } from "../auth.js";
 
 const router = Router();
-router.use(authRequired);
+router.use(authRequired, moduleAllowed("metas"));
 
 const SELECT = `
   SELECT g.*, u.name AS owner_name, p.name AS project_name, p.status AS project_status

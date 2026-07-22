@@ -98,8 +98,9 @@ export default function Layout() {
           <Box sx={{
             width: 34, height: 34, borderRadius: 2, bgcolor: "primary.main", color: "#fff",
             display: "grid", placeItems: "center", fontWeight: 800, fontFamily: '"Outfit", sans-serif',
+            fontSize: 13,
           }}>
-            SA
+            {(viewingOrg?.name || user?.org_name || "PM").slice(0, 2).toUpperCase()}
           </Box>
           <Box sx={{ minWidth: 0 }}>
             <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1, color: "#FAFAF9", fontFamily: '"Outfit", sans-serif' }}>
@@ -138,7 +139,7 @@ export default function Layout() {
         ))}
       </List>
       <Divider sx={{ borderColor: SIDEBAR_BORDER }} />
-      <Box sx={{ p: 2, color: "#57534E", fontSize: 12 }}>© {new Date().getFullYear()} SaaS Agency</Box>
+      <Box sx={{ p: 2, color: "#57534E", fontSize: 12 }}>© {new Date().getFullYear()} Perspecta Media</Box>
     </Box>
   );
 

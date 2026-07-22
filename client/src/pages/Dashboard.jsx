@@ -12,6 +12,7 @@ import {
 import { useTheme } from "@mui/material/styles";
 import api from "../api/client.js";
 import { PageHeader, StatCard } from "../components/ui.jsx";
+import NeedsAttention from "../components/NeedsAttention.jsx";
 import { currency, monthLabel, formatDate, PRIORITY } from "../utils.js";
 
 export default function Dashboard() {
@@ -29,6 +30,8 @@ export default function Dashboard() {
   return (
     <>
       <PageHeader title="Dashboard" subtitle="Visão geral da sua agência" />
+
+      <NeedsAttention />
 
       <Grid container spacing={2.5} sx={{ mb: 1 }}>
         <Grid item xs={12} sm={6} md={3}>

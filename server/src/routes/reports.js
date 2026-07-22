@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, moduleAllowed } from "../auth.js";
 
 const router = Router();
-router.use(authRequired);
+router.use(authRequired, moduleAllowed("relatorios"));
 
 // GET /api/reports/dashboard — números do painel inicial
 router.get("/dashboard", (req, res) => {
@@ -28,6 +28,72 @@ router.get("/dashboard", (req, res) => {
   res.json({
     clients, activeProjects, doneProjects, pendingTasks, doneTasks,
     income, expense, profit: income - expense, myTasks,
+  });
+});
+
+// GET /api/reports/attention — o que precisa de ação, em ordem de urgência.
+// Sem isso, um post pode chegar na aprovação do cliente sem legenda nem arte.
+router.get("/attention", (req, res) => {
+  const org = req.orgId;
+  const hoje = new Date().toISOString().slice(0, 10);
+
+  const publicaHoje = db.prepare(`
+    SELECT t.id, t.title, t.scheduled_at, c.name AS client_name
+    FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+    WHERE t.org_id = ? AND date(t.scheduled_at) = ?
+    ORDER BY t.scheduled_at`).all(org, hoje);
+
+  const atrasadas = db.prepare(`
+    SELECT t.id, t.title, t.due_date, c.name AS client_name, u.name AS assignee_name
+    FROM tasks t LEFT JOIN clients c ON c.id = t.client_id LEFT JOIN users u ON u.id = t.assignee_id
+    WHERE t.org_id = ? AND t.completed_at IS NULL AND t.due_date IS NOT NULL AND t.due_date < ?
+    ORDER BY t.due_date LIMIT 20`).all(org, hoje);
+
+  // Parados na aprovação do cliente há mais de 3 dias.
+  const esperandoCliente = db.prepare(`
+    SELECT t.id, t.title, c.name AS client_name, t.updated_hint AS since
+    FROM (SELECT *, created_at AS updated_hint FROM tasks) t
+    LEFT JOIN clients c ON c.id = t.client_id
+    JOIN kanban_stages s ON s.id = t.stage_id
+    WHERE t.org_id = ? AND s.name LIKE '%Aprova%' AND t.approval_status = 'pending'
+    ORDER BY t.created_at LIMIT 20`).all(org);
+
+  const pediramAjuste = db.prepare(`
+    SELECT t.id, t.title, t.client_note, c.name AS client_name
+    FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+    WHERE t.org_id = ? AND t.approval_status = 'changes_requested'
+    ORDER BY t.id DESC LIMIT 20`).all(org);
+
+  // Conteúdo que vai travar mais para a frente: sem legenda, sem arte ou sem dono.
+  const semLegenda = db.prepare(`
+    SELECT t.id, t.title, c.name AS client_name
+    FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+    WHERE t.org_id = ? AND t.content_type IS NOT NULL AND t.completed_at IS NULL
+      AND (t.caption IS NULL OR t.caption = '')
+    ORDER BY t.due_date LIMIT 20`).all(org);
+
+  const semArte = db.prepare(`
+    SELECT t.id, t.title, c.name AS client_name
+    FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+    WHERE t.org_id = ? AND t.content_type IS NOT NULL AND t.completed_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id)
+    ORDER BY t.due_date LIMIT 20`).all(org);
+
+  const semResponsavel = db.prepare(`
+    SELECT t.id, t.title, c.name AS client_name
+    FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
+    WHERE t.org_id = ? AND t.assignee_id IS NULL AND t.completed_at IS NULL
+    ORDER BY t.due_date LIMIT 20`).all(org);
+
+  const contasAtrasadas = db.prepare(`
+    SELECT f.id, f.description, f.amount, f.due_date, c.name AS client_name
+    FROM financial_entries f LEFT JOIN clients c ON c.id = f.client_id
+    WHERE f.org_id = ? AND f.type = 'income' AND f.status = 'pending' AND f.due_date < ?
+    ORDER BY f.due_date LIMIT 20`).all(org, hoje);
+
+  res.json({
+    publicaHoje, atrasadas, esperandoCliente, pediramAjuste,
+    semLegenda, semArte, semResponsavel, contasAtrasadas,
   });
 });
 

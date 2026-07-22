@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, moduleAllowed } from "../auth.js";
 
 const router = Router();
-router.use(authRequired);
+router.use(authRequired, moduleAllowed("calendario"));
 
 // GET /api/calendar?month=YYYY-MM&client_id=
 // Posts programados (tarefas com scheduled_at) no mês, com cliente e legenda.

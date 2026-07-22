@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 import { db } from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, moduleAllowed } from "../auth.js";
 import "dotenv/config";
 
 const router = Router();
-router.use(authRequired);
+router.use(authRequired, moduleAllowed("central"));
 
 // Senhas de clientes são criptografadas em repouso (AES-256-GCM).
 const KEY = scryptSync(process.env.JWT_SECRET || "dev-secret", "workspace-salt", 32);

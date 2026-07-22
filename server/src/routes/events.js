@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired } from "../auth.js";
+import { authRequired, moduleAllowed } from "../auth.js";
 
 const router = Router();
-router.use(authRequired);
+router.use(authRequired, moduleAllowed("agenda"));
 
 const SELECT = `
   SELECT e.*, et.name AS type_name, et.color AS type_color, c.name AS client_name,

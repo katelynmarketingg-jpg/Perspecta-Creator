@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import "dotenv/config";
+import { db } from "./db.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 const TOKEN_TTL = "12h";
@@ -30,17 +31,41 @@ export function authRequired(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET);
     // Tokens do portal do cliente não têm acesso às rotas da agência.
     if (payload.portal) return res.status(403).json({ error: "Acesso restrito à equipe." });
-    req.user = payload;
+
+    // Relê o usuário a cada chamada: assim desativar alguém tem efeito na
+    // hora, sem esperar o token de 12h expirar.
+    const fresh = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.id);
+    if (!fresh) return res.status(401).json({ error: "Usuário não existe mais." });
+    if (!fresh.active) return res.status(403).json({ error: "Usuário desativado." });
+
+    req.user = { ...payload, role: fresh.role, org_id: fresh.org_id };
+    req.userPermissions = JSON.parse(fresh.permissions || "{}");
 
     // Escopo de escritório: cada um só enxerga os próprios dados. O master
     // (Perspecta Media) pode olhar um escritório específico via cabeçalho.
     const asked = Number(req.headers["x-org-id"]) || null;
-    req.orgId = payload.role === "superadmin" && asked ? asked : payload.org_id;
-    req.isSuperadmin = payload.role === "superadmin";
+    req.orgId = fresh.role === "superadmin" && asked ? asked : fresh.org_id;
+    req.isSuperadmin = fresh.role === "superadmin";
     next();
   } catch {
     res.status(401).json({ error: "Token inválido ou expirado." });
   }
+}
+
+/**
+ * Middleware de permissão por módulo. Admin e master passam sempre; um
+ * colaborador só entra se a permissão estiver ligada no cadastro dele.
+ * (Sem isso, as permissões da tela de Usuários seriam só decorativas.)
+ */
+export function moduleAllowed(moduleName) {
+  return (req, res, next) => {
+    if (req.user?.role === "admin" || req.user?.role === "superadmin") return next();
+    const perms = req.userPermissions || {};
+    if (perms[moduleName] === false) {
+      return res.status(403).json({ error: `Você não tem acesso a ${moduleName}.` });
+    }
+    next();
+  };
 }
 
 /** Middleware: exige o escritório master (Perspecta Media). */

@@ -12,15 +12,19 @@ import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
 
+// As chaves têm que bater com as usadas em moduleAllowed() no servidor —
+// senão a permissão marcada aqui não bloqueia nada de verdade.
 const MODULES = [
-  ["clients", "Clientes"], ["projects", "Projetos"], ["tasks", "Tarefas"],
-  ["financial", "Financeiro"], ["contracts", "Contratos"], ["goals", "Metas"],
-  ["agenda", "Agenda"], ["events", "Eventos"], ["reports", "Relatórios"],
+  ["clientes", "Clientes"], ["central", "Central"], ["projetos", "Projetos"],
+  ["tarefas", "Tarefas"], ["financeiro", "Financeiro"], ["contratos", "Contratos"],
+  ["metas", "Metas"], ["calendario", "Calendário"], ["arquivos", "Arquivos"],
+  ["agenda", "Agenda"], ["relatorios", "Relatórios"],
 ];
-const EMPTY = { name: "", email: "", password: "", role: "member", active: true };
+const EMPTY = { name: "", username: "", email: "", password: "", role: "member", active: true };
 
 export default function Users() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user, viewingOrg } = useAuth();
+  const orgName = viewingOrg?.name || user?.org_name || "seu escritório";
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
@@ -71,7 +75,7 @@ export default function Users() {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Nome</TableCell><TableCell>E-mail</TableCell>
+              <TableCell>Nome</TableCell><TableCell>Entra como</TableCell>
               <TableCell>Papel</TableCell><TableCell>Status</TableCell>
               <TableCell align="right">Ações</TableCell>
             </TableRow>
@@ -80,7 +84,7 @@ export default function Users() {
             {rows.map((u) => (
               <TableRow key={u.id} hover>
                 <TableCell>{u.name}</TableCell>
-                <TableCell>{u.email}</TableCell>
+                <TableCell sx={{ fontFamily: "monospace" }}>{u.username || "—"}</TableCell>
                 <TableCell><Chip size="small" label={u.role === "admin" ? "Administrador" : "Colaborador"} color={u.role === "admin" ? "primary" : "default"} /></TableCell>
                 <TableCell><Chip size="small" label={u.active ? "Ativo" : "Inativo"} color={u.active ? "success" : "default"} /></TableCell>
                 <TableCell align="right">
@@ -99,8 +103,11 @@ export default function Users() {
         <DialogTitle>{draft.id ? "Editar usuário" : "Novo usuário"}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Nome *" value={draft.name} onChange={set("name")} fullWidth />
-            <TextField label="E-mail *" value={draft.email} onChange={set("email")} fullWidth />
+            <TextField label="Nome *" value={draft.name} onChange={set("name")} fullWidth
+              placeholder="Ex: Bruno Ferreira" helperText="Como aparece nas tarefas e na agenda." />
+            <TextField label="Nome de acesso *" value={draft.username || ""} onChange={set("username")} fullWidth
+              placeholder="Ex: bruno"
+              helperText={`É o que a pessoa digita no login, junto com o escritório "${orgName}".`} />
             <TextField label={draft.id ? "Nova senha (deixe vazio p/ manter)" : "Senha *"} type="password" value={draft.password} onChange={set("password")} fullWidth />
             <TextField select label="Papel" value={draft.role} onChange={set("role")} fullWidth>
               <MenuItem value="member">Colaborador</MenuItem>
@@ -111,7 +118,8 @@ export default function Users() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button variant="contained" onClick={save} disabled={!draft.name || !draft.email || (!draft.id && !draft.password)}>Salvar</Button>
+          <Button variant="contained" onClick={save}
+            disabled={!draft.name || !draft.username || (!draft.id && !draft.password)}>Salvar</Button>
         </DialogActions>
       </Dialog>
 
