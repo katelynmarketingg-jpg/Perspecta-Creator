@@ -22,6 +22,7 @@ import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import HubIcon from "@mui/icons-material/Hub";
+import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -42,6 +43,7 @@ const NAV = [
   { to: "/organizations", label: "Escritórios", icon: <ApartmentIcon />, masterOnly: true },
   { to: "/", label: "Dashboard", icon: <DashboardIcon />, end: true },
   { to: "/clients", label: "Clientes", icon: <PeopleIcon /> },
+  { to: "/prospects", label: "Prospecção", icon: <PersonSearchIcon /> },
   { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
   { to: "/projects", label: "Projetos", icon: <FolderIcon /> },
   { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },

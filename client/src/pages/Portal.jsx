@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AppBar, Toolbar, Box, Container, Tabs, Tab, Badge, Card, CardContent,
   Typography, Chip, Button, Stack, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, Divider, IconButton, Tooltip, Alert, Link,
+  Checkbox, FormControlLabel,
 } from "@mui/material";
+import FeedPreview from "../components/FeedPreview.jsx";
+import PostComments from "../components/PostComments.jsx";
+import Galeria from "../components/Galeria.jsx";
 import { alpha } from "@mui/material/styles";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditNoteIcon from "@mui/icons-material/EditNote";
@@ -155,6 +159,16 @@ function ApprovalCard({ post, onDone }) {
             Pedir ajustes
           </Button>
         </Stack>
+
+        <Divider sx={{ my: 2 }} />
+        <PostComments
+          taskId={post.id}
+          api={portalApi}
+          listPath={`/tasks/${post.id}/comments`}
+          postPath={`/tasks/${post.id}/comments`}
+          eu="client"
+          compacto
+        />
       </CardContent>
 
       <Dialog open={Boolean(ajuste)} onClose={() => setAjuste(null)} fullWidth maxWidth="sm">
@@ -203,6 +217,11 @@ export default function Portal() {
   const [events, setEvents] = useState([]);
   const [plan, setPlan] = useState(null);
   const [avisos, setAvisos] = useState([]);
+  const [feed, setFeed] = useState([]);
+  const [galeria, setGaleria] = useState(null);
+  const [assinando, setAssinando] = useState(null);
+  const [assinatura, setAssinatura] = useState({ nome: "", documento: "", aceito: false });
+  const [erroAssinatura, setErroAssinatura] = useState("");
 
   const loadApprovals = () =>
     portalApi.get("/approvals").then((r) => setApprovals(r.data.filter((a) => a.approval_status !== "approved")));
@@ -214,7 +233,31 @@ export default function Portal() {
     portalApi.get("/contracts").then((r) => setContracts(r.data));
     portalApi.get("/events", { params: { days: 90 } }).then((r) => setEvents(r.data)).catch(() => {});
     portalApi.get("/notifications").then((r) => setAvisos(r.data.filter((n) => !n.is_read))).catch(() => {});
+    portalApi.get("/feed").then((r) => setFeed(r.data)).catch(() => {});
+    portalApi.get("/gallery").then((r) => setGaleria(r.data)).catch(() => {});
   }, []);
+
+  const buscarArquivo = useCallback(
+    (fileId) => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+    []
+  );
+
+  async function assinarContrato() {
+    setErroAssinatura("");
+    try {
+      await portalApi.post(`/contracts/${assinando.id}/sign`, {
+        signer_name: assinatura.nome.trim(),
+        signer_document: assinatura.documento.trim() || null,
+        agreed: assinatura.aceito,
+      });
+      const { data } = await portalApi.get("/contracts");
+      setContracts(data);
+      setAssinando(null);
+      setAssinatura({ nome: "", documento: "", aceito: false });
+    } catch (e) {
+      setErroAssinatura(e.response?.data?.error || "Não foi possível assinar.");
+    }
+  }
 
   async function lerAvisos() {
     await portalApi.put("/notifications/read-all").catch(() => {});
@@ -268,6 +311,8 @@ export default function Portal() {
               Aprovações
             </Badge>
           } />
+          <Tab value="feed" label="Prévia do feed" />
+          <Tab value="gallery" label="Galeria" />
           <Tab value="calendar" label="Calendário" />
           <Tab value="agenda" label="Agenda" />
           <Tab value="payments" label="Pagamentos" />
@@ -353,6 +398,17 @@ export default function Portal() {
             )}
           </>
         )}
+
+        {/* ---- Prévia do feed ---- */}
+        {tab === "feed" && (
+          <Card><CardContent>
+            <FeedPreview posts={feed} fetchFile={buscarArquivo} onSelect={setOpenPost}
+              titulo="Como o seu perfil vai ficar" />
+          </CardContent></Card>
+        )}
+
+        {/* ---- Galeria: tudo, por etapa, com prazo para baixar ---- */}
+        {tab === "gallery" && <Galeria dados={galeria} fetchFile={buscarArquivo} />}
 
         {/* ---- Agenda (captações, reuniões...) ---- */}
         {tab === "agenda" && (
@@ -491,6 +547,24 @@ export default function Portal() {
                       {c.notes}
                     </Typography>
                   )}
+
+                  <Divider sx={{ my: 2 }} />
+                  {c.signed_at ? (
+                    <Alert severity="success" icon={<CheckCircleIcon />}>
+                      Assinado por <strong>{c.signer_name}</strong> em{" "}
+                      {new Date(c.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}.
+                    </Alert>
+                  ) : (
+                    <Box>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                        Leia o contrato acima. Ao assinar, registramos seu nome, a data e o
+                        endereço de onde você assinou.
+                      </Typography>
+                      <Button variant="contained" onClick={() => setAssinando(c)}>
+                        Assinar contrato
+                      </Button>
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -500,6 +574,38 @@ export default function Portal() {
 
       {/* Post ampliado (foto acima, legenda abaixo) */}
       <PostDialog post={openPost} onClose={() => setOpenPost(null)} />
+
+      {/* Assinatura do contrato */}
+      <Dialog open={Boolean(assinando)} onClose={() => setAssinando(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Assinar — {assinando?.title}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {erroAssinatura && <Alert severity="error">{erroAssinatura}</Alert>}
+            <TextField label="Seu nome completo *" fullWidth autoFocus
+              value={assinatura.nome}
+              onChange={(e) => setAssinatura((a) => ({ ...a, nome: e.target.value }))} />
+            <TextField label="CPF ou CNPJ" fullWidth
+              value={assinatura.documento}
+              onChange={(e) => setAssinatura((a) => ({ ...a, documento: e.target.value }))} />
+            <FormControlLabel
+              control={<Checkbox checked={assinatura.aceito}
+                onChange={(e) => setAssinatura((a) => ({ ...a, aceito: e.target.checked }))} />}
+              label={<Typography variant="body2">Li o contrato e concordo com os termos.</Typography>}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Ao confirmar, guardamos seu nome, documento, data, hora e endereço de rede
+              como comprovante do aceite.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssinando(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={assinarContrato}
+            disabled={!assinatura.nome.trim() || !assinatura.aceito}>
+            Assinar
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Plano do compromisso */}
       <Dialog open={Boolean(plan)} onClose={() => setPlan(null)} fullWidth maxWidth="sm">

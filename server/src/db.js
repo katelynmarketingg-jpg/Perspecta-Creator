@@ -263,6 +263,72 @@ ensureColumn("tasks", "external_post_id", "external_post_id TEXT");
 // Publicar sozinho na hora marcada é opcional e desligado por padrão.
 ensureColumn("clients", "auto_publish", "auto_publish INTEGER NOT NULL DEFAULT 0");
 
+// Aceite eletrônico do contrato pelo cliente.
+ensureColumn("contracts", "signed_at", "signed_at TEXT");
+ensureColumn("contracts", "signer_name", "signer_name TEXT");
+ensureColumn("contracts", "signer_document", "signer_document TEXT");
+ensureColumn("contracts", "signer_ip", "signer_ip TEXT");
+ensureColumn("contracts", "signed_hash", "signed_hash TEXT"); // detecta edição posterior
+
+// Ciclo de vida do arquivo entregue: o cliente tem um prazo para baixar.
+ensureColumn("files", "expires_at", "expires_at TEXT");
+ensureColumn("files", "keep_forever", "keep_forever INTEGER NOT NULL DEFAULT 0");
+ensureColumn("files", "expiry_notified_at", "expiry_notified_at TEXT");
+
+db.exec(`
+-- Conversa por post: legenda fica fixa, os comentários vêm abaixo.
+CREATE TABLE IF NOT EXISTS task_comments (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id       INTEGER NOT NULL,
+  task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  author_type  TEXT NOT NULL,             -- 'agency' | 'client'
+  author_id    INTEGER,
+  author_name  TEXT NOT NULL,
+  body         TEXT NOT NULL,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_comments_task ON task_comments(task_id);
+
+-- Apontamento de horas: quanto tempo cada coisa realmente leva.
+CREATE TABLE IF NOT EXISTS time_entries (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id       INTEGER NOT NULL,
+  task_id      INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+  client_id    INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+  user_id      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  minutes      INTEGER NOT NULL,
+  note         TEXT,
+  entry_date   TEXT NOT NULL DEFAULT (date('now')),
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_time_org ON time_entries(org_id);
+
+-- Prospecção: quem ainda não é cliente, com o histórico de contatos.
+CREATE TABLE IF NOT EXISTS prospects (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id       INTEGER NOT NULL,
+  name         TEXT NOT NULL,
+  company      TEXT,
+  segment      TEXT,
+  phone        TEXT,
+  email        TEXT,
+  instagram    TEXT,
+  status       TEXT NOT NULL DEFAULT 'novo',  -- novo|conversando|proposta|fechado|perdido
+  notes        TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_prospects_org ON prospects(org_id);
+
+CREATE TABLE IF NOT EXISTS prospect_touches (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  prospect_id  INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  touch_date   TEXT NOT NULL DEFAULT (date('now')),
+  channel      TEXT,                       -- whatsapp|ligação|e-mail|presencial
+  summary      TEXT NOT NULL,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
+
 // Conexões com a Meta, uma por cliente.
 db.exec(`
 CREATE TABLE IF NOT EXISTS integrations (
@@ -286,7 +352,7 @@ CREATE INDEX IF NOT EXISTS idx_integrations_org ON integrations(org_id);
 export const TENANT_TABLES = [
   "users", "clients", "projects", "tasks", "kanban_stages", "financial_entries",
   "contracts", "goals", "events", "event_types", "services", "workspace_items",
-  "folders", "files", "notifications",
+  "folders", "files", "notifications", "task_comments", "time_entries", "prospects",
 ];
 TENANT_TABLES.forEach((t) => ensureColumn(t, "org_id", "org_id INTEGER"));
 

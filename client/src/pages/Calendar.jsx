@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Chip, IconButton, Stack, TextField,
   MenuItem, ToggleButtonGroup, ToggleButton, Dialog, DialogTitle, DialogContent,
@@ -9,6 +9,9 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import CalendarViewMonthIcon from "@mui/icons-material/CalendarViewMonth";
 import ViewListIcon from "@mui/icons-material/ViewList";
+import GridOnIcon from "@mui/icons-material/GridOn";
+import FeedPreview from "../components/FeedPreview.jsx";
+import PostComments from "../components/PostComments.jsx";
 import api from "../api/client.js";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime } from "../utils.js";
@@ -46,6 +49,7 @@ export default function Calendar() {
   const [posts, setPosts] = useState([]);
   const [selected, setSelected] = useState(null);
   const [attachments, setAttachments] = useState([]);
+  const [feed, setFeed] = useState([]);
 
   // Ao abrir um post, busca a arte anexada para exibir em destaque.
   useEffect(() => {
@@ -61,6 +65,18 @@ export default function Calendar() {
     if (clientFilter) params.client_id = clientFilter;
     api.get("/calendar", { params }).then((r) => setPosts(r.data)).catch(() => setPosts([]));
   }, [cursor, clientFilter]);
+
+  // A prévia do feed ignora o mês: o perfil é uma sequência contínua.
+  useEffect(() => {
+    if (view !== "feed") return;
+    const params = clientFilter ? { client_id: clientFilter } : {};
+    api.get("/calendar/feed", { params }).then((r) => setFeed(r.data)).catch(() => setFeed([]));
+  }, [view, clientFilter]);
+
+  const buscarArquivo = useCallback(
+    (fileId) => api.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+    []
+  );
 
   // Agrupa por dia do mês
   const byDay = useMemo(() => {
@@ -110,6 +126,7 @@ export default function Calendar() {
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
               <ToggleButton value="grid" aria-label="Calendário"><CalendarViewMonthIcon fontSize="small" /></ToggleButton>
               <ToggleButton value="list" aria-label="Lista"><ViewListIcon fontSize="small" /></ToggleButton>
+              <ToggleButton value="feed" aria-label="Prévia do feed"><GridOnIcon fontSize="small" /></ToggleButton>
             </ToggleButtonGroup>
           </Stack>
         }
@@ -124,7 +141,14 @@ export default function Calendar() {
         <IconButton onClick={() => shiftMonth(1)}><ChevronRightIcon /></IconButton>
       </Stack>
 
-      {view === "grid" ? (
+      {view === "feed" ? (
+        <Card>
+          <CardContent>
+            <FeedPreview posts={feed} fetchFile={buscarArquivo} onSelect={setSelected}
+              titulo={clientFilter ? "Como o perfil vai ficar" : "Prévia do feed (todos os clientes)"} />
+          </CardContent>
+        </Card>
+      ) : view === "grid" ? (
         <Card>
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: 1, borderColor: "divider" }}>
             {WEEKDAYS.map((w) => (
@@ -245,11 +269,6 @@ export default function Calendar() {
               </Stack>
             )}
 
-            <Divider />
-            <Typography variant="subtitle2">Legenda</Typography>
-            <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
-              {selected?.caption || "Sem legenda cadastrada."}
-            </Typography>
             {selected?.description && (
               <>
                 <Divider />
@@ -258,6 +277,18 @@ export default function Calendar() {
                   {selected.description}
                 </Typography>
               </>
+            )}
+
+            <Divider />
+            {selected && (
+              <PostComments
+                taskId={selected.id}
+                caption={selected.client_caption || selected.caption}
+                api={api}
+                listPath={`/comments/${selected.id}`}
+                postPath={`/comments/${selected.id}`}
+                eu="agency"
+              />
             )}
           </Stack>
         </DialogContent>

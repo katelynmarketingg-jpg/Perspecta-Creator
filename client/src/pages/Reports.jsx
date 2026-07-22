@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField } from "@mui/material";
+import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField, Chip, Divider } from "@mui/material";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, Legend,
@@ -27,9 +27,13 @@ export default function Reports() {
   const [entregas, setEntregas] = useState([]);
   const [mesEntrega, setMesEntrega] = useState(() => new Date().toISOString().slice(0, 7));
 
+  const [tempo, setTempo] = useState(null);
+
   useEffect(() => {
     api.get("/reports/planned-vs-delivered", { params: { month: mesEntrega } })
       .then((r) => setEntregas(r.data)).catch(() => {});
+    api.get("/time/summary", { params: { month: mesEntrega } })
+      .then((r) => setTempo(r.data)).catch(() => {});
   }, [mesEntrega]);
 
   useEffect(() => {
@@ -99,6 +103,85 @@ export default function Reports() {
                   </PieChart>
                 </ResponsiveContainer>
               </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Tempo: quanto custa atender cada cliente */}
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent>
+              <Typography variant="h6">Tempo por cliente</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Horas apontadas no mês e quanto a mensalidade rende por hora.
+              </Typography>
+              {(tempo?.porCliente || []).filter((c) => c.minutos > 0).length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  Nenhuma hora apontada. Aponte o tempo dentro de cada tarefa.
+                </Typography>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Cliente</TableCell>
+                      <TableCell align="right">Horas</TableCell>
+                      <TableCell align="right">Mensalidade</TableCell>
+                      <TableCell align="right">Por hora</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {tempo.porCliente.filter((c) => c.minutos > 0).map((c) => (
+                      <TableRow key={c.id} hover>
+                        <TableCell>{c.client_name}</TableCell>
+                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{c.horas}h</TableCell>
+                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{currency(c.mensalidade)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                          {c.valorHora ? currency(c.valorHora) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent>
+              <Typography variant="h6">Quanto leva cada peça</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Média de tempo por tipo de conteúdo — serve de estimativa.
+              </Typography>
+              {(tempo?.porTipo || []).length === 0 ? (
+                <Typography variant="body2" color="text.secondary">Sem dados ainda.</Typography>
+              ) : (
+                <Stack spacing={1.25}>
+                  {tempo.porTipo.map((t) => (
+                    <Stack key={t.tipo} direction="row" alignItems="center" spacing={1.5}>
+                      <Typography sx={{ flex: 1, textTransform: "capitalize" }}>{t.tipo}</Typography>
+                      <Chip size="small" variant="outlined" label={`${t.pecas} peça(s)`} />
+                      <Typography sx={{ fontWeight: 700, minWidth: 92, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {t.mediaMinutos} min/peça
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Horas por colaborador</Typography>
+              <Stack spacing={0.75}>
+                {(tempo?.porColaborador || []).filter((u) => u.minutos > 0).map((u) => (
+                  <Stack key={u.id} direction="row" justifyContent="space-between">
+                    <Typography variant="body2">{u.user_name}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{u.horas}h</Typography>
+                  </Stack>
+                ))}
+                {(tempo?.porColaborador || []).every((u) => !u.minutos) && (
+                  <Typography variant="body2" color="text.secondary">Ninguém apontou horas neste mês.</Typography>
+                )}
+              </Stack>
             </CardContent>
           </Card>
         </Grid>

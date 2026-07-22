@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
+import { DIAS_PARA_BAIXAR } from "../retention.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -92,7 +93,7 @@ router.get("/", (req, res) => {
   res.json(
     db.prepare(
       `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.folder_id, f.client_id,
-              c.name AS client_name
+              f.expires_at, f.keep_forever, c.name AS client_name
        FROM files f LEFT JOIN clients c ON c.id = f.client_id
        WHERE ${where.join(" AND ")} ORDER BY f.original_name`
     ).all(params)
@@ -110,6 +111,11 @@ router.post("/upload", upload.array("files", 20), (req, res) => {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const name = Buffer.from(f.originalname, "latin1").toString("utf8");
     const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, f.path, req.orgId);
+    // Material de cliente nasce com prazo para ele baixar.
+    if (client_id) {
+      db.prepare(`UPDATE files SET expires_at = datetime('now', '+${DIAS_PARA_BAIXAR} days') WHERE id = ?`)
+        .run(info.lastInsertRowid);
+    }
     return db.prepare("SELECT id, original_name, mime, size, created_at FROM files WHERE id = ?").get(info.lastInsertRowid);
   });
   res.status(201).json(created);
@@ -122,6 +128,13 @@ router.get("/:id/download", (req, res) => {
     return res.status(404).json({ error: "Arquivo não encontrado." });
   }
   res.download(file.stored_path, file.original_name);
+});
+
+// PUT /api/files/:id/keep — trava o arquivo para nunca expirar.
+router.put("/:id/keep", (req, res) => {
+  db.prepare("UPDATE files SET keep_forever = ? WHERE id = ? AND org_id = ?")
+    .run(req.body?.keep ? 1 : 0, req.params.id, req.orgId);
+  res.json({ ok: true, keep: !!req.body?.keep });
 });
 
 router.delete("/:id", (req, res) => {

@@ -37,8 +37,11 @@ export default function Tasks() {
   const [filterClient, setFilterClient] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
   const [search, setSearch] = useState("");
+  const [apontamentos, setApontamentos] = useState([]);
+  const [novoTempo, setNovoTempo] = useState({ minutes: "", note: "" });
   const draggingRef = useRef(false);
   const me = JSON.parse(localStorage.getItem("user") || "null");
+  const totalMinutos = apontamentos.reduce((s, a) => s + a.minutes, 0);
 
   // Carrega os arquivos do cliente escolhido para o seletor de anexos.
   useEffect(() => {
@@ -88,9 +91,30 @@ export default function Tasks() {
     setOpen(true);
   }
 
+  const carregarTempo = (taskId) =>
+    api.get(`/time/task/${taskId}`).then((r) => setApontamentos(r.data)).catch(() => setApontamentos([]));
+
+  async function apontarTempo() {
+    await api.post("/time", {
+      task_id: draft.id,
+      minutes: Number(novoTempo.minutes),
+      note: novoTempo.note || null,
+    });
+    setNovoTempo({ minutes: "", note: "" });
+    carregarTempo(draft.id);
+  }
+
+  async function removerApontamento(id) {
+    await api.delete(`/time/${id}`);
+    carregarTempo(draft.id);
+  }
+
   function openEdit(task) {
     if (draggingRef.current) { draggingRef.current = false; return; }
     setAttachments([]);
+    setApontamentos([]);
+    setNovoTempo({ minutes: "", note: "" });
+    carregarTempo(task.id);
     api.get(`/tasks/${task.id}/attachments`).then((r) => setAttachments(r.data)).catch(() => {});
     setDraft({
       ...task,
@@ -408,6 +432,41 @@ export default function Tasks() {
                   helperText="Arquivos da aba Arquivos — o cliente vê no portal na hora de aprovar." />
               )}
             />
+            {/* Apontamento de horas: só faz sentido numa tarefa que já existe */}
+            {draft.id && (
+              <Box sx={{ p: 1.5, borderRadius: 2, border: 1, borderColor: "divider" }}>
+                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+                  <Typography variant="subtitle2">Tempo gasto</Typography>
+                  <Chip size="small" color={totalMinutos ? "primary" : "default"} variant="outlined"
+                    label={totalMinutos ? `${(totalMinutos / 60).toFixed(1)}h no total` : "nada apontado"} />
+                </Stack>
+                {apontamentos.map((a) => (
+                  <Stack key={a.id} direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                    <Typography variant="body2" sx={{ minWidth: 62, fontVariantNumeric: "tabular-nums" }}>
+                      {a.minutes} min
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>
+                      {a.user_name} · {a.note || "sem observação"}
+                    </Typography>
+                    <IconButton size="small" color="error" onClick={() => removerApontamento(a.id)}>
+                      <DeleteIcon sx={{ fontSize: 15 }} />
+                    </IconButton>
+                  </Stack>
+                ))}
+                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                  <TextField size="small" type="number" label="Minutos" sx={{ width: 110 }}
+                    value={novoTempo.minutes}
+                    onChange={(e) => setNovoTempo((t) => ({ ...t, minutes: e.target.value }))} />
+                  <TextField size="small" label="O que fez" fullWidth
+                    value={novoTempo.note}
+                    onChange={(e) => setNovoTempo((t) => ({ ...t, note: e.target.value }))}
+                    placeholder="Ex: edição do vídeo" />
+                  <Button variant="outlined" onClick={apontarTempo} disabled={!Number(novoTempo.minutes)}>
+                    Apontar
+                  </Button>
+                </Stack>
+              </Box>
+            )}
             <TextField label="Tags (separadas por vírgula)" value={draft.tags} onChange={set("tags")} fullWidth />
             {!draft.id && (
               <TextField label="Quantidade (lote, máx 100)" type="number" inputProps={{ min: 1, max: 100 }} value={draft.quantity} onChange={set("quantity")} fullWidth />

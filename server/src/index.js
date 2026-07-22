@@ -25,8 +25,12 @@ import servicesRoutes from "./routes/services.js";
 import organizationsRoutes from "./routes/organizations.js";
 import integrationsRoutes from "./routes/integrations.js";
 import { sharedRouter } from "./routes/files.js";
+import commentsRoutes from "./routes/comments.js";
+import timeRoutes from "./routes/time.js";
+import prospectsRoutes from "./routes/prospects.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
+import { startRetention } from "./retention.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -57,6 +61,9 @@ app.use("/api/services", servicesRoutes);
 app.use("/api/organizations", organizationsRoutes);
 app.use("/api/integrations", integrationsRoutes);
 app.use("/api/files", sharedRouter); // link assinado, sem login
+app.use("/api/comments", commentsRoutes);
+app.use("/api/time", timeRoutes);
+app.use("/api/prospects", prospectsRoutes);
 
 // Serve o build do frontend (client/dist) em produção
 const clientDist = join(__dirname, "../../client/dist");
@@ -74,4 +81,5 @@ app.listen(PORT, () => {
   console.log(`API rodando em http://localhost:${PORT}`);
   startReminders();  // cobra aprovações paradas
   startPublisher();  // publica os posts com hora marcada (quando ligado)
+  startRetention();  // avisa e limpa o material vencido
 });

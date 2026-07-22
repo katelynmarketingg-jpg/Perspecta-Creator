@@ -1,5 +1,6 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { db } from "../db.js";
 import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
@@ -69,11 +70,73 @@ router.get("/payments", (req, res) => {
 router.get("/contracts", (req, res) => {
   const rows = db
     .prepare(
-      `SELECT id, title, value, duration_months, start_date, first_due_date, status, notes
+      `SELECT id, title, value, duration_months, start_date, first_due_date, status, notes,
+              signed_at, signer_name
        FROM contracts WHERE client_id = ? ORDER BY created_at DESC`
     )
     .all(req.client.client_id);
   res.json(rows);
+});
+
+// POST /api/portal/contracts/:id/sign — aceite eletrônico.
+// Guardamos nome, documento, IP, data e o hash do texto: se o contrato for
+// editado depois, o hash não bate mais e isso fica evidente.
+router.post("/contracts/:id/sign", (req, res) => {
+  const contract = db
+    .prepare("SELECT * FROM contracts WHERE id = ? AND client_id = ?")
+    .get(req.params.id, req.client.client_id);
+  if (!contract) return res.status(404).json({ error: "Contrato não encontrado." });
+  if (contract.signed_at) return res.status(400).json({ error: "Este contrato já foi assinado." });
+
+  const { signer_name, signer_document, agreed } = req.body || {};
+  if (!signer_name || !agreed) {
+    return res.status(400).json({ error: "Informe seu nome completo e marque que leu e concorda." });
+  }
+
+  const hash = createHash("sha256")
+    .update(`${contract.id}|${contract.title}|${contract.value}|${contract.notes || ""}`)
+    .digest("hex");
+  const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
+
+  db.prepare(
+    `UPDATE contracts SET signed_at = datetime('now'), signer_name = ?, signer_document = ?,
+     signer_ip = ?, signed_hash = ? WHERE id = ?`
+  ).run(signer_name.trim(), signer_document ?? null, ip, hash, contract.id);
+
+  db.prepare(
+    "INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)"
+  ).run(req.client.client_id, `✍️ ${signer_name} assinou o contrato "${contract.title}".`, contract.org_id);
+
+  res.json({ ok: true, signed_at: new Date().toISOString(), hash });
+});
+
+// ---- Galeria: tudo que é do cliente, por etapa, com prazo para baixar --------
+router.get("/gallery", (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.expires_at, f.keep_forever,
+              t.id AS task_id, t.title AS task_title, t.content_type, t.scheduled_at,
+              t.approval_status, s.name AS stage_name, s.is_done AS stage_done
+       FROM files f
+       LEFT JOIN task_attachments ta ON ta.file_id = f.id
+       LEFT JOIN tasks t ON t.id = ta.task_id
+       LEFT JOIN kanban_stages s ON s.id = t.stage_id
+       WHERE f.client_id = ?
+       ORDER BY f.created_at DESC`
+    )
+    .all(req.client.client_id);
+
+  // Agrupa do jeito que o cliente pensa, não do jeito que o banco guarda.
+  const grupo = (f) => {
+    if (!f.task_id) return "editados";
+    if (f.scheduled_at && (f.stage_done || f.approval_status === "approved")) return "programados";
+    if (f.approval_status === "approved") return "aprovados";
+    if (/Aprova/i.test(f.stage_name || "")) return "aprovacao";
+    return "editados";
+  };
+  const out = { editados: [], aprovacao: [], aprovados: [], programados: [] };
+  rows.forEach((f) => out[grupo(f)].push(f));
+  res.json(out);
 });
 
 // ---- Calendário (só os posts do cliente) ------------------------------------
@@ -178,6 +241,45 @@ router.get("/events", (req, res) => {
        ORDER BY e.start_at`
     )
     .all(req.client.client_id, from, from, days);
+  res.json(rows);
+});
+
+// ---- Conversa por post -------------------------------------------------------
+router.get("/tasks/:id/comments", (req, res) => {
+  const task = getOwnTask(req, res);
+  if (!task) return;
+  res.json(db.prepare("SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at, id").all(task.id));
+});
+
+router.post("/tasks/:id/comments", (req, res) => {
+  const task = getOwnTask(req, res);
+  if (!task) return;
+  const body = (req.body?.body || "").trim();
+  if (!body) return res.status(400).json({ error: "Escreva alguma coisa." });
+
+  const info = db
+    .prepare(
+      `INSERT INTO task_comments (org_id, task_id, author_type, author_id, author_name, body)
+       VALUES (?, ?, 'client', ?, ?, ?)`
+    )
+    .run(task.org_id, task.id, req.client.client_id, req.client.name, body);
+
+  notifyAgency(task.client_id, task.id, `💬 ${req.client.name} comentou em "${task.title}".`, task.org_id);
+  res.status(201).json(db.prepare("SELECT * FROM task_comments WHERE id = ?").get(info.lastInsertRowid));
+});
+
+// ---- Preview do feed: como o perfil vai ficar, na ordem programada ----------
+router.get("/feed", (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT t.id, t.title, t.caption, t.client_caption, t.content_type, t.scheduled_at,
+              t.approval_status, s.is_done AS stage_done,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+       FROM tasks t LEFT JOIN kanban_stages s ON s.id = t.stage_id
+       WHERE t.client_id = ? AND t.scheduled_at IS NOT NULL
+       ORDER BY t.scheduled_at DESC`
+    )
+    .all(req.client.client_id);
   res.json(rows);
 });
 
