@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress } from "@mui/material";
+import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField } from "@mui/material";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, Legend,
@@ -24,6 +24,13 @@ export default function Reports() {
   const [tasksMonthday, setTasksMonthday] = useState([]);
   const [newClients, setNewClients] = useState([]);
   const [goals, setGoals] = useState([]);
+  const [entregas, setEntregas] = useState([]);
+  const [mesEntrega, setMesEntrega] = useState(() => new Date().toISOString().slice(0, 7));
+
+  useEffect(() => {
+    api.get("/reports/planned-vs-delivered", { params: { month: mesEntrega } })
+      .then((r) => setEntregas(r.data)).catch(() => {});
+  }, [mesEntrega]);
 
   useEffect(() => {
     api.get("/reports/billing-by-client").then((r) => setByClient(r.data)).catch(() => {});
@@ -92,6 +99,66 @@ export default function Reports() {
                   </PieChart>
                 </ResponsiveContainer>
               </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
+                <Box>
+                  <Typography variant="h6">Previsto × entregue</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    O que o contrato combina contra o que foi programado no mês.
+                  </Typography>
+                </Box>
+                <TextField type="month" size="small" value={mesEntrega}
+                  onChange={(e) => setMesEntrega(e.target.value)} InputLabelProps={{ shrink: true }} />
+              </Stack>
+              {entregas.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  Nenhum cliente com plano mensal definido. Defina posts e vídeos por mês no cadastro do cliente.
+                </Typography>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Cliente</TableCell>
+                      <TableCell align="right">Posts</TableCell>
+                      <TableCell align="right">Vídeos</TableCell>
+                      <TableCell align="right">Total</TableCell>
+                      <TableCell sx={{ width: "30%" }}>Andamento</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {entregas.map((e) => (
+                      <TableRow key={e.id} hover>
+                        <TableCell>{e.client_name}</TableCell>
+                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                          {e.posts_entregues}/{e.posts_planejados}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                          {e.videos_entregues}/{e.videos_planejados}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                          {e.entregue}/{e.planejado}
+                        </TableCell>
+                        <TableCell>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <LinearProgress variant="determinate" value={Math.min(e.percentual, 100)}
+                              color={e.percentual >= 100 ? "success" : e.percentual >= 60 ? "primary" : "warning"}
+                              sx={{ flex: 1, height: 8, borderRadius: 4 }} />
+                            <Typography variant="caption" sx={{ minWidth: 78, textAlign: "right" }}>
+                              {e.percentual}%{e.falta ? ` · faltam ${e.falta}` : " ✓"}
+                            </Typography>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </Grid>

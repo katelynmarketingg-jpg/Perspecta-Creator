@@ -3,11 +3,14 @@ import multer from "multer";
 import { mkdirSync, existsSync, unlinkSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import jwt from "jsonwebtoken";
 import { db } from "../db.js";
-import { authRequired, moduleAllowed } from "../auth.js";
+import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
+
+// Rotas abertas (link assinado) precisam ficar antes do authRequired.
+export const sharedRouter = Router();
 
 const router = Router();
-router.use(authRequired, moduleAllowed("arquivos"));
 
 // Os arquivos são gravados em disco exatamente como chegaram (byte a byte).
 // Nenhuma compressão ou conversão — a qualidade original é preservada.
@@ -21,6 +24,26 @@ const upload = multer({
   }),
   limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // até 2 GB por arquivo
 });
+
+// GET /api/files/shared/:ticket — link assinado e temporário, usado só para a
+// Meta buscar a arte na hora de publicar. Fica antes do authRequired.
+sharedRouter.get("/shared/:ticket", (req, res) => {
+  let payload;
+  try {
+    payload = jwt.verify(req.params.ticket, JWT_SECRET);
+  } catch {
+    return res.status(403).json({ error: "Link expirado ou inválido." });
+  }
+  const file = db
+    .prepare("SELECT * FROM files WHERE id = ? AND org_id = ?")
+    .get(payload.file_id, payload.org_id);
+  if (!file || !existsSync(file.stored_path)) {
+    return res.status(404).json({ error: "Arquivo não encontrado." });
+  }
+  res.sendFile(file.stored_path);
+});
+
+router.use(authRequired, moduleAllowed("arquivos"));
 
 // ---- Pastas ---------------------------------------------------------------
 // GET /api/files/folders?client_id=&parent_id=

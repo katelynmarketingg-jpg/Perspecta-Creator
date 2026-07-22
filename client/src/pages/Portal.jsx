@@ -202,6 +202,7 @@ export default function Portal() {
   const [openPost, setOpenPost] = useState(null);
   const [events, setEvents] = useState([]);
   const [plan, setPlan] = useState(null);
+  const [avisos, setAvisos] = useState([]);
 
   const loadApprovals = () =>
     portalApi.get("/approvals").then((r) => setApprovals(r.data.filter((a) => a.approval_status !== "approved")));
@@ -212,7 +213,13 @@ export default function Portal() {
     portalApi.get("/payments").then((r) => setPayments(r.data));
     portalApi.get("/contracts").then((r) => setContracts(r.data));
     portalApi.get("/events", { params: { days: 90 } }).then((r) => setEvents(r.data)).catch(() => {});
+    portalApi.get("/notifications").then((r) => setAvisos(r.data.filter((n) => !n.is_read))).catch(() => {});
   }, []);
+
+  async function lerAvisos() {
+    await portalApi.put("/notifications/read-all").catch(() => {});
+    setAvisos([]);
+  }
 
   useEffect(() => {
     const month = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
@@ -269,6 +276,14 @@ export default function Portal() {
       </AppBar>
 
       <Container maxWidth="md" sx={{ py: 3.5 }}>
+        {avisos.length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2.5 }} onClose={lerAvisos}>
+            {avisos.map((a) => (
+              <Typography key={a.id} variant="body2">{a.message}</Typography>
+            ))}
+          </Alert>
+        )}
+
         {/* ---- Aprovações ---- */}
         {tab === "approvals" && (
           approvals.length === 0 ? (

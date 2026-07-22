@@ -142,6 +142,25 @@ router.post("/approvals/:id/request-changes", (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Avisos para o cliente ---------------------------------------------------
+router.get("/notifications", (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT id, message, task_id, is_read, created_at
+       FROM notifications
+       WHERE audience = 'client' AND client_id = ?
+       ORDER BY created_at DESC LIMIT 20`
+    )
+    .all(req.client.client_id);
+  res.json(rows);
+});
+
+router.put("/notifications/read-all", (req, res) => {
+  db.prepare("UPDATE notifications SET is_read = 1 WHERE audience = 'client' AND client_id = ?")
+    .run(req.client.client_id);
+  res.json({ ok: true });
+});
+
 // ---- Agenda do cliente -------------------------------------------------------
 // Compromissos visíveis (captação, reunião...) com o plano e link acessíveis.
 router.get("/events", (req, res) => {

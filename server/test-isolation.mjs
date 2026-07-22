@@ -156,8 +156,34 @@ async function main() {
   const portalNegado = await api("/clients", { token: katyToken, method: "GET" });
   check("token de equipe funciona nas rotas da equipe", portalNegado.status === 200);
 
-  // limpa o escritório de teste
+  console.log("\n=== 8. Limpeza: o teste não deixa lixo nos dados reais ===");
+  // O escritório B some inteiro junto com o escritório.
   await api(`/organizations/${novoId}`, { token: masterToken, method: "DELETE" });
+
+  // Já o que foi criado na Perspectiva precisa ser removido item a item.
+  const limpar = async (rota, campo) => {
+    const { data } = await api(rota, { token: katyToken });
+    const alvos = (data || []).filter((x) => String(x[campo] || "").includes(marcaA));
+    for (const alvo of alvos) {
+      await api(`${rota.split("?")[0]}/${alvo.id}`, { token: katyToken, method: "DELETE" });
+    }
+    return alvos.length;
+  };
+  let removidos = 0;
+  removidos += await limpar("/tasks", "title");
+  removidos += await limpar("/projects", "name");
+  removidos += await limpar("/financial", "description");
+  removidos += await limpar("/goals", "title");
+  removidos += await limpar("/contracts", "title");
+  removidos += await limpar("/services", "name");
+  removidos += await limpar("/events", "title");
+  removidos += await limpar("/workspace", "title");
+  removidos += await limpar("/files/folders", "name");
+  removidos += await limpar("/tasks/stages", "name");
+  removidos += await limpar("/clients", "name"); // por último: leva o resto junto
+
+  const sobrou = await api("/clients", { token: katyToken });
+  check("nada do teste sobrou na Perspectiva", !blob(sobrou.data).includes(marcaA), `(${removidos} itens removidos)`);
 
   console.log("\n" + "=".repeat(52));
   console.log(`${pass} passaram · ${fail} falharam`);

@@ -97,6 +97,46 @@ router.get("/attention", (req, res) => {
   });
 });
 
+// GET /api/reports/planned-vs-delivered?month=YYYY-MM
+// O contrato diz X posts e Y vídeos por mês. Isto mostra o que saiu de fato,
+// para você saber se está entregando o combinado antes do cliente perguntar.
+router.get("/planned-vs-delivered", (req, res) => {
+  const month = req.query.month || new Date().toISOString().slice(0, 7);
+  const rows = db.prepare(`
+    SELECT c.id, c.name AS client_name,
+           COALESCE(c.posts_per_month, 0) AS posts_planejados,
+           COALESCE(c.videos_per_month, 0) AS videos_planejados,
+           (SELECT COUNT(*) FROM tasks t
+             WHERE t.client_id = c.id AND t.org_id = c.org_id
+               AND t.content_type IN ('post','foto')
+               AND strftime('%Y-%m', t.scheduled_at) = @month) AS posts_entregues,
+           (SELECT COUNT(*) FROM tasks t
+             WHERE t.client_id = c.id AND t.org_id = c.org_id
+               AND t.content_type IN ('reel','stories')
+               AND strftime('%Y-%m', t.scheduled_at) = @month) AS videos_entregues,
+           (SELECT COUNT(*) FROM tasks t
+             WHERE t.client_id = c.id AND t.org_id = c.org_id
+               AND strftime('%Y-%m', t.scheduled_at) = @month
+               AND t.completed_at IS NULL) AS ainda_em_producao
+    FROM clients c
+    WHERE c.org_id = @org_id AND c.status = 'active'
+      AND (COALESCE(c.posts_per_month,0) + COALESCE(c.videos_per_month,0)) > 0
+    ORDER BY c.name
+  `).all({ org_id: req.orgId, month });
+
+  res.json(rows.map((r) => {
+    const planejado = r.posts_planejados + r.videos_planejados;
+    const entregue = r.posts_entregues + r.videos_entregues;
+    return {
+      ...r,
+      planejado,
+      entregue,
+      falta: Math.max(planejado - entregue, 0),
+      percentual: planejado ? Math.round((entregue / planejado) * 100) : 0,
+    };
+  }));
+});
+
 // GET /api/reports/billing-by-client
 router.get("/billing-by-client", (req, res) => {
   res.json(db.prepare(`

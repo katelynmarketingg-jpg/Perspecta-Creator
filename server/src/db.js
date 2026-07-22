@@ -253,6 +253,35 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // Login por nome de usuário (em vez de e-mail).
 ensureColumn("users", "username", "username TEXT");
 
+// Lembrete de aprovação parada: quando foi para o cliente e quando avisamos.
+ensureColumn("tasks", "approval_sent_at", "approval_sent_at TEXT");
+ensureColumn("tasks", "last_reminder_at", "last_reminder_at TEXT");
+// Publicação pela Meta (Instagram/Facebook).
+ensureColumn("tasks", "published_at", "published_at TEXT");
+ensureColumn("tasks", "publish_error", "publish_error TEXT");
+ensureColumn("tasks", "external_post_id", "external_post_id TEXT");
+// Publicar sozinho na hora marcada é opcional e desligado por padrão.
+ensureColumn("clients", "auto_publish", "auto_publish INTEGER NOT NULL DEFAULT 0");
+
+// Conexões com a Meta, uma por cliente.
+db.exec(`
+CREATE TABLE IF NOT EXISTS integrations (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id         INTEGER NOT NULL,
+  client_id      INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  provider       TEXT NOT NULL DEFAULT 'meta',
+  page_id        TEXT,
+  page_name      TEXT,
+  ig_user_id     TEXT,
+  ig_username    TEXT,
+  access_token   TEXT,                    -- criptografado em repouso
+  token_expires  TEXT,
+  connected_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (client_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_integrations_org ON integrations(org_id);
+`);
+
 // Toda tabela de dados carrega o escritório dona da linha.
 export const TENANT_TABLES = [
   "users", "clients", "projects", "tasks", "kanban_stages", "financial_entries",

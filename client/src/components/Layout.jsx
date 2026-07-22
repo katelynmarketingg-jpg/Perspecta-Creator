@@ -21,6 +21,7 @@ import FolderCopyIcon from "@mui/icons-material/FolderCopy";
 import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import HubIcon from "@mui/icons-material/Hub";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -51,6 +52,7 @@ const NAV = [
   { to: "/files", label: "Arquivos", icon: <FolderCopyIcon /> },
   { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
   { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },
+  { to: "/integrations", label: "Integrações", icon: <HubIcon /> },
   { to: "/users", label: "Usuários", icon: <GroupIcon />, adminOnly: true },
   { to: "/settings", label: "Configurações", icon: <SettingsIcon /> },
 ];

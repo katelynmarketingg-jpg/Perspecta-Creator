@@ -134,11 +134,24 @@ router.put("/:id/status", (req, res) => {
   }
 
   const completed_at = stage?.is_done ? new Date().toISOString() : null;
-  db.prepare("UPDATE tasks SET stage_id = ?, position = ?, completed_at = ?, scheduled_at = ? WHERE id = ? AND org_id = ?").run(
+  // Ao entrar na aprovação, marca o relógio: é o que dispara o lembrete
+  // se o cliente deixar parado. Sair da etapa zera o contador.
+  const entrouNaAprovacao = /Aprova/i.test(stage?.name || "");
+  const approvalSentAt = entrouNaAprovacao
+    ? (task.approval_sent_at ?? new Date().toISOString())
+    : null;
+
+  db.prepare(
+    `UPDATE tasks SET stage_id = ?, position = ?, completed_at = ?, scheduled_at = ?,
+     approval_sent_at = ?, last_reminder_at = CASE WHEN ? IS NULL THEN NULL ELSE last_reminder_at END
+     WHERE id = ? AND org_id = ?`
+  ).run(
     stage_id ?? null,
     position ?? 0,
     completed_at,
     finalScheduledAt ?? null,
+    approvalSentAt,
+    approvalSentAt,
     req.params.id,
     req.orgId
   );
