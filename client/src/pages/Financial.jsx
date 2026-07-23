@@ -7,26 +7,52 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import EventBusyIcon from "@mui/icons-material/EventBusy";
 import Tooltip from "@mui/material/Tooltip";
+import { Alert } from "@mui/material";
 import api from "../api/client.js";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
 
 const EMPTY = { type: "income", description: "", amount: "", client_id: "", category: "", status: "pending", due_date: "" };
 
+// Intervalos de período. Abre no mês atual; dá para ampliar.
+function periodoRange(chave) {
+  const hoje = new Date();
+  const ym = (d) => d.toISOString().slice(0, 10);
+  const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  if (chave === "mes") return { from: ym(inicioMes), to: ym(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0)) };
+  if (chave === "proximo") return { from: ym(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1)), to: ym(new Date(hoje.getFullYear(), hoje.getMonth() + 2, 0)) };
+  if (chave === "3m") return { from: ym(inicioMes), to: ym(new Date(hoje.getFullYear(), hoje.getMonth() + 3, 0)) };
+  if (chave === "6m") return { from: ym(inicioMes), to: ym(new Date(hoje.getFullYear(), hoje.getMonth() + 6, 0)) };
+  return {}; // tudo
+}
+
+const PERIODOS = [
+  ["mes", "Este mês"], ["proximo", "Próximo mês"], ["3m", "Próximos 3 meses"],
+  ["6m", "Próximos 6 meses"], ["all", "Tudo"],
+];
+
 export default function Financial() {
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
   const [clients, setClients] = useState([]);
+  const [renewals, setRenewals] = useState([]);
   const [tab, setTab] = useState("all");
+  const [periodo, setPeriodo] = useState("mes"); // abre no mês atual
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
 
   const load = () => {
-    api.get("/financial").then((r) => setRows(r.data));
-    api.get("/financial/summary").then((r) => setSummary(r.data));
+    const params = periodoRange(periodo);
+    api.get("/financial", { params }).then((r) => setRows(r.data));
+    api.get("/financial/summary", { params }).then((r) => setSummary(r.data));
   };
-  useEffect(() => { load(); api.get("/clients").then((r) => setClients(r.data)); }, []);
+  useEffect(() => { load(); }, [periodo]);
+  useEffect(() => {
+    api.get("/clients").then((r) => setClients(r.data));
+    api.get("/financial/renewals").then((r) => setRenewals(r.data)).catch(() => {});
+  }, []);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
   const filtered = rows.filter((r) => tab === "all" || r.type === tab);
@@ -54,9 +80,25 @@ export default function Financial() {
     <>
       <PageHeader
         title="Financeiro"
-        subtitle="Receitas, despesas e lucro"
-        action={<Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>Novo lançamento</Button>}
+        subtitle="Entradas e despesas do período"
+        action={
+          <Stack direction="row" spacing={1.5}>
+            <TextField select size="small" value={periodo} onChange={(e) => setPeriodo(e.target.value)} sx={{ minWidth: 160 }}>
+              {PERIODOS.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
+            </TextField>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>Lançar</Button>
+          </Stack>
+        }
       />
+
+      {/* Contratos encerrando no próximo mês */}
+      {renewals.length > 0 && (
+        <Alert severity="warning" icon={<EventBusyIcon />} sx={{ mb: 2.5 }}>
+          <strong>{renewals.length === 1 ? "1 contrato encerra" : `${renewals.length} contratos encerram`} no próximo mês</strong> —
+          hora de conversar e renovar:{" "}
+          {renewals.map((r) => `${r.name} (${formatDate(r.work_end)})`).join(", ")}.
+        </Alert>
+      )}
 
       <Grid container spacing={2.5} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
@@ -66,10 +108,10 @@ export default function Financial() {
           <StatCard label="Já entrou" value={summary ? currency(summary.paidIncome) : undefined} />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard label="Falta entrar" value={summary ? currency(summary.income - summary.paidIncome) : undefined} />
+          <StatCard label="Despesas do período" value={summary ? currency(summary.expense) : undefined} />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard label="Lucro líquido" value={summary ? currency(summary.profit) : undefined} />
+          <StatCard label="Lucro realizado" value={summary ? currency(summary.lucroRealizado) : undefined} />
         </Grid>
       </Grid>
 

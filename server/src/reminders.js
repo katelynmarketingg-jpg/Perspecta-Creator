@@ -51,13 +51,45 @@ export function runApprovalReminders() {
   return { enviados: paradas.length };
 }
 
+/**
+ * Avisa a agência sobre contratos que encerram no próximo mês, para dar tempo
+ * de conversar e renovar. Manda um aviso por cliente, uma vez por mês.
+ */
+export function runRenewalAlerts() {
+  const vencendo = db.prepare(`
+    SELECT id, name, org_id, work_end FROM clients
+    WHERE status = 'active' AND work_end IS NOT NULL
+      AND strftime('%Y-%m', work_end) = strftime('%Y-%m', date('now', '+1 month'))
+  `).all();
+  if (!vencendo.length) return { avisados: 0 };
+
+  const insNotif = db.prepare(
+    "INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)"
+  );
+  // Evita repetir no mesmo mês: usa uma marca simples por cliente/mês.
+  const jaAvisou = db.prepare(`
+    SELECT 1 FROM notifications
+    WHERE org_id = ? AND client_id = ? AND message LIKE '%renovar%'
+      AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now') LIMIT 1
+  `);
+
+  let n = 0;
+  vencendo.forEach((c) => {
+    if (jaAvisou.get(c.org_id, c.id)) return;
+    const fim = new Date(c.work_end + "T00:00:00").toLocaleDateString("pt-BR");
+    insNotif.run(c.id, `🔔 Contrato de ${c.name} encerra em ${fim} — hora de conversar e renovar.`, c.org_id);
+    n++;
+  });
+  return { avisados: n };
+}
+
 /** Liga o verificador de hora em hora. */
 export function startReminders() {
   const UMA_HORA = 60 * 60 * 1000;
-  setTimeout(() => {
+  const passada = () => {
     try { runApprovalReminders(); } catch (e) { console.error("lembretes:", e.message); }
-  }, 30 * 1000); // primeira passada 30s depois de subir
-  setInterval(() => {
-    try { runApprovalReminders(); } catch (e) { console.error("lembretes:", e.message); }
-  }, UMA_HORA).unref?.();
+    try { runRenewalAlerts(); } catch (e) { console.error("renovações:", e.message); }
+  };
+  setTimeout(passada, 30 * 1000); // primeira passada 30s depois de subir
+  setInterval(passada, UMA_HORA).unref?.();
 }

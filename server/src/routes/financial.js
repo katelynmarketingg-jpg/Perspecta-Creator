@@ -10,24 +10,36 @@ const SELECT = `
   FROM financial_entries f LEFT JOIN clients c ON c.id = f.client_id`;
 
 router.get("/", (req, res) => {
-  const { type, status } = req.query;
+  const { type, status, from, to } = req.query;
   const where = ["f.org_id = @org_id"];
   const params = { org_id: req.orgId };
   if (type) { where.push("f.type = @type"); params.type = type; }
   if (status) { where.push("f.status = @status"); params.status = status; }
+  // Filtro de período pela data de vencimento (ou criação, se sem vencimento).
+  if (from) { where.push("date(COALESCE(f.due_date, f.created_at)) >= @from"); params.from = from; }
+  if (to) { where.push("date(COALESCE(f.due_date, f.created_at)) <= @to"); params.to = to; }
   const sql = `${SELECT} WHERE ${where.join(" AND ")} ORDER BY f.due_date DESC, f.id DESC`;
   res.json(db.prepare(sql).all(params));
 });
 
-// GET /api/financial/summary — receitas, despesas, lucro, série 6 meses
+// GET /api/financial/summary?from=&to= — recorte do período (padrão: tudo).
 router.get("/summary", (req, res) => {
   const org = req.orgId;
+  const { from, to } = req.query;
+  const periodo = [];
+  const params = [org];
+  if (from) { periodo.push("date(COALESCE(due_date, created_at)) >= ?"); params.push(from); }
+  if (to) { periodo.push("date(COALESCE(due_date, created_at)) <= ?"); params.push(to); }
+  const filtroPeriodo = periodo.length ? "AND " + periodo.join(" AND ") : "";
+
   const sum = (extra) =>
-    db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM financial_entries WHERE org_id = ? ${extra}`).get(org).v;
+    db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM financial_entries WHERE org_id = ? ${filtroPeriodo} ${extra}`)
+      .get(...params).v;
 
   const income = sum("AND type='income'");
   const expense = sum("AND type='expense'");
   const paidIncome = sum("AND type='income' AND status='paid'");
+  const paidExpense = sum("AND type='expense' AND status='paid'");
   const pending = sum("AND status='pending'");
 
   const series = db.prepare(`
@@ -39,8 +51,24 @@ router.get("/summary", (req, res) => {
     GROUP BY month ORDER BY month`).all(org);
 
   res.json({
-    income, expense, profit: income - expense, paidIncome, pending, series,
+    income, expense, profit: income - expense,
+    paidIncome, paidExpense, pending,
+    lucroRealizado: paidIncome - paidExpense, // o que de fato entrou menos o que saiu
+    series,
   });
+});
+
+// GET /api/financial/renewals — contratos que encerram no próximo mês.
+router.get("/renewals", (req, res) => {
+  const rows = db.prepare(`
+    SELECT id, name, company, work_end, payment_day,
+           (SELECT COALESCE(SUM(cs.price),0) FROM client_services cs WHERE cs.client_id = clients.id) AS valor
+    FROM clients
+    WHERE org_id = ? AND status = 'active' AND work_end IS NOT NULL
+      AND strftime('%Y-%m', work_end) = strftime('%Y-%m', date('now', '+1 month'))
+    ORDER BY work_end
+  `).all(req.orgId);
+  res.json(rows);
 });
 
 router.post("/", (req, res) => {

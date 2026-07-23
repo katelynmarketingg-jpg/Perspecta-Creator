@@ -150,7 +150,7 @@ export default function Clients() {
                 <TableCell>Cliente</TableCell>
                 <TableCell>Segmento</TableCell>
                 <TableCell>Serviços</TableCell>
-                <TableCell>Trabalho até</TableCell>
+                <TableCell>Contrato</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell align="right">Ações</TableCell>
               </TableRow>
@@ -174,8 +174,25 @@ export default function Clients() {
                     </Stack>
                   </TableCell>
                   <TableCell>
-                    {c.work_end ? formatDate(c.work_end) : <Chip size="small" label="Indeterminado" />}
-                    {c.payment_day && <div style={{ fontSize: 12, color: "#888" }}>Pgto dia {c.payment_day}</div>}
+                    {(() => {
+                      const valor = (c.services || []).reduce((s, x) => s + (Number(x.price) || 0), 0);
+                      const encerraMesQueVem = c.work_end && (() => {
+                        const fim = new Date(c.work_end + "T00:00:00");
+                        const alvo = new Date(); alvo.setMonth(alvo.getMonth() + 1);
+                        return fim.getFullYear() === alvo.getFullYear() && fim.getMonth() === alvo.getMonth();
+                      })();
+                      return (
+                        <>
+                          {valor > 0 && <div style={{ fontWeight: 600 }}>{currency(valor)}/mês</div>}
+                          <div style={{ fontSize: 12, color: encerraMesQueVem ? "#D97706" : "#888", fontWeight: encerraMesQueVem ? 700 : 400 }}>
+                            {c.work_end
+                              ? `até ${formatDate(c.work_end)}${encerraMesQueVem ? " ⚠ renovar" : ""}`
+                              : "prazo indeterminado"}
+                          </div>
+                          {c.payment_day && <div style={{ fontSize: 12, color: "#888" }}>Pgto dia {c.payment_day}</div>}
+                        </>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Chip size="small" label={c.status === "active" ? "Ativo" : "Inativo"}
