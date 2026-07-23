@@ -15,9 +15,9 @@ router.get("/", adminRequired, (req, res) => {
 // GET /api/users/team — lista enxuta para atribuição de tarefas
 router.get("/team", (req, res) => {
   const rows = db
-    .prepare("SELECT id, name, username, email, role FROM users WHERE active = 1 AND org_id = ? ORDER BY name")
+    .prepare("SELECT id, name, username, email, role, job_title, duties, can_approve FROM users WHERE active = 1 AND org_id = ? ORDER BY name")
     .all(req.orgId);
-  res.json(rows);
+  res.json(rows.map((u) => ({ ...u, duties: u.duties ? JSON.parse(u.duties) : [], can_approve: !!u.can_approve })));
 });
 
 // POST /api/users — cria usuário no escritório (admin)
@@ -38,9 +38,13 @@ router.post("/", adminRequired, (req, res) => {
   }
   // Ninguém cria um superadmin por aqui — só o escritório master existe.
   const safeRole = role === "admin" ? "admin" : "member";
+  const b = req.body || {};
   const info = db
-    .prepare("INSERT INTO users (name, username, email, password_hash, role, org_id) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(name, username.trim(), finalEmail, hashPassword(password), safeRole, req.orgId);
+    .prepare(`INSERT INTO users (name, username, email, password_hash, role, job_title, duties, can_approve, org_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(name, username.trim(), finalEmail, hashPassword(password), safeRole,
+         b.job_title ?? null, JSON.stringify(Array.isArray(b.duties) ? b.duties : []),
+         b.can_approve ? 1 : 0, req.orgId);
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
   res.status(201).json(publicUser(user));
 });
@@ -51,6 +55,7 @@ router.put("/:id", adminRequired, (req, res) => {
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
 
+  const b = req.body || {};
   const next = {
     name: name ?? user.name,
     username: username ?? user.username,
@@ -58,12 +63,16 @@ router.put("/:id", adminRequired, (req, res) => {
     role: user.role === "superadmin" ? "superadmin" : role === "admin" ? "admin" : role === "member" ? "member" : user.role,
     active: active === undefined ? user.active : active ? 1 : 0,
     password_hash: password ? hashPassword(password) : user.password_hash,
+    job_title: b.job_title !== undefined ? b.job_title : user.job_title,
+    duties: b.duties !== undefined ? JSON.stringify(Array.isArray(b.duties) ? b.duties : []) : user.duties,
+    can_approve: b.can_approve !== undefined ? (b.can_approve ? 1 : 0) : user.can_approve,
     id: req.params.id,
     org_id: req.orgId,
   };
   db.prepare(
     `UPDATE users SET name = @name, username = @username, email = @email, role = @role,
-     active = @active, password_hash = @password_hash WHERE id = @id AND org_id = @org_id`
+     active = @active, password_hash = @password_hash, job_title = @job_title,
+     duties = @duties, can_approve = @can_approve WHERE id = @id AND org_id = @org_id`
   ).run(next);
 
   const updated = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);

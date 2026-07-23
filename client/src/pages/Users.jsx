@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Button, Card, Table, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
-  FormControlLabel, Switch, Typography, Divider, Alert,
+  FormControlLabel, Switch, Typography, Divider, Alert, Box,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -20,7 +20,17 @@ const MODULES = [
   ["metas", "Metas"], ["calendario", "Calendário"], ["arquivos", "Arquivos"],
   ["agenda", "Agenda"], ["relatorios", "Relatórios"],
 ];
-const EMPTY = { name: "", username: "", email: "", password: "", role: "member", active: true };
+const EMPTY = { name: "", username: "", email: "", password: "", role: "member", active: true, job_title: "", duties: [], can_approve: false };
+
+// Tipos de conteúdo que uma pessoa pode ser responsável por produzir.
+const DUTIES = [
+  { key: "post", label: "🖼️ Posts" },
+  { key: "reel", label: "🎬 Reels" },
+  { key: "foto", label: "📸 Fotos" },
+  { key: "stories", label: "⚡ Stories" },
+  { key: "trafego", label: "📊 Tráfego" },
+  { key: "atendimento", label: "💬 Atendimento" },
+];
 
 export default function Users() {
   const { isAdmin, user, viewingOrg } = useAuth();
@@ -76,6 +86,7 @@ export default function Users() {
           <TableHead>
             <TableRow>
               <TableCell>Nome</TableCell><TableCell>Entra como</TableCell>
+              <TableCell>Função</TableCell><TableCell>Responsável por</TableCell>
               <TableCell>Papel</TableCell><TableCell>Status</TableCell>
               <TableCell align="right">Ações</TableCell>
             </TableRow>
@@ -85,6 +96,17 @@ export default function Users() {
               <TableRow key={u.id} hover>
                 <TableCell>{u.name}</TableCell>
                 <TableCell sx={{ fontFamily: "monospace" }}>{u.username || "—"}</TableCell>
+                <TableCell>{u.job_title || "—"}</TableCell>
+                <TableCell>
+                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                    {(u.duties || []).map((d) => {
+                      const info = DUTIES.find((x) => x.key === d);
+                      return <Chip key={d} size="small" variant="outlined" label={info?.label || d} />;
+                    })}
+                    {u.can_approve ? <Chip size="small" color="primary" label="✓ aprova" /> : null}
+                    {(!u.duties || u.duties.length === 0) && !u.can_approve ? "—" : null}
+                  </Stack>
+                </TableCell>
                 <TableCell><Chip size="small" label={u.role === "admin" ? "Administrador" : "Colaborador"} color={u.role === "admin" ? "primary" : "default"} /></TableCell>
                 <TableCell><Chip size="small" label={u.active ? "Ativo" : "Inativo"} color={u.active ? "success" : "default"} /></TableCell>
                 <TableCell align="right">
@@ -109,10 +131,42 @@ export default function Users() {
               placeholder="Ex: bruno"
               helperText={`É o que a pessoa digita no login, junto com o escritório "${orgName}".`} />
             <TextField label={draft.id ? "Nova senha (deixe vazio p/ manter)" : "Senha *"} type="password" value={draft.password} onChange={set("password")} fullWidth />
-            <TextField select label="Papel" value={draft.role} onChange={set("role")} fullWidth>
+            <TextField select label="Papel" value={draft.role} onChange={set("role")} fullWidth
+              helperText="Administrador vê tudo e gerencia a equipe. Colaborador vê o que você liberar em Permissões.">
               <MenuItem value="member">Colaborador</MenuItem>
               <MenuItem value="admin">Administrador</MenuItem>
             </TextField>
+
+            <Divider>Função na equipe</Divider>
+            <TextField label="Função (cargo)" value={draft.job_title || ""} onChange={set("job_title")} fullWidth
+              placeholder="Ex: Social Media, Designer, Gestor de Tráfego" />
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Responsável por produzir — as tarefas desses tipos vão direto para esta pessoa ao lançar o mês:
+              </Typography>
+              <Stack direction="row" spacing={0.75} sx={{ flexWrap: "wrap", gap: 0.75 }}>
+                {DUTIES.map((d) => {
+                  const marcado = (draft.duties || []).includes(d.key);
+                  return (
+                    <Chip key={d.key} label={d.label} clickable
+                      color={marcado ? "primary" : "default"}
+                      variant={marcado ? "filled" : "outlined"}
+                      onClick={() => setDraft((dr) => ({
+                        ...dr,
+                        duties: marcado
+                          ? dr.duties.filter((x) => x !== d.key)
+                          : [...(dr.duties || []), d.key],
+                      }))} />
+                  );
+                })}
+              </Stack>
+            </Box>
+            <FormControlLabel
+              control={<Switch checked={!!draft.can_approve}
+                onChange={(e) => setDraft((d) => ({ ...d, can_approve: e.target.checked }))} />}
+              label="Recebe os avisos de aprovação e retorno do cliente" />
+
+            <Divider />
             <FormControlLabel control={<Switch checked={!!draft.active} onChange={set("active")} />} label="Ativo" />
           </Stack>
         </DialogContent>

@@ -253,6 +253,12 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // Login por nome de usuário (em vez de e-mail).
 ensureColumn("users", "username", "username TEXT");
 
+// Função e responsabilidades: o que a pessoa faz e quais tipos de conteúdo
+// produz. Serve para rotear tarefas e avisos para quem é responsável.
+ensureColumn("users", "job_title", "job_title TEXT");        // ex: Social Media, Designer
+ensureColumn("users", "duties", "duties TEXT");              // JSON: ["post","reel",...]
+ensureColumn("users", "can_approve", "can_approve INTEGER NOT NULL DEFAULT 0"); // recebe aprovações
+
 // Modelo de serviço com itens configuráveis (posts, reels, verba de tráfego...)
 // e a configuração preenchida por cliente.
 ensureColumn("services", "items_schema", "items_schema TEXT"); // JSON: [{label, unit}]
