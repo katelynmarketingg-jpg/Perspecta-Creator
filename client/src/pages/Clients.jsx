@@ -3,12 +3,18 @@ import {
   Button, Card, Table, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack,
   MenuItem, Link, Tooltip, Divider, Autocomplete, Box, Typography,
-  FormControlLabel, Switch,
+  FormControlLabel, Switch, Alert,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DriveIcon from "@mui/icons-material/AddToDrive";
+import DescriptionIcon from "@mui/icons-material/Description";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import PrintIcon from "@mui/icons-material/Print";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import WhatsAppIcon from "@mui/icons-material/WhatsApp";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import api from "../api/client.js";
 import { PageHeader, EmptyState, TableSkeleton } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
@@ -28,6 +34,53 @@ export default function Clients() {
   const [draft, setDraft] = useState(EMPTY);
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("");
+  // Contratos do cliente (tudo pela ficha, sem aba separada).
+  const [contratos, setContratos] = useState(null); // { client, lista: [] }
+  const [ver, setVer] = useState(null);   // contrato em visualização
+  const [link, setLink] = useState(null); // { url }
+  const [copiado, setCopiado] = useState(false);
+  const [contratoMsg, setContratoMsg] = useState("");
+
+  async function abrirContratos(client) {
+    const { data } = await api.get(`/clients/${client.id}/contracts`);
+    setContratos({ client, lista: data });
+    setContratoMsg("");
+  }
+  async function recarregarContratos() {
+    const { data } = await api.get(`/clients/${contratos.client.id}/contracts`);
+    setContratos((c) => ({ ...c, lista: data }));
+  }
+  async function gerarContrato() {
+    try {
+      await api.post(`/clients/${contratos.client.id}/generate-contract`);
+      await recarregarContratos();
+      setContratoMsg("Contrato gerado a partir dos serviços. Veja abaixo e mande para assinatura.");
+    } catch (err) {
+      setContratoMsg(err.response?.data?.error || "Não foi possível gerar o contrato.");
+    }
+  }
+  async function gerarLink(c) {
+    const { data } = await api.post(`/clients/${contratos.client.id}/contracts/${c.id}/sign-link`);
+    setLink(data);
+  }
+  // Impressão limpa (o "Salvar como PDF" do navegador gera o arquivo).
+  function imprimir(c) {
+    const w = window.open("", "_blank", "width=800,height=900");
+    if (!w) return;
+    const assinatura = c.signed_at
+      ? `<div style="margin-top:40px;padding-top:16px;border-top:1px solid #ccc;font-size:13px;color:#555">
+           Assinado eletronicamente por <b>${c.signer_name || ""}</b>${c.signer_document ? " (" + c.signer_document + ")" : ""}
+           em ${new Date(c.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}.
+         </div>`
+      : "";
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${c.title}</title>
+      <style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:0 24px;color:#1a1a1a;line-height:1.7}
+      h1{font-size:20px;border-bottom:2px solid #EA580C;padding-bottom:8px}
+      pre{white-space:pre-wrap;font-family:inherit;font-size:14.5px}</style></head>
+      <body><h1>${c.title}</h1><pre>${(c.notes || "").replace(/</g, "&lt;")}</pre>${assinatura}
+      <script>window.onload=()=>window.print()</script></body></html>`);
+    w.document.close();
+  }
 
   const filtrados = rows.filter((c) => {
     if (filtroStatus && c.status !== filtroStatus) return false;
@@ -204,6 +257,9 @@ export default function Clients() {
                         <IconButton size="small" component={Link} href={c.drive_url} target="_blank"><DriveIcon fontSize="small" /></IconButton>
                       </Tooltip>
                     )}
+                    <Tooltip title="Contratos do cliente">
+                      <IconButton size="small" onClick={() => abrirContratos(c)}><DescriptionIcon fontSize="small" /></IconButton>
+                    </Tooltip>
                     <IconButton size="small" onClick={() => openEdit(c)}><EditIcon fontSize="small" /></IconButton>
                     <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
                   </TableCell>
@@ -317,6 +373,107 @@ export default function Clients() {
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancelar</Button>
           <Button variant="contained" onClick={save} disabled={!draft.name}>Salvar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Contratos do cliente */}
+      <Dialog open={Boolean(contratos)} onClose={() => setContratos(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Contratos — {contratos?.client?.name}</DialogTitle>
+        <DialogContent>
+          {contratoMsg && <Alert severity="info" sx={{ mb: 2 }}>{contratoMsg}</Alert>}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Gere o contrato a partir dos serviços do cliente (usa o modelo de cada serviço,
+            configurado em Configurações) e mande para assinatura por aqui mesmo.
+          </Typography>
+          <Stack spacing={1.2}>
+            {(contratos?.lista || []).map((c) => (
+              <Box key={c.id} sx={{ p: 1.5, borderRadius: 2, border: 1, borderColor: "divider" }}>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography noWrap sx={{ fontWeight: 600 }}>{c.title}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {currency(c.value)}{c.duration_months ? ` · ${c.duration_months} meses` : " · indeterminado"}
+                    </Typography>
+                  </Box>
+                  {c.signed_at
+                    ? <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Assinado" />
+                    : <Chip size="small" variant="outlined" label="Pendente" />}
+                  <Tooltip title="Ver / imprimir">
+                    <IconButton size="small" onClick={() => setVer(c)}><VisibilityIcon fontSize="small" /></IconButton>
+                  </Tooltip>
+                  {!c.signed_at && (
+                    <Tooltip title="Link de assinatura">
+                      <IconButton size="small" color="success" onClick={() => gerarLink(c)}><WhatsAppIcon fontSize="small" /></IconButton>
+                    </Tooltip>
+                  )}
+                </Stack>
+              </Box>
+            ))}
+            {(contratos?.lista || []).length === 0 && (
+              <Typography variant="body2" color="text.secondary">Nenhum contrato ainda.</Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setContratos(null)}>Fechar</Button>
+          <Button variant="contained" startIcon={<DescriptionIcon />} onClick={gerarContrato}>
+            Gerar contrato dos serviços
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Ver contrato + imprimir */}
+      <Dialog open={Boolean(ver)} onClose={() => setVer(null)} fullWidth maxWidth="md">
+        <DialogTitle>{ver?.title}</DialogTitle>
+        <DialogContent>
+          {ver?.signed_at && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Assinado por <strong>{ver.signer_name}</strong>
+              {ver.signer_document ? ` (${ver.signer_document})` : ""} em{" "}
+              {new Date(ver.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}.
+            </Alert>
+          )}
+          <Box sx={{ p: 2, borderRadius: 2, bgcolor: "action.hover" }}>
+            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", fontFamily: "Georgia, serif", lineHeight: 1.7 }}>
+              {ver?.notes || "Este contrato não tem texto."}
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
+          <Button onClick={() => setVer(null)}>Fechar</Button>
+          <Button startIcon={<PrintIcon />} onClick={() => imprimir(ver)}>Imprimir / PDF</Button>
+          {!ver?.signed_at && (
+            <Button variant="contained" startIcon={<WhatsAppIcon />} onClick={() => gerarLink(ver)}>
+              Link de assinatura
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Link de assinatura */}
+      <Dialog open={Boolean(link)} onClose={() => setLink(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Link de assinatura</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Mande este link para o cliente. Ele abre, lê o contrato e assina com nome e CPF —
+            sem precisar de senha. O link vale 30 dias.
+          </Typography>
+          <TextField value={link?.url || ""} fullWidth size="small" InputProps={{ readOnly: true }}
+            onFocus={(e) => e.target.select()} sx={{ mb: 2 }} />
+          <Stack direction="row" spacing={1.5}>
+            <Button variant="outlined" startIcon={<ContentCopyIcon />}
+              onClick={() => { navigator.clipboard.writeText(link.url); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }}>
+              {copiado ? "Copiado!" : "Copiar link"}
+            </Button>
+            <Button variant="contained" color="success" startIcon={<WhatsAppIcon />}
+              component="a" target="_blank" rel="noopener"
+              href={`https://wa.me/?text=${encodeURIComponent(`Olá! Segue o contrato para assinatura: ${link?.url || ""}`)}`}>
+              Abrir no WhatsApp
+            </Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLink(null)}>Fechar</Button>
         </DialogActions>
       </Dialog>
     </>

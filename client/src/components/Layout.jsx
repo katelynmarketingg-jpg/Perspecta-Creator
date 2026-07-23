@@ -49,7 +49,6 @@ const NAV = [
   { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },
   { to: "/deliveries", label: "Entregas", icon: <ChecklistRtlIcon /> },
   { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
-  { to: "/contracts", label: "Contratos", icon: <DescriptionIcon /> },
   { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },
   { to: "/calendar", label: "Calendário", icon: <CalendarMonthIcon /> },
   { to: "/files", label: "Arquivos", icon: <FolderCopyIcon /> },

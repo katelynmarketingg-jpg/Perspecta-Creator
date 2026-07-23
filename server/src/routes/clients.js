@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired, hashPassword, moduleAllowed } from "../auth.js";
+import { authRequired, hashPassword, moduleAllowed, publicBaseUrl } from "../auth.js";
+import { makeSignToken } from "./sign.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("clientes"));
@@ -351,6 +352,41 @@ router.put("/:id", (req, res) => {
 router.delete("/:id", (req, res) => {
   db.prepare("DELETE FROM clients WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Contratos DO cliente — tudo pela ficha do cliente (sem aba separada).
+// ---------------------------------------------------------------------------
+
+// Lista os contratos deste cliente.
+router.get("/:id/contracts", (req, res) => {
+  const client = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
+  res.json(
+    db.prepare("SELECT * FROM contracts WHERE client_id = ? AND org_id = ? ORDER BY created_at DESC")
+      .all(req.params.id, req.orgId)
+  );
+});
+
+// Gera um contrato a partir dos serviços do cliente (usa o modelo de cada serviço).
+router.post("/:id/generate-contract", (req, res) => {
+  const client = db.prepare("SELECT * FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
+  const svcs = loadServices(client.id);
+  if (!svcs.length) return res.status(400).json({ error: "Cadastre os serviços do cliente antes de gerar o contrato." });
+  const id = generateContract(client, svcs);
+  const total = svcs.reduce((s, x) => s + (Number(x.price) || 0), 0);
+  generateReceivables(client, total, monthsBetween(client.work_start, client.work_end));
+  res.status(201).json(db.prepare("SELECT * FROM contracts WHERE id = ?").get(id));
+});
+
+// Gera o link público de assinatura de um contrato deste cliente.
+router.post("/:id/contracts/:cid/sign-link", (req, res) => {
+  const c = db.prepare("SELECT * FROM contracts WHERE id = ? AND client_id = ? AND org_id = ?")
+    .get(req.params.cid, req.params.id, req.orgId);
+  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  const token = makeSignToken(c.id);
+  res.json({ url: `${publicBaseUrl(req)}/assinar/${token}`, signed: Boolean(c.signed_at) });
 });
 
 export default router;
