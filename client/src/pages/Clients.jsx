@@ -26,6 +26,17 @@ export default function Clients() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
+  const [busca, setBusca] = useState("");
+  const [filtroStatus, setFiltroStatus] = useState("");
+
+  const filtrados = rows.filter((c) => {
+    if (filtroStatus && c.status !== filtroStatus) return false;
+    if (busca) {
+      const alvo = `${c.name} ${c.company || ""} ${c.segment || ""}`.toLowerCase();
+      if (!alvo.includes(busca.toLowerCase())) return false;
+    }
+    return true;
+  });
 
   const load = () => api.get("/clients").then((r) => { setRows(r.data); setLoading(false); });
   useEffect(() => {
@@ -50,13 +61,21 @@ export default function Clients() {
     setOpen(true);
   }
 
+  // Lê o schema de itens de um serviço (pode vir string do banco ou já array).
+  const itemsDo = (svc) => {
+    if (!svc) return [];
+    const raw = svc.items_schema;
+    if (Array.isArray(raw)) return raw;
+    try { return raw ? JSON.parse(raw) : []; } catch { return []; }
+  };
+
   // Seleção de serviços: preenche o valor padrão; o preço é editável por cliente.
   function setServices(selected) {
     setDraft((d) => ({
       ...d,
       services: selected.map((s) => {
         const existing = d.services.find((x) => x.service_id === (s.service_id ?? s.id));
-        return existing || { service_id: s.id, name: s.name, price: s.default_price };
+        return existing || { service_id: s.id, name: s.name, price: s.default_price, config: {} };
       }),
     }));
   }
@@ -65,6 +84,18 @@ export default function Clients() {
     setDraft((d) => ({
       ...d,
       services: d.services.map((s) => (s.service_id === serviceId ? { ...s, price } : s)),
+    }));
+  }
+
+  // Quantidade de um item (ex: "Posts no feed") daquele serviço.
+  function setServiceItem(serviceId, label, qtd) {
+    setDraft((d) => ({
+      ...d,
+      services: d.services.map((s) =>
+        s.service_id === serviceId
+          ? { ...s, config: { ...(s.config || {}), [label]: qtd } }
+          : s
+      ),
     }));
   }
 
@@ -92,10 +123,25 @@ export default function Clients() {
         action={<Button variant="contained" startIcon={<AddIcon />} onClick={openNew}>Novo cliente</Button>}
       />
 
+      {!loading && rows.length > 0 && (
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2.5 }}>
+          <TextField size="small" placeholder="Buscar por nome, empresa ou segmento…"
+            value={busca} onChange={(e) => setBusca(e.target.value)} sx={{ flex: 1, minWidth: 240 }} />
+          <TextField select size="small" label="Status" value={filtroStatus}
+            onChange={(e) => setFiltroStatus(e.target.value)} sx={{ minWidth: 150 }}>
+            <MenuItem value="">Todos</MenuItem>
+            <MenuItem value="active">Ativos</MenuItem>
+            <MenuItem value="inactive">Inativos</MenuItem>
+          </TextField>
+        </Stack>
+      )}
+
       {loading ? (
         <TableSkeleton rows={4} cols={5} />
       ) : rows.length === 0 ? (
         <EmptyState message="Nenhum cliente cadastrado." action={<Button onClick={openNew}>Adicionar</Button>} />
+      ) : filtrados.length === 0 ? (
+        <EmptyState message="Nenhum cliente encontrado com esse filtro." />
       ) : (
         <Card>
           <Table>
@@ -110,7 +156,7 @@ export default function Clients() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((c) => (
+              {filtrados.map((c) => (
                 <TableRow key={c.id} hover>
                   <TableCell>
                     <strong>{c.name}</strong>
@@ -200,13 +246,29 @@ export default function Clients() {
                   helperText={allServices.length === 0 ? "Cadastre os serviços em Configurações." : "O valor padrão preenche sozinho — ajuste abaixo se quiser."} />
               )}
             />
-            {draft.services.map((s) => (
-              <Stack key={s.service_id} direction="row" spacing={2} alignItems="center">
-                <Typography sx={{ flex: 1 }}>{s.name}</Typography>
-                <TextField label="Valor (R$/mês)" type="number" size="small" sx={{ width: 180 }}
-                  value={s.price} onChange={(e) => setServicePrice(s.service_id, e.target.value)} />
-              </Stack>
-            ))}
+            {draft.services.map((s) => {
+              const itens = itemsDo(allServices.find((o) => o.id === s.service_id));
+              return (
+                <Box key={s.service_id} sx={{ p: 1.5, borderRadius: 2, border: 1, borderColor: "divider" }}>
+                  <Stack direction="row" spacing={2} alignItems="center">
+                    <Typography sx={{ flex: 1, fontWeight: 600 }}>{s.name}</Typography>
+                    <TextField label="Valor (R$/mês)" type="number" size="small" sx={{ width: 160 }}
+                      value={s.price} onChange={(e) => setServicePrice(s.service_id, e.target.value)} />
+                  </Stack>
+                  {itens.length > 0 && (
+                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5, mt: 1.5 }}>
+                      {itens.map((item) => (
+                        <TextField key={item.label} size="small" type="number"
+                          label={item.label} placeholder="0"
+                          helperText={item.unit || " "}
+                          value={s.config?.[item.label] ?? ""}
+                          onChange={(e) => setServiceItem(s.service_id, item.label, e.target.value)} />
+                      ))}
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
             {draft.services.length > 0 && (
               <Box sx={{ textAlign: "right" }}>
                 <Typography variant="subtitle2">Total: {currency(total)}/mês</Typography>

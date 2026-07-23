@@ -25,6 +25,7 @@ import Integrations from "./pages/Integrations.jsx";
 import Prospects from "./pages/Prospects.jsx";
 import PortalLogin from "./pages/PortalLogin.jsx";
 import Portal from "./pages/Portal.jsx";
+import SignContract from "./pages/SignContract.jsx";
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -44,6 +45,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/portal/login" element={<PortalLogin />} />
       <Route path="/portal" element={<Portal />} />
+      <Route path="/assinar/:token" element={<SignContract />} />
       <Route
         element={
           <Protected>

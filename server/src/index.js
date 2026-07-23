@@ -25,6 +25,7 @@ import servicesRoutes from "./routes/services.js";
 import organizationsRoutes from "./routes/organizations.js";
 import integrationsRoutes from "./routes/integrations.js";
 import { sharedRouter } from "./routes/files.js";
+import { signRouter } from "./routes/sign.js";
 import commentsRoutes from "./routes/comments.js";
 import timeRoutes from "./routes/time.js";
 import prospectsRoutes from "./routes/prospects.js";
@@ -61,6 +62,7 @@ app.use("/api/services", servicesRoutes);
 app.use("/api/organizations", organizationsRoutes);
 app.use("/api/integrations", integrationsRoutes);
 app.use("/api/files", sharedRouter); // link assinado, sem login
+app.use("/api/sign", signRouter);    // assinatura por link público
 app.use("/api/comments", commentsRoutes);
 app.use("/api/time", timeRoutes);
 app.use("/api/prospects", prospectsRoutes);

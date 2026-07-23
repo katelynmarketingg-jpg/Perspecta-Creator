@@ -253,6 +253,11 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // Login por nome de usuário (em vez de e-mail).
 ensureColumn("users", "username", "username TEXT");
 
+// Modelo de serviço com itens configuráveis (posts, reels, verba de tráfego...)
+// e a configuração preenchida por cliente.
+ensureColumn("services", "items_schema", "items_schema TEXT"); // JSON: [{label, unit}]
+ensureColumn("client_services", "config", "config TEXT");       // JSON: {label: quantidade}
+
 // Lembrete de aprovação parada: quando foi para o cliente e quando avisamos.
 ensureColumn("tasks", "approval_sent_at", "approval_sent_at TEXT");
 ensureColumn("tasks", "last_reminder_at", "last_reminder_at TEXT");

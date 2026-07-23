@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { makeSignToken } from "./sign.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("contratos"));
@@ -50,6 +51,15 @@ router.put("/:id", (req, res) => {
 router.delete("/:id", (req, res) => {
   db.prepare("DELETE FROM contracts WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
+});
+
+// POST /api/contracts/:id/sign-link — gera o link público para o cliente assinar.
+router.post("/:id/sign-link", (req, res) => {
+  const c = db.prepare("SELECT * FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  const token = makeSignToken(c.id);
+  const base = process.env.PUBLIC_URL || `${req.protocol}://${req.headers.host}`;
+  res.json({ url: `${base}/assinar/${token}`, signed: Boolean(c.signed_at) });
 });
 
 export default router;

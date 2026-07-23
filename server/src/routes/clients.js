@@ -17,24 +17,32 @@ function publicClient(row, servicesByClient) {
 }
 
 function loadServices(clientId) {
-  return db
+  const rows = db
     .prepare(
-      `SELECT cs.service_id, cs.price, s.name
+      `SELECT cs.service_id, cs.price, cs.config, s.name, s.items_schema
        FROM client_services cs JOIN services s ON s.id = cs.service_id
        WHERE cs.client_id = ? ORDER BY s.name`
     )
     .all(clientId);
+  return rows.map((r) => ({
+    ...r,
+    items_schema: r.items_schema ? JSON.parse(r.items_schema) : [],
+    config: r.config ? JSON.parse(r.config) : {},
+  }));
 }
 
 function saveServices(clientId, services, orgId) {
   if (!Array.isArray(services)) return;
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM client_services WHERE client_id = ?").run(clientId);
-    const ins = db.prepare("INSERT OR IGNORE INTO client_services (client_id, service_id, price) VALUES (?, ?, ?)");
+    const ins = db.prepare("INSERT OR IGNORE INTO client_services (client_id, service_id, price, config) VALUES (?, ?, ?, ?)");
     services.forEach((s) => {
       // Só aceita serviços do próprio escritório.
       const owned = db.prepare("SELECT 1 FROM services WHERE id = ? AND org_id = ?").get(s.service_id, orgId);
-      if (owned) ins.run(clientId, s.service_id, Number(s.price) || 0);
+      if (owned) {
+        const config = s.config && typeof s.config === "object" ? JSON.stringify(s.config) : null;
+        ins.run(clientId, s.service_id, Number(s.price) || 0, config);
+      }
     });
   });
   tx();
@@ -74,6 +82,20 @@ function brl(v) {
   return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Monta a lista discriminada de itens configurados para o cliente.
+// Ex: "- 8 posts no feed por mês\n- 4 reels por mês"
+function itemsList(itemsSchema, config) {
+  if (!Array.isArray(itemsSchema) || !itemsSchema.length) return "";
+  return itemsSchema
+    .map((item) => {
+      const qtd = config?.[item.label];
+      if (qtd === undefined || qtd === "" || qtd === null) return null;
+      return `- ${qtd} ${item.label}${item.unit ? ` ${item.unit}` : ""}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 function fillTemplate(template, ctx) {
   return template
     .replaceAll("{{cliente}}", ctx.cliente)
@@ -84,6 +106,7 @@ function fillTemplate(template, ctx) {
     .replaceAll("{{servico}}", ctx.servico)
     .replaceAll("{{valor}}", ctx.valor)
     .replaceAll("{{valor_total}}", ctx.valor_total)
+    .replaceAll("{{itens}}", ctx.itens || "—")
     .replaceAll("{{inicio}}", ctx.inicio)
     .replaceAll("{{fim}}", ctx.fim)
     .replaceAll("{{duracao_meses}}", ctx.duracao_meses)
@@ -93,10 +116,14 @@ function fillTemplate(template, ctx) {
 function generateContract(client, services) {
   if (!services.length) return null;
   const rows = services
-    .map((s) => ({
-      ...s,
-      template: db.prepare("SELECT contract_template FROM services WHERE id = ?").get(s.service_id)?.contract_template,
-    }));
+    .map((s) => {
+      const svc = db.prepare("SELECT contract_template, items_schema FROM services WHERE id = ?").get(s.service_id);
+      return {
+        ...s,
+        template: svc?.contract_template,
+        itemsSchema: svc?.items_schema ? JSON.parse(svc.items_schema) : [],
+      };
+    });
   const total = rows.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
   const duration = monthsBetween(client.work_start, client.work_end);
 
@@ -113,9 +140,15 @@ function generateContract(client, services) {
   };
 
   const body = rows
-    .map((s) =>
-      fillTemplate(s.template || DEFAULT_TEMPLATE, { ...baseCtx, servico: s.name, valor: brl(s.price) })
-    )
+    .map((s) => {
+      const itens = itemsList(s.itemsSchema, s.config);
+      // Sem {{itens}} no modelo mas com itens configurados: acrescenta um bloco.
+      let tpl = s.template || DEFAULT_TEMPLATE;
+      if (itens && !tpl.includes("{{itens}}")) {
+        tpl += "\n\nESCOPO INCLUÍDO:\n{{itens}}";
+      }
+      return fillTemplate(tpl, { ...baseCtx, servico: s.name, valor: brl(s.price), itens });
+    })
     .join("\n\n────────────────────────\n\n");
 
   // 1º vencimento: dia de pagamento no mês do início do trabalho.

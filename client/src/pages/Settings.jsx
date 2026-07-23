@@ -12,10 +12,10 @@ import { PageHeader } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { currency } from "../utils.js";
 
-const EMPTY_SERVICE = { name: "", default_price: "", contract_template: "" };
+const EMPTY_SERVICE = { name: "", default_price: "", contract_template: "", items_schema: [] };
 
 const PLACEHOLDERS =
-  "{{cliente}} {{empresa}} {{segmento}} {{endereco}} {{servico}} {{valor}} {{valor_total}} {{inicio}} {{fim}} {{duracao_meses}} {{dia_pagamento}}";
+  "{{cliente}} {{empresa}} {{segmento}} {{endereco}} {{servico}} {{valor}} {{valor_total}} {{itens}} {{inicio}} {{fim}} {{duracao_meses}} {{dia_pagamento}}";
 
 export default function Settings() {
   const { user } = useAuth();
@@ -43,11 +43,34 @@ export default function Settings() {
   useEffect(() => { load(); loadServices(); }, []);
 
   async function saveService() {
-    const payload = { ...svc, default_price: Number(svc.default_price) || 0 };
+    const payload = {
+      ...svc,
+      default_price: Number(svc.default_price) || 0,
+      items_schema: (svc.items_schema || []).filter((i) => i.label?.trim()),
+    };
     if (svc.id) await api.put(`/services/${svc.id}`, payload);
     else await api.post("/services", payload);
     setSvc(null);
     loadServices();
+  }
+
+  // Itens do serviço (posts, reels, verba...) que viram campos de quantidade.
+  const setItem = (idx, campo, valor) =>
+    setSvc((s) => ({
+      ...s,
+      items_schema: s.items_schema.map((it, i) => (i === idx ? { ...it, [campo]: valor } : it)),
+    }));
+  const addItem = () => setSvc((s) => ({ ...s, items_schema: [...(s.items_schema || []), { label: "", unit: "" }] }));
+  const removeItem = (idx) =>
+    setSvc((s) => ({ ...s, items_schema: s.items_schema.filter((_, i) => i !== idx) }));
+
+  function editarServico(s) {
+    setSvc({
+      ...s,
+      default_price: String(s.default_price),
+      contract_template: s.contract_template || "",
+      items_schema: s.items_schema ? JSON.parse(s.items_schema) : [],
+    });
   }
 
   async function removeService(id) {
@@ -109,7 +132,7 @@ export default function Settings() {
                 <ListItem key={s.id} disableGutters
                   secondaryAction={
                     <Box>
-                      <IconButton size="small" onClick={() => setSvc({ ...s, default_price: String(s.default_price), contract_template: s.contract_template || "" })}>
+                      <IconButton size="small" onClick={() => editarServico(s)}>
                         <EditIcon fontSize="small" />
                       </IconButton>
                       <IconButton size="small" color="error" onClick={() => removeService(s.id)}>
@@ -173,11 +196,34 @@ export default function Settings() {
               <TextField label="Valor padrão (R$/mês)" type="number" value={svc?.default_price || ""} sx={{ minWidth: 180 }}
                 onChange={(e) => setSvc((s) => ({ ...s, default_price: e.target.value }))} />
             </Stack>
+            <Divider>Itens que você configura por cliente</Divider>
+            <Typography variant="body2" color="text.secondary">
+              Ex.: em Gestão, "Posts no feed", "Reels", "Stories"; em Tráfego, "Verba mensal",
+              "Campanhas". Na hora de fechar o contrato você só preenche a quantidade de cada um,
+              e eles saem discriminados no contrato.
+            </Typography>
+            {(svc?.items_schema || []).map((it, idx) => (
+              <Stack key={idx} direction="row" spacing={1} alignItems="center">
+                <TextField size="small" label="Item" value={it.label} fullWidth
+                  placeholder="Ex: Posts no feed"
+                  onChange={(e) => setItem(idx, "label", e.target.value)} />
+                <TextField size="small" label="Unidade" value={it.unit} sx={{ width: 160 }}
+                  placeholder="por mês"
+                  onChange={(e) => setItem(idx, "unit", e.target.value)} />
+                <IconButton size="small" color="error" onClick={() => removeItem(idx)}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+            ))}
+            <Box>
+              <Button size="small" startIcon={<AddIcon />} onClick={addItem}>Adicionar item</Button>
+            </Box>
+
             <TextField
-              label="Modelo de contrato" multiline rows={12} fullWidth
+              label="Modelo de contrato" multiline rows={10} fullWidth
               value={svc?.contract_template || ""}
               onChange={(e) => setSvc((s) => ({ ...s, contract_template: e.target.value }))}
-              placeholder={"Deixe vazio para usar o modelo padrão.\n\nEscreva o contrato e use os campos automáticos onde quiser."}
+              placeholder={"Deixe vazio para usar o modelo padrão.\n\nUse {{itens}} onde quiser a lista discriminada."}
               helperText={`Campos automáticos: ${PLACEHOLDERS}`}
             />
           </Stack>
