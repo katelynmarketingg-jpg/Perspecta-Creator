@@ -12,6 +12,7 @@ import DashboardIcon from "@mui/icons-material/Dashboard";
 import PeopleIcon from "@mui/icons-material/People";
 import FolderIcon from "@mui/icons-material/Folder";
 import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
+import ChecklistRtlIcon from "@mui/icons-material/ChecklistRtl";
 import PaidIcon from "@mui/icons-material/Paid";
 import DescriptionIcon from "@mui/icons-material/Description";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
@@ -47,6 +48,7 @@ const NAV = [
   { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
   { to: "/projects", label: "Projetos", icon: <FolderIcon /> },
   { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },
+  { to: "/deliveries", label: "Entregas", icon: <ChecklistRtlIcon /> },
   { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
   { to: "/contracts", label: "Contratos", icon: <DescriptionIcon /> },
   { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },

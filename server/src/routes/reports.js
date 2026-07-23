@@ -137,6 +137,53 @@ router.get("/planned-vs-delivered", (req, res) => {
   }));
 });
 
+// GET /api/reports/deliveries?month=YYYY-MM — quanto falta de cada cliente.
+// "Planejado" vem do plano configurável (plan_items); se não houver, dos
+// campos antigos posts/vídeos do cliente.
+router.get("/deliveries", (req, res) => {
+  const month = req.query.month || new Date().toISOString().slice(0, 7);
+  const org = req.orgId;
+
+  const clientes = db.prepare(`
+    SELECT c.id, c.name FROM clients c WHERE c.org_id = ? AND c.status = 'active' ORDER BY c.name
+  `).all(org);
+
+  const out = clientes.map((c) => {
+    // Planejado: soma das linhas do plano dos projetos do cliente.
+    const planned = db.prepare(`
+      SELECT COALESCE(SUM(pi.quantity), 0) AS n
+      FROM plan_items pi JOIN projects p ON p.id = pi.project_id
+      WHERE p.client_id = ? AND pi.org_id = ?
+    `).get(c.id, org).n
+      || (db.prepare("SELECT COALESCE(posts_per_month,0)+COALESCE(videos_per_month,0) AS n FROM clients WHERE id = ?").get(c.id).n);
+
+    // Entregue: tarefas do cliente programadas para o mês.
+    const total = db.prepare(`
+      SELECT COUNT(*) AS n FROM tasks
+      WHERE client_id = ? AND org_id = ? AND strftime('%Y-%m', scheduled_at) = ?
+    `).get(c.id, org, month).n;
+    const concluidas = db.prepare(`
+      SELECT COUNT(*) AS n FROM tasks
+      WHERE client_id = ? AND org_id = ? AND strftime('%Y-%m', scheduled_at) = ? AND completed_at IS NOT NULL
+    `).get(c.id, org, month).n;
+    const emProducao = db.prepare(`
+      SELECT COUNT(*) AS n FROM tasks
+      WHERE client_id = ? AND org_id = ? AND completed_at IS NULL
+        AND (strftime('%Y-%m', scheduled_at) = ? OR strftime('%Y-%m', due_date) = ?)
+    `).get(c.id, org, month, month).n;
+
+    const base = planned || total || 0;
+    return {
+      id: c.id, client_name: c.name,
+      planejado: planned, programadas: total, concluidas, em_producao: emProducao,
+      percentual: base ? Math.min(100, Math.round((concluidas / base) * 100)) : 0,
+      falta: Math.max(base - concluidas, 0),
+    };
+  }).filter((r) => r.planejado > 0 || r.programadas > 0);
+
+  res.json(out);
+});
+
 // GET /api/reports/billing-by-client
 router.get("/billing-by-client", (req, res) => {
   res.json(db.prepare(`

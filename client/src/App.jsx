@@ -23,6 +23,7 @@ import NotFound from "./pages/NotFound.jsx";
 import Organizations from "./pages/Organizations.jsx";
 import Integrations from "./pages/Integrations.jsx";
 import Prospects from "./pages/Prospects.jsx";
+import Deliveries from "./pages/Deliveries.jsx";
 import PortalLogin from "./pages/PortalLogin.jsx";
 import Portal from "./pages/Portal.jsx";
 import SignContract from "./pages/SignContract.jsx";
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="/clients" element={<Clients />} />
         <Route path="/prospects" element={<Prospects />} />
         <Route path="/projects" element={<Projects />} />
+        <Route path="/deliveries" element={<Deliveries />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/financial" element={<Financial />} />
         <Route path="/contracts" element={<Contracts />} />
