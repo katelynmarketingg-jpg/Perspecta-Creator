@@ -58,6 +58,47 @@ router.delete("/:id", (req, res) => {
 const MONTH_NAMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
+// ---- Plano mensal configurável (linhas: tipo, quantidade, responsável) ----
+router.get("/:id/plan", (req, res) => {
+  const project = db.prepare("SELECT id FROM projects WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!project) return res.status(404).json({ error: "Projeto não encontrado." });
+  res.json(
+    db.prepare(
+      `SELECT pi.*, u.name AS assignee_name
+       FROM plan_items pi LEFT JOIN users u ON u.id = pi.assignee_id
+       WHERE pi.project_id = ? ORDER BY pi.position, pi.id`
+    ).all(req.params.id)
+  );
+});
+
+router.put("/:id/plan", (req, res) => {
+  const project = db.prepare("SELECT id FROM projects WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!project) return res.status(404).json({ error: "Projeto não encontrado." });
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  const ins = db.prepare(
+    `INSERT INTO plan_items (org_id, project_id, content_type, label, quantity, assignee_id, position)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM plan_items WHERE project_id = ?").run(req.params.id);
+    items.forEach((it, i) => {
+      ins.run(req.orgId, req.params.id, it.content_type || "post", it.label ?? null,
+        Math.max(Number(it.quantity) || 1, 1), it.assignee_id || null, i);
+    });
+  });
+  tx();
+  res.json({ ok: true, count: items.length });
+});
+
+// Descobre quem produz um tipo de conteúdo (função) quando a linha não fixa alguém.
+function assigneeByDuty(orgId, contentType) {
+  const u = db.prepare(
+    `SELECT id FROM users WHERE org_id = ? AND active = 1
+     AND duties LIKE ? ORDER BY id LIMIT 1`
+  ).get(orgId, `%"${contentType}"%`);
+  return u?.id ?? null;
+}
+
 // POST /api/projects/:id/launch — lança o mês: cria todas as tarefas do plano
 // (posts + vídeos) para o colaborador escolhido. Base reutilizável mês a mês.
 router.post("/:id/launch", (req, res) => {
@@ -69,9 +110,24 @@ router.post("/:id/launch", (req, res) => {
   const [year, m] = month.split("-").map(Number);
   const monthLabel = `${MONTH_NAMES[m - 1]}/${year}`;
 
-  const posts = Number(project.monthly_posts) || 0;
-  const videos = Number(project.monthly_videos) || 0;
-  if (!posts && !videos) {
+  // Prioriza o plano configurável; se não houver, cai no antigo posts/vídeos.
+  const planItems = db.prepare("SELECT * FROM plan_items WHERE project_id = ? ORDER BY position, id").all(project.id);
+  const CONTENT_LABEL = { post: "Post", reel: "Reel", foto: "Foto", stories: "Stories", outro: "Conteúdo" };
+
+  let linhas = planItems.map((it) => ({
+    content_type: it.content_type,
+    label: it.label || CONTENT_LABEL[it.content_type] || "Conteúdo",
+    quantity: it.quantity,
+    assignee_id: it.assignee_id,
+  }));
+
+  if (!linhas.length) {
+    const posts = Number(project.monthly_posts) || 0;
+    const videos = Number(project.monthly_videos) || 0;
+    if (posts) linhas.push({ content_type: "post", label: "Post", quantity: posts, assignee_id: null });
+    if (videos) linhas.push({ content_type: "reel", label: "Vídeo", quantity: videos, assignee_id: null });
+  }
+  if (!linhas.length) {
     return res.status(400).json({ error: "Este projeto não tem plano mensal definido." });
   }
 
@@ -84,26 +140,42 @@ router.post("/:id/launch", (req, res) => {
      VALUES (?, ?, ?, ?, ?, 'medium', ?, ?, ?, ?)`
   );
 
+  // Notifica cada colaborador quantas tarefas caíram para ele.
+  const porPessoa = {};
+  let total = 0;
+
   const tx = db.transaction(() => {
-    for (let i = 1; i <= posts; i++) {
-      ins.run(`Post ${i}/${posts} — ${project.client_name || project.name} (${monthLabel})`,
-        project.client_id, project.id, assignee_id ?? null, firstStage, "post",
-        JSON.stringify([monthLabel]), dueDate, req.orgId);
-    }
-    for (let i = 1; i <= videos; i++) {
-      ins.run(`Vídeo ${i}/${videos} — ${project.client_name || project.name} (${monthLabel})`,
-        project.client_id, project.id, assignee_id ?? null, firstStage, "reel",
-        JSON.stringify([monthLabel]), dueDate, req.orgId);
-    }
+    linhas.forEach((linha) => {
+      // Quem faz: a pessoa fixada na linha, ou o override do diálogo, ou por função.
+      const quem = linha.assignee_id || assignee_id || assigneeByDuty(req.orgId, linha.content_type);
+      for (let i = 1; i <= linha.quantity; i++) {
+        ins.run(
+          `${linha.label} ${i}/${linha.quantity} — ${project.client_name || project.name} (${monthLabel})`,
+          project.client_id, project.id, quem ?? null, firstStage, linha.content_type,
+          JSON.stringify([monthLabel]), dueDate, req.orgId
+        );
+        total++;
+        if (quem) porPessoa[quem] = (porPessoa[quem] || 0) + 1;
+      }
+    });
+    // Aviso geral para a agência.
     db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)").run(
       project.client_id,
-      `📦 ${posts + videos} tarefas de ${project.client_name || project.name} lançadas para ${monthLabel}.`,
+      `📦 ${total} tarefas de ${project.client_name || project.name} lançadas para ${monthLabel}.`,
       req.orgId
     );
+    // Aviso individual para cada responsável.
+    Object.entries(porPessoa).forEach(([uid, qtd]) => {
+      db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)").run(
+        project.client_id,
+        `👤 ${qtd} tarefa(s) de ${project.client_name || project.name} atribuídas a você (${monthLabel}).`,
+        req.orgId
+      );
+    });
   });
   tx();
 
-  res.json({ created: posts + videos, month: monthLabel });
+  res.json({ created: total, month: monthLabel });
 });
 
 export default router;

@@ -8,9 +8,12 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
+import TuneIcon from "@mui/icons-material/Tune";
 import api from "../api/client.js";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
-import { formatDate } from "../utils.js";
+import { formatDate, CONTENT_TYPES } from "../utils.js";
+
+const LINHA_VAZIA = { content_type: "post", label: "", quantity: 1, assignee_id: "" };
 
 const EMPTY = { name: "", client_id: "", description: "", status: "active", start_date: "", end_date: "" };
 
@@ -23,6 +26,32 @@ export default function Projects() {
   // Lançamento do mês: cria as tarefas do plano de uma vez.
   const [launch, setLaunch] = useState(null); // { project, month, assignee_id }
   const [launched, setLaunched] = useState("");
+  // Plano mensal configurável.
+  const [plan, setPlan] = useState(null); // { project, items: [] }
+
+  async function openPlan(project) {
+    const { data } = await api.get(`/projects/${project.id}/plan`);
+    setPlan({
+      project,
+      items: data.map((i) => ({ ...i, assignee_id: i.assignee_id || "" })),
+    });
+  }
+
+  async function savePlan() {
+    await api.put(`/projects/${plan.project.id}/plan`, {
+      items: plan.items
+        .filter((i) => i.content_type)
+        .map((i) => ({ ...i, assignee_id: i.assignee_id || null, quantity: Number(i.quantity) || 1 })),
+    });
+    setPlan(null);
+    setLaunched("Plano salvo. Agora é só 'Lançar mês' todo mês.");
+    setTimeout(() => setLaunched(""), 5000);
+  }
+
+  const setLinha = (idx, campo, valor) =>
+    setPlan((p) => ({ ...p, items: p.items.map((it, i) => (i === idx ? { ...it, [campo]: valor } : it)) }));
+  const addLinha = () => setPlan((p) => ({ ...p, items: [...p.items, { ...LINHA_VAZIA }] }));
+  const rmLinha = (idx) => setPlan((p) => ({ ...p, items: p.items.filter((_, i) => i !== idx) }));
 
   const load = () => api.get("/projects").then((r) => setRows(r.data));
   useEffect(() => {
@@ -85,20 +114,20 @@ export default function Projects() {
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
                     {formatDate(p.start_date)} → {formatDate(p.end_date)}
                   </Typography>
-                  {(p.monthly_posts > 0 || p.monthly_videos > 0) && (
-                    <>
-                      <Stack direction="row" spacing={0.5} sx={{ mt: 1.5, flexWrap: "wrap", gap: 0.5 }}>
-                        {p.monthly_posts > 0 && <Chip size="small" variant="outlined" label={`🖼️ ${p.monthly_posts} posts/mês`} />}
-                        {p.monthly_videos > 0 && <Chip size="small" variant="outlined" label={`🎬 ${p.monthly_videos} vídeos/mês`} />}
-                      </Stack>
-                      <Button
-                        fullWidth variant="contained" size="small" startIcon={<RocketLaunchIcon />} sx={{ mt: 1.5 }}
-                        onClick={() => setLaunch({ project: p, month: new Date().toISOString().slice(0, 7), assignee_id: "" })}
-                      >
-                        Lançar mês
-                      </Button>
-                    </>
-                  )}
+                  <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                    <Button
+                      fullWidth variant="outlined" size="small" startIcon={<TuneIcon />}
+                      onClick={() => openPlan(p)}
+                    >
+                      Plano mensal
+                    </Button>
+                    <Button
+                      fullWidth variant="contained" size="small" startIcon={<RocketLaunchIcon />}
+                      onClick={() => setLaunch({ project: p, month: new Date().toISOString().slice(0, 7), assignee_id: "" })}
+                    >
+                      Lançar mês
+                    </Button>
+                  </Stack>
                 </CardContent>
               </Card>
             </Grid>
@@ -133,6 +162,52 @@ export default function Projects() {
       </Dialog>
 
       {/* Lançar mês: cria todas as tarefas do plano de uma vez */}
+      {/* Plano mensal: monta uma vez, lança todo mês com um clique */}
+      <Dialog open={Boolean(plan)} onClose={() => setPlan(null)} fullWidth maxWidth="md">
+        <DialogTitle>Plano mensal — {plan?.project?.client_name || plan?.project?.name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Configure o que entra todo mês: o tipo, um nome, quantas peças e para quem vão.
+            Deixe o responsável em "Por função" para ir automático para quem produz aquele tipo.
+          </Typography>
+          <Stack spacing={1.5}>
+            {(plan?.items || []).map((linha, idx) => (
+              <Stack key={idx} direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                <TextField select size="small" label="Tipo" value={linha.content_type} sx={{ minWidth: 130 }}
+                  onChange={(e) => setLinha(idx, "content_type", e.target.value)}>
+                  {Object.entries(CONTENT_TYPES).map(([k, v]) => (
+                    <MenuItem key={k} value={k}>{v.emoji} {v.label}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField size="small" label="Nome (opcional)" value={linha.label || ""} sx={{ flex: 1 }}
+                  placeholder="Ex: Post institucional"
+                  onChange={(e) => setLinha(idx, "label", e.target.value)} />
+                <TextField size="small" type="number" label="Qtde" value={linha.quantity} sx={{ width: 80 }}
+                  onChange={(e) => setLinha(idx, "quantity", e.target.value)} />
+                <TextField select size="small" label="Responsável" value={linha.assignee_id || ""} sx={{ minWidth: 160 }}
+                  onChange={(e) => setLinha(idx, "assignee_id", e.target.value)}>
+                  <MenuItem value="">Por função</MenuItem>
+                  {team.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+                </TextField>
+                <IconButton size="small" color="error" onClick={() => rmLinha(idx)}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+            ))}
+            {(plan?.items || []).length === 0 && (
+              <Typography variant="body2" color="text.secondary">Nenhuma linha. Adicione abaixo.</Typography>
+            )}
+            <Box>
+              <Button size="small" startIcon={<AddIcon />} onClick={addLinha}>Adicionar linha</Button>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPlan(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={savePlan}>Salvar plano</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={Boolean(launch)} onClose={() => setLaunch(null)} fullWidth maxWidth="xs">
         <DialogTitle>Lançar mês — {launch?.project?.client_name || launch?.project?.name}</DialogTitle>
         <DialogContent>

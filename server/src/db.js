@@ -287,6 +287,20 @@ ensureColumn("files", "keep_forever", "keep_forever INTEGER NOT NULL DEFAULT 0")
 ensureColumn("files", "expiry_notified_at", "expiry_notified_at TEXT");
 
 db.exec(`
+-- Plano mensal configurável: cada linha diz o que produzir, quantas e para quem.
+-- Monta uma vez; todo mês é só clicar "Lançar" que já cria tudo roteado.
+CREATE TABLE IF NOT EXISTS plan_items (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id       INTEGER NOT NULL,
+  project_id   INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL DEFAULT 'post',   -- post|reel|foto|stories|outro
+  label        TEXT,                            -- ex: "Post institucional"
+  quantity     INTEGER NOT NULL DEFAULT 1,
+  assignee_id  INTEGER REFERENCES users(id) ON DELETE SET NULL, -- vazio = por função
+  position     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_planitems_project ON plan_items(project_id);
+
 -- Conversa por post: legenda fica fixa, os comentários vêm abaixo.
 CREATE TABLE IF NOT EXISTS task_comments (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -364,6 +378,7 @@ export const TENANT_TABLES = [
   "users", "clients", "projects", "tasks", "kanban_stages", "financial_entries",
   "contracts", "goals", "events", "event_types", "services", "workspace_items",
   "folders", "files", "notifications", "task_comments", "time_entries", "prospects",
+  "plan_items",
 ];
 TENANT_TABLES.forEach((t) => ensureColumn(t, "org_id", "org_id INTEGER"));
 
