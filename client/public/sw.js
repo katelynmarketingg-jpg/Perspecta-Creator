@@ -1,8 +1,10 @@
 // Service worker mínimo: deixa o app instalável e responde offline com uma
 // mensagem clara em vez de erro do navegador. Nada de cachear a API — dados
 // desatualizados numa ferramenta de trabalho confundem mais do que ajudam.
-const CACHE = "perspecta-v1";
-const SHELL = ["/", "/manifest.webmanifest"];
+const CACHE = "perspecta-v2";
+// Não pré-cacheamos o index.html: ele muda a cada publicação e precisa vir
+// sempre da rede, senão o app abre uma versão velha.
+const SHELL = ["/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -23,13 +25,13 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return; // API sempre da rede
 
-  // Navegação: rede primeiro, com a casca em cache como rede de segurança.
+  // Navegação: sempre da rede (para pegar a versão nova). Offline mostra aviso.
   if (request.mode === "navigate") {
     e.respondWith(
-      fetch(request).catch(() => caches.match("/").then((r) => r || new Response(
+      fetch(request).catch(() => new Response(
         "<h1>Sem conexão</h1><p>Reconecte para continuar.</p>",
         { headers: { "Content-Type": "text/html; charset=utf-8" } }
-      )))
+      ))
     );
     return;
   }
