@@ -264,6 +264,11 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // Login por nome de usuário (em vez de e-mail).
 ensureColumn("users", "username", "username TEXT");
 
+// Marca do escritório: logo da barra superior e favicon (guardados como
+// data URI — carregam sem depender de rede nem de login).
+ensureColumn("organizations", "logo", "logo TEXT");
+ensureColumn("organizations", "favicon", "favicon TEXT");
+
 // Assinatura de cada agência com o Perspecta Media: plano, teste e cobrança.
 ensureColumn("organizations", "plan_id", "plan_id INTEGER");
 ensureColumn("organizations", "trial_ends", "trial_ends TEXT");   // fim do teste grátis

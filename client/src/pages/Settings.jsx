@@ -17,9 +17,22 @@ const EMPTY_SERVICE = { name: "", default_price: "", contract_template: "", item
 const PLACEHOLDERS =
   "{{cliente}} {{empresa}} {{segmento}} {{endereco}} {{servico}} {{valor}} {{valor_total}} {{itens}} {{inicio}} {{fim}} {{duracao_meses}} {{dia_pagamento}}";
 
+// Lê um arquivo de imagem como data URI (para guardar a marca no banco).
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [stages, setStages] = useState([]);
+  const [branding, setBranding] = useState({ logo: null, favicon: null });
+  const [brandMsg, setBrandMsg] = useState(null);
+  const [brandSaving, setBrandSaving] = useState(false);
   const [name, setName] = useState("");
   const [isDone, setIsDone] = useState(false);
   const [services, setServices] = useState([]);
@@ -40,7 +53,42 @@ export default function Settings() {
 
   const load = () => api.get("/tasks/stages").then((r) => setStages(r.data));
   const loadServices = () => api.get("/services").then((r) => setServices(r.data));
-  useEffect(() => { load(); loadServices(); }, []);
+  const loadBranding = () => api.get("/branding").then((r) => setBranding({ logo: r.data?.logo || null, favicon: r.data?.favicon || null }));
+  useEffect(() => { load(); loadServices(); loadBranding(); }, []);
+
+  // Escolhe um arquivo de logo/favicon e já mostra a prévia (salva só ao clicar).
+  async function pickBrand(campo, file) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setBrandMsg({ tipo: "error", texto: "Selecione um arquivo de imagem (PNG, JPG, SVG...)." });
+      return;
+    }
+    if (file.size > 500 * 1024) {
+      setBrandMsg({ tipo: "error", texto: "Imagem grande demais. Use uma até 500 KB." });
+      return;
+    }
+    const dataUrl = await fileToDataUrl(file);
+    setBranding((b) => ({ ...b, [campo]: dataUrl }));
+    setBrandMsg(null);
+  }
+
+  async function saveBranding() {
+    setBrandSaving(true);
+    try {
+      await api.put("/branding", branding);
+      // Atualiza o favicon da aba na hora.
+      if (branding.favicon) {
+        let link = document.querySelector("link[rel~='icon']");
+        if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+        link.href = branding.favicon;
+      }
+      setBrandMsg({ tipo: "success", texto: "Marca salva! A logo aparece na barra do topo (recarregue se precisar)." });
+    } catch (err) {
+      setBrandMsg({ tipo: "error", texto: err.response?.data?.error || "Não foi possível salvar a marca." });
+    }
+    setBrandSaving(false);
+    setTimeout(() => setBrandMsg(null), 6000);
+  }
 
   async function saveService() {
     const payload = {
@@ -96,6 +144,75 @@ export default function Settings() {
       <PageHeader title="Configurações" subtitle="Preferências do sistema" />
 
       <Stack spacing={2.5} sx={{ maxWidth: 620 }}>
+        {isAdmin && (
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 0.5 }}>Marca (logo e favicon)</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                A logo aparece na barra do topo. O favicon é o ícone da aba do navegador.
+                Use PNG ou SVG com fundo transparente (até 500 KB).
+              </Typography>
+              {brandMsg && <Alert severity={brandMsg.tipo} sx={{ mb: 2 }}>{brandMsg.texto}</Alert>}
+
+              <Stack spacing={2.5}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Logo da barra superior</Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+                    <Box sx={{
+                      height: 48, minWidth: 120, px: 2, borderRadius: 2, border: "1px dashed",
+                      borderColor: "divider", bgcolor: "action.hover", display: "grid", placeItems: "center",
+                    }}>
+                      {branding.logo
+                        ? <Box component="img" src={branding.logo} alt="Logo" sx={{ height: 36, maxWidth: 200, objectFit: "contain" }} />
+                        : <Typography variant="caption" color="text.secondary">sem logo</Typography>}
+                    </Box>
+                    <Button variant="outlined" component="label" size="small">
+                      Escolher logo
+                      <input hidden type="file" accept="image/*"
+                        onChange={(e) => pickBrand("logo", e.target.files?.[0])} />
+                    </Button>
+                    {branding.logo && (
+                      <Button size="small" color="error" onClick={() => setBranding((b) => ({ ...b, logo: null }))}>
+                        Remover
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Favicon (ícone da aba)</Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+                    <Box sx={{
+                      width: 48, height: 48, borderRadius: 2, border: "1px dashed",
+                      borderColor: "divider", bgcolor: "action.hover", display: "grid", placeItems: "center",
+                    }}>
+                      {branding.favicon
+                        ? <Box component="img" src={branding.favicon} alt="Favicon" sx={{ width: 32, height: 32, objectFit: "contain" }} />
+                        : <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>vazio</Typography>}
+                    </Box>
+                    <Button variant="outlined" component="label" size="small">
+                      Escolher favicon
+                      <input hidden type="file" accept="image/*"
+                        onChange={(e) => pickBrand("favicon", e.target.files?.[0])} />
+                    </Button>
+                    {branding.favicon && (
+                      <Button size="small" color="error" onClick={() => setBranding((b) => ({ ...b, favicon: null }))}>
+                        Remover
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+
+                <Box>
+                  <Button variant="contained" onClick={saveBranding} disabled={brandSaving}>
+                    {brandSaving ? "Salvando..." : "Salvar marca"}
+                  </Button>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardContent>
             <Typography variant="h6" sx={{ mb: 0.5 }}>Etapas do Kanban</Typography>

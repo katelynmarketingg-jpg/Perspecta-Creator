@@ -69,6 +69,20 @@ export default function Layout() {
   const [anchor, setAnchor] = useState(null);
   const [notifAnchor, setNotifAnchor] = useState(null);
   const [notifs, setNotifs] = useState([]);
+  const [branding, setBranding] = useState(null);
+
+  // Marca do escritório: logo na barra e favicon da aba do navegador.
+  // Recarrega quando o master entra/sai de um escritório (branding é por org).
+  useEffect(() => {
+    api.get("/branding").then((r) => {
+      setBranding(r.data);
+      if (r.data?.favicon) {
+        let link = document.querySelector("link[rel~='icon']");
+        if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+        link.href = r.data.favicon;
+      }
+    }).catch(() => {});
+  }, [viewingOrg?.id]);
 
   // Notificações do portal (aprovações e pedidos de ajuste dos clientes).
   useEffect(() => {
@@ -177,6 +191,14 @@ export default function Layout() {
           <IconButton edge="start" sx={{ mr: 1, display: { md: "none" } }} onClick={() => setMobileOpen(true)}>
             <MenuIcon />
           </IconButton>
+          {branding?.logo && (
+            <Box
+              component="img"
+              src={branding.logo}
+              alt={branding?.name || "Logo"}
+              sx={{ height: 34, maxWidth: 180, objectFit: "contain", mr: 1.5, display: "block" }}
+            />
+          )}
           {viewingOrg && (
             <Button size="small" startIcon={<ArrowBackIcon />}
               onClick={() => { leaveOrg(); navigate("/organizations"); }}

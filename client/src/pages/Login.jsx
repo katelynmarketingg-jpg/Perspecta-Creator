@@ -1,14 +1,27 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Box, Card, CardContent, TextField, Button, Typography, Alert, Stack,
+  Box, Card, CardContent, TextField, Button, Typography, Alert, Stack, Avatar, Link,
 } from "@mui/material";
 import { useAuth } from "../auth/AuthContext.jsx";
+
+// Guarda o último acesso deste aparelho: empresa + pessoa (nunca a senha).
+const REMEMBER_KEY = "perspecta_last_login";
+function loadRemembered() {
+  try { return JSON.parse(localStorage.getItem(REMEMBER_KEY) || "null"); } catch { return null; }
+}
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ organization: "", username: "", password: "" });
+  const remembered = loadRemembered();
+  const [form, setForm] = useState({
+    organization: remembered?.organization || "",
+    username: remembered?.username || "",
+    password: "",
+  });
+  // Modo "bem-vindo de volta": só pede a senha quando já há um acesso salvo.
+  const [quick, setQuick] = useState(Boolean(remembered));
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -20,12 +33,24 @@ export default function Login() {
     setLoading(true);
     try {
       const user = await login(form.organization, form.username, form.password);
+      // Salva empresa + pessoa para o próximo acesso (sem a senha).
+      localStorage.setItem(REMEMBER_KEY, JSON.stringify({
+        organization: form.organization,
+        username: form.username,
+      }));
       navigate(user.role === "superadmin" ? "/organizations" : "/");
     } catch (err) {
       setError(err.response?.data?.error || "Não foi possível entrar.");
     } finally {
       setLoading(false);
     }
+  }
+
+  function trocarConta() {
+    localStorage.removeItem(REMEMBER_KEY);
+    setForm({ organization: "", username: "", password: "" });
+    setQuick(false);
+    setError("");
   }
 
   return (
@@ -47,7 +72,7 @@ export default function Login() {
             </Box>
             <Typography variant="h6">Perspecta Media</Typography>
             <Typography variant="body2" color="text.secondary" align="center">
-              Entre com o seu escritório, nome e senha
+              {quick ? "Confirme a sua senha para entrar" : "Entre com o seu escritório, nome e senha"}
             </Typography>
           </Stack>
 
@@ -55,15 +80,37 @@ export default function Login() {
 
           <form onSubmit={submit}>
             <Stack spacing={2}>
-              <TextField label="Escritório" value={form.organization} onChange={set("organization")}
-                fullWidth required autoFocus placeholder="Perspectiva" />
-              <TextField label="Nome" value={form.username} onChange={set("username")}
-                fullWidth required placeholder="Katy" />
+              {quick ? (
+                // Já sabemos empresa e pessoa: mostra quem está entrando e pede só a senha.
+                <Stack direction="row" spacing={1.5} alignItems="center"
+                  sx={{ p: 1.5, borderRadius: 2, bgcolor: "action.hover" }}>
+                  <Avatar sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+                    {(form.username || "?").slice(0, 1).toUpperCase()}
+                  </Avatar>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1.2 }}>{form.username}</Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap>{form.organization}</Typography>
+                  </Box>
+                </Stack>
+              ) : (
+                <>
+                  <TextField label="Escritório" value={form.organization} onChange={set("organization")}
+                    fullWidth required autoFocus placeholder="Perspectiva" />
+                  <TextField label="Nome" value={form.username} onChange={set("username")}
+                    fullWidth required placeholder="Katy" />
+                </>
+              )}
               <TextField label="Senha" type="password" value={form.password} onChange={set("password")}
-                fullWidth required />
+                fullWidth required autoFocus={quick} />
               <Button type="submit" variant="contained" size="large" disabled={loading}>
                 {loading ? "Aguarde..." : "Entrar"}
               </Button>
+              {quick && (
+                <Link component="button" type="button" underline="hover" onClick={trocarConta}
+                  sx={{ alignSelf: "center", fontSize: 13 }}>
+                  Entrar com outra conta
+                </Link>
+              )}
             </Stack>
           </form>
 
