@@ -35,7 +35,8 @@ export default function Tasks() {
   const [clientFiles, setClientFiles] = useState([]);
   const [attachments, setAttachments] = useState([]);
   const [filterClient, setFilterClient] = useState("");
-  const [filterAssignee, setFilterAssignee] = useState("");
+  // Abre mostrando as tarefas de quem está logado; dá para trocar no topo.
+  const [filterAssignee, setFilterAssignee] = useState("__me");
   const [search, setSearch] = useState("");
   const [apontamentos, setApontamentos] = useState([]);
   const [novoTempo, setNovoTempo] = useState({ minutes: "", note: "" });
