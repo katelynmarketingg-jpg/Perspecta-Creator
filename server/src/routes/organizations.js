@@ -2,6 +2,7 @@ import { Router } from "express";
 import { unlinkSync } from "node:fs";
 import { db, TENANT_TABLES } from "../db.js";
 import { authRequired, superadminRequired, hashPassword } from "../auth.js";
+import { getBilling, asaas } from "./billing.js";
 
 const router = Router();
 router.use(authRequired, superadminRequired);
@@ -128,6 +129,51 @@ router.put("/:id", (req, res) => {
     req.params.id
   );
   res.json(db.prepare("SELECT * FROM organizations WHERE id = ?").get(req.params.id));
+});
+
+// GET /api/organizations/billing-config — o master tem chave Asaas ligada?
+router.get("/billing-config", (req, res) => {
+  res.json({ configured: getBilling(req.user.org_id).configured });
+});
+
+// POST /api/organizations/:id/charge — cria a assinatura da AGÊNCIA no plano.
+// Usa a chave Asaas do Perspecta Media (master) e devolve o link para a
+// agência cadastrar o cartão. Todo mês o Asaas cobra o valor do plano.
+router.post("/:id/charge", async (req, res) => {
+  const org = db.prepare(`
+    SELECT o.*, p.name AS plan_name, p.price AS plan_price
+    FROM organizations o LEFT JOIN saas_plans p ON p.id = o.plan_id
+    WHERE o.id = ? AND o.is_master = 0
+  `).get(req.params.id);
+  if (!org) return res.status(404).json({ error: "Escritório não encontrado." });
+  if (!org.plan_id || !org.plan_price) return res.status(400).json({ error: "Defina um plano para esta agência antes de cobrar." });
+
+  const masterOrg = req.user.org_id; // a chave Asaas é a do Perspecta Media
+  try {
+    let customerId = org.asaas_customer_id;
+    if (!customerId) {
+      const created = await asaas(masterOrg, "/customers", {
+        method: "POST",
+        body: { name: org.name, phone: (org.whatsapp || "").replace(/\D/g, "") || undefined },
+      });
+      customerId = created.id;
+      db.prepare("UPDATE organizations SET asaas_customer_id = ? WHERE id = ?").run(customerId, org.id);
+    }
+    const venc = new Date(); venc.setDate(venc.getDate() + 7);
+    const sub = await asaas(masterOrg, "/subscriptions", {
+      method: "POST",
+      body: {
+        customer: customerId, billingType: "CREDIT_CARD", cycle: "MONTHLY",
+        value: org.plan_price, nextDueDate: venc.toISOString().slice(0, 10),
+        description: `Perspecta Creator — plano ${org.plan_name}`,
+      },
+    });
+    db.prepare("UPDATE organizations SET asaas_subscription_id = ? WHERE id = ?").run(sub.id, org.id);
+    res.json({ ok: true, invoice_url: sub.invoiceUrl || null });
+  } catch (e) {
+    if (e.code === "NO_KEY") return res.status(400).json({ error: "Configure a chave Asaas do Perspecta Media em Integrações.", needs_key: true });
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // POST /api/organizations/:id/extend-trial — estende o teste em N dias.

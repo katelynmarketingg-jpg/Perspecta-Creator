@@ -9,13 +9,13 @@ function asaasBase(env) {
   return env === "sandbox" ? "https://sandbox.asaas.com/api/v3" : "https://api.asaas.com/v3";
 }
 
-function getBilling(orgId) {
+export function getBilling(orgId) {
   const row = db.prepare("SELECT * FROM org_billing WHERE org_id = ?").get(orgId);
   if (!row) return { configured: false, environment: "production" };
   return { configured: Boolean(row.api_key), environment: row.environment, _key: decrypt(row.api_key) };
 }
 
-async function asaas(orgId, path, { method = "GET", body } = {}) {
+export async function asaas(orgId, path, { method = "GET", body } = {}) {
   const cfg = getBilling(orgId);
   if (!cfg.configured) {
     const e = new Error("A cobrança automática (Asaas) ainda não foi configurada.");
@@ -40,6 +40,12 @@ billingWebhook.post("/asaas", (req, res) => {
   const pay = evt.payment;
   // Quando um pagamento é confirmado, marca a mensalidade como paga.
   if (pay && ["PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"].includes(evt.event)) {
+    // 1) É o pagamento de uma AGÊNCIA ao Perspecta Media (plano)?
+    const org = db.prepare("SELECT id FROM organizations WHERE asaas_customer_id = ?").get(pay.customer);
+    if (org) {
+      db.prepare("UPDATE organizations SET billing_active = 1 WHERE id = ?").run(org.id);
+    }
+    // 2) Ou o pagamento de um CLIENTE a uma agência?
     const client = db.prepare("SELECT id, org_id FROM clients WHERE asaas_customer_id = ?").get(pay.customer);
     if (client) {
       // Marca a mensalidade em aberto mais antiga como paga.

@@ -269,6 +269,7 @@ ensureColumn("organizations", "plan_id", "plan_id INTEGER");
 ensureColumn("organizations", "trial_ends", "trial_ends TEXT");   // fim do teste grátis
 ensureColumn("organizations", "billing_active", "billing_active INTEGER NOT NULL DEFAULT 0"); // já paga
 ensureColumn("organizations", "whatsapp", "whatsapp TEXT");       // contato para confirmar
+ensureColumn("organizations", "asaas_customer_id", "asaas_customer_id TEXT");
 ensureColumn("organizations", "asaas_subscription_id", "asaas_subscription_id TEXT");
 // Todo escritório novo ganha 30 dias de teste a partir da criação.
 db.prepare(

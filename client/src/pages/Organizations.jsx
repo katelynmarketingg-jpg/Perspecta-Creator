@@ -73,6 +73,21 @@ export default function Organizations() {
     load();
   }
 
+  async function cobrarPlano(org) {
+    try {
+      const { data } = await api.post(`/organizations/${org.id}/charge`);
+      if (data.invoice_url && org.whatsapp) {
+        window.open(`https://wa.me/${org.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(`Para ativar sua assinatura do Perspecta Creator, cadastre o cartão aqui: ${data.invoice_url}`)}`, "_blank");
+      } else if (data.invoice_url) {
+        window.open(data.invoice_url, "_blank");
+      }
+      setManage(null);
+      load();
+    } catch (e) {
+      alert(e.response?.data?.error || "Não foi possível gerar a cobrança.");
+    }
+  }
+
   async function save() {
     await api.post("/organizations", draft);
     setCreated(`${draft.name} criado. ${draft.admin_username} já pode entrar com a senha definida.`);
@@ -285,6 +300,21 @@ export default function Organizations() {
               <Button size="small" onClick={() => { estenderTeste(manage); setManage(null); }}>
                 + 15 dias de teste
               </Button>
+            )}
+            <Divider>Cobrança no cartão</Divider>
+            {manage?.asaas_subscription_id ? (
+              <Alert severity="success">Assinatura ativa no cartão da agência.</Alert>
+            ) : (
+              <Button variant="outlined" startIcon={<PriceChangeIcon />}
+                disabled={!manage?.plan_id}
+                onClick={() => cobrarPlano(manage)}>
+                Gerar cobrança do plano no cartão
+              </Button>
+            )}
+            {!manage?.plan_id && (
+              <Typography variant="caption" color="text.secondary">
+                Escolha um plano acima para poder cobrar.
+              </Typography>
             )}
           </Stack>
         </DialogContent>
