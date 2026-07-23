@@ -115,7 +115,9 @@ export async function publishTask(task, orgId, host, protocol = "https") {
 
   // A Meta busca a imagem por URL, então ela precisa estar acessível sem login.
   // Em vez de abrir os arquivos, geramos um link assinado que vale 1 hora.
-  const base = process.env.PUBLIC_URL || `${protocol}://${host}`;
+  // PUBLIC_URL é obrigatório aqui (a Meta não alcança localhost).
+  let base = process.env.PUBLIC_URL || (host ? `${protocol}://${host}` : "");
+  if (base && !base.startsWith("http")) base = `https://${base}`;
   const ticket = jwt.sign({ file_id: anexo.id, org_id: orgId }, JWT_SECRET, { expiresIn: "1h" });
   const imageUrl = `${base}/api/files/shared/${ticket}`;
   const caption = task.client_caption || task.caption || "";

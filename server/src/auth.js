@@ -95,6 +95,19 @@ export function portalAuthRequired(req, res, next) {
 
 export { JWT_SECRET };
 
+/**
+ * Endereço público do sistema, para montar links (assinatura, Meta, Asaas).
+ * Usa PUBLIC_URL se definido (prefixando https:// se faltar), senão deduz da
+ * requisição — forçando https fora do localhost.
+ */
+export function publicBaseUrl(req) {
+  let base = process.env.PUBLIC_URL;
+  if (base) return base.startsWith("http") ? base : `https://${base}`;
+  const host = req.headers.host || "localhost:8080";
+  const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
+  return `${proto}://${host}`;
+}
+
 /** Middleware: exige papel admin (o master também é admin em toda parte). */
 export function adminRequired(req, res, next) {
   if (req.user?.role !== "admin" && req.user?.role !== "superadmin") {

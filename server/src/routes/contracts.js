@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired, moduleAllowed } from "../auth.js";
+import { authRequired, moduleAllowed, publicBaseUrl } from "../auth.js";
 import { makeSignToken } from "./sign.js";
 
 const router = Router();
@@ -58,8 +58,7 @@ router.post("/:id/sign-link", (req, res) => {
   const c = db.prepare("SELECT * FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
   const token = makeSignToken(c.id);
-  const base = process.env.PUBLIC_URL || `${req.protocol}://${req.headers.host}`;
-  res.json({ url: `${base}/assinar/${token}`, signed: Boolean(c.signed_at) });
+  res.json({ url: `${publicBaseUrl(req)}/assinar/${token}`, signed: Boolean(c.signed_at) });
 });
 
 export default router;

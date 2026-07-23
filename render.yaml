@@ -21,3 +21,10 @@ services:
         value: /var/data/agency.db
       - key: UPLOADS_DIR
         value: /var/data/uploads
+      # Endereço público — usado nos links de assinatura e pela Meta/Asaas.
+      # O Render preenche sozinho com a URL do serviço.
+      - key: PUBLIC_URL
+        fromService:
+          type: web
+          name: saas-agency
+          property: host
