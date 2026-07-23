@@ -264,6 +264,20 @@ ensureColumn("users", "can_approve", "can_approve INTEGER NOT NULL DEFAULT 0"); 
 ensureColumn("services", "items_schema", "items_schema TEXT"); // JSON: [{label, unit}]
 ensureColumn("client_services", "config", "config TEXT");       // JSON: {label: quantidade}
 
+// Persona de IA por cliente: tom de voz, público, pilares, o que evitar.
+ensureColumn("clients", "ai_persona", "ai_persona TEXT");       // JSON
+
+// Configuração de IA por escritório (chave paga pelo próprio escritório).
+db.exec(`
+CREATE TABLE IF NOT EXISTS org_ai (
+  org_id     INTEGER PRIMARY KEY,
+  provider   TEXT NOT NULL DEFAULT 'openai',  -- openai | anthropic
+  api_key    TEXT,                            -- criptografada
+  model      TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
+
 // Lembrete de aprovação parada: quando foi para o cliente e quando avisamos.
 ensureColumn("tasks", "approval_sent_at", "approval_sent_at TEXT");
 ensureColumn("tasks", "last_reminder_at", "last_reminder_at TEXT");

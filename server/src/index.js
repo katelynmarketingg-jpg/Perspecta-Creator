@@ -29,6 +29,7 @@ import { signRouter } from "./routes/sign.js";
 import commentsRoutes from "./routes/comments.js";
 import timeRoutes from "./routes/time.js";
 import prospectsRoutes from "./routes/prospects.js";
+import aiRoutes from "./routes/ai.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
 import { startRetention } from "./retention.js";
@@ -66,6 +67,7 @@ app.use("/api/sign", signRouter);    // assinatura por link público
 app.use("/api/comments", commentsRoutes);
 app.use("/api/time", timeRoutes);
 app.use("/api/prospects", prospectsRoutes);
+app.use("/api/ai", aiRoutes);
 
 // Serve o build do frontend (client/dist) em produção
 const clientDist = join(__dirname, "../../client/dist");

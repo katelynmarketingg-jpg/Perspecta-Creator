@@ -23,6 +23,7 @@ import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import HubIcon from "@mui/icons-material/Hub";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
@@ -54,6 +55,7 @@ const NAV = [
   { to: "/files", label: "Arquivos", icon: <FolderCopyIcon /> },
   { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
   { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },
+  { to: "/ai", label: "IA", icon: <AutoAwesomeIcon /> },
   { to: "/integrations", label: "Integrações", icon: <HubIcon /> },
   { to: "/users", label: "Usuários", icon: <GroupIcon />, adminOnly: true },
   { to: "/settings", label: "Configurações", icon: <SettingsIcon /> },
