@@ -27,6 +27,17 @@ CREATE TABLE IF NOT EXISTS organizations (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Planos do Perspecta Media para cobrar as agências (por nº de pessoas).
+CREATE TABLE IF NOT EXISTS saas_plans (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  max_users  INTEGER,                         -- limite de pessoas (vazio = ilimitado)
+  price      REAL NOT NULL DEFAULT 0,          -- valor mensal
+  active     INTEGER NOT NULL DEFAULT 1,
+  position   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT NOT NULL,
@@ -252,6 +263,17 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // ---------------------------------------------------------------------------
 // Login por nome de usuário (em vez de e-mail).
 ensureColumn("users", "username", "username TEXT");
+
+// Assinatura de cada agência com o Perspecta Media: plano, teste e cobrança.
+ensureColumn("organizations", "plan_id", "plan_id INTEGER");
+ensureColumn("organizations", "trial_ends", "trial_ends TEXT");   // fim do teste grátis
+ensureColumn("organizations", "billing_active", "billing_active INTEGER NOT NULL DEFAULT 0"); // já paga
+ensureColumn("organizations", "whatsapp", "whatsapp TEXT");       // contato para confirmar
+ensureColumn("organizations", "asaas_subscription_id", "asaas_subscription_id TEXT");
+// Todo escritório novo ganha 30 dias de teste a partir da criação.
+db.prepare(
+  "UPDATE organizations SET trial_ends = datetime(created_at, '+30 days') WHERE trial_ends IS NULL AND is_master = 0"
+).run();
 
 // Função e responsabilidades: o que a pessoa faz e quais tipos de conteúdo
 // produz. Serve para rotear tarefas e avisos para quem é responsável.

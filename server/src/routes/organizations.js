@@ -36,12 +36,46 @@ router.get("/", (req, res) => {
               (SELECT COUNT(*) FROM clients c WHERE c.org_id = o.id AND c.status = 'active') AS clients_count,
               (SELECT COUNT(*) FROM tasks t WHERE t.org_id = o.id) AS tasks_count,
               (SELECT COALESCE(SUM(f.amount), 0) FROM financial_entries f
-                 WHERE f.org_id = o.id AND f.type = 'income' AND f.status = 'paid') AS revenue
+                 WHERE f.org_id = o.id AND f.type = 'income' AND f.status = 'paid') AS revenue,
+              p.name AS plan_name, p.price AS plan_price, p.max_users AS plan_max_users,
+              CAST(julianday(o.trial_ends) - julianday('now') AS INTEGER) AS trial_days_left
        FROM organizations o
+       LEFT JOIN saas_plans p ON p.id = o.plan_id
        ORDER BY o.is_master DESC, o.name`
     )
     .all();
-  res.json(rows);
+  res.json(rows.map((o) => ({
+    ...o,
+    // Situação de assinatura para o painel do dono.
+    subscription: o.is_master ? "master"
+      : o.billing_active ? "pagante"
+      : (o.trial_days_left != null && o.trial_days_left >= 0) ? "teste"
+      : "expirado",
+  })));
+});
+
+// GET /api/organizations/revenue — quanto entra para o Perspecta Media.
+router.get("/revenue", (req, res) => {
+  const orgs = db.prepare(`
+    SELECT o.*, p.price AS plan_price,
+           CAST(julianday(o.trial_ends) - julianday('now') AS INTEGER) AS trial_days_left
+    FROM organizations o LEFT JOIN saas_plans p ON p.id = o.plan_id
+    WHERE o.is_master = 0
+  `).all();
+
+  let pagantes = 0, emTeste = 0, expirados = 0, mrr = 0, previsto = 0;
+  orgs.forEach((o) => {
+    const preco = Number(o.plan_price) || 0;
+    if (o.billing_active) { pagantes++; mrr += preco; previsto += preco; }
+    else if (o.trial_days_left != null && o.trial_days_left >= 0) { emTeste++; previsto += preco; }
+    else expirados++;
+  });
+  res.json({
+    total_agencias: orgs.length,
+    pagantes, em_teste: emTeste, expirados,
+    mrr,          // o que já entra de fato por mês
+    previsto,     // se os testes converterem
+  });
 });
 
 // POST /api/organizations — cadastra um escritório novo com o primeiro acesso.
@@ -51,9 +85,10 @@ router.post("/", (req, res) => {
   const exists = db.prepare("SELECT id FROM organizations WHERE lower(name) = lower(?)").get(name.trim());
   if (exists) return res.status(409).json({ error: "Já existe um escritório com esse nome." });
 
+  const { whatsapp, plan_id } = req.body || {};
   const info = db
-    .prepare("INSERT INTO organizations (name, notes) VALUES (?, ?)")
-    .run(name.trim(), notes ?? null);
+    .prepare("INSERT INTO organizations (name, notes, whatsapp, plan_id, trial_ends) VALUES (?, ?, ?, ?, datetime('now', '+30 days'))")
+    .run(name.trim(), notes ?? null, whatsapp ?? null, plan_id || null);
   const orgId = info.lastInsertRowid;
 
   seedOrgDefaults(orgId);
@@ -79,12 +114,27 @@ router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM organizations WHERE id = ?").get(req.params.id);
   if (!cur) return res.status(404).json({ error: "Escritório não encontrado." });
   const b = req.body || {};
-  db.prepare("UPDATE organizations SET name = ?, active = ?, notes = ? WHERE id = ?").run(
+  db.prepare(
+    `UPDATE organizations SET name=?, active=?, notes=?, plan_id=?, whatsapp=?,
+     billing_active=?, trial_ends=? WHERE id=?`
+  ).run(
     b.name ?? cur.name,
     b.active === undefined ? cur.active : b.active ? 1 : 0,
     b.notes !== undefined ? b.notes : cur.notes,
+    b.plan_id !== undefined ? (b.plan_id || null) : cur.plan_id,
+    b.whatsapp !== undefined ? b.whatsapp : cur.whatsapp,
+    b.billing_active !== undefined ? (b.billing_active ? 1 : 0) : cur.billing_active,
+    b.trial_ends !== undefined ? b.trial_ends : cur.trial_ends,
     req.params.id
   );
+  res.json(db.prepare("SELECT * FROM organizations WHERE id = ?").get(req.params.id));
+});
+
+// POST /api/organizations/:id/extend-trial — estende o teste em N dias.
+router.post("/:id/extend-trial", (req, res) => {
+  const dias = Math.max(Number(req.body?.days) || 15, 1);
+  db.prepare("UPDATE organizations SET trial_ends = datetime(COALESCE(trial_ends,'now'), '+' || ? || ' days') WHERE id = ? AND is_master = 0")
+    .run(dias, req.params.id);
   res.json(db.prepare("SELECT * FROM organizations WHERE id = ?").get(req.params.id));
 });
 

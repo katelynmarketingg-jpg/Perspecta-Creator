@@ -23,6 +23,7 @@ import portalRoutes from "./routes/portal.js";
 import notificationsRoutes from "./routes/notifications.js";
 import servicesRoutes from "./routes/services.js";
 import organizationsRoutes from "./routes/organizations.js";
+import plansRoutes from "./routes/plans.js";
 import integrationsRoutes from "./routes/integrations.js";
 import { sharedRouter } from "./routes/files.js";
 import { signRouter } from "./routes/sign.js";
@@ -63,6 +64,7 @@ app.use("/api/portal", portalRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/services", servicesRoutes);
 app.use("/api/organizations", organizationsRoutes);
+app.use("/api/plans", plansRoutes);
 app.use("/api/integrations", integrationsRoutes);
 app.use("/api/files", sharedRouter); // link assinado, sem login
 app.use("/api/sign", signRouter);    // assinatura por link público
