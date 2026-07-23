@@ -31,14 +31,12 @@ import MenuIcon from "@mui/icons-material/Menu";
 import LogoutIcon from "@mui/icons-material/Logout";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
+import Brightness4Icon from "@mui/icons-material/Brightness4";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { useColorMode } from "../ColorModeContext.jsx";
+import { SIDEBAR } from "../theme.js";
 
 const DRAWER_WIDTH = 248;
-
-// A sidebar é sempre preta — âncora visual da marca nos dois modos.
-const SIDEBAR_BG = "#0C0A09";
-const SIDEBAR_BORDER = "#26221F";
 
 const NAV = [
   { to: "/organizations", label: "Escritórios", icon: <ApartmentIcon />, masterOnly: true },
@@ -89,6 +87,16 @@ export default function Layout() {
     setNotifs((ns) => ns.map((n) => ({ ...n, is_read: 1 })));
   }
 
+  // Cores da barra lateral conforme o clima. Nos modos claros ela é terracota
+  // (texto branco); no escuro, quase-preta com destaque laranja.
+  const sb = SIDEBAR[mode] || SIDEBAR.light;
+  const terracota = mode !== "dark";
+  const sbText = terracota ? "rgba(255,255,255,0.82)" : "#A8A29E";
+  const sbTextDim = terracota ? "rgba(255,255,255,0.55)" : "#78716C";
+  const sbIcon = terracota ? "rgba(255,255,255,0.7)" : "#57534E";
+  const activeBg = terracota ? "rgba(255,255,255,0.18)" : (t) => alpha(t.palette.primary.main, 0.16);
+  const activeColor = terracota ? "#FFFFFF" : (t) => t.palette.primary.main;
+
   // O master só vê as telas de dados quando entra num escritório.
   const items = NAV.filter((n) => {
     if (n.masterOnly) return isMaster;
@@ -98,27 +106,28 @@ export default function Layout() {
   });
 
   const drawer = (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: SIDEBAR_BG }}>
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: sb.bg }}>
       <Toolbar sx={{ px: 2.5 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.2 }}>
           <Box sx={{
-            width: 34, height: 34, borderRadius: 2, bgcolor: "primary.main", color: "#fff",
+            width: 34, height: 34, borderRadius: 2,
+            bgcolor: terracota ? "rgba(255,255,255,0.16)" : "primary.main", color: "#fff",
             display: "grid", placeItems: "center", fontWeight: 800, fontFamily: '"Outfit", sans-serif',
             fontSize: 13,
           }}>
             {(viewingOrg?.name || user?.org_name || "PM").slice(0, 2).toUpperCase()}
           </Box>
           <Box sx={{ minWidth: 0 }}>
-            <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1, color: "#FAFAF9", fontFamily: '"Outfit", sans-serif' }}>
+            <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1, color: "#fff", fontFamily: '"Outfit", sans-serif' }}>
               {viewingOrg?.name || user?.org_name || "Perspecta Media"}
             </Typography>
-            <Typography variant="caption" sx={{ color: "#78716C" }}>
+            <Typography variant="caption" sx={{ color: sbTextDim }}>
               {viewingOrg ? "visto pelo Perspecta Media" : isMaster ? "administração" : "gestão da agência"}
             </Typography>
           </Box>
         </Box>
       </Toolbar>
-      <Divider sx={{ borderColor: SIDEBAR_BORDER }} />
+      <Divider sx={{ borderColor: sb.border }} />
       <List sx={{ px: 1.5, py: 1.5, flex: 1, overflowY: "auto" }}>
         {items.map((n) => (
           <ListItemButton
@@ -128,14 +137,14 @@ export default function Layout() {
             end={n.end}
             onClick={() => setMobileOpen(false)}
             sx={{
-              borderRadius: 2.5, mb: 0.3, color: "#A8A29E",
+              borderRadius: 2.5, mb: 0.3, color: sbText,
               transition: "background-color .2s ease, color .2s ease",
-              "& .MuiListItemIcon-root": { color: "#57534E", transition: "color .2s ease" },
-              "&:hover": { bgcolor: "rgba(250,250,249,0.06)", color: "#FAFAF9" },
+              "& .MuiListItemIcon-root": { color: sbIcon, transition: "color .2s ease" },
+              "&:hover": { bgcolor: "rgba(255,255,255,0.08)", color: "#fff" },
               "&.active": {
-                bgcolor: (t) => alpha(t.palette.primary.main, 0.16),
-                color: (t) => t.palette.primary.main,
-                "& .MuiListItemIcon-root": { color: (t) => t.palette.primary.main },
+                bgcolor: activeBg,
+                color: activeColor,
+                "& .MuiListItemIcon-root": { color: activeColor },
               },
             }}
           >
@@ -144,8 +153,8 @@ export default function Layout() {
           </ListItemButton>
         ))}
       </List>
-      <Divider sx={{ borderColor: SIDEBAR_BORDER }} />
-      <Box sx={{ p: 2, color: "#57534E", fontSize: 12 }}>© {new Date().getFullYear()} Perspecta Media</Box>
+      <Divider sx={{ borderColor: sb.border }} />
+      <Box sx={{ p: 2, color: sbTextDim, fontSize: 12 }}>© {new Date().getFullYear()} Perspecta Media</Box>
     </Box>
   );
 
@@ -208,9 +217,11 @@ export default function Layout() {
               </MenuItem>
             ))}
           </Menu>
-          <Tooltip title={mode === "light" ? "Modo escuro" : "Modo claro"}>
+          <Tooltip title={`Tema: ${mode === "light" ? "claro" : mode === "sepia" ? "bege" : "escuro"} — clique para trocar`}>
             <IconButton onClick={toggle} sx={{ mr: 0.5 }}>
-              {mode === "light" ? <DarkModeOutlinedIcon /> : <LightModeOutlinedIcon />}
+              {mode === "light" ? <LightModeOutlinedIcon />
+                : mode === "sepia" ? <Brightness4Icon />
+                : <DarkModeOutlinedIcon />}
             </IconButton>
           </Tooltip>
           <Typography variant="body2" color="text.secondary" sx={{ mr: 1.5, display: { xs: "none", sm: "block" } }}>
@@ -237,14 +248,14 @@ export default function Layout() {
           open={mobileOpen}
           onClose={() => setMobileOpen(false)}
           ModalProps={{ keepMounted: true }}
-          sx={{ display: { xs: "block", md: "none" }, "& .MuiDrawer-paper": { width: DRAWER_WIDTH, bgcolor: SIDEBAR_BG, borderRight: `1px solid ${SIDEBAR_BORDER}` } }}
+          sx={{ display: { xs: "block", md: "none" }, "& .MuiDrawer-paper": { width: DRAWER_WIDTH, bgcolor: sb.bg, borderRight: `1px solid ${sb.border}` } }}
         >
           {drawer}
         </Drawer>
         <Drawer
           variant="permanent"
           open
-          sx={{ display: { xs: "none", md: "block" }, "& .MuiDrawer-paper": { width: DRAWER_WIDTH, bgcolor: SIDEBAR_BG, borderRight: `1px solid ${SIDEBAR_BORDER}` } }}
+          sx={{ display: { xs: "none", md: "block" }, "& .MuiDrawer-paper": { width: DRAWER_WIDTH, bgcolor: sb.bg, borderRight: `1px solid ${sb.border}` } }}
         >
           {drawer}
         </Drawer>

@@ -7,10 +7,12 @@ import { ColorModeContext } from "./ColorModeContext.jsx";
 import { AuthProvider } from "./auth/AuthContext.jsx";
 import App from "./App.jsx";
 
+const MODES = ["light", "sepia", "dark"]; // claro → bege → escuro
+
 function Root() {
   const [mode, setMode] = useState(() => {
     const stored = localStorage.getItem("color_mode");
-    if (stored === "light" || stored === "dark") return stored;
+    if (MODES.includes(stored)) return stored;
     return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
 
@@ -18,12 +20,14 @@ function Root() {
   const colorMode = useMemo(
     () => ({
       mode,
+      // Ciclo de três: claro → bege → escuro → claro...
       toggle: () =>
         setMode((m) => {
-          const next = m === "light" ? "dark" : "light";
+          const next = MODES[(MODES.indexOf(m) + 1) % MODES.length];
           localStorage.setItem("color_mode", next);
           return next;
         }),
+      setMode: (m) => { if (MODES.includes(m)) { localStorage.setItem("color_mode", m); setMode(m); } },
     }),
     [mode]
   );

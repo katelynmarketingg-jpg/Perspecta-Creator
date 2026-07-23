@@ -1,30 +1,53 @@
 import { createTheme, alpha } from "@mui/material/styles";
 
-// Identidade: preto, branco e laranja. Cinzas quentes (stone) em toda a UI.
+// Identidade: laranja sobre cinzas quentes (stone). Três climas: claro,
+// bege (sépia) e escuro. A sidebar é terracota nos dois modos claros.
 export const ACCENT = { light: "#EA580C", dark: "#F97316" };
+
+// Cor da barra lateral por modo — terracota nos claros, quase-preto no escuro.
+export const SIDEBAR = {
+  light: { bg: "#9A3412", border: "#7C2D12" },
+  sepia: { bg: "#8A3A1E", border: "#6E2E17" },
+  dark: { bg: "#0C0A09", border: "#26221F" },
+};
+
+// Paletas de fundo/texto por modo.
+const PALETTES = {
+  light: {
+    bgDefault: "#FAFAF9", bgPaper: "#FFFFFF",
+    textPrimary: "#1C1917", textSecondary: "#78716C",
+    divider: "#E7E5E4", hover: "rgba(28,25,23,0.04)",
+  },
+  sepia: {
+    // Bege quente, nada de branco duro.
+    bgDefault: "#F1EADD", bgPaper: "#FBF6EE",
+    textPrimary: "#3A322A", textSecondary: "#8A7E6E",
+    divider: "#E3D8C6", hover: "rgba(58,50,42,0.05)",
+  },
+  dark: {
+    bgDefault: "#0C0A09", bgPaper: "#151312",
+    textPrimary: "#FAFAF9", textSecondary: "#A8A29E",
+    divider: "#26221F", hover: "rgba(250,250,249,0.05)",
+  },
+};
 
 export function getTheme(mode) {
   const dark = mode === "dark";
+  const p = PALETTES[mode] || PALETTES.light;
   const accent = dark ? ACCENT.dark : ACCENT.light;
 
   return createTheme({
     palette: {
-      mode,
+      mode: dark ? "dark" : "light",
       primary: { main: accent, contrastText: "#FFFFFF" },
       secondary: { main: dark ? "#FAFAF9" : "#1C1917" },
-      background: dark
-        ? { default: "#0C0A09", paper: "#151312" }
-        : { default: "#FAFAF9", paper: "#FFFFFF" },
-      text: dark
-        ? { primary: "#FAFAF9", secondary: "#A8A29E" }
-        : { primary: "#1C1917", secondary: "#78716C" },
-      divider: dark ? "#26221F" : "#E7E5E4",
+      background: { default: p.bgDefault, paper: p.bgPaper },
+      text: { primary: p.textPrimary, secondary: p.textSecondary },
+      divider: p.divider,
       success: { main: dark ? "#4ADE80" : "#16A34A" },
       warning: { main: dark ? "#FB923C" : "#D97706" },
       error: { main: dark ? "#F87171" : "#DC2626" },
-      action: {
-        hover: dark ? "rgba(250,250,249,0.05)" : "rgba(28,25,23,0.04)",
-      },
+      action: { hover: p.hover },
     },
     shape: { borderRadius: 12 },
     typography: {
