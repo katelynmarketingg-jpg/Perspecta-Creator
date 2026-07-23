@@ -276,7 +276,20 @@ CREATE TABLE IF NOT EXISTS org_ai (
   model      TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Gateway de cobrança (Asaas) por escritório. O cartão NUNCA fica aqui —
+-- fica no cofre do Asaas; guardamos só a chave da API e os ids da assinatura.
+CREATE TABLE IF NOT EXISTS org_billing (
+  org_id      INTEGER PRIMARY KEY,
+  provider    TEXT NOT NULL DEFAULT 'asaas',
+  api_key     TEXT,                           -- criptografada
+  environment TEXT NOT NULL DEFAULT 'production', -- sandbox | production
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
+// Vínculo do cliente com o Asaas (cliente e assinatura recorrente).
+ensureColumn("clients", "asaas_customer_id", "asaas_customer_id TEXT");
+ensureColumn("clients", "asaas_subscription_id", "asaas_subscription_id TEXT");
 
 // Lembrete de aprovação parada: quando foi para o cliente e quando avisamos.
 ensureColumn("tasks", "approval_sent_at", "approval_sent_at TEXT");
