@@ -28,9 +28,13 @@ export const PRIORITY = {
 // Tipos de conteúdo produzidos pela agência.
 export const CONTENT_TYPES = {
   post: { label: "Post", emoji: "🖼️" },
+  carrossel: { label: "Carrossel", emoji: "🎠" },
   reel: { label: "Reel", emoji: "🎬" },
-  foto: { label: "Foto", emoji: "📸" },
+  foto: { label: "Foto / Captação", emoji: "📸" },
   stories: { label: "Stories", emoji: "⚡" },
+  arte: { label: "Arte / Design", emoji: "🎨" },
+  legenda: { label: "Legenda", emoji: "✍️" },
+  trafego: { label: "Tráfego / Campanha", emoji: "📊" },
   outro: { label: "Outro", emoji: "📌" },
 };
 

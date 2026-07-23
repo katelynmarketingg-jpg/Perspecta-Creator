@@ -10,7 +10,17 @@ const withClient = `
   FROM projects p LEFT JOIN clients c ON c.id = p.client_id`;
 
 router.get("/", (req, res) => {
-  res.json(db.prepare(`${withClient} WHERE p.org_id = ? ORDER BY p.created_at DESC`).all(req.orgId));
+  const projetos = db.prepare(`${withClient} WHERE p.org_id = ? ORDER BY p.created_at DESC`).all(req.orgId);
+  // Junta o plano mensal (tipo + quantidade) de cada projeto, para os cards
+  // mostrarem as quantidades já discriminadas.
+  const itens = db.prepare(
+    "SELECT project_id, content_type, quantity FROM plan_items WHERE org_id = ? ORDER BY position, id"
+  ).all(req.orgId);
+  const porProjeto = {};
+  itens.forEach((it) => {
+    (porProjeto[it.project_id] ||= []).push({ content_type: it.content_type, quantity: it.quantity });
+  });
+  res.json(projetos.map((p) => ({ ...p, plan: porProjeto[p.id] || [] })));
 });
 
 router.get("/:id", (req, res) => {
