@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField, Chip, Divider } from "@mui/material";
+import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField, Chip, Divider, MenuItem } from "@mui/material";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, Legend,
@@ -28,13 +28,39 @@ export default function Reports() {
   const [mesEntrega, setMesEntrega] = useState(() => new Date().toISOString().slice(0, 7));
 
   const [tempo, setTempo] = useState(null);
+  const [periodoTempo, setPeriodoTempo] = useState("mes");
 
   useEffect(() => {
     api.get("/reports/planned-vs-delivered", { params: { month: mesEntrega } })
       .then((r) => setEntregas(r.data)).catch(() => {});
-    api.get("/time/summary", { params: { month: mesEntrega } })
-      .then((r) => setTempo(r.data)).catch(() => {});
   }, [mesEntrega]);
+
+  // Recorte de tempo por período: mês atual, mês passado, 3 ou 6 meses.
+  useEffect(() => {
+    const hoje = new Date();
+    const ymd = (d) => d.toISOString().slice(0, 10);
+    let from, to;
+    if (periodoTempo === "mes") {
+      from = ymd(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+      to = ymd(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0));
+    } else if (periodoTempo === "passado") {
+      from = ymd(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1));
+      to = ymd(new Date(hoje.getFullYear(), hoje.getMonth(), 0));
+    } else if (periodoTempo === "3m") {
+      from = ymd(new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1));
+      to = ymd(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0));
+    } else {
+      from = ymd(new Date(hoje.getFullYear(), hoje.getMonth() - 5, 1));
+      to = ymd(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0));
+    }
+    const meses = periodoTempo === "3m" ? 3 : periodoTempo === "6m" ? 6 : 1;
+    api.get("/time/summary", { params: { from, to } })
+      .then((r) => setTempo({ ...r.data, meses })).catch(() => {});
+  }, [periodoTempo]);
+
+  const PERIODOS_TEMPO = [
+    ["mes", "Este mês"], ["passado", "Mês passado"], ["3m", "Últimos 3 meses"], ["6m", "Últimos 6 meses"],
+  ];
 
   useEffect(() => {
     api.get("/reports/billing-by-client").then((r) => setByClient(r.data)).catch(() => {});
@@ -108,12 +134,26 @@ export default function Reports() {
         </Grid>
 
         {/* Tempo: quanto custa atender cada cliente */}
+        <Grid item xs={12}>
+          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: -0.5 }}>
+            <Typography variant="subtitle2" color="text.secondary">Recorte de tempo:</Typography>
+            <TextField select size="small" value={periodoTempo} onChange={(e) => setPeriodoTempo(e.target.value)} sx={{ minWidth: 170 }}>
+              {PERIODOS_TEMPO.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
+            </TextField>
+            {tempo?.meses > 1 && (
+              <Typography variant="caption" color="text.secondary">
+                mostrando o total do período ({tempo.meses} meses)
+              </Typography>
+            )}
+          </Stack>
+        </Grid>
+
         <Grid item xs={12} md={6}>
           <Card sx={{ height: "100%" }}>
             <CardContent>
               <Typography variant="h6">Tempo por cliente</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Horas apontadas no mês e quanto a mensalidade rende por hora.
+                Horas apontadas no período e quanto a mensalidade rende por hora.
               </Typography>
               {(tempo?.porCliente || []).filter((c) => c.minutos > 0).length === 0 ? (
                 <Typography variant="body2" color="text.secondary">

@@ -43,28 +43,34 @@ router.delete("/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/time/summary?month=YYYY-MM
+// GET /api/time/summary?from=&to=  (ou ?month=YYYY-MM)
 // Três recortes: por cliente (com o quanto ele paga), por colaborador e por
 // tipo de conteúdo — é o que responde "quanto tempo leva um vídeo?".
 router.get("/summary", (req, res) => {
-  const month = req.query.month || new Date().toISOString().slice(0, 7);
-  const p = { org_id: req.orgId, month };
+  // Aceita período (from/to) ou um mês. Sem nada = mês atual.
+  let { from, to } = req.query;
+  if (!from && !to) {
+    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    from = `${month}-01`;
+    const [y, m] = month.split("-").map(Number);
+    to = new Date(y, m, 0).toISOString().slice(0, 10);
+  }
+  const p = { org_id: req.orgId, from, to };
+  const dentro = "date(te.entry_date) BETWEEN @from AND @to";
 
   const porCliente = db.prepare(`
     SELECT c.id, c.name AS client_name,
            COALESCE(SUM(te.minutes), 0) AS minutos,
            (SELECT COALESCE(SUM(cs.price), 0) FROM client_services cs WHERE cs.client_id = c.id) AS mensalidade
     FROM clients c
-    LEFT JOIN time_entries te ON te.client_id = c.id AND te.org_id = @org_id
-         AND strftime('%Y-%m', te.entry_date) = @month
+    LEFT JOIN time_entries te ON te.client_id = c.id AND te.org_id = @org_id AND ${dentro}
     WHERE c.org_id = @org_id AND c.status = 'active'
     GROUP BY c.id ORDER BY minutos DESC`).all(p);
 
   const porColaborador = db.prepare(`
     SELECT u.id, u.name AS user_name, COALESCE(SUM(te.minutes), 0) AS minutos
     FROM users u
-    LEFT JOIN time_entries te ON te.user_id = u.id AND te.org_id = @org_id
-         AND strftime('%Y-%m', te.entry_date) = @month
+    LEFT JOIN time_entries te ON te.user_id = u.id AND te.org_id = @org_id AND ${dentro}
     WHERE u.org_id = @org_id AND u.active = 1
     GROUP BY u.id ORDER BY minutos DESC`).all(p);
 
@@ -72,11 +78,11 @@ router.get("/summary", (req, res) => {
     SELECT COALESCE(t.content_type, 'outros') AS tipo,
            SUM(te.minutes) AS minutos, COUNT(DISTINCT t.id) AS pecas
     FROM time_entries te JOIN tasks t ON t.id = te.task_id
-    WHERE te.org_id = @org_id AND strftime('%Y-%m', te.entry_date) = @month
+    WHERE te.org_id = @org_id AND ${dentro}
     GROUP BY tipo ORDER BY minutos DESC`).all(p);
 
   res.json({
-    month,
+    from, to,
     porCliente: porCliente.map((r) => ({
       ...r,
       horas: +(r.minutos / 60).toFixed(1),
