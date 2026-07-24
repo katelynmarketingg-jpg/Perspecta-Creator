@@ -3,7 +3,7 @@ import {
   Button, Card, Table, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack,
   MenuItem, Link, Tooltip, Divider, Autocomplete, Box, Typography,
-  FormControlLabel, Switch, Alert,
+  FormControlLabel, Switch, Alert, Grid,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -17,12 +17,16 @@ import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import api from "../api/client.js";
 import { PageHeader, EmptyState, TableSkeleton } from "../components/ui.jsx";
-import { currency, formatDate } from "../utils.js";
+import { currency, formatDate, CONTENT_TYPES } from "../utils.js";
+
+// Quantidades do mês que aparecem no cadastro do cliente (as mais comuns).
+// Viram o plano de tarefas — o "Lançar mês" (Projetos) gera tudo.
+const MONTHLY_TYPES = ["post", "reel", "foto", "captacao", "stories", "reuniao"];
 
 const EMPTY = {
   name: "", company: "", email: "", phone: "", drive_url: "", status: "active", notes: "",
   segment: "", address: "", work_start: "", work_end: "", payment_day: "",
-  posts_per_month: "", videos_per_month: "",
+  monthly: {},
   services: [], generate_contract: false,
 };
 
@@ -105,8 +109,7 @@ export default function Clients() {
       ...EMPTY,
       ...row,
       payment_day: row.payment_day || "",
-      posts_per_month: row.posts_per_month || "",
-      videos_per_month: row.videos_per_month || "",
+      monthly: row.monthly || {},
       services: row.services || [],
       generate_contract: false,
       portal_password: "",
@@ -151,6 +154,9 @@ export default function Clients() {
       ),
     }));
   }
+
+  const setMonthly = (key, val) =>
+    setDraft((d) => ({ ...d, monthly: { ...(d.monthly || {}), [key]: Math.max(0, Number(val) || 0) } }));
 
   const total = draft.services.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
 
@@ -297,14 +303,23 @@ export default function Clients() {
               <TextField label="Dia do pagamento" type="number" inputProps={{ min: 1, max: 31 }}
                 value={draft.payment_day} onChange={set("payment_day")} sx={{ minWidth: 140 }} />
             </Stack>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField label="Posts por mês" type="number" inputProps={{ min: 0 }}
-                value={draft.posts_per_month} onChange={set("posts_per_month")} fullWidth
-                helperText="Cria o projeto base automaticamente" />
-              <TextField label="Vídeos por mês" type="number" inputProps={{ min: 0 }}
-                value={draft.videos_per_month} onChange={set("videos_per_month")} fullWidth
-                helperText='Depois use "Lançar mês" em Projetos' />
-            </Stack>
+            <Divider>Quantidades do mês</Divider>
+            <Typography variant="body2" color="text.secondary">
+              Quantas peças de cada tipo por mês. Vira o plano do cliente — depois é só
+              "Lançar mês" em Projetos para gerar as tarefas e notificar os responsáveis.
+            </Typography>
+            <Grid container spacing={1.5}>
+              {MONTHLY_TYPES.map((k) => (
+                <Grid item xs={6} sm={4} key={k}>
+                  <TextField
+                    type="number" size="small" fullWidth inputProps={{ min: 0 }}
+                    label={`${CONTENT_TYPES[k]?.emoji || ""} ${CONTENT_TYPES[k]?.label || k}`}
+                    value={draft.monthly?.[k] ?? ""}
+                    onChange={(e) => setMonthly(k, e.target.value)}
+                  />
+                </Grid>
+              ))}
+            </Grid>
 
             <Divider>Serviços prestados</Divider>
             <Autocomplete

@@ -14,6 +14,7 @@ function publicClient(row, servicesByClient) {
     ...rest,
     portal_enabled: Boolean(row.portal_email && portal_password_hash),
     services: servicesByClient?.[row.id] ?? loadServices(row.id),
+    monthly: loadMonthlyPlan(row.id),
   };
 }
 
@@ -180,31 +181,57 @@ function generateContract(client, services) {
 }
 
 // ---------------------------------------------------------------------------
-// Projeto base mensal: criado/atualizado automaticamente no cadastro.
+// Plano mensal do cliente: as quantidades por tipo (posts, fotos, reuniões...)
+// viram plan_items do projeto "Plano mensal — {cliente}". Mescla por tipo:
+// atualiza só os tipos informados e preserva os demais (ex.: definidos em Projetos).
 // ---------------------------------------------------------------------------
-function upsertPlanProject(client) {
-  const posts = Number(client.posts_per_month) || 0;
-  const videos = Number(client.videos_per_month) || 0;
-  if (!posts && !videos) return;
-  const existing = db
-    .prepare("SELECT id FROM projects WHERE client_id = ? AND name LIKE 'Plano mensal%'")
-    .get(client.id);
-  if (existing) {
-    db.prepare("UPDATE projects SET monthly_posts = ?, monthly_videos = ? WHERE id = ?")
-      .run(posts, videos, existing.id);
-  } else {
-    db.prepare(
-      `INSERT INTO projects (name, client_id, description, status, monthly_posts, monthly_videos, org_id)
-       VALUES (?, ?, ?, 'active', ?, ?, ?)`
-    ).run(
-      `Plano mensal — ${client.name}`,
-      client.id,
-      `Base de conteúdo: ${posts} posts + ${videos} vídeos por mês. Use "Lançar mês" para criar as tarefas.`,
-      posts,
-      videos,
-      client.org_id
-    );
+const PLAN_LABELS = {
+  post: "Post", carrossel: "Carrossel", reel: "Reel", foto: "Foto", captacao: "Captação",
+  stories: "Stories", reuniao: "Reunião", arte: "Arte", legenda: "Legenda", trafego: "Tráfego", outro: "Conteúdo",
+};
+
+function upsertMonthlyPlan(client, monthly) {
+  if (!monthly || typeof monthly !== "object") return;
+  const tipos = Object.keys(monthly);
+  if (!tipos.length) return;
+  const temAlgum = tipos.some((k) => Number(monthly[k]) > 0);
+
+  let proj = db.prepare("SELECT id FROM projects WHERE client_id = ? AND name LIKE 'Plano mensal%'").get(client.id);
+  if (!proj) {
+    if (!temAlgum) return; // nada a criar
+    const info = db.prepare(
+      `INSERT INTO projects (name, client_id, description, status, org_id)
+       VALUES (?, ?, 'Quantidades do mês — clique em "Lançar mês" para gerar as tarefas.', 'active', ?)`
+    ).run(`Plano mensal — ${client.name}`, client.id, client.org_id);
+    proj = { id: info.lastInsertRowid };
   }
+
+  // Descobre a próxima posição para novos itens.
+  const maxPos = db.prepare("SELECT COALESCE(MAX(position), -1) AS p FROM plan_items WHERE project_id = ?").get(proj.id).p;
+  let pos = maxPos + 1;
+  const del = db.prepare("DELETE FROM plan_items WHERE project_id = ? AND content_type = ?");
+  const ins = db.prepare(
+    `INSERT INTO plan_items (org_id, project_id, content_type, label, quantity, assignee_id, position)
+     VALUES (?, ?, ?, ?, ?, NULL, ?)`
+  );
+  const tx = db.transaction(() => {
+    tipos.forEach((ct) => {
+      const q = Number(monthly[ct]) || 0;
+      del.run(proj.id, ct);                          // remove o anterior desse tipo
+      if (q > 0) ins.run(client.org_id, proj.id, ct, PLAN_LABELS[ct] || ct, q, pos++);
+    });
+  });
+  tx();
+}
+
+// Lê o plano mensal atual do cliente como um mapa { tipo: quantidade }.
+function loadMonthlyPlan(clientId) {
+  const proj = db.prepare("SELECT id FROM projects WHERE client_id = ? AND name LIKE 'Plano mensal%'").get(clientId);
+  if (!proj) return {};
+  const rows = db.prepare("SELECT content_type, quantity FROM plan_items WHERE project_id = ?").all(proj.id);
+  const out = {};
+  rows.forEach((r) => { out[r.content_type] = r.quantity; });
+  return out;
 }
 
 // Mensalidades no financeiro: uma cobrança por mês da vigência do contrato.
@@ -300,7 +327,7 @@ router.post("/", (req, res) => {
 
   saveServices(info.lastInsertRowid, b.services, req.orgId);
   const client = db.prepare("SELECT * FROM clients WHERE id = ?").get(info.lastInsertRowid);
-  upsertPlanProject(client); // projeto base criado automaticamente
+  upsertMonthlyPlan(client, b.monthly); // quantidades do mês → plano de tarefas
   if (b.generate_contract && Array.isArray(b.services) && b.services.length) {
     generateContract(client, loadServices(client.id));
     const svcs = loadServices(client.id);
@@ -337,7 +364,7 @@ router.put("/:id", (req, res) => {
 
   if (b.services !== undefined) saveServices(req.params.id, b.services, req.orgId);
   const client = db.prepare("SELECT * FROM clients WHERE id = ?").get(req.params.id);
-  upsertPlanProject(client); // mantém o projeto base em dia
+  upsertMonthlyPlan(client, b.monthly); // mantém o plano do mês em dia
   if (b.generate_contract) {
     const svcs = loadServices(client.id);
     if (svcs.length) {
