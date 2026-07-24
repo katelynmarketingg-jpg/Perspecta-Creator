@@ -24,6 +24,8 @@ export default function Projects() {
   const [draft, setDraft] = useState(EMPTY);
   // Quantidades por tipo, preenchidas no próprio cadastro do projeto.
   const [qty, setQty] = useState(emptyQuantities());
+  // Datas fixas por tipo (dias do mês como texto, ex.: "5, 12, 19, 26").
+  const [dates, setDates] = useState({});
   // Lançamento do mês.
   const [launch, setLaunch] = useState(null); // { project, month, assignee_id }
   const [flash, setFlash] = useState("");
@@ -38,23 +40,33 @@ export default function Projects() {
   async function openNew() {
     setDraft(EMPTY);
     setQty(emptyQuantities());
+    setDates({});
     setOpen(true);
   }
 
   async function openEdit(p) {
     setDraft({ ...p, client_id: p.client_id || "" });
-    // Carrega o plano atual do projeto e transforma em quantidades por tipo.
+    // Carrega o plano atual do projeto e transforma em quantidades + datas por tipo.
     const base = emptyQuantities();
+    const dmap = {};
     try {
       const { data } = await api.get(`/projects/${p.id}/plan`);
-      data.forEach((it) => { if (base[it.content_type] != null) base[it.content_type] = it.quantity; });
+      data.forEach((it) => {
+        if (base[it.content_type] != null) base[it.content_type] = it.quantity;
+        if (it.days?.length) dmap[it.content_type] = it.days.join(", ");
+      });
     } catch { /* projeto sem plano ainda */ }
     setQty(base);
+    setDates(dmap);
     setOpen(true);
   }
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
   const setQ = (k, v) => setQty((q) => ({ ...q, [k]: Math.max(0, Number(v) || 0) }));
+  const setDatesFor = (k, v) => setDates((d) => ({ ...d, [k]: v }));
+  // Converte "5, 12, 19" em [5,12,19] (só dias válidos 1–31).
+  const parseDays = (txt) =>
+    String(txt || "").split(/[,\s]+/).map((n) => Number(n)).filter((n) => n >= 1 && n <= 31);
 
   async function save() {
     const payload = { ...draft, client_id: draft.client_id || null };
@@ -69,6 +81,7 @@ export default function Projects() {
       .map(([content_type, quantity]) => ({
         content_type, label: CONTENT_TYPES[content_type]?.label || null,
         quantity: Number(quantity), assignee_id: null,
+        days: parseDays(dates[content_type]),
       }));
     await api.put(`/projects/${projectId}/plan`, { items });
 
@@ -198,6 +211,26 @@ export default function Projects() {
             <Typography variant="caption" color={totalPlan ? "primary" : "text.secondary"}>
               Total: {totalPlan} tarefa(s) por mês.
             </Typography>
+
+            {Object.entries(qty).some(([, q]) => Number(q) > 0) && (
+              <>
+                <Divider>Datas de publicação (opcional)</Divider>
+                <Typography variant="body2" color="text.secondary">
+                  Dias do mês em que cada tipo é publicado (ex.: <strong>5, 12, 19, 26</strong>).
+                  Ao "Lançar mês", as peças já saem agendadas nesses dias — no mês que você escolher.
+                  Deixe em branco para sem data fixa.
+                </Typography>
+                {Object.entries(qty).filter(([, q]) => Number(q) > 0).map(([k]) => (
+                  <TextField
+                    key={k} size="small" fullWidth
+                    label={`${CONTENT_TYPES[k]?.emoji || ""} Dias de ${CONTENT_TYPES[k]?.label || k}`}
+                    placeholder="Ex: 5, 12, 19, 26"
+                    value={dates[k] || ""}
+                    onChange={(e) => setDatesFor(k, e.target.value)}
+                  />
+                ))}
+              </>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>

@@ -72,13 +72,12 @@ const MONTH_NAMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
 router.get("/:id/plan", (req, res) => {
   const project = db.prepare("SELECT id FROM projects WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!project) return res.status(404).json({ error: "Projeto não encontrado." });
-  res.json(
-    db.prepare(
-      `SELECT pi.*, u.name AS assignee_name
-       FROM plan_items pi LEFT JOIN users u ON u.id = pi.assignee_id
-       WHERE pi.project_id = ? ORDER BY pi.position, pi.id`
-    ).all(req.params.id)
-  );
+  const linhas = db.prepare(
+    `SELECT pi.*, u.name AS assignee_name
+     FROM plan_items pi LEFT JOIN users u ON u.id = pi.assignee_id
+     WHERE pi.project_id = ? ORDER BY pi.position, pi.id`
+  ).all(req.params.id);
+  res.json(linhas.map((l) => ({ ...l, days: l.days ? JSON.parse(l.days) : [] })));
 });
 
 router.put("/:id/plan", (req, res) => {
@@ -86,14 +85,19 @@ router.put("/:id/plan", (req, res) => {
   if (!project) return res.status(404).json({ error: "Projeto não encontrado." });
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   const ins = db.prepare(
-    `INSERT INTO plan_items (org_id, project_id, content_type, label, quantity, assignee_id, position)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO plan_items (org_id, project_id, content_type, label, quantity, assignee_id, position, days)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM plan_items WHERE project_id = ?").run(req.params.id);
     items.forEach((it, i) => {
+      // Dias do mês (1–31), únicos e ordenados. Vazio = sem data fixa.
+      const dias = Array.isArray(it.days)
+        ? [...new Set(it.days.map((d) => Number(d)).filter((d) => d >= 1 && d <= 31))].sort((a, b) => a - b)
+        : [];
       ins.run(req.orgId, req.params.id, it.content_type || "post", it.label ?? null,
-        Math.max(Number(it.quantity) || 1, 1), it.assignee_id || null, i);
+        Math.max(Number(it.quantity) || 1, 1), it.assignee_id || null, i,
+        dias.length ? JSON.stringify(dias) : null);
     });
   });
   tx();
@@ -129,6 +133,7 @@ router.post("/:id/launch", (req, res) => {
     label: it.label || CONTENT_LABEL[it.content_type] || "Conteúdo",
     quantity: it.quantity,
     assignee_id: it.assignee_id,
+    days: it.days ? JSON.parse(it.days) : [],
   }));
 
   if (!linhas.length) {
@@ -144,10 +149,12 @@ router.post("/:id/launch", (req, res) => {
   const firstStage = db
     .prepare("SELECT id FROM kanban_stages WHERE org_id = ? ORDER BY position LIMIT 1")
     .get(req.orgId)?.id ?? null;
+  const lastDay = new Date(year, m, 0).getDate();
   const dueDate = new Date(year, m, 0).toISOString().slice(0, 10); // último dia do mês
+  const pad = (n) => String(n).padStart(2, "0");
   const ins = db.prepare(
-    `INSERT INTO tasks (title, client_id, project_id, assignee_id, stage_id, priority, content_type, tags, due_date, org_id)
-     VALUES (?, ?, ?, ?, ?, 'medium', ?, ?, ?, ?)`
+    `INSERT INTO tasks (title, client_id, project_id, assignee_id, stage_id, priority, content_type, tags, due_date, scheduled_at, org_id)
+     VALUES (?, ?, ?, ?, ?, 'medium', ?, ?, ?, ?, ?)`
   );
 
   // Notifica cada colaborador quantas tarefas caíram para ele.
@@ -158,11 +165,20 @@ router.post("/:id/launch", (req, res) => {
     linhas.forEach((linha) => {
       // Quem faz: a pessoa fixada na linha, ou o override do diálogo, ou por função.
       const quem = linha.assignee_id || assignee_id || assigneeByDuty(req.orgId, linha.content_type);
+      const dias = Array.isArray(linha.days) ? linha.days : [];
       for (let i = 1; i <= linha.quantity; i++) {
+        // Se há datas fixas, a peça i cai no i-ésimo dia (cicla se faltar dia).
+        let scheduledAt = null;
+        let due = dueDate;
+        if (dias.length) {
+          const dia = Math.min(dias[(i - 1) % dias.length], lastDay);
+          scheduledAt = `${year}-${pad(m)}-${pad(dia)} 09:00`;
+          due = `${year}-${pad(m)}-${pad(dia)}`;
+        }
         ins.run(
           `${linha.label} ${i}/${linha.quantity} — ${project.client_name || project.name} (${monthLabel})`,
           project.client_id, project.id, quem ?? null, firstStage, linha.content_type,
-          JSON.stringify([monthLabel]), dueDate, req.orgId
+          JSON.stringify([monthLabel]), due, scheduledAt, req.orgId
         );
         total++;
         if (quem) porPessoa[quem] = (porPessoa[quem] || 0) + 1;

@@ -343,6 +343,8 @@ ensureColumn("files", "expiry_notified_at", "expiry_notified_at TEXT");
 // Etapa do material no fluxo (estilo o quadro de tarefas), por cliente:
 // originais | editados | aprovacao | aprovados | programados
 ensureColumn("files", "stage", "stage TEXT NOT NULL DEFAULT 'originais'");
+// Dias do mês em que cada tipo do plano é publicado (JSON: [5,12,19,26]).
+ensureColumn("plan_items", "days", "days TEXT");
 
 db.exec(`
 -- Plano mensal configurável: cada linha diz o que produzir, quantas e para quem.
@@ -358,6 +360,8 @@ CREATE TABLE IF NOT EXISTS plan_items (
   position     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_planitems_project ON plan_items(project_id);
+-- Dias do mês em que cada tipo é publicado (JSON: [5,12,19,26]).
+-- O "Lançar mês" agenda as peças nesses dias do mês escolhido.
 
 -- Conversa por post: legenda fica fixa, os comentários vêm abaixo.
 CREATE TABLE IF NOT EXISTS task_comments (
