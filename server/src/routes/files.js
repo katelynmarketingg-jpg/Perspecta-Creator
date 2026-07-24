@@ -93,7 +93,7 @@ router.get("/", (req, res) => {
   res.json(
     db.prepare(
       `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.folder_id, f.client_id,
-              f.expires_at, f.keep_forever, c.name AS client_name
+              f.expires_at, f.keep_forever, f.stage, c.name AS client_name
        FROM files f LEFT JOIN clients c ON c.id = f.client_id
        WHERE ${where.join(" AND ")} ORDER BY f.original_name`
     ).all(params)
@@ -101,16 +101,19 @@ router.get("/", (req, res) => {
 });
 
 // POST /api/files/upload — multipart; aceita vários arquivos de uma vez.
+const STAGES = ["originais", "editados", "aprovacao", "aprovados", "programados"];
+
 router.post("/upload", upload.array("files", 20), (req, res) => {
   const { client_id, folder_id } = req.body || {};
+  const stage = STAGES.includes(req.body?.stage) ? req.body.stage : "originais";
   const stmt = db.prepare(
-    `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, org_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, org_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const created = (req.files || []).map((f) => {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const name = Buffer.from(f.originalname, "latin1").toString("utf8");
-    const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, f.path, req.orgId);
+    const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, f.path, stage, req.orgId);
     // Material de cliente nasce com prazo para ele baixar.
     if (client_id) {
       db.prepare(`UPDATE files SET expires_at = datetime('now', '+${DIAS_PARA_BAIXAR} days') WHERE id = ?`)
@@ -128,6 +131,14 @@ router.get("/:id/download", (req, res) => {
     return res.status(404).json({ error: "Arquivo não encontrado." });
   }
   res.download(file.stored_path, file.original_name);
+});
+
+// PUT /api/files/:id/stage — move o arquivo entre etapas (originais → ... → programados).
+router.put("/:id/stage", (req, res) => {
+  const stage = STAGES.includes(req.body?.stage) ? req.body.stage : null;
+  if (!stage) return res.status(400).json({ error: "Etapa inválida." });
+  db.prepare("UPDATE files SET stage = ? WHERE id = ? AND org_id = ?").run(stage, req.params.id, req.orgId);
+  res.json({ ok: true, stage });
 });
 
 // PUT /api/files/:id/keep — trava o arquivo para nunca expirar.

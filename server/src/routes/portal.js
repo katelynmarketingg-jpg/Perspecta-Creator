@@ -114,7 +114,7 @@ router.post("/contracts/:id/sign", (req, res) => {
 router.get("/gallery", (req, res) => {
   const rows = db
     .prepare(
-      `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.expires_at, f.keep_forever,
+      `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.expires_at, f.keep_forever, f.stage,
               t.id AS task_id, t.title AS task_title, t.content_type, t.scheduled_at,
               t.approval_status, s.name AS stage_name, s.is_done AS stage_done
        FROM files f
@@ -126,15 +126,20 @@ router.get("/gallery", (req, res) => {
     )
     .all(req.client.client_id);
 
-  // Agrupa do jeito que o cliente pensa, não do jeito que o banco guarda.
+  const VALIDAS = ["originais", "editados", "aprovacao", "aprovados", "programados"];
+  // Agrupa do jeito que o cliente pensa. Se o arquivo foi organizado no quadro
+  // (etapa definida na aba Arquivos), respeita a etapa; senão, infere pela tarefa.
   const grupo = (f) => {
-    if (!f.task_id) return "editados";
-    if (f.scheduled_at && (f.stage_done || f.approval_status === "approved")) return "programados";
-    if (f.approval_status === "approved") return "aprovados";
-    if (/Aprova/i.test(f.stage_name || "")) return "aprovacao";
-    return "editados";
+    if (f.stage && f.stage !== "originais" && VALIDAS.includes(f.stage)) return f.stage;
+    if (f.task_id) {
+      if (f.scheduled_at && (f.stage_done || f.approval_status === "approved")) return "programados";
+      if (f.approval_status === "approved") return "aprovados";
+      if (/Aprova/i.test(f.stage_name || "")) return "aprovacao";
+      return "editados";
+    }
+    return VALIDAS.includes(f.stage) ? f.stage : "originais";
   };
-  const out = { editados: [], aprovacao: [], aprovados: [], programados: [] };
+  const out = { originais: [], editados: [], aprovacao: [], aprovados: [], programados: [] };
   rows.forEach((f) => out[grupo(f)].push(f));
   res.json(out);
 });

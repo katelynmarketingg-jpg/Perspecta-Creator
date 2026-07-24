@@ -11,6 +11,7 @@ import { fileSize } from "../utils.js";
 
 const ABAS = [
   { key: "todos", label: "Todos" },
+  { key: "originais", label: "Originais" },
   { key: "editados", label: "Editados" },
   { key: "aprovacao", label: "Para aprovação" },
   { key: "aprovados", label: "Aprovados" },
@@ -98,7 +99,7 @@ export default function Galeria({ dados, fetchFile }) {
   const [aba, setAba] = useState("todos");
   if (!dados) return null;
 
-  const todos = [...(dados.editados || []), ...(dados.aprovacao || []), ...(dados.aprovados || []), ...(dados.programados || [])];
+  const todos = [...(dados.originais || []), ...(dados.editados || []), ...(dados.aprovacao || []), ...(dados.aprovados || []), ...(dados.programados || [])];
   const lista = aba === "todos" ? todos : (dados[aba] || []);
   const vencendo = todos.filter((f) => {
     const d = diasRestantes(f.expires_at);

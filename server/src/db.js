@@ -340,6 +340,9 @@ ensureColumn("contracts", "signed_hash", "signed_hash TEXT"); // detecta ediçã
 ensureColumn("files", "expires_at", "expires_at TEXT");
 ensureColumn("files", "keep_forever", "keep_forever INTEGER NOT NULL DEFAULT 0");
 ensureColumn("files", "expiry_notified_at", "expiry_notified_at TEXT");
+// Etapa do material no fluxo (estilo o quadro de tarefas), por cliente:
+// originais | editados | aprovacao | aprovados | programados
+ensureColumn("files", "stage", "stage TEXT NOT NULL DEFAULT 'originais'");
 
 db.exec(`
 -- Plano mensal configurável: cada linha diz o que produzir, quantas e para quem.
