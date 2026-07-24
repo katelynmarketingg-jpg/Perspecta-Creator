@@ -400,6 +400,20 @@ CREATE TABLE IF NOT EXISTS active_timers (
 );
 CREATE INDEX IF NOT EXISTS idx_timers_task ON active_timers(task_id);
 
+-- Sessão de trabalho POR CLIENTE: começa, marca o tempo e ao finalizar
+-- registra quantas tarefas foram concluídas naquele período.
+CREATE TABLE IF NOT EXISTS work_sessions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id       INTEGER NOT NULL,
+  user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  client_id    INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+  started_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  ended_at     TEXT,
+  minutes      INTEGER,
+  tasks_done   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_worksessions_user ON work_sessions(user_id, ended_at);
+
 -- Prospecção: quem ainda não é cliente, com o histórico de contatos.
 CREATE TABLE IF NOT EXISTS prospects (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,

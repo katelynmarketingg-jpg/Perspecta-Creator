@@ -53,6 +53,61 @@ router.get("/active", (req, res) => {
   res.json(db.prepare("SELECT * FROM active_timers WHERE org_id = ? AND user_id = ?").all(req.orgId, req.user.id));
 });
 
+// ---- Sessão de trabalho POR CLIENTE ----------------------------------------
+
+// GET /api/time/session — a sessão em andamento do usuário (ou null).
+router.get("/session", (req, res) => {
+  const s = db.prepare(
+    `SELECT ws.*, c.name AS client_name FROM work_sessions ws
+     LEFT JOIN clients c ON c.id = ws.client_id
+     WHERE ws.user_id = ? AND ws.org_id = ? AND ws.ended_at IS NULL
+     ORDER BY ws.id DESC LIMIT 1`
+  ).get(req.user.id, req.orgId);
+  res.json(s || null);
+});
+
+// POST /api/time/session/start { client_id } — começa a marcar o tempo do cliente.
+router.post("/session/start", (req, res) => {
+  const clientId = req.body?.client_id || null;
+  if (clientId) {
+    const c = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(clientId, req.orgId);
+    if (!c) return res.status(404).json({ error: "Cliente não encontrado." });
+  }
+  // Uma sessão por vez: se já houver uma aberta, devolve ela.
+  const aberta = db.prepare("SELECT id FROM work_sessions WHERE user_id = ? AND org_id = ? AND ended_at IS NULL")
+    .get(req.user.id, req.orgId);
+  if (aberta) {
+    return res.json(db.prepare(
+      `SELECT ws.*, c.name AS client_name FROM work_sessions ws LEFT JOIN clients c ON c.id = ws.client_id WHERE ws.id = ?`
+    ).get(aberta.id));
+  }
+  const info = db.prepare("INSERT INTO work_sessions (org_id, user_id, client_id) VALUES (?, ?, ?)")
+    .run(req.orgId, req.user.id, clientId);
+  res.status(201).json(db.prepare(
+    `SELECT ws.*, c.name AS client_name FROM work_sessions ws LEFT JOIN clients c ON c.id = ws.client_id WHERE ws.id = ?`
+  ).get(info.lastInsertRowid));
+});
+
+// POST /api/time/session/stop { task_ids? } — finaliza e registra o tempo + nº de tarefas.
+router.post("/session/stop", (req, res) => {
+  const s = db.prepare("SELECT * FROM work_sessions WHERE user_id = ? AND org_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1")
+    .get(req.user.id, req.orgId);
+  if (!s) return res.status(404).json({ error: "Nenhuma sessão em andamento." });
+  const taskIds = Array.isArray(req.body?.task_ids) ? req.body.task_ids : [];
+  const ms = Date.now() - new Date(s.started_at.replace(" ", "T") + "Z").getTime();
+  const minutes = Math.max(1, Math.round(ms / 60000));
+
+  db.prepare("UPDATE work_sessions SET ended_at = datetime('now'), minutes = ?, tasks_done = ? WHERE id = ?")
+    .run(minutes, taskIds.length, s.id);
+  // Lança o tempo no relatório, vinculado ao cliente.
+  db.prepare(
+    `INSERT INTO time_entries (org_id, task_id, client_id, user_id, minutes, note)
+     VALUES (?, NULL, ?, ?, ?, ?)`
+  ).run(req.orgId, s.client_id, req.user.id, minutes, `Sessão — ${taskIds.length} tarefa(s)`);
+
+  res.json({ minutes, tasks_done: taskIds.length, client_id: s.client_id });
+});
+
 // POST /api/time — aponta tempo numa tarefa.
 router.post("/", (req, res) => {
   const b = req.body || {};

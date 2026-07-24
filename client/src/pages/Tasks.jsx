@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button, Box, Card, CardContent, Typography, Chip, IconButton, Dialog,
   DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
-  Tooltip, Divider, Autocomplete, Alert,
+  Tooltip, Divider, Autocomplete, Alert, Checkbox,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
@@ -42,23 +42,30 @@ export default function Tasks() {
   const [search, setSearch] = useState("");
   const [apontamentos, setApontamentos] = useState([]);
   const [novoTempo, setNovoTempo] = useState({ minutes: "", note: "" });
+  const [flash, setFlash] = useState("");
   const draggingRef = useRef(false);
   const me = JSON.parse(localStorage.getItem("user") || "null");
   const totalMinutos = apontamentos.reduce((s, a) => s + a.minutes, 0);
-  // Cronômetros em andamento: task_id -> started_at (UTC). nowTs faz o relógio "andar".
-  const [timers, setTimers] = useState({});
+  // Sessão de trabalho POR CLIENTE (balãozinho no topo). nowTs faz o relógio "andar".
+  const [session, setSession] = useState(null);       // sessão em andamento (ou null)
+  const [sessionClient, setSessionClient] = useState(""); // cliente escolhido para começar
   const [nowTs, setNowTs] = useState(Date.now());
-  const loadTimers = () => api.get("/time/active").then((r) => {
-    const m = {}; r.data.forEach((t) => { m[t.task_id] = t.started_at; }); setTimers(m);
+  const [finish, setFinish] = useState(null);         // { done: [taskIds] } no diálogo de finalizar
+  const loadSession = () => api.get("/time/session").then((r) => {
+    setSession(r.data || null);
+    if (r.data?.client_id) setSessionClient(r.data.client_id);
   }).catch(() => {});
 
-  async function startTimer(taskId) {
-    await api.post("/time/start", { task_id: taskId });
-    loadTimers();
+  async function startSession() {
+    const { data } = await api.post("/time/session/start", { client_id: sessionClient || null });
+    setSession(data);
   }
-  async function stopTimer(taskId) {
-    await api.post("/time/stop", { task_id: taskId });
-    setTimers((m) => { const c = { ...m }; delete c[taskId]; return c; });
+  async function confirmFinish() {
+    const { data } = await api.post("/time/session/stop", { task_ids: finish.done });
+    setSession(null);
+    setFinish(null);
+    setFlash(`✅ Sessão encerrada: ${data.tasks_done} tarefa(s) em ${data.minutes} min.`);
+    setTimeout(() => setFlash(""), 6000);
   }
   // Relógio "hh:mm:ss" ou "mm:ss" desde o início.
   function elapsedLabel(startedAt) {
@@ -84,17 +91,17 @@ export default function Tasks() {
   };
   useEffect(() => {
     load();
-    loadTimers();
+    loadSession();
     api.get("/clients").then((r) => setClients(r.data));
     api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
   }, []);
 
-  // Relógio dos cronômetros: só liga o intervalo quando há algum rodando.
+  // Relógio da sessão: só liga o intervalo quando há uma sessão em andamento.
   useEffect(() => {
-    if (Object.keys(timers).length === 0) return undefined;
+    if (!session) return undefined;
     const id = setInterval(() => setNowTs(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [timers]);
+  }, [session]);
 
   // Filtros: com dezenas de tarefas o quadro vira uma parede sem isso.
   const filtered = useMemo(() => {
@@ -210,9 +217,6 @@ export default function Tasks() {
     try {
       await api.put(`/tasks/${taskId}/status`, { stage_id: stageId, position: 0, scheduled_at: scheduledAt || undefined });
       load();
-      // O backend finaliza o cronômetro ao mudar de etapa — reflete aqui.
-      if (timers[taskId]) setTimers((m) => { const c = { ...m }; delete c[taskId]; return c; });
-      loadTimers();
     } catch (err) {
       setTasks(previous);
       if (err.response?.data?.needs_schedule) setSchedule({ taskId, stageId, value: "" });
@@ -251,6 +255,43 @@ export default function Tasks() {
         subtitle="Kanban de produção de conteúdo"
         action={<Button variant="contained" startIcon={<AddIcon />} onClick={openNew}>Nova tarefa</Button>}
       />
+
+      {flash && <Alert severity="success" sx={{ mb: 2 }}>{flash}</Alert>}
+
+      {/* Balãozinho: sessão de trabalho por cliente */}
+      <Card sx={{ mb: 2.5, bgcolor: (t) => alpha(t.palette.primary.main, session ? 0.12 : 0.05), borderColor: session ? "primary.main" : "divider" }}>
+        <CardContent sx={{ py: 1.25, "&:last-child": { pb: 1.25 } }}>
+          {session ? (
+            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+              <PlayArrowIcon color="primary" />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{ fontWeight: 700, lineHeight: 1.1 }}>
+                  Trabalhando em: {session.client_name || "Geral"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                  ⏱ {elapsedLabel(session.started_at)}
+                </Typography>
+              </Box>
+              <Button variant="contained" color="error" startIcon={<StopCircleIcon />}
+                onClick={() => setFinish({ done: [] })}>
+                Finalizar
+              </Button>
+            </Stack>
+          ) : (
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+              <Typography sx={{ fontWeight: 600 }}>Sessão de trabalho</Typography>
+              <TextField select size="small" label="Cliente" value={sessionClient}
+                onChange={(e) => setSessionClient(e.target.value)} sx={{ minWidth: 200 }}>
+                <MenuItem value="">Geral (sem cliente)</MenuItem>
+                {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </TextField>
+              <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={startSession}>
+                Começar
+              </Button>
+            </Stack>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Filtros */}
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2.5, flexWrap: "wrap", gap: 1.5 }}>
@@ -375,26 +416,6 @@ export default function Tasks() {
                           </IconButton>
                         </span>
                       </Tooltip>
-                      {/* Cronômetro: começar a marcar o tempo / parar. Opcional. */}
-                      {timers[t.id] ? (
-                        <Button size="small" color="error" variant="outlined"
-                          startIcon={<StopCircleIcon sx={{ fontSize: 16 }} />}
-                          onClick={(e) => { e.stopPropagation(); stopTimer(t.id); }}
-                          sx={{ minWidth: 0, px: 1, fontVariantNumeric: "tabular-nums" }}>
-                          {elapsedLabel(timers[t.id])}
-                        </Button>
-                      ) : (
-                        !t.completed_at && (
-                          <Tooltip title="Começar a marcar o tempo">
-                            <Button size="small" variant="text"
-                              startIcon={<PlayArrowIcon sx={{ fontSize: 16 }} />}
-                              onClick={(e) => { e.stopPropagation(); startTimer(t.id); }}
-                              sx={{ minWidth: 0, px: 1 }}>
-                              Começar
-                            </Button>
-                          </Tooltip>
-                        )
-                      )}
                       <Tooltip title="Próxima etapa">
                         <span>
                           <IconButton size="small" disabled={sIdx === stages.length - 1} onClick={(e) => { e.stopPropagation(); move(t, 1); }}>
@@ -565,6 +586,46 @@ export default function Tasks() {
             }}
           >
             Programar e concluir
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Finalizar sessão: quais tarefas você concluiu neste tempo? */}
+      <Dialog open={Boolean(finish)} onClose={() => setFinish(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Finalizar sessão{session?.client_name ? ` — ${session.client_name}` : ""}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Tempo: <strong>{session ? elapsedLabel(session.started_at) : "—"}</strong>.
+            Marque as tarefas que você concluiu neste período.
+          </Typography>
+          <Stack spacing={0.5} sx={{ maxHeight: "45vh", overflowY: "auto" }}>
+            {tasks
+              .filter((t) => !session?.client_id || t.client_id === session.client_id)
+              .map((t) => {
+                const marcado = finish?.done?.includes(t.id);
+                return (
+                  <Stack key={t.id} direction="row" alignItems="center" spacing={1}
+                    onClick={() => setFinish((f) => ({
+                      done: marcado ? f.done.filter((x) => x !== t.id) : [...f.done, t.id],
+                    }))}
+                    sx={{ cursor: "pointer", borderRadius: 1.5, px: 1, "&:hover": { bgcolor: "action.hover" } }}>
+                    <Checkbox size="small" checked={Boolean(marcado)} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography noWrap variant="body2">{t.title}</Typography>
+                      {t.client_name && <Typography variant="caption" color="text.secondary">{t.client_name}</Typography>}
+                    </Box>
+                  </Stack>
+                );
+              })}
+            {tasks.filter((t) => !session?.client_id || t.client_id === session.client_id).length === 0 && (
+              <Typography variant="body2" color="text.secondary">Nenhuma tarefa deste cliente no quadro.</Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFinish(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={confirmFinish}>
+            Encerrar {finish?.done?.length ? `(${finish.done.length} tarefa${finish.done.length > 1 ? "s" : ""})` : ""}
           </Button>
         </DialogActions>
       </Dialog>
