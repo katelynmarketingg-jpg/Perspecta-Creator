@@ -3,7 +3,55 @@ import { db } from "../db.js";
 import { authRequired } from "../auth.js";
 
 const router = Router();
+
+// Para o cronômetro de uma tarefa e registra o tempo decorrido em time_entries.
+// Usado ao clicar "Parar" e também quando a tarefa muda de etapa (auto-finaliza).
+export function stopTimersForTask(taskId, orgId, userId = null) {
+  const cond = userId ? "task_id = ? AND org_id = ? AND user_id = ?" : "task_id = ? AND org_id = ?";
+  const args = userId ? [taskId, orgId, userId] : [taskId, orgId];
+  const timers = db.prepare(`SELECT * FROM active_timers WHERE ${cond}`).all(...args);
+  if (!timers.length) return [];
+  const task = db.prepare("SELECT client_id FROM tasks WHERE id = ?").get(taskId);
+  const ins = db.prepare(
+    `INSERT INTO time_entries (org_id, task_id, client_id, user_id, minutes, note)
+     VALUES (?, ?, ?, ?, ?, 'Cronômetro')`
+  );
+  const del = db.prepare("DELETE FROM active_timers WHERE id = ?");
+  const out = [];
+  timers.forEach((t) => {
+    const ms = Date.now() - new Date(t.started_at.replace(" ", "T") + "Z").getTime();
+    const minutes = Math.max(1, Math.round(ms / 60000));
+    ins.run(t.org_id, t.task_id, task?.client_id ?? null, t.user_id, minutes);
+    del.run(t.id);
+    out.push({ task_id: taskId, minutes });
+  });
+  return out;
+}
+
 router.use(authRequired);
+
+// POST /api/time/start { task_id } — começa a marcar o tempo da tarefa.
+router.post("/start", (req, res) => {
+  const taskId = req.body?.task_id;
+  const task = db.prepare("SELECT id FROM tasks WHERE id = ? AND org_id = ?").get(taskId, req.orgId);
+  if (!task) return res.status(404).json({ error: "Tarefa não encontrada." });
+  const existe = db.prepare("SELECT * FROM active_timers WHERE task_id = ? AND user_id = ?").get(taskId, req.user.id);
+  if (existe) return res.json(existe); // já rodando — idempotente
+  const info = db.prepare("INSERT INTO active_timers (org_id, task_id, user_id) VALUES (?, ?, ?)")
+    .run(req.orgId, taskId, req.user.id);
+  res.status(201).json(db.prepare("SELECT * FROM active_timers WHERE id = ?").get(info.lastInsertRowid));
+});
+
+// POST /api/time/stop { task_id } — para e registra o tempo.
+router.post("/stop", (req, res) => {
+  const feito = stopTimersForTask(req.body?.task_id, req.orgId, req.user.id);
+  res.json({ stopped: feito.length, entries: feito });
+});
+
+// GET /api/time/active — cronômetros em andamento do usuário (para o relógio ao vivo).
+router.get("/active", (req, res) => {
+  res.json(db.prepare("SELECT * FROM active_timers WHERE org_id = ? AND user_id = ?").all(req.orgId, req.user.id));
+});
 
 // POST /api/time — aponta tempo numa tarefa.
 router.post("/", (req, res) => {

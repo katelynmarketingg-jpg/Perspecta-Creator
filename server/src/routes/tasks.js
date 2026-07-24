@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { stopTimersForTask } from "./time.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("tarefas"));
@@ -155,6 +156,10 @@ router.put("/:id/status", (req, res) => {
     req.params.id,
     req.orgId
   );
+  // Mudou de etapa → finaliza qualquer cronômetro em andamento nesta tarefa.
+  if (stage_id != null && String(stage_id) !== String(task.stage_id)) {
+    stopTimersForTask(req.params.id, req.orgId);
+  }
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
 

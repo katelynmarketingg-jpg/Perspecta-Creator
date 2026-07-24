@@ -10,6 +10,8 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import StopCircleIcon from "@mui/icons-material/StopCircle";
 import api from "../api/client.js";
 import { PageHeader, CardSkeleton } from "../components/ui.jsx";
 import { formatDate, formatDateTime, PRIORITY, CONTENT_TYPES } from "../utils.js";
@@ -43,6 +45,30 @@ export default function Tasks() {
   const draggingRef = useRef(false);
   const me = JSON.parse(localStorage.getItem("user") || "null");
   const totalMinutos = apontamentos.reduce((s, a) => s + a.minutes, 0);
+  // Cronômetros em andamento: task_id -> started_at (UTC). nowTs faz o relógio "andar".
+  const [timers, setTimers] = useState({});
+  const [nowTs, setNowTs] = useState(Date.now());
+  const loadTimers = () => api.get("/time/active").then((r) => {
+    const m = {}; r.data.forEach((t) => { m[t.task_id] = t.started_at; }); setTimers(m);
+  }).catch(() => {});
+
+  async function startTimer(taskId) {
+    await api.post("/time/start", { task_id: taskId });
+    loadTimers();
+  }
+  async function stopTimer(taskId) {
+    await api.post("/time/stop", { task_id: taskId });
+    setTimers((m) => { const c = { ...m }; delete c[taskId]; return c; });
+  }
+  // Relógio "hh:mm:ss" ou "mm:ss" desde o início.
+  function elapsedLabel(startedAt) {
+    const ini = new Date(startedAt.replace(" ", "T") + "Z").getTime();
+    let s = Math.max(0, Math.floor((nowTs - ini) / 1000));
+    const h = Math.floor(s / 3600); s -= h * 3600;
+    const m = Math.floor(s / 60); s -= m * 60;
+    const p = (n) => String(n).padStart(2, "0");
+    return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
+  }
 
   // Carrega os arquivos do cliente escolhido para o seletor de anexos.
   useEffect(() => {
@@ -58,9 +84,17 @@ export default function Tasks() {
   };
   useEffect(() => {
     load();
+    loadTimers();
     api.get("/clients").then((r) => setClients(r.data));
     api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
   }, []);
+
+  // Relógio dos cronômetros: só liga o intervalo quando há algum rodando.
+  useEffect(() => {
+    if (Object.keys(timers).length === 0) return undefined;
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [timers]);
 
   // Filtros: com dezenas de tarefas o quadro vira uma parede sem isso.
   const filtered = useMemo(() => {
@@ -176,6 +210,9 @@ export default function Tasks() {
     try {
       await api.put(`/tasks/${taskId}/status`, { stage_id: stageId, position: 0, scheduled_at: scheduledAt || undefined });
       load();
+      // O backend finaliza o cronômetro ao mudar de etapa — reflete aqui.
+      if (timers[taskId]) setTimers((m) => { const c = { ...m }; delete c[taskId]; return c; });
+      loadTimers();
     } catch (err) {
       setTasks(previous);
       if (err.response?.data?.needs_schedule) setSchedule({ taskId, stageId, value: "" });
@@ -330,7 +367,7 @@ export default function Tasks() {
                       </Typography>
                     )}
                     <Divider sx={{ my: 1 }} />
-                    <Stack direction="row" justifyContent="space-between">
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
                       <Tooltip title="Etapa anterior">
                         <span>
                           <IconButton size="small" disabled={sIdx === 0} onClick={(e) => { e.stopPropagation(); move(t, -1); }}>
@@ -338,6 +375,26 @@ export default function Tasks() {
                           </IconButton>
                         </span>
                       </Tooltip>
+                      {/* Cronômetro: começar a marcar o tempo / parar. Opcional. */}
+                      {timers[t.id] ? (
+                        <Button size="small" color="error" variant="outlined"
+                          startIcon={<StopCircleIcon sx={{ fontSize: 16 }} />}
+                          onClick={(e) => { e.stopPropagation(); stopTimer(t.id); }}
+                          sx={{ minWidth: 0, px: 1, fontVariantNumeric: "tabular-nums" }}>
+                          {elapsedLabel(timers[t.id])}
+                        </Button>
+                      ) : (
+                        !t.completed_at && (
+                          <Tooltip title="Começar a marcar o tempo">
+                            <Button size="small" variant="text"
+                              startIcon={<PlayArrowIcon sx={{ fontSize: 16 }} />}
+                              onClick={(e) => { e.stopPropagation(); startTimer(t.id); }}
+                              sx={{ minWidth: 0, px: 1 }}>
+                              Começar
+                            </Button>
+                          </Tooltip>
+                        )
+                      )}
                       <Tooltip title="Próxima etapa">
                         <span>
                           <IconButton size="small" disabled={sIdx === stages.length - 1} onClick={(e) => { e.stopPropagation(); move(t, 1); }}>

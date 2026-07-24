@@ -386,6 +386,16 @@ CREATE TABLE IF NOT EXISTS time_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_time_org ON time_entries(org_id);
 
+-- Cronômetro em andamento: um por (tarefa, pessoa). Ao parar, vira time_entries.
+CREATE TABLE IF NOT EXISTS active_timers (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id       INTEGER NOT NULL,
+  task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id      INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  started_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_timers_task ON active_timers(task_id);
+
 -- Prospecção: quem ainda não é cliente, com o histórico de contatos.
 CREATE TABLE IF NOT EXISTS prospects (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
