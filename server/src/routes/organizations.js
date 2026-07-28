@@ -3,6 +3,7 @@ import { unlinkSync } from "node:fs";
 import { db, TENANT_TABLES } from "../db.js";
 import { authRequired, superadminRequired, hashPassword } from "../auth.js";
 import { getBilling, asaas } from "./billing.js";
+import { orgUsageStatus } from "../plans-monitor.js";
 
 const router = Router();
 router.use(authRequired, superadminRequired);
@@ -52,6 +53,8 @@ router.get("/", (req, res) => {
       : o.billing_active ? "pagante"
       : (o.trial_days_left != null && o.trial_days_left >= 0) ? "teste"
       : "expirado",
+    // Uso vs. limites do plano (barrinhas de "saúde da conta").
+    usage_status: o.is_master ? null : orgUsageStatus(o),
   })));
 });
 

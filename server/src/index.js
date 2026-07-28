@@ -36,6 +36,7 @@ import brandingRoutes from "./routes/branding.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
 import { startRetention } from "./retention.js";
+import { startPlanMonitor } from "./plans-monitor.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -94,4 +95,5 @@ app.listen(PORT, () => {
   startReminders();  // cobra aprovações paradas
   startPublisher();  // publica os posts com hora marcada (quando ligado)
   startRetention();  // avisa e limpa o material vencido
+  startPlanMonitor(); // vigia limites de plano e testes acabando
 });

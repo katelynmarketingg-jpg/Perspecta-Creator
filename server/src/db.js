@@ -346,6 +346,27 @@ ensureColumn("files", "stage", "stage TEXT NOT NULL DEFAULT 'originais'");
 // Dias do mês em que cada tipo do plano é publicado (JSON: [5,12,19,26]).
 ensureColumn("plan_items", "days", "days TEXT");
 
+// Limites do plano (vazio = ilimitado) e monitoramento de uso.
+ensureColumn("saas_plans", "max_clients", "max_clients INTEGER");
+ensureColumn("saas_plans", "storage_gb", "storage_gb INTEGER");
+// Tolerância: quando estoura um limite, ganha alguns dias antes de restringir.
+ensureColumn("organizations", "limit_grace_until", "limit_grace_until TEXT");
+ensureColumn("organizations", "usage_notified_at", "usage_notified_at TEXT");
+
+// Planos padrão do Creator (só cria se ainda não houver nenhum).
+(function seedDefaultPlans() {
+  const n = db.prepare("SELECT COUNT(*) AS n FROM saas_plans").get().n;
+  if (n > 0) return;
+  const ins = db.prepare(
+    "INSERT INTO saas_plans (name, max_users, max_clients, storage_gb, price, position) VALUES (?, ?, ?, ?, ?, ?)"
+  );
+  // max_users/max_clients/storage_gb: NULL = ilimitado.
+  ins.run("Creator One", 1, 15, 5, 69, 0);
+  ins.run("Creator Growth", 3, 50, 20, 149, 1);
+  ins.run("Creator Pro", 8, null, 100, 279, 2);
+  ins.run("Creator Enterprise", null, null, 500, 599, 3);
+})();
+
 db.exec(`
 -- Plano mensal configurável: cada linha diz o que produzir, quantas e para quem.
 -- Monta uma vez; todo mês é só clicar "Lançar" que já cria tudo roteado.

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, hashPassword, moduleAllowed, publicBaseUrl } from "../auth.js";
 import { makeSignToken } from "./sign.js";
+import { canAddClient } from "../plans-monitor.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("clientes"));
@@ -294,6 +295,9 @@ router.get("/:id", (req, res) => {
 router.post("/", (req, res) => {
   const b = req.body || {};
   if (!b.name) return res.status(400).json({ error: "Nome é obrigatório." });
+  // Limite do plano (com tolerância): bloqueia só depois que a tolerância vence.
+  const limite = canAddClient(req.orgId);
+  if (!limite.ok) return res.status(403).json({ error: limite.error, plan_limit: true });
   const info = db
     .prepare(
       `INSERT INTO clients (name, email, phone, company, drive_url, status, notes,

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Box, Button, Card, CardContent, Typography, Chip, IconButton, Stack, Grid,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Divider, Tooltip,
+  LinearProgress,
   Alert, MenuItem, FormControlLabel, Switch,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
@@ -24,6 +25,31 @@ const STATUS = {
   teste: { label: "Em teste", color: "warning" },
   expirado: { label: "Teste expirado", color: "error" },
 };
+
+// Situação de uso do plano (barrinhas de "saúde da conta").
+const SAUDE = {
+  ok: { label: "Dentro do limite", color: "success" },
+  atencao: { label: "Perto do limite", color: "warning" },
+  tolerancia: { label: "No limite (tolerância)", color: "warning" },
+  estourado: { label: "Limite estourado", color: "error" },
+};
+
+// Barra de uso: usado/limite com cor conforme a porcentagem (null = ilimitado).
+function UsageBar({ label, usado, max, pct }) {
+  const cor = pct == null ? "primary" : pct >= 100 ? "error" : pct >= 80 ? "warning" : "primary";
+  return (
+    <Box sx={{ mt: 0.75 }}>
+      <Stack direction="row" justifyContent="space-between">
+        <Typography variant="caption" color="text.secondary">{label}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+          {usado}{max != null ? ` / ${max}` : " · ilimitado"}
+        </Typography>
+      </Stack>
+      <LinearProgress variant="determinate" value={pct == null ? 8 : Math.min(pct, 100)}
+        color={cor} sx={{ height: 6, borderRadius: 3, opacity: pct == null ? 0.35 : 1 }} />
+    </Box>
+  );
+}
 
 export default function Organizations() {
   const { enterOrg } = useAuth();
@@ -174,6 +200,9 @@ export default function Organizations() {
                       {o.subscription === "teste" && o.trial_days_left != null && (
                         <Chip size="small" variant="outlined" color="warning" label={`${o.trial_days_left}d de teste`} />
                       )}
+                      {o.usage_status && SAUDE[o.usage_status.situacao] && o.usage_status.situacao !== "ok" && (
+                        <Chip size="small" color={SAUDE[o.usage_status.situacao].color} label={SAUDE[o.usage_status.situacao].label} />
+                      )}
                     </Stack>
                   </Box>
                   {!o.is_master && (
@@ -207,6 +236,18 @@ export default function Organizations() {
                         <Typography variant="caption" color="text.secondary">tarefas</Typography>
                       </Box>
                     </Stack>
+                    {o.usage_status && (
+                      <Box sx={{ mb: 1.5 }}>
+                        <UsageBar label="Clientes" usado={o.usage_status.usage.clients} max={o.usage_status.limits.clients} pct={o.usage_status.pcts.clients} />
+                        <UsageBar label="Equipe" usado={o.usage_status.usage.users} max={o.usage_status.limits.users} pct={o.usage_status.pcts.users} />
+                        <UsageBar label="Armazenamento" usado={`${o.usage_status.usage.storage_gb} GB`} max={o.usage_status.limits.storage_gb ? `${o.usage_status.limits.storage_gb} GB` : null} pct={o.usage_status.pcts.storage} />
+                        {o.usage_status.situacao === "tolerancia" && o.usage_status.grace_until && (
+                          <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.5 }}>
+                            Tolerância até {new Date(o.usage_status.grace_until.replace(" ", "T") + "Z").toLocaleDateString("pt-BR")}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
                     <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: (t) => alpha(t.palette.primary.main, 0.09), mb: 1.5 }}>
                       <Typography variant="caption" color="text.secondary">
                         {o.plan_price ? "Assinatura" : "Sem plano"}
@@ -338,7 +379,9 @@ export default function Organizations() {
                   <Box>
                     <Typography sx={{ fontWeight: 600 }}>{p.name}</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {currency(p.price)}/mês · {p.max_users ? `até ${p.max_users} pessoas` : "pessoas ilimitadas"}
+                      {currency(p.price)}/mês · {p.max_users ? `${p.max_users} pessoas` : "pessoas ilim."}
+                      {" · "}{p.max_clients ? `${p.max_clients} clientes` : "clientes ilim."}
+                      {" · "}{p.storage_gb ? `${p.storage_gb} GB` : "GB ilim."}
                     </Typography>
                   </Box>
                   <Box>
@@ -353,18 +396,28 @@ export default function Organizations() {
           </Stack>
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2" sx={{ mb: 1 }}>{planDraft?.id ? "Editar plano" : "Novo plano"}</Typography>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-            <TextField size="small" label="Nome" value={planDraft?.name || ""}
-              onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), name: e.target.value }))} sx={{ flex: 1 }}
-              placeholder="Ex: Essencial, Pro, Grande" />
-            <TextField size="small" label="Até (pessoas)" type="number" value={planDraft?.max_users || ""}
-              onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), max_users: e.target.value }))} sx={{ width: 120 }}
-              placeholder="ilimit." />
-            <TextField size="small" label="R$/mês" type="number" value={planDraft?.price || ""}
-              onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), price: e.target.value }))} sx={{ width: 110 }} />
-            <Button variant="contained" onClick={salvarPlano} disabled={!planDraft?.name}>
-              {planDraft?.id ? "Salvar" : "Adicionar"}
-            </Button>
+          <Stack spacing={1.5}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <TextField size="small" label="Nome" value={planDraft?.name || ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), name: e.target.value }))} sx={{ flex: 1 }}
+                placeholder="Ex: Creator Growth" />
+              <TextField size="small" label="R$/mês" type="number" value={planDraft?.price || ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), price: e.target.value }))} sx={{ width: 110 }} />
+            </Stack>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+              <TextField size="small" label="Pessoas" type="number" value={planDraft?.max_users || ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), max_users: e.target.value }))} sx={{ flex: 1 }}
+                placeholder="ilimit." helperText="vazio = ilimitado" />
+              <TextField size="small" label="Clientes" type="number" value={planDraft?.max_clients || ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), max_clients: e.target.value }))} sx={{ flex: 1 }}
+                placeholder="ilimit." helperText="vazio = ilimitado" />
+              <TextField size="small" label="GB" type="number" value={planDraft?.storage_gb || ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), storage_gb: e.target.value }))} sx={{ flex: 1 }}
+                placeholder="ilimit." helperText="armazenamento" />
+              <Button variant="contained" onClick={salvarPlano} disabled={!planDraft?.name}>
+                {planDraft?.id ? "Salvar" : "Adicionar"}
+              </Button>
+            </Stack>
           </Stack>
         </DialogContent>
         <DialogActions>
