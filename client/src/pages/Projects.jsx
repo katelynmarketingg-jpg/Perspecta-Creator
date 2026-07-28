@@ -13,17 +13,21 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate, CONTENT_TYPES } from "../utils.js";
 
 const EMPTY = { name: "", client_id: "", description: "", status: "active", start_date: "", end_date: "" };
-// Toda vez que um projeto abre, começamos com todos os tipos em zero.
-const emptyQuantities = () => Object.fromEntries(Object.keys(CONTENT_TYPES).map((k) => [k, 0]));
+// Zera todos os tipos configurados (vêm de /task-types).
+const emptyQuantities = (list) => Object.fromEntries((list || []).map((t) => [t.key, 0]));
+// Rótulo/emoji de um tipo: usa os tipos do escritório, cai no padrão se for antigo.
+const tinfo = (list, key) =>
+  list.find((t) => t.key === key) || CONTENT_TYPES[key] && { label: CONTENT_TYPES[key].label, emoji: CONTENT_TYPES[key].emoji } || { label: key, emoji: "" };
 
 export default function Projects() {
   const [rows, setRows] = useState([]);
   const [clients, setClients] = useState([]);
   const [team, setTeam] = useState([]);
+  const [types, setTypes] = useState([]);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
   // Quantidades por tipo, preenchidas no próprio cadastro do projeto.
-  const [qty, setQty] = useState(emptyQuantities());
+  const [qty, setQty] = useState({});
   // Datas fixas por tipo (dias do mês como texto, ex.: "5, 12, 19, 26").
   const [dates, setDates] = useState({});
   // Lançamento do mês.
@@ -35,11 +39,12 @@ export default function Projects() {
     load();
     api.get("/clients").then((r) => setClients(r.data));
     api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
+    api.get("/task-types").then((r) => setTypes(r.data)).catch(() => {});
   }, []);
 
   async function openNew() {
     setDraft(EMPTY);
-    setQty(emptyQuantities());
+    setQty(emptyQuantities(types));
     setDates({});
     setOpen(true);
   }
@@ -47,7 +52,7 @@ export default function Projects() {
   async function openEdit(p) {
     setDraft({ ...p, client_id: p.client_id || "" });
     // Carrega o plano atual do projeto e transforma em quantidades + datas por tipo.
-    const base = emptyQuantities();
+    const base = emptyQuantities(types);
     const dmap = {};
     try {
       const { data } = await api.get(`/projects/${p.id}/plan`);
@@ -79,7 +84,7 @@ export default function Projects() {
     const items = Object.entries(qty)
       .filter(([, q]) => Number(q) > 0)
       .map(([content_type, quantity]) => ({
-        content_type, label: CONTENT_TYPES[content_type]?.label || null,
+        content_type, label: tinfo(types, content_type).label || null,
         quantity: Number(quantity), assignee_id: null,
         days: parseDays(dates[content_type]),
       }));
@@ -144,7 +149,7 @@ export default function Projects() {
                     <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.6, mt: 1.5 }}>
                       {p.plan.map((it) => (
                         <Chip key={it.content_type} size="small" variant="outlined"
-                          label={`${CONTENT_TYPES[it.content_type]?.emoji || ""} ${it.quantity} ${CONTENT_TYPES[it.content_type]?.label || it.content_type}`} />
+                          label={`${tinfo(types, it.content_type).emoji || ""} ${it.quantity} ${tinfo(types, it.content_type).label}`} />
                       ))}
                     </Box>
                   ) : (
@@ -196,14 +201,14 @@ export default function Projects() {
               e vai automático para quem faz aquele tipo (definido em Configurações).
             </Typography>
             <Grid container spacing={1.5}>
-              {Object.entries(CONTENT_TYPES).map(([k, v]) => (
-                <Grid item xs={6} sm={4} key={k}>
+              {types.map((t) => (
+                <Grid item xs={6} sm={4} key={t.key}>
                   <TextField
                     type="number" size="small" fullWidth
-                    label={`${v.emoji} ${v.label}`}
-                    value={qty[k] ?? 0}
+                    label={`${t.emoji || ""} ${t.label}`}
+                    value={qty[t.key] ?? 0}
                     inputProps={{ min: 0 }}
-                    onChange={(e) => setQ(k, e.target.value)}
+                    onChange={(e) => setQ(t.key, e.target.value)}
                   />
                 </Grid>
               ))}
@@ -223,7 +228,7 @@ export default function Projects() {
                 {Object.entries(qty).filter(([, q]) => Number(q) > 0).map(([k]) => (
                   <TextField
                     key={k} size="small" fullWidth
-                    label={`${CONTENT_TYPES[k]?.emoji || ""} Dias de ${CONTENT_TYPES[k]?.label || k}`}
+                    label={`${tinfo(types, k).emoji || ""} Dias de ${tinfo(types, k).label}`}
                     placeholder="Ex: 5, 12, 19, 26"
                     value={dates[k] || ""}
                     onChange={(e) => setDatesFor(k, e.target.value)}
@@ -250,7 +255,7 @@ export default function Projects() {
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.6 }}>
               {(launch?.project?.plan || []).map((it) => (
                 <Chip key={it.content_type} size="small"
-                  label={`${CONTENT_TYPES[it.content_type]?.emoji || ""} ${it.quantity} ${CONTENT_TYPES[it.content_type]?.label || it.content_type}`} />
+                  label={`${tinfo(types, it.content_type).emoji || ""} ${it.quantity} ${tinfo(types, it.content_type).label}`} />
               ))}
             </Box>
             <TextField label="Mês" type="month" InputLabelProps={{ shrink: true }} fullWidth

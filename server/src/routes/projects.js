@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { responsibleForType } from "./task-types.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("projetos"));
@@ -163,8 +164,11 @@ router.post("/:id/launch", (req, res) => {
 
   const tx = db.transaction(() => {
     linhas.forEach((linha) => {
-      // Quem faz: a pessoa fixada na linha, ou o override do diálogo, ou por função.
-      const quem = linha.assignee_id || assignee_id || assigneeByDuty(req.orgId, linha.content_type);
+      // Quem faz: a pessoa fixada na linha, ou o override do diálogo, ou o
+      // responsável do tipo (Configurações), ou por função (compatibilidade).
+      const quem = linha.assignee_id || assignee_id
+        || responsibleForType(req.orgId, linha.content_type)
+        || assigneeByDuty(req.orgId, linha.content_type);
       const dias = Array.isArray(linha.days) ? linha.days : [];
       for (let i = 1; i <= linha.quantity; i++) {
         // Se há datas fixas, a peça i cai no i-ésimo dia (cicla se faltar dia).

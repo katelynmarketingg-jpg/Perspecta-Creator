@@ -10,10 +10,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
-import { currency, CONTENT_TYPES } from "../utils.js";
-
-// Tipos que entram na matriz "quem faz cada tipo" (todos menos "outro").
-const DUTY_TYPES = Object.entries(CONTENT_TYPES).filter(([k]) => k !== "outro");
+import { currency } from "../utils.js";
 
 const EMPTY_SERVICE = { name: "", default_price: "", contract_template: "", items_schema: [] };
 
@@ -36,11 +33,11 @@ export default function Settings() {
   const [branding, setBranding] = useState({ logo: null, favicon: null });
   const [brandMsg, setBrandMsg] = useState(null);
   const [brandSaving, setBrandSaving] = useState(false);
-  // Matriz "quem faz cada tipo": time + mapa tipo -> [ids de usuários].
+  // Tipos de tarefa/serviço (post, reel, planejamento…) e o responsável de cada.
   const [team, setTeam] = useState([]);
-  const [dutyMap, setDutyMap] = useState({});
-  const [dutyMsg, setDutyMsg] = useState(null);
-  const [dutySaving, setDutySaving] = useState(false);
+  const [types, setTypes] = useState([]);
+  const [typeMsg, setTypeMsg] = useState(null);
+  const [novoTipo, setNovoTipo] = useState("");
   const [name, setName] = useState("");
   const [isDone, setIsDone] = useState(false);
   const [services, setServices] = useState([]);
@@ -62,34 +59,35 @@ export default function Settings() {
   const load = () => api.get("/tasks/stages").then((r) => setStages(r.data));
   const loadServices = () => api.get("/services").then((r) => setServices(r.data));
   const loadBranding = () => api.get("/branding").then((r) => setBranding({ logo: r.data?.logo || null, favicon: r.data?.favicon || null }));
-  const loadTeam = () => api.get("/users/team").then((r) => {
-    setTeam(r.data);
-    // Constrói o mapa tipo -> ids de quem tem aquele tipo nas suas funções.
-    const map = {};
-    DUTY_TYPES.forEach(([k]) => { map[k] = r.data.filter((u) => (u.duties || []).includes(k)).map((u) => u.id); });
-    setDutyMap(map);
-  }).catch(() => {});
-  useEffect(() => { load(); loadServices(); loadBranding(); loadTeam(); }, []);
+  const loadTeam = () => api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
+  const loadTypes = () => api.get("/task-types").then((r) => setTypes(r.data)).catch(() => {});
+  useEffect(() => { load(); loadServices(); loadBranding(); loadTeam(); loadTypes(); }, []);
 
-  // Salva a matriz: recalcula as funções de cada pessoa e grava só quem mudou.
-  async function saveDuties() {
-    setDutySaving(true);
+  // Muda o responsável de um tipo — salva na hora (sem botão, sem dúvida).
+  async function setResponsavel(tipo, userId) {
+    setTypes((ts) => ts.map((t) => (t.id === tipo.id ? { ...t, responsible_user_id: userId || null } : t)));
     try {
-      await Promise.all(team.map((u) => {
-        const novas = DUTY_TYPES.filter(([k]) => (dutyMap[k] || []).includes(u.id)).map(([k]) => k);
-        const antigas = (u.duties || []).filter((d) => DUTY_TYPES.some(([k]) => k === d));
-        const mudou = novas.slice().sort().join(",") !== antigas.slice().sort().join(",");
-        // Mantém funções que não estão na matriz (ex.: atendimento) intactas.
-        const extras = (u.duties || []).filter((d) => !DUTY_TYPES.some(([k]) => k === d));
-        return mudou ? api.put(`/users/${u.id}`, { duties: [...novas, ...extras] }) : null;
-      }));
-      setDutyMsg({ tipo: "success", texto: "Funções salvas. Ao 'Lançar mês', cada tipo vai para quem você marcou." });
-      loadTeam();
-    } catch (err) {
-      setDutyMsg({ tipo: "error", texto: err.response?.data?.error || "Não foi possível salvar as funções." });
+      await api.put(`/task-types/${tipo.id}`, { responsible_user_id: userId || null });
+      setTypeMsg({ tipo: "success", texto: "Responsável salvo." });
+    } catch {
+      setTypeMsg({ tipo: "error", texto: "Não foi possível salvar." });
+      loadTypes();
     }
-    setDutySaving(false);
-    setTimeout(() => setDutyMsg(null), 6000);
+    setTimeout(() => setTypeMsg(null), 2500);
+  }
+
+  async function addTipo() {
+    const label = novoTipo.trim();
+    if (!label) return;
+    await api.post("/task-types", { label });
+    setNovoTipo("");
+    loadTypes();
+  }
+
+  async function removeTipo(id) {
+    if (!confirm("Remover este tipo? As tarefas já criadas continuam.")) return;
+    await api.delete(`/task-types/${id}`);
+    loadTypes();
   }
 
   // Escolhe um arquivo de logo/favicon e já mostra a prévia (salva só ao clicar).
@@ -313,44 +311,52 @@ export default function Settings() {
         {isAdmin && (
           <Card>
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 0.5 }}>Quem faz cada tipo de tarefa</Typography>
+              <Typography variant="h6" sx={{ mb: 0.5 }}>Tipos de tarefa e quem faz cada um</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Escolha quem produz cada tipo. Ao "Lançar mês" de um projeto, cada peça vai
-                automaticamente para o responsável do tipo dela.
+                Cada tipo (post, reel, foto, planejamento, reunião…) tem um responsável.
+                Ao "Lançar mês" de um projeto, cada peça vai automaticamente para essa pessoa.
+                Salva sozinho ao escolher. Você pode <strong>criar tipos próprios</strong> abaixo.
               </Typography>
-              {dutyMsg && <Alert severity={dutyMsg.tipo} sx={{ mb: 2 }}>{dutyMsg.texto}</Alert>}
-              {team.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  Cadastre pessoas na aba Usuários para distribuir as funções.
-                </Typography>
-              ) : (
-                <>
-                  <Stack spacing={1.5}>
-                    {DUTY_TYPES.map(([k, v]) => (
-                      <TextField
-                        key={k} select size="small" fullWidth
-                        label={`${v.emoji} ${v.label}`}
-                        value={dutyMap[k] || []}
-                        SelectProps={{
-                          multiple: true,
-                          renderValue: (sel) =>
-                            sel.length === 0 ? "— ninguém —"
-                              : team.filter((u) => sel.includes(u.id)).map((u) => u.name).join(", "),
-                        }}
-                        onChange={(e) => setDutyMap((m) => ({ ...m, [k]: e.target.value }))}
-                      >
-                        {team.map((u) => (
-                          <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>
-                        ))}
-                      </TextField>
-                    ))}
+              {typeMsg && <Alert severity={typeMsg.tipo} sx={{ mb: 2 }}>{typeMsg.texto}</Alert>}
+
+              <Stack spacing={1}>
+                {types.map((t) => (
+                  <Stack key={t.id} direction="row" spacing={1} alignItems="center">
+                    <Typography sx={{ flex: 1, fontWeight: 600 }}>
+                      {t.emoji} {t.label}
+                    </Typography>
+                    <TextField
+                      select size="small" label="Responsável" sx={{ minWidth: 180 }}
+                      value={t.responsible_user_id || ""}
+                      onChange={(e) => setResponsavel(t, e.target.value)}
+                    >
+                      <MenuItem value="">— ninguém —</MenuItem>
+                      {team.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+                    </TextField>
+                    <IconButton size="small" color="error" onClick={() => removeTipo(t.id)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
                   </Stack>
-                  <Box sx={{ mt: 2 }}>
-                    <Button variant="contained" onClick={saveDuties} disabled={dutySaving}>
-                      {dutySaving ? "Salvando..." : "Salvar funções"}
-                    </Button>
-                  </Box>
-                </>
+                ))}
+                {types.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">Carregando tipos…</Typography>
+                )}
+              </Stack>
+
+              <Divider sx={{ my: 2 }} />
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <TextField size="small" label="Novo tipo" value={novoTipo} sx={{ flex: 1 }}
+                  placeholder="Ex: Planejamento, Roteiro, Aprovação..."
+                  onChange={(e) => setNovoTipo(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addTipo()} />
+                <Button variant="contained" startIcon={<AddIcon />} onClick={addTipo} disabled={!novoTipo.trim()}>
+                  Adicionar tipo
+                </Button>
+              </Stack>
+              {team.length === 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+                  Dica: cadastre as pessoas na aba Usuários para poder escolher os responsáveis.
+                </Typography>
               )}
             </CardContent>
           </Card>

@@ -381,6 +381,20 @@ CREATE TABLE IF NOT EXISTS plan_items (
   position     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_planitems_project ON plan_items(project_id);
+
+-- Tipos de tarefa/serviço configuráveis por escritório (post, reel, planejamento…)
+-- com o responsável de cada um. É o que o "Lançar mês" usa para distribuir.
+CREATE TABLE IF NOT EXISTS task_types (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id              INTEGER NOT NULL,
+  key                 TEXT NOT NULL,
+  label               TEXT NOT NULL,
+  emoji               TEXT,
+  responsible_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  position            INTEGER NOT NULL DEFAULT 0,
+  active              INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_tasktypes_org ON task_types(org_id);
 -- Dias do mês em que cada tipo é publicado (JSON: [5,12,19,26]).
 -- O "Lançar mês" agenda as peças nesses dias do mês escolhido.
 

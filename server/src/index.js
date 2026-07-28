@@ -33,6 +33,7 @@ import prospectsRoutes from "./routes/prospects.js";
 import aiRoutes from "./routes/ai.js";
 import billingRoutes, { billingWebhook } from "./routes/billing.js";
 import brandingRoutes from "./routes/branding.js";
+import taskTypesRoutes from "./routes/task-types.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
 import { startRetention } from "./retention.js";
@@ -76,6 +77,7 @@ app.use("/api/prospects", prospectsRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/branding", brandingRoutes);
+app.use("/api/task-types", taskTypesRoutes);
 app.use("/api/webhooks", billingWebhook); // Asaas confirma pagamentos aqui
 
 // Serve o build do frontend (client/dist) em produção
