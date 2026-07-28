@@ -32,7 +32,39 @@ export default function Projects() {
   const [dates, setDates] = useState({});
   // Lançamento do mês.
   const [launch, setLaunch] = useState(null); // { project, month, assignee_id }
+  const [pieces, setPieces] = useState([]);   // lista editável: uma peça = uma data
   const [flash, setFlash] = useState("");
+
+  // Um dia do mês vira uma data completa (respeitando o último dia do mês).
+  function monthDay(month, day) {
+    const [y, mm] = month.split("-").map(Number);
+    const last = new Date(y, mm, 0).getDate();
+    return `${month}-${String(Math.min(day, last)).padStart(2, "0")}`;
+  }
+  // Monta a lista de peças (tipo × quantidade), pré-preenchendo as datas fixas.
+  function buildPieces(project, month) {
+    const out = [];
+    (project.plan || []).forEach((it) => {
+      const info = tinfo(types, it.content_type);
+      const dias = it.days || [];
+      for (let i = 1; i <= it.quantity; i++) {
+        out.push({
+          content_type: it.content_type, label: it.label || info.label, emoji: info.emoji,
+          i, total: it.quantity, date: dias.length ? monthDay(month, dias[(i - 1) % dias.length]) : "",
+        });
+      }
+    });
+    return out;
+  }
+  function openLaunch(p) {
+    const month = new Date().toISOString().slice(0, 7);
+    setLaunch({ project: p, month, assignee_id: "" });
+    setPieces(buildPieces(p, month));
+  }
+  function changeLaunchMonth(month) {
+    setLaunch((l) => ({ ...l, month }));
+    setPieces((ps) => ps.map((p) => ({ ...p, date: p.date ? monthDay(month, Number(p.date.slice(-2))) : "" })));
+  }
 
   const load = () => api.get("/projects").then((r) => setRows(r.data));
   useEffect(() => {
@@ -106,7 +138,10 @@ export default function Projects() {
 
   async function doLaunch() {
     const { project, month, assignee_id } = launch;
-    const { data } = await api.post(`/projects/${project.id}/launch`, { month, assignee_id: assignee_id || null });
+    const { data } = await api.post(`/projects/${project.id}/launch`, {
+      month, assignee_id: assignee_id || null,
+      pieces: pieces.map((p) => ({ content_type: p.content_type, label: p.label, date: p.date || null })),
+    });
     setLaunch(null);
     setFlash(`✅ ${data.created} tarefas criadas para ${data.month}. Veja na aba Tarefas — e as notificações foram enviadas aos responsáveis.`);
     setTimeout(() => setFlash(""), 7000);
@@ -164,7 +199,7 @@ export default function Projects() {
                   <Button
                     fullWidth variant="contained" size="small" startIcon={<RocketLaunchIcon />} sx={{ mt: 1.5 }}
                     disabled={(p.plan || []).length === 0}
-                    onClick={() => setLaunch({ project: p, month: new Date().toISOString().slice(0, 7), assignee_id: "" })}
+                    onClick={() => openLaunch(p)}
                   >
                     Lançar mês
                   </Button>
@@ -244,30 +279,44 @@ export default function Projects() {
         </DialogActions>
       </Dialog>
 
-      {/* Lançar mês */}
-      <Dialog open={Boolean(launch)} onClose={() => setLaunch(null)} fullWidth maxWidth="xs">
+      {/* Lançar mês — lista data por data */}
+      <Dialog open={Boolean(launch)} onClose={() => setLaunch(null)} fullWidth maxWidth="sm">
         <DialogTitle>Lançar mês — {launch?.project?.client_name || launch?.project?.name}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField label="Mês" type="month" InputLabelProps={{ shrink: true }} fullWidth
+                value={launch?.month || ""}
+                onChange={(e) => changeLaunchMonth(e.target.value)} />
+              <TextField select label="Responsável (opcional)" fullWidth
+                helperText="Vazio = quem faz o tipo (Configurações)."
+                value={launch?.assignee_id || ""}
+                onChange={(e) => setLaunch((l) => ({ ...l, assignee_id: e.target.value }))}>
+                <MenuItem value="">Por função (automático)</MenuItem>
+                {team.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+              </TextField>
+            </Stack>
+
+            <Divider>Datas — {pieces.length} tarefa(s)</Divider>
             <Typography variant="body2" color="text.secondary">
-              Serão criadas <strong>{planTotal(launch?.project)} tarefas</strong> na primeira coluna do quadro:
+              Ajuste a data de cada peça (já vem preenchida quando você configurou os dias no projeto).
+              Em branco = sem data marcada.
             </Typography>
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.6 }}>
-              {(launch?.project?.plan || []).map((it) => (
-                <Chip key={it.content_type} size="small"
-                  label={`${tinfo(types, it.content_type).emoji || ""} ${it.quantity} ${tinfo(types, it.content_type).label}`} />
+            <Stack spacing={1} sx={{ maxHeight: "45vh", overflowY: "auto", pr: 0.5 }}>
+              {pieces.map((p, idx) => (
+                <Stack key={idx} direction="row" spacing={1.5} alignItems="center">
+                  <Typography sx={{ flex: 1, fontSize: 14 }} noWrap>
+                    {p.emoji} {p.label} {p.i}/{p.total}
+                  </Typography>
+                  <TextField type="date" size="small" InputLabelProps={{ shrink: true }} sx={{ width: 175 }}
+                    value={p.date || ""}
+                    onChange={(e) => setPieces((ps) => ps.map((x, i) => (i === idx ? { ...x, date: e.target.value } : x)))} />
+                </Stack>
               ))}
-            </Box>
-            <TextField label="Mês" type="month" InputLabelProps={{ shrink: true }} fullWidth
-              value={launch?.month || ""}
-              onChange={(e) => setLaunch((l) => ({ ...l, month: e.target.value }))} />
-            <TextField select label="Responsável (opcional)" fullWidth
-              helperText="Vazio = cada tipo vai para quem o faz (Configurações)."
-              value={launch?.assignee_id || ""}
-              onChange={(e) => setLaunch((l) => ({ ...l, assignee_id: e.target.value }))}>
-              <MenuItem value="">Por função (automático)</MenuItem>
-              {team.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
-            </TextField>
+              {pieces.length === 0 && (
+                <Typography variant="body2" color="text.secondary">Este projeto não tem quantidades definidas.</Typography>
+              )}
+            </Stack>
           </Stack>
         </DialogContent>
         <DialogActions>

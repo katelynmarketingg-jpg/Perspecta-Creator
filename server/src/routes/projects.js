@@ -15,11 +15,14 @@ router.get("/", (req, res) => {
   // Junta o plano mensal (tipo + quantidade) de cada projeto, para os cards
   // mostrarem as quantidades já discriminadas.
   const itens = db.prepare(
-    "SELECT project_id, content_type, quantity FROM plan_items WHERE org_id = ? ORDER BY position, id"
+    "SELECT project_id, content_type, label, quantity, days FROM plan_items WHERE org_id = ? ORDER BY position, id"
   ).all(req.orgId);
   const porProjeto = {};
   itens.forEach((it) => {
-    (porProjeto[it.project_id] ||= []).push({ content_type: it.content_type, quantity: it.quantity });
+    (porProjeto[it.project_id] ||= []).push({
+      content_type: it.content_type, label: it.label, quantity: it.quantity,
+      days: it.days ? JSON.parse(it.days) : [],
+    });
   });
   res.json(projetos.map((p) => ({ ...p, plan: porProjeto[p.id] || [] })));
 });
@@ -162,8 +165,32 @@ router.post("/:id/launch", (req, res) => {
   const porPessoa = {};
   let total = 0;
 
+  // Se o diálogo mandou a lista de peças com datas escolhidas (data por data),
+  // usa exatamente ela; senão, gera do plano (com os dias fixos, se houver).
+  const pieces = Array.isArray(req.body?.pieces)
+    ? req.body.pieces.filter((p) => p && p.content_type)
+    : null;
+
   const tx = db.transaction(() => {
-    linhas.forEach((linha) => {
+    if (pieces) {
+      const porTipo = {};
+      pieces.forEach((p) => { (porTipo[p.content_type] ||= []).push(p); });
+      Object.entries(porTipo).forEach(([ct, arr]) => {
+        const label = arr[0].label || CONTENT_LABEL[ct] || "Conteúdo";
+        const quem = assignee_id || responsibleForType(req.orgId, ct) || assigneeByDuty(req.orgId, ct);
+        arr.forEach((p, idx) => {
+          const date = /^\d{4}-\d{2}-\d{2}$/.test(p.date || "") ? p.date : null;
+          const scheduledAt = date ? `${date} 09:00` : null;
+          ins.run(
+            `${label} ${idx + 1}/${arr.length} — ${project.client_name || project.name} (${monthLabel})`,
+            project.client_id, project.id, quem ?? null, firstStage, ct,
+            JSON.stringify([monthLabel]), date || dueDate, scheduledAt, req.orgId
+          );
+          total++;
+          if (quem) porPessoa[quem] = (porPessoa[quem] || 0) + 1;
+        });
+      });
+    } else linhas.forEach((linha) => {
       // Quem faz: a pessoa fixada na linha, ou o override do diálogo, ou o
       // responsável do tipo (Configurações), ou por função (compatibilidade).
       const quem = linha.assignee_id || assignee_id
