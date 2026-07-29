@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button, Box, Card, CardContent, Typography, Chip, IconButton, Dialog,
   DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
-  Tooltip, Divider, Autocomplete, Alert, Checkbox,
+  Tooltip, Divider, Autocomplete, Alert, Checkbox, ToggleButtonGroup, ToggleButton,
+  Table, TableBody, TableCell, TableHead, TableRow,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
@@ -10,6 +11,8 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
+import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
+import ViewListIcon from "@mui/icons-material/ViewList";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
 import api from "../api/client.js";
@@ -40,6 +43,8 @@ export default function Tasks() {
   // Abre mostrando as tarefas de quem está logado; dá para trocar no topo.
   const [filterAssignee, setFilterAssignee] = useState("__me");
   const [search, setSearch] = useState("");
+  const [filterMonth, setFilterMonth] = useState(""); // filtro por data (mês)
+  const [view, setView] = useState("board");           // 'board' (quadro) | 'list' (lista)
   const [apontamentos, setApontamentos] = useState([]);
   const [novoTempo, setNovoTempo] = useState({ minutes: "", note: "" });
   const [flash, setFlash] = useState("");
@@ -111,9 +116,19 @@ export default function Tasks() {
       if (filterAssignee === "__none" && t.assignee_id) return false;
       if (filterAssignee && !String(filterAssignee).startsWith("__") && t.assignee_id !== filterAssignee) return false;
       if (search && !`${t.title} ${t.client_name || ""} ${(t.tags || []).join(" ")}`.toLowerCase().includes(search.toLowerCase())) return false;
+      // Filtro por data: pega tarefas com data (programada ou prazo) no mês escolhido.
+      if (filterMonth) {
+        const d = (t.scheduled_at || t.due_date || "").slice(0, 7);
+        if (d !== filterMonth) return false;
+      }
       return true;
     });
-  }, [tasks, filterClient, filterAssignee, search, me]);
+  }, [tasks, filterClient, filterAssignee, search, filterMonth, me]);
+
+  // Para a lista: tudo em ordem de data (programada ou prazo).
+  const listaOrdenada = useMemo(() =>
+    [...filtered].sort((a, b) => (a.scheduled_at || a.due_date || "9999").localeCompare(b.scheduled_at || b.due_date || "9999")),
+    [filtered]);
 
   const byStage = useMemo(() => {
     const map = {};
@@ -309,11 +324,18 @@ export default function Tasks() {
           <MenuItem value="__none">Sem responsável</MenuItem>
           {team.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
         </TextField>
-        {(search || filterClient || filterAssignee) && (
-          <Button size="small" onClick={() => { setSearch(""); setFilterClient(""); setFilterAssignee(""); }}>
+        <TextField type="month" size="small" label="Data" InputLabelProps={{ shrink: true }}
+          value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} sx={{ width: 150 }} />
+        {(search || filterClient || filterAssignee || filterMonth) && (
+          <Button size="small" onClick={() => { setSearch(""); setFilterClient(""); setFilterAssignee(""); setFilterMonth(""); }}>
             Limpar
           </Button>
         )}
+        <Box sx={{ flex: 1 }} />
+        <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
+          <ToggleButton value="board" aria-label="Quadro"><ViewKanbanIcon fontSize="small" /></ToggleButton>
+          <ToggleButton value="list" aria-label="Lista"><ViewListIcon fontSize="small" /></ToggleButton>
+        </ToggleButtonGroup>
       </Stack>
 
       {orfas.length > 0 && (
@@ -323,6 +345,40 @@ export default function Tasks() {
         </Alert>
       )}
 
+      {view === "list" ? (
+        <Card>
+          {listaOrdenada.length === 0 ? (
+            <Box sx={{ p: 5, textAlign: "center", color: "text.secondary" }}>Nenhuma tarefa com esses filtros.</Box>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Data</TableCell><TableCell>Tarefa</TableCell><TableCell>Cliente</TableCell>
+                  <TableCell>Tipo</TableCell><TableCell>Etapa</TableCell><TableCell>Responsável</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {listaOrdenada.map((t) => {
+                  const st = stages.find((s) => s.id === t.stage_id);
+                  const ct = t.content_type && CONTENT_TYPES[t.content_type];
+                  return (
+                    <TableRow key={t.id} hover sx={{ cursor: "pointer" }} onClick={() => openEdit(t)}>
+                      <TableCell sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                        {t.scheduled_at ? formatDateTime(t.scheduled_at) : t.due_date ? formatDate(t.due_date) : "—"}
+                      </TableCell>
+                      <TableCell>{t.title}</TableCell>
+                      <TableCell>{t.client_name || "—"}</TableCell>
+                      <TableCell>{ct ? `${ct.emoji} ${ct.label}` : "—"}</TableCell>
+                      <TableCell><Chip size="small" variant="outlined" label={st?.name || "—"} color={st?.is_done ? "success" : "default"} /></TableCell>
+                      <TableCell>{t.assignee_name || "—"}</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+      ) : (
       <Box sx={{ display: "flex", gap: 2, overflowX: "auto", pb: 2, alignItems: "flex-start" }}>
         {stages.map((stage, sIdx) => (
           <Box
@@ -439,6 +495,7 @@ export default function Tasks() {
           <Typography color="text.secondary">Configure as etapas do Kanban em Configurações.</Typography>
         )}
       </Box>
+      )}
 
       {/* Criar / editar tarefa */}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">

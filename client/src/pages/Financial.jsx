@@ -101,16 +101,19 @@ export default function Financial() {
       )}
 
       <Grid container spacing={2.5} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <StatCard label="Previsão de entrada" value={summary ? currency(summary.income) : undefined} />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
+          <StatCard label="A receber" value={summary ? currency(Math.max(0, (summary.income || 0) - (summary.paidIncome || 0))) : undefined} />
+        </Grid>
+        <Grid item xs={12} sm={6} md={2.4}>
           <StatCard label="Já entrou" value={summary ? currency(summary.paidIncome) : undefined} />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <StatCard label="Despesas do período" value={summary ? currency(summary.expense) : undefined} />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <StatCard label="Lucro realizado" value={summary ? currency(summary.lucroRealizado) : undefined} />
         </Grid>
       </Grid>
