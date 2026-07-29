@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { db, TENANT_TABLES } from "../db.js";
 import { authRequired, superadminRequired, hashPassword } from "../auth.js";
 import { getBilling, asaas } from "./billing.js";
-import { orgUsageStatus } from "../plans-monitor.js";
+import { orgUsageStatus, ladderPrice } from "../plans-monitor.js";
 
 const router = Router();
 router.use(authRequired, superadminRequired);
@@ -144,12 +144,15 @@ router.get("/billing-config", (req, res) => {
 // agência cadastrar o cartão. Todo mês o Asaas cobra o valor do plano.
 router.post("/:id/charge", async (req, res) => {
   const org = db.prepare(`
-    SELECT o.*, p.name AS plan_name, p.price AS plan_price
+    SELECT o.*, p.name AS plan_name, p.price, p.promo_price, p.promo_months, p.first_month_price
     FROM organizations o LEFT JOIN saas_plans p ON p.id = o.plan_id
     WHERE o.id = ? AND o.is_master = 0
   `).get(req.params.id);
   if (!org) return res.status(404).json({ error: "Escritório não encontrado." });
-  if (!org.plan_id || !org.plan_price) return res.status(400).json({ error: "Defina um plano para esta agência antes de cobrar." });
+  if (!org.plan_id || !org.price) return res.status(400).json({ error: "Defina um plano para esta agência antes de cobrar." });
+
+  // Valor inicial = 1º passo da escada (1º mês / promo / cheio).
+  const valorInicial = ladderPrice(org, 0);
 
   const masterOrg = req.user.org_id; // a chave Asaas é a do Perspecta Media
   try {
@@ -167,11 +170,13 @@ router.post("/:id/charge", async (req, res) => {
       method: "POST",
       body: {
         customer: customerId, billingType: "CREDIT_CARD", cycle: "MONTHLY",
-        value: org.plan_price, nextDueDate: venc.toISOString().slice(0, 10),
+        value: valorInicial, nextDueDate: venc.toISOString().slice(0, 10),
         description: `Perspecta Creator — plano ${org.plan_name}`,
       },
     });
-    db.prepare("UPDATE organizations SET asaas_subscription_id = ? WHERE id = ?").run(sub.id, org.id);
+    // Registra o início da assinatura e o valor atual — a escada cuida do resto.
+    db.prepare("UPDATE organizations SET asaas_subscription_id = ?, plan_started_at = datetime('now'), current_price = ? WHERE id = ?")
+      .run(sub.id, valorInicial, org.id);
     res.json({ ok: true, invoice_url: sub.invoiceUrl || null });
   } catch (e) {
     if (e.code === "NO_KEY") return res.status(400).json({ error: "Configure a chave Asaas do Perspecta Media em Integrações.", needs_key: true });

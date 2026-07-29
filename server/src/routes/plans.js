@@ -16,8 +16,13 @@ router.post("/", (req, res) => {
   const pos = db.prepare("SELECT COALESCE(MAX(position),-1)+1 AS p FROM saas_plans").get().p;
   const num = (v) => (v ? Number(v) : null); // vazio/0 = ilimitado
   const info = db
-    .prepare("INSERT INTO saas_plans (name, max_users, max_clients, storage_gb, price, position) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(b.name, num(b.max_users), num(b.max_clients), num(b.storage_gb), Number(b.price) || 0, pos);
+    .prepare(`INSERT INTO saas_plans (name, max_users, max_clients, storage_gb, price,
+                first_month_price, promo_price, promo_months, trial_days, position)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(b.name, num(b.max_users), num(b.max_clients), num(b.storage_gb), Number(b.price) || 0,
+      num(b.first_month_price), num(b.promo_price),
+      b.promo_months != null && b.promo_months !== "" ? Number(b.promo_months) : null,
+      num(b.trial_days), pos);
   res.status(201).json(db.prepare("SELECT * FROM saas_plans WHERE id = ?").get(info.lastInsertRowid));
 });
 
@@ -26,12 +31,17 @@ router.put("/:id", (req, res) => {
   if (!cur) return res.status(404).json({ error: "Plano não encontrado." });
   const b = req.body || {};
   const keep = (v, cur) => (v !== undefined ? (v ? Number(v) : null) : cur);
-  db.prepare("UPDATE saas_plans SET name=?, max_users=?, max_clients=?, storage_gb=?, price=?, active=? WHERE id=?").run(
+  db.prepare(`UPDATE saas_plans SET name=?, max_users=?, max_clients=?, storage_gb=?, price=?,
+    first_month_price=?, promo_price=?, promo_months=?, trial_days=?, active=? WHERE id=?`).run(
     b.name ?? cur.name,
     keep(b.max_users, cur.max_users),
     keep(b.max_clients, cur.max_clients),
     keep(b.storage_gb, cur.storage_gb),
     b.price !== undefined ? Number(b.price) || 0 : cur.price,
+    keep(b.first_month_price, cur.first_month_price),
+    keep(b.promo_price, cur.promo_price),
+    b.promo_months !== undefined ? (b.promo_months !== "" ? Number(b.promo_months) : null) : cur.promo_months,
+    keep(b.trial_days, cur.trial_days),
     b.active !== undefined ? (b.active ? 1 : 0) : cur.active,
     req.params.id
   );

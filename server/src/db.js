@@ -351,6 +351,15 @@ ensureColumn("projects", "launched_months", "launched_months TEXT");
 // Limites do plano (vazio = ilimitado) e monitoramento de uso.
 ensureColumn("saas_plans", "max_clients", "max_clients INTEGER");
 ensureColumn("saas_plans", "storage_gb", "storage_gb INTEGER");
+// Preço promocional escalonado: 1º mês, depois promo por N meses, depois cheio.
+ensureColumn("saas_plans", "promo_price", "promo_price REAL");
+ensureColumn("saas_plans", "promo_months", "promo_months INTEGER");   // 0 = só 1º mês; 6 = seis meses
+ensureColumn("saas_plans", "first_month_price", "first_month_price REAL");
+ensureColumn("saas_plans", "trial_days", "trial_days INTEGER");       // teste grátis (dias)
+// Quando a assinatura (cobrança) daquela agência começou — base da escada.
+ensureColumn("organizations", "plan_started_at", "plan_started_at TEXT");
+// Último valor cobrado na assinatura (para a escada só mexer quando muda de fase).
+ensureColumn("organizations", "current_price", "current_price REAL");
 // Tolerância: quando estoura um limite, ganha alguns dias antes de restringir.
 ensureColumn("organizations", "limit_grace_until", "limit_grace_until TEXT");
 ensureColumn("organizations", "usage_notified_at", "usage_notified_at TEXT");
@@ -360,13 +369,16 @@ ensureColumn("organizations", "usage_notified_at", "usage_notified_at TEXT");
   const n = db.prepare("SELECT COUNT(*) AS n FROM saas_plans").get().n;
   if (n > 0) return;
   const ins = db.prepare(
-    "INSERT INTO saas_plans (name, max_users, max_clients, storage_gb, price, position) VALUES (?, ?, ?, ?, ?, ?)"
+    `INSERT INTO saas_plans (name, max_users, max_clients, storage_gb, price,
+       first_month_price, promo_price, promo_months, trial_days, position)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
-  // max_users/max_clients/storage_gb: NULL = ilimitado.
-  ins.run("Creator One", 1, 15, 5, 69, 0);
-  ins.run("Creator Growth", 3, 50, 20, 149, 1);
-  ins.run("Creator Pro", 8, null, 100, 279, 2);
-  ins.run("Creator Enterprise", null, null, 500, 599, 3);
+  // NULL = ilimitado. Escada: 1º mês → promo por N meses → preço cheio.
+  //           nome            users clients gb   cheio  1ºmes promo promoM trial pos
+  ins.run("Creator One",        1,    15,    5,   289,   89,   189,   6,    7,   0);
+  ins.run("Creator Plus",       5,    50,    20,  389,   null, 189,   6,    7,   1);
+  ins.run("Creator Pro",        10,   null,  100, 489,   null, 289,   6,    7,   2);
+  ins.run("Creator Enterprise", null, null,  500, 0,     null, null,  null, 7,   3);
 })();
 
 db.exec(`

@@ -378,8 +378,19 @@ export default function Organizations() {
                 <CardContent sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", py: 1.25, "&:last-child": { pb: 1.25 } }}>
                   <Box>
                     <Typography sx={{ fontWeight: 600 }}>{p.name}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                      {(p.first_month_price != null || p.promo_price != null) && (
+                        <>
+                          {p.first_month_price != null && `1º mês ${currency(p.first_month_price)} · `}
+                          {p.promo_price != null && `${currency(p.promo_price)} por ${p.promo_months || 1}m · `}
+                          depois{" "}
+                        </>
+                      )}
+                      <strong>{currency(p.price)}/mês</strong>
+                      {p.trial_days ? ` · ${p.trial_days}d grátis` : ""}
+                    </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {currency(p.price)}/mês · {p.max_users ? `${p.max_users} pessoas` : "pessoas ilim."}
+                      {p.max_users ? `${p.max_users} pessoas` : "pessoas ilim."}
                       {" · "}{p.max_clients ? `${p.max_clients} clientes` : "clientes ilim."}
                       {" · "}{p.storage_gb ? `${p.storage_gb} GB` : "GB ilim."}
                     </Typography>
@@ -414,10 +425,28 @@ export default function Organizations() {
               <TextField size="small" label="GB" type="number" value={planDraft?.storage_gb || ""}
                 onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), storage_gb: e.target.value }))} sx={{ flex: 1 }}
                 placeholder="ilimit." helperText="armazenamento" />
-              <Button variant="contained" onClick={salvarPlano} disabled={!planDraft?.name}>
-                {planDraft?.id ? "Salvar" : "Adicionar"}
-              </Button>
             </Stack>
+
+            <Divider>Promoção e teste grátis</Divider>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+              <TextField size="small" label="Teste grátis (dias)" type="number" value={planDraft?.trial_days ?? ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), trial_days: e.target.value }))} sx={{ flex: 1 }}
+                placeholder="7" />
+              <TextField size="small" label="1º mês (R$)" type="number" value={planDraft?.first_month_price ?? ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), first_month_price: e.target.value }))} sx={{ flex: 1 }}
+                placeholder="vazio = pula" />
+              <TextField size="small" label="Promo (R$)" type="number" value={planDraft?.promo_price ?? ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), promo_price: e.target.value }))} sx={{ flex: 1 }}
+                placeholder="vazio = sem promo" />
+              <TextField size="small" label="Meses de promo" type="number" value={planDraft?.promo_months ?? ""}
+                onChange={(e) => setPlanDraft((d) => ({ ...(d || {}), promo_months: e.target.value }))} sx={{ flex: 1 }}
+                helperText="0 = só o 1º mês" />
+            </Stack>
+            <Box sx={{ textAlign: "right" }}>
+              <Button variant="contained" onClick={salvarPlano} disabled={!planDraft?.name}>
+                {planDraft?.id ? "Salvar plano" : "Adicionar plano"}
+              </Button>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>

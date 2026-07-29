@@ -4,9 +4,55 @@
 // restringir, e lembra de testes acabando. Roda de tempos em tempos.
 // ---------------------------------------------------------------------------
 import { db } from "./db.js";
+import { asaas } from "./routes/billing.js";
 
 const GB = 1024 * 1024 * 1024;
 const GRACE_DAYS = 7;
+
+// Preço da escada no mês N (0 = primeiro mês). Regras:
+//  - se há "1º mês", o mês 0 usa esse valor;
+//  - depois a promo vale por "promo_months" meses;
+//  - em seguida, o preço cheio.
+export function ladderPrice(plan, months) {
+  if (!plan) return 0;
+  const fm = plan.first_month_price != null ? 1 : 0;
+  if (fm && months < 1) return plan.first_month_price;
+  const promoAte = fm + (plan.promo_months || 0);
+  if (plan.promo_price != null && months < promoAte) return plan.promo_price;
+  return plan.price || 0;
+}
+
+// Quantos meses inteiros se passaram desde o início da assinatura.
+function monthsSince(iso) {
+  if (!iso) return 0;
+  const ini = new Date(iso.replace(" ", "T") + "Z");
+  const now = new Date();
+  let m = (now.getFullYear() - ini.getFullYear()) * 12 + (now.getMonth() - ini.getMonth());
+  if (now.getDate() < ini.getDate()) m -= 1; // ainda não completou o mês
+  return Math.max(0, m);
+}
+
+// Ajusta o valor das assinaturas Asaas conforme a escada de preço.
+// Só age quando há assinatura ativa e o valor-alvo mudou de fase.
+export async function runPriceLadder() {
+  const orgs = db.prepare(
+    `SELECT o.*, p.price, p.promo_price, p.promo_months, p.first_month_price
+     FROM organizations o JOIN saas_plans p ON p.id = o.plan_id
+     WHERE o.is_master = 0 AND o.asaas_subscription_id IS NOT NULL AND o.plan_started_at IS NOT NULL`
+  ).all();
+  for (const o of orgs) {
+    const alvo = ladderPrice(o, monthsSince(o.plan_started_at));
+    if (!alvo || Number(o.current_price) === Number(alvo)) continue;
+    try {
+      // Atualiza o valor da assinatura no Asaas (usa a chave do master).
+      const master = db.prepare("SELECT id FROM organizations WHERE is_master = 1").get();
+      await asaas(master.id, `/subscriptions/${o.asaas_subscription_id}`, {
+        method: "POST", body: { value: alvo, updatePendingPayments: true },
+      });
+      db.prepare("UPDATE organizations SET current_price = ? WHERE id = ?").run(alvo, o.id);
+    } catch (e) { console.error("price-ladder:", o.name, e.message); }
+  }
+}
 
 // Uso atual de uma agência: pessoas, clientes ativos e armazenamento.
 export function computeUsage(orgId) {
@@ -120,6 +166,10 @@ export function runPlanCheck() {
 
 export function startPlanMonitor() {
   const SEIS_HORAS = 6 * 60 * 60 * 1000;
-  setTimeout(() => { try { runPlanCheck(); } catch (e) { console.error("plan-monitor:", e.message); } }, 15000);
-  setInterval(() => { try { runPlanCheck(); } catch (e) { console.error("plan-monitor:", e.message); } }, SEIS_HORAS).unref?.();
+  const passada = () => {
+    try { runPlanCheck(); } catch (e) { console.error("plan-monitor:", e.message); }
+    runPriceLadder().catch((e) => console.error("price-ladder:", e.message));
+  };
+  setTimeout(passada, 15000);
+  setInterval(passada, SEIS_HORAS).unref?.();
 }
