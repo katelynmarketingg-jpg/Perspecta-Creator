@@ -24,7 +24,11 @@ router.get("/", (req, res) => {
       days: it.days ? JSON.parse(it.days) : [],
     });
   });
-  res.json(projetos.map((p) => ({ ...p, plan: porProjeto[p.id] || [] })));
+  res.json(projetos.map((p) => ({
+    ...p,
+    plan: porProjeto[p.id] || [],
+    launched_months: p.launched_months ? JSON.parse(p.launched_months) : [],
+  })));
 });
 
 router.get("/:id", (req, res) => {
@@ -231,6 +235,11 @@ router.post("/:id/launch", (req, res) => {
     });
   });
   tx();
+
+  // Marca o mês como já lançado (para o card mostrar "lançado").
+  const jaLancados = project.launched_months ? JSON.parse(project.launched_months) : [];
+  if (!jaLancados.includes(month)) jaLancados.push(month);
+  db.prepare("UPDATE projects SET launched_months = ? WHERE id = ?").run(JSON.stringify(jaLancados), project.id);
 
   res.json({ created: total, month: monthLabel });
 });

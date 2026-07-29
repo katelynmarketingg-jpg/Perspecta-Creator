@@ -4,6 +4,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Chip,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import RemoveIcon from "@mui/icons-material/Remove";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PaidIcon from "@mui/icons-material/Paid";
@@ -57,6 +58,16 @@ export default function Goals() {
     if (!confirm("Excluir meta?")) return;
     await api.delete(`/goals/${id}`);
     load();
+  }
+
+  // Atualiza o progresso na mão (você vai preenchendo conforme alcança).
+  async function setCurrent(g, val) {
+    const current = Math.max(0, Number(val) || 0);
+    setRows((rs) => rs.map((x) => (x.id === g.id ? { ...x, current } : x))); // resposta imediata
+    await api.put(`/goals/${g.id}`, {
+      ...g, current, target: g.target,
+      owner_id: g.owner_id || null, project_id: g.project_id || null,
+    }).catch(() => load());
   }
 
   function progressOf(g) {
@@ -115,6 +126,19 @@ export default function Goals() {
                         </Stack>
                         <LinearProgress variant="determinate" value={pct} sx={{ height: 8, borderRadius: 4 }}
                           color={pct >= 100 ? "success" : overdue(g) ? "error" : "primary"} />
+                        {/* Preencher o progresso na mão */}
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.5 }}>
+                          <IconButton size="small" onClick={() => setCurrent(g, g.current - 1)} disabled={g.current <= 0}>
+                            <RemoveIcon fontSize="small" />
+                          </IconButton>
+                          <TextField size="small" type="number" value={g.current}
+                            onChange={(e) => setCurrent(g, e.target.value)}
+                            inputProps={{ min: 0, style: { textAlign: "center" } }} sx={{ width: 90 }} />
+                          <IconButton size="small" color="primary" onClick={() => setCurrent(g, g.current + 1)}>
+                            <AddIcon fontSize="small" />
+                          </IconButton>
+                          <Typography variant="caption" color="text.secondary">alcançado</Typography>
+                        </Stack>
                       </Box>
                     )}
 

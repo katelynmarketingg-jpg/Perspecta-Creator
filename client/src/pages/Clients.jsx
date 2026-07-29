@@ -280,9 +280,11 @@ export default function Clients() {
         <DialogTitle>{draft.id ? "Editar cliente" : "Novo cliente"}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Nome *" value={draft.name} onChange={set("name")} fullWidth />
+            <TextField label="Empresa *" value={draft.name} onChange={set("name")} fullWidth
+              placeholder="Nome da empresa (aparece grande no sistema)" />
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField label="Empresa" value={draft.company || ""} onChange={set("company")} fullWidth />
+              <TextField label="Responsável" value={draft.company || ""} onChange={set("company")} fullWidth
+                placeholder="Pessoa de contato" />
               <TextField label="Segmento" value={draft.segment || ""} onChange={set("segment")} fullWidth
                 placeholder="Ex: gastronomia, advocacia, moda..." />
             </Stack>

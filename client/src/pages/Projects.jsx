@@ -13,6 +13,17 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate, CONTENT_TYPES } from "../utils.js";
 
 const EMPTY = { name: "", client_id: "", description: "", status: "active", start_date: "", end_date: "" };
+const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+// Próximo mês em "YYYY-MM" — você lança em julho o mês de agosto.
+function nextMonthKey() {
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function monthLabelPt(key) {
+  if (!key) return "";
+  const [y, m] = key.split("-").map(Number);
+  return `${MESES_PT[m - 1]}/${y}`;
+}
 // Zera todos os tipos configurados (vêm de /task-types).
 const emptyQuantities = (list) => Object.fromEntries((list || []).map((t) => [t.key, 0]));
 // Rótulo/emoji de um tipo: usa os tipos do escritório, cai no padrão se for antigo.
@@ -34,6 +45,8 @@ export default function Projects() {
   const [launch, setLaunch] = useState(null); // { project, month, assignee_id }
   const [pieces, setPieces] = useState([]);   // lista editável: uma peça = uma data
   const [flash, setFlash] = useState("");
+  // Mês de referência do quadro (padrão: o próximo). Filtra o status "lançado".
+  const [refMonth, setRefMonth] = useState(nextMonthKey());
 
   // Um dia do mês vira uma data completa (respeitando o último dia do mês).
   function monthDay(month, day) {
@@ -57,7 +70,7 @@ export default function Projects() {
     return out;
   }
   function openLaunch(p) {
-    const month = new Date().toISOString().slice(0, 7);
+    const month = refMonth;
     setLaunch({ project: p, month, assignee_id: "" });
     setPieces(buildPieces(p, month));
   }
@@ -161,6 +174,18 @@ export default function Projects() {
 
       {flash && <Alert severity="success" sx={{ mb: 2 }}>{flash}</Alert>}
 
+      {rows.length > 0 && (
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2.5 }}>
+          <TextField
+            type="month" size="small" label="Mês de referência" InputLabelProps={{ shrink: true }}
+            value={refMonth} onChange={(e) => setRefMonth(e.target.value)} sx={{ width: 200 }}
+          />
+          <Typography variant="body2" color="text.secondary">
+            Mostra o que já foi lançado para <strong>{monthLabelPt(refMonth)}</strong>. "Lançar mês" já vem nesse mês.
+          </Typography>
+        </Stack>
+      )}
+
       {rows.length === 0 ? (
         <EmptyState message="Nenhum projeto cadastrado." />
       ) : (
@@ -170,7 +195,12 @@ export default function Projects() {
               <Card sx={{ height: "100%" }}>
                 <CardContent>
                   <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                    <Chip size="small" label={p.status === "done" ? "Concluído" : "Ativo"} color={p.status === "done" ? "success" : "primary"} />
+                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                      <Chip size="small" label={p.status === "done" ? "Concluído" : "Ativo"} color={p.status === "done" ? "success" : "primary"} />
+                      {(p.launched_months || []).includes(refMonth)
+                        ? <Chip size="small" color="success" variant="outlined" label={`✓ ${monthLabelPt(refMonth)} lançado`} />
+                        : <Chip size="small" variant="outlined" label={`${monthLabelPt(refMonth)}: a lançar`} />}
+                    </Stack>
                     <Box>
                       <IconButton size="small" onClick={() => openEdit(p)}><EditIcon fontSize="small" /></IconButton>
                       <IconButton size="small" color="error" onClick={() => remove(p.id)}><DeleteIcon fontSize="small" /></IconButton>
@@ -197,11 +227,12 @@ export default function Projects() {
                     {formatDate(p.start_date)} → {formatDate(p.end_date)}
                   </Typography>
                   <Button
-                    fullWidth variant="contained" size="small" startIcon={<RocketLaunchIcon />} sx={{ mt: 1.5 }}
+                    fullWidth size="small" startIcon={<RocketLaunchIcon />} sx={{ mt: 1.5 }}
+                    variant={(p.launched_months || []).includes(refMonth) ? "outlined" : "contained"}
                     disabled={(p.plan || []).length === 0}
                     onClick={() => openLaunch(p)}
                   >
-                    Lançar mês
+                    {(p.launched_months || []).includes(refMonth) ? `Relançar ${monthLabelPt(refMonth)}` : `Lançar ${monthLabelPt(refMonth)}`}
                   </Button>
                 </CardContent>
               </Card>

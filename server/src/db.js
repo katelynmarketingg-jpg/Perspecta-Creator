@@ -345,6 +345,8 @@ ensureColumn("files", "expiry_notified_at", "expiry_notified_at TEXT");
 ensureColumn("files", "stage", "stage TEXT NOT NULL DEFAULT 'originais'");
 // Dias do mês em que cada tipo do plano é publicado (JSON: [5,12,19,26]).
 ensureColumn("plan_items", "days", "days TEXT");
+// Meses já lançados de um projeto (JSON: ["2026-08", ...]) — mostra "já lançado".
+ensureColumn("projects", "launched_months", "launched_months TEXT");
 
 // Limites do plano (vazio = ilimitado) e monitoramento de uso.
 ensureColumn("saas_plans", "max_clients", "max_clients INTEGER");
