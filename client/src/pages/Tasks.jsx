@@ -25,6 +25,23 @@ const EMPTY = {
   content_type: "", caption: "", scheduled_at: "",
 };
 
+// A data (programada ou prazo) cai em hoje / esta semana (seg–dom) / este mês?
+function inQuick(dateStr, quick) {
+  if (!quick) return true;
+  if (!dateStr) return false;
+  const d = new Date(dateStr.slice(0, 10) + "T12:00:00");
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (quick === "hoje") return d.toDateString() === today.toDateString();
+  if (quick === "semana") {
+    const ini = new Date(today); ini.setDate(today.getDate() - ((today.getDay() + 6) % 7)); // segunda
+    const fim = new Date(ini); fim.setDate(ini.getDate() + 6);
+    return d >= ini && d <= fim;
+  }
+  if (quick === "mes") return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  return true;
+}
+
 export default function Tasks() {
   const [stages, setStages] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -44,6 +61,7 @@ export default function Tasks() {
   const [filterAssignee, setFilterAssignee] = useState("__me");
   const [search, setSearch] = useState("");
   const [filterMonth, setFilterMonth] = useState(""); // filtro por data (mês)
+  const [dateQuick, setDateQuick] = useState("");      // '', 'hoje', 'semana', 'mes'
   const [view, setView] = useState("board");           // 'board' (quadro) | 'list' (lista)
   const [apontamentos, setApontamentos] = useState([]);
   const [novoTempo, setNovoTempo] = useState({ minutes: "", note: "" });
@@ -121,9 +139,11 @@ export default function Tasks() {
         const d = (t.scheduled_at || t.due_date || "").slice(0, 7);
         if (d !== filterMonth) return false;
       }
+      // Filtro rápido: hoje / esta semana / este mês.
+      if (dateQuick && !inQuick(t.scheduled_at || t.due_date, dateQuick)) return false;
       return true;
     });
-  }, [tasks, filterClient, filterAssignee, search, filterMonth, me]);
+  }, [tasks, filterClient, filterAssignee, search, filterMonth, dateQuick, me]);
 
   // Para a lista: tudo em ordem de data (programada ou prazo).
   const listaOrdenada = useMemo(() =>
@@ -324,10 +344,17 @@ export default function Tasks() {
           <MenuItem value="__none">Sem responsável</MenuItem>
           {team.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
         </TextField>
-        <TextField type="month" size="small" label="Data" InputLabelProps={{ shrink: true }}
-          value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} sx={{ width: 150 }} />
-        {(search || filterClient || filterAssignee || filterMonth) && (
-          <Button size="small" onClick={() => { setSearch(""); setFilterClient(""); setFilterAssignee(""); setFilterMonth(""); }}>
+        <TextField select size="small" label="Período" value={dateQuick}
+          onChange={(e) => setDateQuick(e.target.value)} sx={{ minWidth: 140 }}>
+          <MenuItem value="">Qualquer data</MenuItem>
+          <MenuItem value="hoje">Hoje</MenuItem>
+          <MenuItem value="semana">Esta semana</MenuItem>
+          <MenuItem value="mes">Este mês</MenuItem>
+        </TextField>
+        <TextField type="month" size="small" label="Mês" InputLabelProps={{ shrink: true }}
+          value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} sx={{ width: 140 }} />
+        {(search || filterClient || filterAssignee || filterMonth || dateQuick) && (
+          <Button size="small" onClick={() => { setSearch(""); setFilterClient(""); setFilterAssignee(""); setFilterMonth(""); setDateQuick(""); }}>
             Limpar
           </Button>
         )}

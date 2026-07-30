@@ -121,6 +121,17 @@ router.put("/:id", (req, res) => {
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
 
+// POST /api/tasks/bulk-rename { from, to } — troca um texto no título de TODAS
+// as tarefas do escritório (ex.: "Julho" → "Agosto"). Não mexe nas datas.
+router.post("/bulk-rename", (req, res) => {
+  const { from, to } = req.body || {};
+  if (!from) return res.status(400).json({ error: "Informe o texto a trocar." });
+  const info = db
+    .prepare("UPDATE tasks SET title = REPLACE(title, ?, ?) WHERE org_id = ? AND title LIKE ?")
+    .run(from, to ?? "", req.orgId, `%${from}%`);
+  res.json({ updated: info.changes });
+});
+
 // PUT /api/tasks/:id/status — move de etapa (drag do kanban)
 // Ao mover para a etapa de conclusão, a data de programação é obrigatória.
 router.put("/:id/status", (req, res) => {
