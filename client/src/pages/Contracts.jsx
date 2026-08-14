@@ -13,6 +13,7 @@ import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { Box, Typography, Tooltip, Alert } from "@mui/material";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
 
@@ -36,6 +37,10 @@ export default function Contracts() {
 
   const load = () => api.get("/contracts").then((r) => setRows(r.data));
   useEffect(() => { load(); api.get("/clients").then((r) => setClients(r.data)); }, []);
+
+  // Ao vivo: recarrega quando alguém mexe nos contratos.
+  const vContracts = useLiveVersion("contracts");
+  useEffect(() => { if (vContracts) load(); }, [vContracts]);
 
   const filtrados = rows.filter((c) => {
     if (filtroCliente && String(c.client_id) !== String(filtroCliente)) return false;

@@ -38,6 +38,7 @@ import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
 import { startRetention } from "./retention.js";
 import { startPlanMonitor } from "./plans-monitor.js";
+import { liveNotifier, sseHandler } from "./live.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -48,6 +49,14 @@ app.use(cors());
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
+
+// Canal de atualização ao vivo (SSE). Fica fora do liveNotifier (é um GET) e
+// se autentica pela própria URL (?token=...), pois o EventSource do navegador
+// não envia cabeçalhos.
+app.get("/api/live", sseHandler);
+
+// A partir daqui, toda gravação bem-sucedida avisa as telas do escritório.
+app.use(liveNotifier);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);

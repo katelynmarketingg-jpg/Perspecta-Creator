@@ -7,6 +7,7 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 
 const EMPTY = { title: "", type_id: "", client_id: "", start_at: "", end_at: "", notes: "" };
@@ -22,6 +23,10 @@ export default function Events() {
   const load = () => api.get("/events").then((r) => setRows(r.data));
   const loadTypes = () => api.get("/events/types").then((r) => setTypes(r.data));
   useEffect(() => { load(); loadTypes(); api.get("/clients").then((r) => setClients(r.data)); }, []);
+
+  // Ao vivo: recarrega quando alguém mexe nos eventos.
+  const vEvents = useLiveVersion("events");
+  useEffect(() => { if (vEvents) load(); }, [vEvents]);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
 

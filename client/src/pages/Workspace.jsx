@@ -21,6 +21,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import MovieIcon from "@mui/icons-material/Movie";
 import CloseIcon from "@mui/icons-material/Close";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 
 const KINDS = {
@@ -142,6 +143,10 @@ export default function Workspace() {
     api.get("/clients").then((r) => setClients(r.data.filter((c) => c.status === "active")));
     load();
   }, []);
+
+  // Ao vivo: recarrega quando alguém mexe no workspace.
+  const vWorkspace = useLiveVersion("workspace");
+  useEffect(() => { if (vWorkspace) load(); }, [vWorkspace]);
 
   const byClient = useMemo(() => {
     const map = {};

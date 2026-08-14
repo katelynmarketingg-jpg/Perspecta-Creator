@@ -11,6 +11,7 @@ import EventBusyIcon from "@mui/icons-material/EventBusy";
 import Tooltip from "@mui/material/Tooltip";
 import { Alert } from "@mui/material";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
 
@@ -48,7 +49,9 @@ export default function Financial() {
     api.get("/financial", { params }).then((r) => setRows(r.data));
     api.get("/financial/summary", { params }).then((r) => setSummary(r.data));
   };
-  useEffect(() => { load(); }, [periodo]);
+  // Ao vivo: 'vFinancial' muda quando alguém lança/edita no financeiro.
+  const vFinancial = useLiveVersion("financial");
+  useEffect(() => { load(); }, [periodo, vFinancial]);
   useEffect(() => {
     api.get("/clients").then((r) => setClients(r.data));
     api.get("/financial/renewals").then((r) => setRenewals(r.data)).catch(() => {});

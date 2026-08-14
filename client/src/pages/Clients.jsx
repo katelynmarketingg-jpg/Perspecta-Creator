@@ -16,6 +16,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState, TableSkeleton } from "../components/ui.jsx";
 import { currency, formatDate, CONTENT_TYPES } from "../utils.js";
 
@@ -100,6 +101,10 @@ export default function Clients() {
     load();
     api.get("/services").then((r) => setAllServices(r.data)).catch(() => {});
   }, []);
+
+  // Ao vivo: recarrega a lista quando alguém mexe em clientes.
+  const vClients = useLiveVersion("clients");
+  useEffect(() => { if (vClients) load(); }, [vClients]);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
 

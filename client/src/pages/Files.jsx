@@ -16,6 +16,7 @@ import ImageIcon from "@mui/icons-material/Image";
 import MovieIcon from "@mui/icons-material/Movie";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
 import { fileSize, formatDateTime } from "../utils.js";
 
@@ -116,8 +117,10 @@ export default function Files() {
     if (currentFolder) api.get("/files", { params }).then((r) => setFiles(r.data));
     else setFiles([]);
   };
-  useEffect(() => { loadBoard(); }, [clientId]);
-  useEffect(() => { loadDocs(); }, [clientId, currentFolder]);
+  // Ao vivo: 'vFiles' muda quando alguém envia/move/apaga arquivos.
+  const vFiles = useLiveVersion("files");
+  useEffect(() => { loadBoard(); }, [clientId, vFiles]);
+  useEffect(() => { loadDocs(); }, [clientId, currentFolder, vFiles]);
 
   function selectClient(id) { setClientId(id); setPath([]); }
 

@@ -13,6 +13,7 @@ import GridOnIcon from "@mui/icons-material/GridOn";
 import FeedPreview from "../components/FeedPreview.jsx";
 import PostComments from "../components/PostComments.jsx";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime } from "../utils.js";
 
@@ -60,11 +61,14 @@ export default function Calendar() {
 
   useEffect(() => { api.get("/clients").then((r) => setClients(r.data)); }, []);
 
+  // Ao vivo: o calendário mostra posts (tarefas) e suas artes (arquivos).
+  const vTasks = useLiveVersion("tasks");
+  const vFiles = useLiveVersion("files");
   useEffect(() => {
     const params = { month: monthKey(cursor) };
     if (clientFilter) params.client_id = clientFilter;
     api.get("/calendar", { params }).then((r) => setPosts(r.data)).catch(() => setPosts([]));
-  }, [cursor, clientFilter]);
+  }, [cursor, clientFilter, vTasks, vFiles]);
 
   // A prévia do feed ignora o mês: o perfil é uma sequência contínua.
   useEffect(() => {

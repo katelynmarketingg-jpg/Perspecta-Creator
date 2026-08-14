@@ -10,6 +10,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import LinkIcon from "@mui/icons-material/Link";
 import DescriptionIcon from "@mui/icons-material/Description";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
 
@@ -43,7 +44,9 @@ export default function Agenda() {
     else if (owner !== "all") params.owner_id = owner;
     api.get("/agenda/day", { params }).then((r) => setRows(r.data)).catch(() => setRows([]));
   };
-  useEffect(() => { load(); }, [date, owner]);
+  // Ao vivo: a agenda grava via /events, então escuta o recurso "events".
+  const vEvents = useLiveVersion("events");
+  useEffect(() => { load(); }, [date, owner, vEvents]);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
   const time = (v) => (v ? new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "");

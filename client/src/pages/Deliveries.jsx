@@ -6,6 +6,7 @@ import {
 import { alpha } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 
 // Mês seguinte por padrão? Não — abre no mês atual, com seletor.
@@ -14,10 +15,12 @@ export default function Deliveries() {
   const [mes, setMes] = useState(() => new Date().toISOString().slice(0, 7));
   const [dados, setDados] = useState([]);
 
+  // Ao vivo: as entregas derivam das tarefas concluídas.
+  const vTasks = useLiveVersion("tasks");
   useEffect(() => {
     api.get("/reports/deliveries", { params: { month: mes } })
       .then((r) => setDados(r.data)).catch(() => setDados([]));
-  }, [mes]);
+  }, [mes, vTasks]);
 
   const totalPlanejado = dados.reduce((s, d) => s + d.planejado, 0);
   const totalConcluido = dados.reduce((s, d) => s + d.concluidas, 0);

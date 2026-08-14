@@ -11,6 +11,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import ChatIcon from "@mui/icons-material/Chat";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate } from "../utils.js";
 
@@ -36,7 +37,9 @@ export default function Prospects() {
   const [msg, setMsg] = useState("");
 
   const load = () => api.get("/prospects").then((r) => setRows(r.data)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  // Ao vivo: recarrega quando alguém mexe na prospecção.
+  const vProspects = useLiveVersion("prospects");
+  useEffect(() => { load(); }, [vProspects]);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
 

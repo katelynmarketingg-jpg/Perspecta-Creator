@@ -7,6 +7,7 @@ import {
 } from "@mui/material";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { alpha } from "@mui/material/styles";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import PeopleIcon from "@mui/icons-material/People";
@@ -84,12 +85,15 @@ export default function Layout() {
   }, [viewingOrg?.id]);
 
   // Notificações do portal (aprovações e pedidos de ajuste dos clientes).
+  // Ao vivo: além do intervalo de 60s (rede de segurança), reage na hora
+  // quando chega uma notificação nova.
+  const vNotifs = useLiveVersion("notifications");
   useEffect(() => {
     const fetchNotifs = () => api.get("/notifications").then((r) => setNotifs(r.data)).catch(() => {});
     fetchNotifs();
     const id = setInterval(fetchNotifs, 60 * 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [vNotifs]);
 
   const unread = notifs.filter((n) => !n.is_read).length;
 

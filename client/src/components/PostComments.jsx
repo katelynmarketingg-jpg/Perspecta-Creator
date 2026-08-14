@@ -4,6 +4,7 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import SendIcon from "@mui/icons-material/Send";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 
 /**
  * Conversa de um post. A legenda fica fixa no topo (é sobre ela que se fala)
@@ -25,7 +26,10 @@ export default function PostComments({ taskId, caption, api, listPath, postPath,
       .catch(() => setComments([]))
       .finally(() => setCarregando(false));
   };
-  useEffect(() => { if (taskId) load(); }, [taskId]);
+  // Ao vivo: recarrega a conversa quando chega comentário novo (do time).
+  // No portal do cliente o canal não está ativo, então fica em 0 (sem efeito).
+  const vComments = useLiveVersion("comments");
+  useEffect(() => { if (taskId) load(); }, [taskId, vComments]);
 
   useEffect(() => { fimRef.current?.scrollIntoView({ block: "nearest" }); }, [comments.length]);
 

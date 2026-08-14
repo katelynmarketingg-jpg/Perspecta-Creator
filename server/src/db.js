@@ -10,6 +10,11 @@ mkdirSync(dirname(DB_PATH), { recursive: true });
 export const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
+// Concorrência: com vários funcionários usando ao mesmo tempo, se duas
+// gravações caírem no mesmo instante, uma espera até 5s em vez de dar erro.
+db.pragma("busy_timeout = 5000");
+// Com WAL ligado, NORMAL é seguro e deixa as gravações mais rápidas.
+db.pragma("synchronous = NORMAL");
 
 // ---------------------------------------------------------------------------
 // Schema — reflete os módulos do sistema: usuários/permissões, clientes,
