@@ -234,6 +234,8 @@ ensureColumn("tasks", "scheduled_at", "scheduled_at TEXT");
 ensureColumn("tasks", "approval_status", "approval_status TEXT NOT NULL DEFAULT 'pending'");
 ensureColumn("tasks", "client_caption", "client_caption TEXT");
 ensureColumn("tasks", "client_note", "client_note TEXT");
+// Capa do post na "visão de perfil" (foto separada). Vazio = usa a própria arte.
+ensureColumn("tasks", "cover_file_id", "cover_file_id INTEGER");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
