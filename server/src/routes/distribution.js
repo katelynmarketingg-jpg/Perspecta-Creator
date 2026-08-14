@@ -23,7 +23,7 @@ function stageByName(pattern, orgId) {
 
 // GET /api/distribution?client_id= — peças prontas para distribuir/programar.
 router.get("/", (req, res) => {
-  const stage = stageByName("%Programa%", req.orgId);
+  const stage = stageByName("%Distribui%", req.orgId);
   if (!stage) return res.json({ stage: null, items: [] });
 
   const where = [
@@ -40,7 +40,7 @@ router.get("/", (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.client_id, c.name AS client_name,
+              t.approval_status, t.client_note, t.client_id, t.cover_file_id, c.name AS client_name,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
        LEFT JOIN clients c ON c.id = t.client_id
@@ -57,7 +57,7 @@ router.put("/:id", (req, res) => {
   const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });
 
-  const { caption, description, scheduled_at, file_id } = req.body || {};
+  const { caption, description, scheduled_at, file_id, cover_file_id } = req.body || {};
   db.prepare(
     `UPDATE tasks SET
        caption      = COALESCE(?, caption),
@@ -65,6 +65,12 @@ router.put("/:id", (req, res) => {
        scheduled_at = COALESCE(?, scheduled_at)
      WHERE id = ? AND org_id = ?`
   ).run(caption ?? null, description ?? null, scheduled_at ?? null, req.params.id, req.orgId);
+
+  // Capa do perfil: cover_file_id === null limpa; undefined não mexe.
+  if (cover_file_id !== undefined) {
+    db.prepare("UPDATE tasks SET cover_file_id = ? WHERE id = ? AND org_id = ?")
+      .run(cover_file_id || null, req.params.id, req.orgId);
+  }
 
   // Mídia: substitui o anexo (a arte do post). file_id null = remove.
   if (file_id !== undefined) {

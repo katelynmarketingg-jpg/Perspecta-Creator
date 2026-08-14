@@ -12,11 +12,12 @@ if (!has("users")) {
 
 if (!has("kanban_stages")) {
   const stages = [
-    ["A fazer", 0, 0],
-    ["Em andamento", 1, 0],
-    ["Aprovação", 2, 0],
-    ["Programação", 3, 0],
-    ["Concluído", 4, 1],
+    ["Planejamento", 0, 0],
+    ["Captação", 1, 0],
+    ["Criação", 2, 0],
+    ["Distribuição", 3, 0],
+    ["Aprovação", 4, 0],
+    ["Concluído", 5, 1],
   ];
   const stmt = db.prepare("INSERT INTO kanban_stages (name, position, is_done) VALUES (?, ?, ?)");
   stages.forEach((s) => stmt.run(...s));

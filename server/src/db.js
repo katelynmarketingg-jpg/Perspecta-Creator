@@ -234,6 +234,8 @@ ensureColumn("tasks", "scheduled_at", "scheduled_at TEXT");
 ensureColumn("tasks", "approval_status", "approval_status TEXT NOT NULL DEFAULT 'pending'");
 ensureColumn("tasks", "client_caption", "client_caption TEXT");
 ensureColumn("tasks", "client_note", "client_note TEXT");
+// Capa do post na "visão de perfil" (foto separada). Vazio = usa a própria arte.
+ensureColumn("tasks", "cover_file_id", "cover_file_id INTEGER");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
@@ -579,5 +581,45 @@ function seedOrganizations() {
   db.prepare("UPDATE users SET org_id = ? WHERE role = 'superadmin'").run(master.id);
 }
 seedOrganizations();
+
+// Exclusão automática desligada: cancela qualquer prazo de expiração que ainda
+// esteja marcado, para que nenhum arquivo seja apagado sozinho. A limpeza passa
+// a ser 100% manual (aba Arquivos). Idempotente — depois disso nada mais marca.
+db.prepare("UPDATE files SET expires_at = NULL, expiry_notified_at = NULL WHERE expires_at IS NOT NULL").run();
+
+// ---------------------------------------------------------------------------
+// Migração única do fluxo de etapas para o novo padrão:
+//   Planejamento → Captação → Criação → Distribuição → Aprovação → Concluído.
+// Só mexe em quadros que ainda estão no padrão antigo (renomeia sem perder
+// nenhuma tarefa). Depois que "Criação" existe, nunca mais toca nas etapas.
+// ---------------------------------------------------------------------------
+(function migrateStageFlow() {
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  const has = db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? AND lower(name) = lower(?)");
+  const rename = db.prepare("UPDATE kanban_stages SET name = ? WHERE org_id = ? AND lower(name) = lower(?)");
+  const setPos = db.prepare("UPDATE kanban_stages SET position = ? WHERE org_id = ? AND lower(name) = lower(?)");
+  orgs.forEach(({ id }) => {
+    const total = db.prepare("SELECT COUNT(*) AS n FROM kanban_stages WHERE org_id = ?").get(id).n;
+    if (!total) return;                 // ainda sem quadro
+    if (has.get(id, "Criação")) return; // já migrado
+    // Só converte boards que ainda têm os nomes padrão antigos.
+    if (!has.get(id, "A fazer") && !has.get(id, "Programação")) return;
+
+    rename.run("Planejamento", id, "A fazer");
+    rename.run("Captação", id, "Em andamento");
+    rename.run("Distribuição", id, "Programação");
+    if (!has.get(id, "Criação")) {
+      db.prepare("INSERT INTO kanban_stages (name, position, is_done, org_id) VALUES (?, ?, 0, ?)")
+        .run("Criação", 2, id);
+    }
+    // Reordena para o fluxo novo.
+    setPos.run(0, id, "Planejamento");
+    setPos.run(1, id, "Captação");
+    setPos.run(2, id, "Criação");
+    setPos.run(3, id, "Distribuição");
+    setPos.run(4, id, "Aprovação");
+    setPos.run(5, id, "Concluído");
+  });
+})();
 
 export default db;
