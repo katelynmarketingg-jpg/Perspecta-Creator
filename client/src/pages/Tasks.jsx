@@ -459,6 +459,9 @@ export default function Tasks() {
                         <Chip size="small" color="primary" variant="outlined"
                           label={`${CONTENT_TYPES[t.content_type].emoji} ${CONTENT_TYPES[t.content_type].label}`} />
                       )}
+                      {t.quantity > 1 && (
+                        <Chip size="small" color="secondary" label={`×${t.quantity}`} />
+                      )}
                       <Chip size="small" color={PRIORITY[t.priority]?.color} label={PRIORITY[t.priority]?.label} />
                       {t.scheduled_at && (
                         <Chip size="small" color="primary" icon={<EventAvailableIcon sx={{ fontSize: 14 }} />}

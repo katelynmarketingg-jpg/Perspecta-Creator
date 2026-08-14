@@ -236,6 +236,9 @@ ensureColumn("tasks", "client_caption", "client_caption TEXT");
 ensureColumn("tasks", "client_note", "client_note TEXT");
 // Capa do post na "visão de perfil" (foto separada). Vazio = usa a própria arte.
 ensureColumn("tasks", "cover_file_id", "cover_file_id INTEGER");
+// Quantidade agrupada: ao lançar, cria 1 tarefa por tipo com N peças dentro.
+// Ao entrar na Distribuição, ela se abre em N tarefas individuais (quantity=1).
+ensureColumn("tasks", "quantity", "quantity INTEGER NOT NULL DEFAULT 1");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
@@ -619,6 +622,18 @@ db.prepare("UPDATE files SET expires_at = NULL, expiry_notified_at = NULL WHERE 
     setPos.run(3, id, "Distribuição");
     setPos.run(4, id, "Aprovação");
     setPos.run(5, id, "Concluído");
+  });
+})();
+
+// A coluna final vira "Programados" (a organização do que já foi programado).
+// Idempotente: só renomeia enquanto ainda existir "Concluído".
+(function renameConcluidoParaProgramados() {
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  const has = db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? AND lower(name) = lower(?)");
+  orgs.forEach(({ id }) => {
+    if (has.get(id, "Programados")) return;
+    if (!has.get(id, "Concluído")) return;
+    db.prepare("UPDATE kanban_stages SET name = 'Programados' WHERE org_id = ? AND lower(name) = lower('Concluído')").run(id);
   });
 })();
 

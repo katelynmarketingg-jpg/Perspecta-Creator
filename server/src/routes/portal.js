@@ -193,9 +193,11 @@ function getOwnTask(req, res) {
 router.post("/approvals/:id/approve", (req, res) => {
   const task = getOwnTask(req, res);
   if (!task) return;
-  // Aprovado pelo cliente → vai para a etapa de conclusão (programado) e
-  // segue aparecendo no calendário com a data marcada.
-  const next = findStageByName("%Conclu%", task.org_id);
+  // Aprovado pelo cliente → vai para a etapa final "Programados" e segue
+  // aparecendo no calendário com a data marcada.
+  const next = db
+    .prepare("SELECT * FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1")
+    .get(task.org_id);
   db.prepare("UPDATE tasks SET approval_status = 'approved', stage_id = COALESCE(?, stage_id) WHERE id = ?")
     .run(next?.id ?? null, task.id);
   notifyAgency(task.client_id, task.id, `✅ ${req.client.name} aprovou "${task.title}".`, task.org_id);

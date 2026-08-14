@@ -17,7 +17,7 @@ if (!has("kanban_stages")) {
     ["Criação", 2, 0],
     ["Distribuição", 3, 0],
     ["Aprovação", 4, 0],
-    ["Concluído", 5, 1],
+    ["Programados", 5, 1],
   ];
   const stmt = db.prepare("INSERT INTO kanban_stages (name, position, is_done) VALUES (?, ?, ?)");
   stages.forEach((s) => stmt.run(...s));
