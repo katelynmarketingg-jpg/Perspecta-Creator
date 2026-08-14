@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
-import { DIAS_PARA_BAIXAR } from "../retention.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -114,11 +113,8 @@ router.post("/upload", upload.array("files", 20), (req, res) => {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const name = Buffer.from(f.originalname, "latin1").toString("utf8");
     const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, f.path, stage, req.orgId);
-    // Material de cliente nasce com prazo para ele baixar.
-    if (client_id) {
-      db.prepare(`UPDATE files SET expires_at = datetime('now', '+${DIAS_PARA_BAIXAR} days') WHERE id = ?`)
-        .run(info.lastInsertRowid);
-    }
+    // Sem prazo automático: os arquivos ficam até serem apagados manualmente
+    // na aba Arquivos.
     return db.prepare("SELECT id, original_name, mime, size, created_at FROM files WHERE id = ?").get(info.lastInsertRowid);
   });
   res.status(201).json(created);

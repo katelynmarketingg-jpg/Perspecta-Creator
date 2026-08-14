@@ -37,7 +37,6 @@ import taskTypesRoutes from "./routes/task-types.js";
 import distributionRoutes from "./routes/distribution.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
-import { startRetention } from "./retention.js";
 import { startPlanMonitor } from "./plans-monitor.js";
 import { liveNotifier, sseHandler } from "./live.js";
 
@@ -107,6 +106,7 @@ app.listen(PORT, () => {
   console.log(`API rodando em http://localhost:${PORT}`);
   startReminders();  // cobra aprovações paradas
   startPublisher();  // publica os posts com hora marcada (quando ligado)
-  startRetention();  // avisa e limpa o material vencido
+  // Exclusão automática de arquivos DESLIGADA: a limpeza é manual, na aba
+  // Arquivos. (startRetention não é mais chamado.)
   startPlanMonitor(); // vigia limites de plano e testes acabando
 });

@@ -582,6 +582,11 @@ function seedOrganizations() {
 }
 seedOrganizations();
 
+// Exclusão automática desligada: cancela qualquer prazo de expiração que ainda
+// esteja marcado, para que nenhum arquivo seja apagado sozinho. A limpeza passa
+// a ser 100% manual (aba Arquivos). Idempotente — depois disso nada mais marca.
+db.prepare("UPDATE files SET expires_at = NULL, expiry_notified_at = NULL WHERE expires_at IS NOT NULL").run();
+
 // ---------------------------------------------------------------------------
 // Migração única do fluxo de etapas para o novo padrão:
 //   Planejamento → Captação → Criação → Distribuição → Aprovação → Concluído.
