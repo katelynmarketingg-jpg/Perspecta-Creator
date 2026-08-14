@@ -19,7 +19,8 @@ router.get("/", (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.description, t.content_type, t.caption, t.scheduled_at,
               t.approval_status, t.client_id, c.name AS client_name,
-              u.name AS assignee_name, s.name AS stage_name, s.is_done AS stage_done
+              u.name AS assignee_name, s.name AS stage_name, s.is_done AS stage_done,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
        LEFT JOIN clients c ON c.id = t.client_id
        LEFT JOIN users u ON u.id = t.assignee_id

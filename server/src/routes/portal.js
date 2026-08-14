@@ -157,7 +157,8 @@ router.get("/calendar", (req, res) => {
   const rows = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at, t.approval_status,
-              s.name AS stage_name, s.is_done AS stage_done
+              s.name AS stage_name, s.is_done AS stage_done,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t LEFT JOIN kanban_stages s ON s.id = t.stage_id
        WHERE t.client_id = ? AND strftime('%Y-%m', t.scheduled_at) = ?
        ORDER BY t.scheduled_at`
