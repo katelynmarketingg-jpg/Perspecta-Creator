@@ -24,17 +24,24 @@ function findStageByName(pattern, orgId) {
 // POST /api/portal/login — acesso do cliente
 // ---------------------------------------------------------------------------
 router.post("/login", (req, res) => {
-  const { email, password } = req.body || {};
-  // Dois escritórios podem ter clientes com o mesmo e-mail: confere a senha
-  // em cada candidato em vez de assumir o primeiro.
+  const { username, email, password } = req.body || {};
+  // O cliente entra pelo NOME DE ACESSO (ou, para compatibilidade, pelo e-mail).
+  // O front manda o que foi digitado em 'username'; aceitamos os dois campos.
+  const identifier = (username ?? email ?? "").trim();
+  // Vários clientes podem ter o mesmo nome de acesso: confere a senha em cada
+  // candidato em vez de assumir o primeiro (o par nome+senha é o que decide).
   const candidates = db
-    .prepare("SELECT * FROM clients WHERE portal_email = ? AND status = 'active'")
-    .all((email || "").toLowerCase());
+    .prepare(
+      `SELECT * FROM clients
+        WHERE (lower(portal_username) = lower(?) OR lower(portal_email) = lower(?))
+          AND status = 'active'`
+    )
+    .all(identifier, identifier);
   const client = candidates.find(
     (c) => c.portal_password_hash && verifyPassword(password || "", c.portal_password_hash)
   );
   if (!client) {
-    return res.status(401).json({ error: "E-mail ou senha inválidos." });
+    return res.status(401).json({ error: "Nome de acesso ou senha inválidos." });
   }
   const token = jwt.sign(
     { portal: true, client_id: client.id, name: client.name, org_id: client.org_id },
@@ -150,7 +157,8 @@ router.get("/calendar", (req, res) => {
   const rows = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at, t.approval_status,
-              s.name AS stage_name, s.is_done AS stage_done
+              s.name AS stage_name, s.is_done AS stage_done,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t LEFT JOIN kanban_stages s ON s.id = t.stage_id
        WHERE t.client_id = ? AND strftime('%Y-%m', t.scheduled_at) = ?
        ORDER BY t.scheduled_at`

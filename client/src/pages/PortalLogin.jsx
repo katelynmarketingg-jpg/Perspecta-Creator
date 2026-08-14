@@ -5,7 +5,7 @@ import portalApi from "../api/portal.js";
 
 export default function PortalLogin() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: "", password: "" });
+  const [form, setForm] = useState({ login: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -14,7 +14,10 @@ export default function PortalLogin() {
     setError("");
     setLoading(true);
     try {
-      const { data } = await portalApi.post("/login", form);
+      const { data } = await portalApi.post("/login", {
+        username: form.login,
+        password: form.password,
+      });
       localStorage.setItem("portal_token", data.token);
       localStorage.setItem("portal_client", JSON.stringify(data.client));
       navigate("/portal");
@@ -52,8 +55,8 @@ export default function PortalLogin() {
 
           <form onSubmit={submit}>
             <Stack spacing={2}>
-              <TextField label="E-mail" type="email" value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} fullWidth required />
+              <TextField label="Nome de acesso" value={form.login}
+                onChange={(e) => setForm((f) => ({ ...f, login: e.target.value }))} fullWidth required />
               <TextField label="Senha" type="password" value={form.password}
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} fullWidth required />
               <Button type="submit" variant="contained" size="large" disabled={loading}>

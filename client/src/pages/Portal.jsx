@@ -47,6 +47,25 @@ function AuthImg({ fileId, alt, mime, maxHeight = 360 }) {
   );
 }
 
+// Miniatura pequena da arte (foto ou 1º quadro do vídeo) para as listas.
+function PortalThumb({ fileId, size = 56 }) {
+  const [src, setSrc] = useState(null);
+  const [isVideo, setIsVideo] = useState(false);
+  useEffect(() => {
+    if (!fileId) return;
+    let url;
+    portalApi.get(`/files/${fileId}/download`, { responseType: "blob" })
+      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setIsVideo((r.data.type || "").startsWith("video")); })
+      .catch(() => {});
+    return () => url && URL.revokeObjectURL(url);
+  }, [fileId]);
+  const sx = { width: size, height: size, borderRadius: 1.5, objectFit: "cover", flexShrink: 0, bgcolor: "action.hover" };
+  if (!src) return <Box sx={sx} />;
+  return isVideo
+    ? <Box component="video" src={src} muted sx={sx} />
+    : <Box component="img" src={src} alt="" sx={sx} />;
+}
+
 // Post do calendário ampliado: a arte em destaque, legenda logo abaixo.
 function PostDialog({ post, onClose }) {
   const [attachments, setAttachments] = useState([]);
@@ -371,8 +390,9 @@ export default function Portal() {
                       <Stack divider={<Divider />} spacing={1.5}>
                         {byDay[day].map((p) => (
                           <Box key={p.id} onClick={() => setOpenPost(p)}
-                            sx={{ display: "flex", gap: 2, cursor: "pointer", borderRadius: 2, p: 0.5, m: -0.5, "&:hover": { bgcolor: "action.hover" } }}>
-                            <Typography sx={{ fontWeight: 700, minWidth: 52 }}>{formatTime(p.scheduled_at)}</Typography>
+                            sx={{ display: "flex", gap: 1.5, cursor: "pointer", borderRadius: 2, p: 0.5, m: -0.5, "&:hover": { bgcolor: "action.hover" } }}>
+                            <Typography sx={{ fontWeight: 700, minWidth: 46 }}>{formatTime(p.scheduled_at)}</Typography>
+                            {p.file_id && <PortalThumb fileId={p.file_id} />}
                             <Box sx={{ minWidth: 0 }}>
                               <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
                                 {p.content_type && CONTENT_TYPES[p.content_type] && (

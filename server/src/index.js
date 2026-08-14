@@ -34,10 +34,12 @@ import aiRoutes from "./routes/ai.js";
 import billingRoutes, { billingWebhook } from "./routes/billing.js";
 import brandingRoutes from "./routes/branding.js";
 import taskTypesRoutes from "./routes/task-types.js";
+import distributionRoutes from "./routes/distribution.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
 import { startRetention } from "./retention.js";
 import { startPlanMonitor } from "./plans-monitor.js";
+import { liveNotifier, sseHandler } from "./live.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -48,6 +50,14 @@ app.use(cors());
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
+
+// Canal de atualização ao vivo (SSE). Fica fora do liveNotifier (é um GET) e
+// se autentica pela própria URL (?token=...), pois o EventSource do navegador
+// não envia cabeçalhos.
+app.get("/api/live", sseHandler);
+
+// A partir daqui, toda gravação bem-sucedida avisa as telas do escritório.
+app.use(liveNotifier);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
@@ -78,6 +88,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/branding", brandingRoutes);
 app.use("/api/task-types", taskTypesRoutes);
+app.use("/api/distribution", distributionRoutes);
 app.use("/api/webhooks", billingWebhook); // Asaas confirma pagamentos aqui
 
 // Serve o build do frontend (client/dist) em produção

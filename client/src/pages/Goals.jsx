@@ -12,6 +12,7 @@ import GroupAddIcon from "@mui/icons-material/GroupAdd";
 import FlagIcon from "@mui/icons-material/Flag";
 import NumbersIcon from "@mui/icons-material/Numbers";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate, currency } from "../utils.js";
 
@@ -37,6 +38,10 @@ export default function Goals() {
     api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
     api.get("/projects").then((r) => setProjects(r.data)).catch(() => {});
   }, []);
+
+  // Ao vivo: recarrega quando alguém mexe nas metas.
+  const vGoals = useLiveVersion("goals");
+  useEffect(() => { if (vGoals) load(); }, [vGoals]);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
 

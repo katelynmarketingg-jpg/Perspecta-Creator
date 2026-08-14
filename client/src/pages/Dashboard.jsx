@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { useTheme } from "@mui/material/styles";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import NeedsAttention from "../components/NeedsAttention.jsx";
 import { currency, monthLabel, formatDate, PRIORITY } from "../utils.js";
@@ -20,10 +21,15 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [series, setSeries] = useState([]);
 
+  // Ao vivo: o painel resume tarefas, financeiro e clientes — recarrega quando
+  // qualquer um deles muda.
+  const vTasks = useLiveVersion("tasks");
+  const vFinancial = useLiveVersion("financial");
+  const vClients = useLiveVersion("clients");
   useEffect(() => {
     api.get("/reports/dashboard").then((r) => setData(r.data)).catch(() => {});
     api.get("/financial/summary").then((r) => setSeries(r.data.series || [])).catch(() => {});
-  }, []);
+  }, [vTasks, vFinancial, vClients]);
 
   const chart = series.map((s) => ({ name: monthLabel(s.month), Receita: s.income, Despesa: s.expense }));
 

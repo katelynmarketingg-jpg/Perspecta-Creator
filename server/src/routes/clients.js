@@ -13,7 +13,8 @@ function publicClient(row, servicesByClient) {
   const { portal_password_hash, ...rest } = row;
   return {
     ...rest,
-    portal_enabled: Boolean(row.portal_email && portal_password_hash),
+    // Tem acesso se houver senha e algum identificador (nome de acesso ou e-mail).
+    portal_enabled: Boolean((row.portal_username || row.portal_email) && portal_password_hash),
     services: servicesByClient?.[row.id] ?? loadServices(row.id),
     monthly: loadMonthlyPlan(row.id),
   };
@@ -303,11 +304,11 @@ router.post("/", (req, res) => {
       `INSERT INTO clients (name, email, phone, company, drive_url, status, notes,
                             segment, address, work_start, work_end, payment_day,
                             posts_per_month, videos_per_month,
-                            portal_email, portal_password_hash, org_id)
+                            portal_username, portal_email, portal_password_hash, org_id)
        VALUES (@name, @email, @phone, @company, @drive_url, @status, @notes,
                @segment, @address, @work_start, @work_end, @payment_day,
                @posts_per_month, @videos_per_month,
-               @portal_email, @portal_password_hash, @org_id)`
+               @portal_username, @portal_email, @portal_password_hash, @org_id)`
     )
     .run({
       org_id: req.orgId,
@@ -325,6 +326,7 @@ router.post("/", (req, res) => {
       work_start: b.work_start ?? null,
       work_end: b.work_end ?? null,
       payment_day: b.payment_day ? Number(b.payment_day) : null,
+      portal_username: b.portal_username ? b.portal_username.trim() : null,
       portal_email: b.portal_email ? b.portal_email.toLowerCase() : null,
       portal_password_hash: b.portal_password ? hashPassword(b.portal_password) : null,
     });
@@ -351,6 +353,7 @@ router.put("/:id", (req, res) => {
     payment_day: b.payment_day !== undefined ? (b.payment_day ? Number(b.payment_day) : null) : cur.payment_day,
     posts_per_month: b.posts_per_month !== undefined ? (b.posts_per_month ? Number(b.posts_per_month) : null) : cur.posts_per_month,
     videos_per_month: b.videos_per_month !== undefined ? (b.videos_per_month ? Number(b.videos_per_month) : null) : cur.videos_per_month,
+    portal_username: b.portal_username !== undefined ? (b.portal_username ? b.portal_username.trim() : null) : cur.portal_username,
     portal_email: b.portal_email !== undefined ? (b.portal_email ? b.portal_email.toLowerCase() : null) : cur.portal_email,
     // Senha do portal: só troca se veio uma nova; nunca aceita hash de fora.
     portal_password_hash: b.portal_password ? hashPassword(b.portal_password) : cur.portal_password_hash,
@@ -362,7 +365,8 @@ router.put("/:id", (req, res) => {
      drive_url=@drive_url, status=@status, notes=@notes,
      segment=@segment, address=@address, work_start=@work_start, work_end=@work_end,
      payment_day=@payment_day, posts_per_month=@posts_per_month,
-     videos_per_month=@videos_per_month, portal_email=@portal_email,
+     videos_per_month=@videos_per_month, portal_username=@portal_username,
+     portal_email=@portal_email,
      portal_password_hash=@portal_password_hash WHERE id=@id AND org_id=@org_id`
   ).run(merged);
 

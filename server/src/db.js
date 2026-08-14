@@ -10,6 +10,11 @@ mkdirSync(dirname(DB_PATH), { recursive: true });
 export const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
+// Concorrência: com vários funcionários usando ao mesmo tempo, se duas
+// gravações caírem no mesmo instante, uma espera até 5s em vez de dar erro.
+db.pragma("busy_timeout = 5000");
+// Com WAL ligado, NORMAL é seguro e deixa as gravações mais rápidas.
+db.pragma("synchronous = NORMAL");
 
 // ---------------------------------------------------------------------------
 // Schema — reflete os módulos do sistema: usuários/permissões, clientes,
@@ -232,6 +237,9 @@ ensureColumn("tasks", "client_note", "client_note TEXT");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
+// Nome de acesso do cliente (login por nome, como a equipe). O e-mail
+// continua aceito no login para não quebrar quem já usa.
+ensureColumn("clients", "portal_username", "portal_username TEXT");
 // Dados comerciais do cliente.
 ensureColumn("clients", "segment", "segment TEXT");            // segmento de atuação
 ensureColumn("clients", "address", "address TEXT");            // endereço

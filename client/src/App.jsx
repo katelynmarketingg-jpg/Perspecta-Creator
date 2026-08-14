@@ -24,6 +24,7 @@ import Organizations from "./pages/Organizations.jsx";
 import Integrations from "./pages/Integrations.jsx";
 import Prospects from "./pages/Prospects.jsx";
 import Deliveries from "./pages/Deliveries.jsx";
+import Distribution from "./pages/Distribution.jsx";
 import AI from "./pages/AI.jsx";
 import PortalLogin from "./pages/PortalLogin.jsx";
 import Portal from "./pages/Portal.jsx";
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="/deliveries" element={<Deliveries />} />
         <Route path="/ai" element={<AI />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/distribution" element={<Distribution />} />
         <Route path="/financial" element={<Financial />} />
         <Route path="/contracts" element={<Contracts />} />
         <Route path="/goals" element={<Goals />} />

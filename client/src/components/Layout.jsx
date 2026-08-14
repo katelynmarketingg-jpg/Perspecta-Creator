@@ -7,6 +7,7 @@ import {
 } from "@mui/material";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { alpha } from "@mui/material/styles";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import PeopleIcon from "@mui/icons-material/People";
@@ -18,6 +19,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import EventIcon from "@mui/icons-material/Event";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
 import FolderCopyIcon from "@mui/icons-material/FolderCopy";
 import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import ApartmentIcon from "@mui/icons-material/Apartment";
@@ -47,6 +49,7 @@ const NAV = [
   { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
   { to: "/projects", label: "Projetos", icon: <FolderIcon /> },
   { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },
+  { to: "/distribution", label: "Distribuição", icon: <ScheduleSendIcon /> },
   { to: "/deliveries", label: "Entregas", icon: <ChecklistRtlIcon /> },
   { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
   { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },
@@ -84,12 +87,15 @@ export default function Layout() {
   }, [viewingOrg?.id]);
 
   // Notificações do portal (aprovações e pedidos de ajuste dos clientes).
+  // Ao vivo: além do intervalo de 60s (rede de segurança), reage na hora
+  // quando chega uma notificação nova.
+  const vNotifs = useLiveVersion("notifications");
   useEffect(() => {
     const fetchNotifs = () => api.get("/notifications").then((r) => setNotifs(r.data)).catch(() => {});
     fetchNotifs();
     const id = setInterval(fetchNotifs, 60 * 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [vNotifs]);
 
   const unread = notifs.filter((n) => !n.is_read).length;
 

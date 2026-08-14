@@ -16,6 +16,7 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, CardSkeleton } from "../components/ui.jsx";
 import { formatDate, formatDateTime, PRIORITY, CONTENT_TYPES } from "../utils.js";
 
@@ -118,6 +119,10 @@ export default function Tasks() {
     api.get("/clients").then((r) => setClients(r.data));
     api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
   }, []);
+
+  // Ao vivo: quando alguém do escritório mexe em tarefas, recarrega o quadro.
+  const vTasks = useLiveVersion("tasks");
+  useEffect(() => { if (vTasks) load(); }, [vTasks]);
 
   // Relógio da sessão: só liga o intervalo quando há uma sessão em andamento.
   useEffect(() => {

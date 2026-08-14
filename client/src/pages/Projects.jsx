@@ -9,6 +9,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate, CONTENT_TYPES } from "../utils.js";
 
@@ -86,6 +87,10 @@ export default function Projects() {
     api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
     api.get("/task-types").then((r) => setTypes(r.data)).catch(() => {});
   }, []);
+
+  // Ao vivo: recarrega quando alguém mexe em projetos.
+  const vProjects = useLiveVersion("projects");
+  useEffect(() => { if (vProjects) load(); }, [vProjects]);
 
   async function openNew() {
     setDraft(EMPTY);

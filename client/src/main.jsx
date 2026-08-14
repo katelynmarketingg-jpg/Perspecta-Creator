@@ -5,6 +5,7 @@ import { ThemeProvider, CssBaseline } from "@mui/material";
 import { getTheme } from "./theme.js";
 import { ColorModeContext } from "./ColorModeContext.jsx";
 import { AuthProvider } from "./auth/AuthContext.jsx";
+import { LiveProvider } from "./live/LiveContext.jsx";
 import App from "./App.jsx";
 
 const MODES = ["light", "sepia", "dark"]; // claro → bege → escuro
@@ -38,7 +39,9 @@ function Root() {
         <CssBaseline />
         <BrowserRouter>
           <AuthProvider>
-            <App />
+            <LiveProvider>
+              <App />
+            </LiveProvider>
           </AuthProvider>
         </BrowserRouter>
       </ThemeProvider>

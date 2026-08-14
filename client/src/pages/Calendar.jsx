@@ -13,6 +13,7 @@ import GridOnIcon from "@mui/icons-material/GridOn";
 import FeedPreview from "../components/FeedPreview.jsx";
 import PostComments from "../components/PostComments.jsx";
 import api from "../api/client.js";
+import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime } from "../utils.js";
 
@@ -41,6 +42,25 @@ function PostMedia({ file }) {
   return <Box component="img" src={src} alt={file.original_name} sx={{ width: "100%", maxHeight: 440, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover" }} />;
 }
 
+// Miniatura da arte para o diazinho da grade (foto ou 1º quadro do vídeo).
+function DayThumb({ fileId, height = 46 }) {
+  const [src, setSrc] = useState(null);
+  const [isVideo, setIsVideo] = useState(false);
+  useEffect(() => {
+    if (!fileId) return;
+    let url;
+    api.get(`/files/${fileId}/download`, { responseType: "blob" })
+      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setIsVideo((r.data.type || "").startsWith("video")); })
+      .catch(() => {});
+    return () => url && URL.revokeObjectURL(url);
+  }, [fileId]);
+  const sx = { width: "100%", height, objectFit: "cover", display: "block", bgcolor: "action.hover" };
+  if (!src) return <Box sx={{ ...sx, bgcolor: "action.hover" }} />;
+  return isVideo
+    ? <Box component="video" src={src} muted sx={sx} />
+    : <Box component="img" src={src} alt="" sx={sx} />;
+}
+
 export default function Calendar() {
   const [cursor, setCursor] = useState(() => new Date());
   const [view, setView] = useState("grid");
@@ -60,11 +80,14 @@ export default function Calendar() {
 
   useEffect(() => { api.get("/clients").then((r) => setClients(r.data)); }, []);
 
+  // Ao vivo: o calendário mostra posts (tarefas) e suas artes (arquivos).
+  const vTasks = useLiveVersion("tasks");
+  const vFiles = useLiveVersion("files");
   useEffect(() => {
     const params = { month: monthKey(cursor) };
     if (clientFilter) params.client_id = clientFilter;
     api.get("/calendar", { params }).then((r) => setPosts(r.data)).catch(() => setPosts([]));
-  }, [cursor, clientFilter]);
+  }, [cursor, clientFilter, vTasks, vFiles]);
 
   // A prévia do feed ignora o mês: o perfil é uma sequência contínua.
   useEffect(() => {
@@ -162,7 +185,7 @@ export default function Calendar() {
               <Box
                 key={i}
                 sx={{
-                  minHeight: 108, p: 0.75,
+                  minHeight: 140, p: 0.75,
                   borderRight: (i + 1) % 7 !== 0 ? 1 : 0,
                   borderBottom: i < grid.length - 7 ? 1 : 0,
                   borderColor: "divider",
@@ -177,24 +200,47 @@ export default function Calendar() {
                     }}>
                       {day}
                     </Typography>
-                    <Stack spacing={0.4} sx={{ mt: 0.4 }}>
-                      {(byDay[day] || []).slice(0, 3).map((p) => (
-                        <Chip
-                          key={p.id}
-                          size="small"
-                          onClick={() => setSelected(p)}
-                          label={`${formatTime(p.scheduled_at)} ${p.client_name || p.title}`}
+                    <Stack spacing={0.5} sx={{ mt: 0.4 }}>
+                      {(byDay[day] || []).slice(0, 2).map((p) => (
+                        <Box key={p.id} onClick={() => setSelected(p)}
                           sx={{
-                            justifyContent: "flex-start", height: 22, fontSize: 11.5,
-                            bgcolor: (t) => alpha(t.palette.primary.main, 0.14),
-                            color: "primary.main", fontWeight: 600,
-                            "&:hover": { bgcolor: (t) => alpha(t.palette.primary.main, 0.25) },
-                          }}
-                        />
+                            cursor: "pointer", borderRadius: 1, overflow: "hidden",
+                            border: 1, borderColor: "divider",
+                            "&:hover": { borderColor: "primary.main" },
+                          }}>
+                          {p.file_id ? (
+                            <Box sx={{ position: "relative" }}>
+                              <DayThumb fileId={p.file_id} />
+                              <Box sx={{
+                                position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5,
+                                bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700,
+                              }}>
+                                {formatTime(p.scheduled_at)}
+                              </Box>
+                            </Box>
+                          ) : (
+                            <Typography variant="caption" sx={{
+                              display: "block", px: 0.5, py: 0.25, fontWeight: 600, color: "primary.main",
+                              bgcolor: (t) => alpha(t.palette.primary.main, 0.12),
+                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                            }}>
+                              {formatTime(p.scheduled_at)} {p.client_name || p.title}
+                            </Typography>
+                          )}
+                          {p.caption && (
+                            <Typography variant="caption" sx={{
+                              display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical",
+                              overflow: "hidden", px: 0.5, py: 0.25, fontSize: 10.5, lineHeight: 1.25,
+                              color: "text.secondary",
+                            }}>
+                              {p.caption}
+                            </Typography>
+                          )}
+                        </Box>
                       ))}
-                      {(byDay[day] || []).length > 3 && (
+                      {(byDay[day] || []).length > 2 && (
                         <Typography variant="caption" color="text.secondary" sx={{ pl: 0.5 }}>
-                          +{byDay[day].length - 3} mais
+                          +{byDay[day].length - 2} mais
                         </Typography>
                       )}
                     </Stack>
@@ -220,6 +266,11 @@ export default function Calendar() {
                       <Typography sx={{ fontWeight: 700, minWidth: 52, fontVariantNumeric: "tabular-nums" }}>
                         {formatTime(p.scheduled_at)}
                       </Typography>
+                      {p.file_id && (
+                        <Box sx={{ width: 60, height: 60, borderRadius: 1.5, overflow: "hidden", flexShrink: 0 }}>
+                          <DayThumb fileId={p.file_id} height={60} />
+                        </Box>
+                      )}
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
                           <Typography sx={{ fontWeight: 600 }}>{p.client_name || "Sem cliente"}</Typography>
