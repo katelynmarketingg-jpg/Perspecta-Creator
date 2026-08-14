@@ -580,4 +580,39 @@ function seedOrganizations() {
 }
 seedOrganizations();
 
+// ---------------------------------------------------------------------------
+// Migração única do fluxo de etapas para o novo padrão:
+//   Planejamento → Captação → Criação → Distribuição → Aprovação → Concluído.
+// Só mexe em quadros que ainda estão no padrão antigo (renomeia sem perder
+// nenhuma tarefa). Depois que "Criação" existe, nunca mais toca nas etapas.
+// ---------------------------------------------------------------------------
+(function migrateStageFlow() {
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  const has = db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? AND lower(name) = lower(?)");
+  const rename = db.prepare("UPDATE kanban_stages SET name = ? WHERE org_id = ? AND lower(name) = lower(?)");
+  const setPos = db.prepare("UPDATE kanban_stages SET position = ? WHERE org_id = ? AND lower(name) = lower(?)");
+  orgs.forEach(({ id }) => {
+    const total = db.prepare("SELECT COUNT(*) AS n FROM kanban_stages WHERE org_id = ?").get(id).n;
+    if (!total) return;                 // ainda sem quadro
+    if (has.get(id, "Criação")) return; // já migrado
+    // Só converte boards que ainda têm os nomes padrão antigos.
+    if (!has.get(id, "A fazer") && !has.get(id, "Programação")) return;
+
+    rename.run("Planejamento", id, "A fazer");
+    rename.run("Captação", id, "Em andamento");
+    rename.run("Distribuição", id, "Programação");
+    if (!has.get(id, "Criação")) {
+      db.prepare("INSERT INTO kanban_stages (name, position, is_done, org_id) VALUES (?, ?, 0, ?)")
+        .run("Criação", 2, id);
+    }
+    // Reordena para o fluxo novo.
+    setPos.run(0, id, "Planejamento");
+    setPos.run(1, id, "Captação");
+    setPos.run(2, id, "Criação");
+    setPos.run(3, id, "Distribuição");
+    setPos.run(4, id, "Aprovação");
+    setPos.run(5, id, "Concluído");
+  });
+})();
+
 export default db;

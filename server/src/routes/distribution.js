@@ -23,7 +23,7 @@ function stageByName(pattern, orgId) {
 
 // GET /api/distribution?client_id= — peças prontas para distribuir/programar.
 router.get("/", (req, res) => {
-  const stage = stageByName("%Programa%", req.orgId);
+  const stage = stageByName("%Distribui%", req.orgId);
   if (!stage) return res.json({ stage: null, items: [] });
 
   const where = [

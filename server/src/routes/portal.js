@@ -193,7 +193,9 @@ function getOwnTask(req, res) {
 router.post("/approvals/:id/approve", (req, res) => {
   const task = getOwnTask(req, res);
   if (!task) return;
-  const next = findStageByName("%Programa%", task.org_id);
+  // Aprovado pelo cliente → vai para a etapa de conclusão (programado) e
+  // segue aparecendo no calendário com a data marcada.
+  const next = findStageByName("%Conclu%", task.org_id);
   db.prepare("UPDATE tasks SET approval_status = 'approved', stage_id = COALESCE(?, stage_id) WHERE id = ?")
     .run(next?.id ?? null, task.id);
   notifyAgency(task.client_id, task.id, `✅ ${req.client.name} aprovou "${task.title}".`, task.org_id);
@@ -209,7 +211,8 @@ router.post("/approvals/:id/request-changes", (req, res) => {
   if (!client_caption && !client_note) {
     return res.status(400).json({ error: "Edite a legenda ou escreva uma observação." });
   }
-  const back = findStageByName("%andamento%", task.org_id);
+  // Pediu ajuste → volta para a Distribuição, para a equipe corrigir e reenviar.
+  const back = findStageByName("%Distribui%", task.org_id);
   db.prepare(
     `UPDATE tasks SET approval_status = 'changes_requested',
      client_caption = ?, client_note = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
