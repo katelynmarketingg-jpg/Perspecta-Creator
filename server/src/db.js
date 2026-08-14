@@ -237,6 +237,9 @@ ensureColumn("tasks", "client_note", "client_note TEXT");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
+// Nome de acesso do cliente (login por nome, como a equipe). O e-mail
+// continua aceito no login para não quebrar quem já usa.
+ensureColumn("clients", "portal_username", "portal_username TEXT");
 // Dados comerciais do cliente.
 ensureColumn("clients", "segment", "segment TEXT");            // segmento de atuação
 ensureColumn("clients", "address", "address TEXT");            // endereço

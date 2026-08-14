@@ -44,6 +44,10 @@ export default function Settings() {
   const [svc, setSvc] = useState(null); // draft do serviço em edição
   const [pwd, setPwd] = useState({ atual: "", nova: "" });
   const [pwdMsg, setPwdMsg] = useState(null);
+  // Central de acessos dos clientes ao portal (nome de acesso + senha).
+  const [clientLogins, setClientLogins] = useState([]);
+  const [loginDraft, setLoginDraft] = useState(null); // { id, name, portal_username, portal_password }
+  const [loginMsg, setLoginMsg] = useState(null);
 
   async function trocarSenha() {
     try {
@@ -61,7 +65,28 @@ export default function Settings() {
   const loadBranding = () => api.get("/branding").then((r) => setBranding({ logo: r.data?.logo || null, favicon: r.data?.favicon || null }));
   const loadTeam = () => api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
   const loadTypes = () => api.get("/task-types").then((r) => setTypes(r.data)).catch(() => {});
-  useEffect(() => { load(); loadServices(); loadBranding(); loadTeam(); loadTypes(); }, []);
+  const loadClientLogins = () => api.get("/clients").then((r) => setClientLogins(r.data)).catch(() => {});
+  useEffect(() => {
+    load(); loadServices(); loadBranding(); loadTeam(); loadTypes();
+    if (isAdmin) loadClientLogins();
+  }, [isAdmin]);
+
+  // Salva o acesso (nome + senha) de um cliente sem sair das Configurações.
+  async function salvarAcesso() {
+    if (!loginDraft) return;
+    try {
+      await api.put(`/clients/${loginDraft.id}`, {
+        portal_username: loginDraft.portal_username || null,
+        ...(loginDraft.portal_password ? { portal_password: loginDraft.portal_password } : {}),
+      });
+      setLoginDraft(null);
+      setLoginMsg({ tipo: "success", texto: "Acesso salvo." });
+      loadClientLogins();
+    } catch (err) {
+      setLoginMsg({ tipo: "error", texto: err.response?.data?.error || "Não foi possível salvar." });
+    }
+    setTimeout(() => setLoginMsg(null), 5000);
+  }
 
   // Muda o responsável de um tipo — salva na hora (sem botão, sem dúvida).
   async function setResponsavel(tipo, userId) {
@@ -311,6 +336,42 @@ export default function Settings() {
         {isAdmin && (
           <Card>
             <CardContent>
+              <Typography variant="h6" sx={{ mb: 0.5 }}>Acessos dos clientes (portal)</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                O mesmo acesso do cadastro do cliente, reunido aqui. Defina ou
+                troque o nome de acesso e a senha com que o cliente entra em /portal.
+              </Typography>
+              {loginMsg && <Alert severity={loginMsg.tipo} sx={{ mb: 2 }}>{loginMsg.texto}</Alert>}
+              <List dense>
+                {clientLogins.map((c) => (
+                  <ListItem key={c.id} disableGutters
+                    secondaryAction={
+                      <IconButton size="small" onClick={() =>
+                        setLoginDraft({ id: c.id, name: c.name, portal_username: c.portal_username || "", portal_password: "" })}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    }>
+                    <ListItemText
+                      primary={c.name}
+                      secondary={c.portal_username ? `Nome de acesso: ${c.portal_username}` : "Sem nome de acesso"} />
+                    <Chip size="small" sx={{ mr: 6 }}
+                      color={c.portal_enabled ? "success" : "default"}
+                      label={c.portal_enabled ? "Acesso ativo" : "Sem acesso"} />
+                  </ListItem>
+                ))}
+                {clientLogins.length === 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                    Nenhum cliente cadastrado ainda.
+                  </Typography>
+                )}
+              </List>
+            </CardContent>
+          </Card>
+        )}
+
+        {isAdmin && (
+          <Card>
+            <CardContent>
               <Typography variant="h6" sx={{ mb: 0.5 }}>Tipos de tarefa e quem faz cada um</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Cada tipo (post, reel, foto, planejamento, reunião…) tem um responsável.
@@ -436,6 +497,24 @@ export default function Settings() {
         <DialogActions>
           <Button onClick={() => setSvc(null)}>Cancelar</Button>
           <Button variant="contained" onClick={saveService} disabled={!svc?.name}>Salvar</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(loginDraft)} onClose={() => setLoginDraft(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Acesso ao portal — {loginDraft?.name}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Nome de acesso" fullWidth value={loginDraft?.portal_username || ""}
+              onChange={(e) => setLoginDraft((d) => ({ ...d, portal_username: e.target.value }))}
+              helperText="Com o que o cliente entra em /portal." />
+            <TextField label="Nova senha (vazio = manter)" type="password" fullWidth
+              value={loginDraft?.portal_password || ""}
+              onChange={(e) => setLoginDraft((d) => ({ ...d, portal_password: e.target.value }))} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLoginDraft(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={salvarAcesso}>Salvar</Button>
         </DialogActions>
       </Dialog>
     </>

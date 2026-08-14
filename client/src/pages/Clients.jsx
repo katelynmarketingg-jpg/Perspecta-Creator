@@ -27,6 +27,7 @@ const MONTHLY_TYPES = ["post", "reel", "foto", "captacao", "stories", "reuniao"]
 const EMPTY = {
   name: "", company: "", email: "", phone: "", drive_url: "", status: "active", notes: "",
   segment: "", address: "", work_start: "", work_end: "", payment_day: "",
+  portal_username: "", portal_email: "", portal_password: "",
   monthly: {},
   services: [], generate_contract: false,
 };
@@ -384,12 +385,14 @@ export default function Clients() {
 
             <Divider>Acesso ao portal do cliente</Divider>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField label="E-mail de acesso" value={draft.portal_email || ""} onChange={set("portal_email")} fullWidth
-                helperText={draft.portal_enabled ? "Acesso ativo" : "Sem acesso ainda"} />
+              <TextField label="Nome de acesso" value={draft.portal_username || ""} onChange={set("portal_username")} fullWidth
+                helperText={draft.portal_enabled ? "Acesso ativo" : "Com o que o cliente entra"} />
               <TextField label={draft.portal_enabled ? "Nova senha (vazio = manter)" : "Senha do portal"}
                 type="password" value={draft.portal_password || ""} onChange={set("portal_password")} fullWidth
                 helperText="O cliente entra em /portal" />
             </Stack>
+            <TextField label="E-mail (opcional)" value={draft.portal_email || ""} onChange={set("portal_email")} fullWidth
+              helperText="Só para contato. O login também aceita o e-mail, se preferir." />
           </Stack>
         </DialogContent>
         <DialogActions>
