@@ -157,79 +157,47 @@ router.post("/:id/launch", (req, res) => {
   const firstStage = db
     .prepare("SELECT id FROM kanban_stages WHERE org_id = ? ORDER BY position LIMIT 1")
     .get(req.orgId)?.id ?? null;
-  const lastDay = new Date(year, m, 0).getDate();
   const dueDate = new Date(year, m, 0).toISOString().slice(0, 10); // último dia do mês
-  const pad = (n) => String(n).padStart(2, "0");
+  // 1 tarefa por tipo de conteúdo, com a quantidade dentro (agrupada). As datas
+  // individuais são definidas depois, na aba Distribuição.
   const ins = db.prepare(
-    `INSERT INTO tasks (title, client_id, project_id, assignee_id, stage_id, priority, content_type, tags, due_date, scheduled_at, org_id)
+    `INSERT INTO tasks (title, client_id, project_id, assignee_id, stage_id, priority, content_type, quantity, tags, due_date, org_id)
      VALUES (?, ?, ?, ?, ?, 'medium', ?, ?, ?, ?, ?)`
   );
 
-  // Notifica cada colaborador quantas tarefas caíram para ele.
+  // Notifica cada colaborador quantas peças caíram para ele.
   const porPessoa = {};
-  let total = 0;
-
-  // Se o diálogo mandou a lista de peças com datas escolhidas (data por data),
-  // usa exatamente ela; senão, gera do plano (com os dias fixos, se houver).
-  const pieces = Array.isArray(req.body?.pieces)
-    ? req.body.pieces.filter((p) => p && p.content_type)
-    : null;
+  let total = 0;   // soma das peças (quantidade)
+  let grupos = 0;  // nº de tarefas agrupadas criadas (1 por tipo)
 
   const tx = db.transaction(() => {
-    if (pieces) {
-      const porTipo = {};
-      pieces.forEach((p) => { (porTipo[p.content_type] ||= []).push(p); });
-      Object.entries(porTipo).forEach(([ct, arr]) => {
-        const label = arr[0].label || CONTENT_LABEL[ct] || "Conteúdo";
-        const quem = assignee_id || responsibleForType(req.orgId, ct) || assigneeByDuty(req.orgId, ct);
-        arr.forEach((p, idx) => {
-          const date = /^\d{4}-\d{2}-\d{2}$/.test(p.date || "") ? p.date : null;
-          const scheduledAt = date ? `${date} 09:00` : null;
-          ins.run(
-            `${label} ${idx + 1}/${arr.length} — ${project.client_name || project.name} (${monthLabel})`,
-            project.client_id, project.id, quem ?? null, firstStage, ct,
-            JSON.stringify([monthLabel]), date || dueDate, scheduledAt, req.orgId
-          );
-          total++;
-          if (quem) porPessoa[quem] = (porPessoa[quem] || 0) + 1;
-        });
-      });
-    } else linhas.forEach((linha) => {
+    linhas.forEach((linha) => {
       // Quem faz: a pessoa fixada na linha, ou o override do diálogo, ou o
       // responsável do tipo (Configurações), ou por função (compatibilidade).
       const quem = linha.assignee_id || assignee_id
         || responsibleForType(req.orgId, linha.content_type)
         || assigneeByDuty(req.orgId, linha.content_type);
-      const dias = Array.isArray(linha.days) ? linha.days : [];
-      for (let i = 1; i <= linha.quantity; i++) {
-        // Se há datas fixas, a peça i cai no i-ésimo dia (cicla se faltar dia).
-        let scheduledAt = null;
-        let due = dueDate;
-        if (dias.length) {
-          const dia = Math.min(dias[(i - 1) % dias.length], lastDay);
-          scheduledAt = `${year}-${pad(m)}-${pad(dia)} 09:00`;
-          due = `${year}-${pad(m)}-${pad(dia)}`;
-        }
-        ins.run(
-          `${linha.label} ${i}/${linha.quantity} — ${project.client_name || project.name} (${monthLabel})`,
-          project.client_id, project.id, quem ?? null, firstStage, linha.content_type,
-          JSON.stringify([monthLabel]), due, scheduledAt, req.orgId
-        );
-        total++;
-        if (quem) porPessoa[quem] = (porPessoa[quem] || 0) + 1;
-      }
+      const qtd = Math.max(1, Number(linha.quantity) || 1);
+      ins.run(
+        `${linha.label} — ${project.client_name || project.name} (${monthLabel})`,
+        project.client_id, project.id, quem ?? null, firstStage, linha.content_type,
+        qtd, JSON.stringify([monthLabel]), dueDate, req.orgId
+      );
+      total += qtd;
+      grupos++;
+      if (quem) porPessoa[quem] = (porPessoa[quem] || 0) + qtd;
     });
     // Aviso geral para a agência.
     db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)").run(
       project.client_id,
-      `📦 ${total} tarefas de ${project.client_name || project.name} lançadas para ${monthLabel}.`,
+      `📦 ${total} peça(s) de ${project.client_name || project.name} lançadas para ${monthLabel}.`,
       req.orgId
     );
     // Aviso individual para cada responsável.
     Object.entries(porPessoa).forEach(([uid, qtd]) => {
       db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)").run(
         project.client_id,
-        `👤 ${qtd} tarefa(s) de ${project.client_name || project.name} atribuídas a você (${monthLabel}).`,
+        `👤 ${qtd} peça(s) de ${project.client_name || project.name} atribuídas a você (${monthLabel}).`,
         req.orgId
       );
     });
@@ -241,7 +209,7 @@ router.post("/:id/launch", (req, res) => {
   if (!jaLancados.includes(month)) jaLancados.push(month);
   db.prepare("UPDATE projects SET launched_months = ? WHERE id = ?").run(JSON.stringify(jaLancados), project.id);
 
-  res.json({ created: total, month: monthLabel });
+  res.json({ created: grupos, pieces: total, month: monthLabel });
 });
 
 export default router;

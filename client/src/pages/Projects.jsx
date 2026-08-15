@@ -154,14 +154,23 @@ export default function Projects() {
 
   const totalPlan = Object.values(qty).reduce((a, b) => a + Number(b || 0), 0);
 
+  // Resumo agrupado do lançamento: 1 linha por tipo com a quantidade total.
+  const launchGroups = Object.values(
+    pieces.reduce((acc, p) => {
+      acc[p.content_type] ||= { content_type: p.content_type, emoji: p.emoji, label: p.label, total: p.total };
+      return acc;
+    }, {})
+  );
+
   async function doLaunch() {
     const { project, month, assignee_id } = launch;
+    // Cria 1 tarefa por tipo com a quantidade dentro (agrupado). As datas de
+    // cada peça são definidas depois, na aba Distribuição.
     const { data } = await api.post(`/projects/${project.id}/launch`, {
       month, assignee_id: assignee_id || null,
-      pieces: pieces.map((p) => ({ content_type: p.content_type, label: p.label, date: p.date || null })),
     });
     setLaunch(null);
-    setFlash(`✅ ${data.created} tarefas criadas para ${data.month}. Veja na aba Tarefas — e as notificações foram enviadas aos responsáveis.`);
+    setFlash(`✅ ${data.created} tarefa(s) criadas (${data.pieces} peças) para ${data.month}. Veja na aba Tarefas — cada uma abre nas peças ao entrar na Distribuição.`);
     setTimeout(() => setFlash(""), 7000);
     load();
   }
@@ -333,23 +342,22 @@ export default function Projects() {
               </TextField>
             </Stack>
 
-            <Divider>Datas — {pieces.length} tarefa(s)</Divider>
+            <Divider>O que vai ser criado</Divider>
             <Typography variant="body2" color="text.secondary">
-              Ajuste a data de cada peça (já vem preenchida quando você configurou os dias no projeto).
-              Em branco = sem data marcada.
+              Cria <strong>1 tarefa por tipo</strong>, com a quantidade dentro. As datas de cada peça
+              você define depois, na aba <strong>Distribuição</strong> (a tarefa se abre nas peças ao chegar lá).
             </Typography>
             <Stack spacing={1} sx={{ maxHeight: "45vh", overflowY: "auto", pr: 0.5 }}>
-              {pieces.map((p, idx) => (
-                <Stack key={idx} direction="row" spacing={1.5} alignItems="center">
-                  <Typography sx={{ flex: 1, fontSize: 14 }} noWrap>
-                    {p.emoji} {p.label} {p.i}/{p.total}
+              {launchGroups.map((g) => (
+                <Stack key={g.content_type} direction="row" spacing={1.5} alignItems="center"
+                  sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, px: 1.5, py: 1 }}>
+                  <Typography sx={{ flex: 1, fontSize: 14, fontWeight: 600 }} noWrap>
+                    {g.emoji} {g.label}
                   </Typography>
-                  <TextField type="date" size="small" InputLabelProps={{ shrink: true }} sx={{ width: 175 }}
-                    value={p.date || ""}
-                    onChange={(e) => setPieces((ps) => ps.map((x, i) => (i === idx ? { ...x, date: e.target.value } : x)))} />
+                  <Chip size="small" color="secondary" label={`×${g.total}`} />
                 </Stack>
               ))}
-              {pieces.length === 0 && (
+              {launchGroups.length === 0 && (
                 <Typography variant="body2" color="text.secondary">Este projeto não tem quantidades definidas.</Typography>
               )}
             </Stack>

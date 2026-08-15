@@ -145,6 +145,31 @@ router.put("/:id/status", (req, res) => {
     return res.status(400).json({ error: "Informe a data de programação para concluir.", needs_schedule: true });
   }
 
+  // Ao entrar na DISTRIBUIÇÃO, uma tarefa agrupada (quantity > 1) se abre em N
+  // peças individuais (quantity = 1), prontas para programar uma a uma.
+  if (stage && /Distribui/i.test(stage.name || "") && Number(task.quantity) > 1) {
+    const n = Number(task.quantity);
+    const base = (task.title || "").replace(/\s+—.*$/, "");   // "Post — Cliente (Mês)" -> "Post"
+    const suffix = (task.title || "").match(/—.*$/)?.[0] || ""; // "— Cliente (Mês)"
+    const insPiece = db.prepare(
+      `INSERT INTO tasks (title, description, client_id, project_id, assignee_id, stage_id, priority,
+         tags, due_date, content_type, caption, quantity, position, org_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    );
+    const split = db.transaction(() => {
+      for (let i = 1; i <= n; i++) {
+        insPiece.run(
+          `${base} ${i}/${n}${suffix ? " " + suffix : ""}`.trim(),
+          task.description, task.client_id, task.project_id, task.assignee_id, stage_id,
+          task.priority, task.tags, task.due_date, task.content_type, task.caption, i, req.orgId
+        );
+      }
+      db.prepare("DELETE FROM tasks WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
+    });
+    split();
+    return res.json({ split: true, count: n });
+  }
+
   const completed_at = stage?.is_done ? new Date().toISOString() : null;
   // Ao entrar na aprovação, marca o relógio: é o que dispara o lembrete
   // se o cliente deixar parado. Sair da etapa zera o contador.
