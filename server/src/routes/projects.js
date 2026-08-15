@@ -167,7 +167,8 @@ router.post("/:id/launch", (req, res) => {
 
   // Notifica cada colaborador quantas peças caíram para ele.
   const porPessoa = {};
-  let total = 0;
+  let total = 0;   // soma das peças (quantidade)
+  let grupos = 0;  // nº de tarefas agrupadas criadas (1 por tipo)
 
   const tx = db.transaction(() => {
     linhas.forEach((linha) => {
@@ -183,6 +184,7 @@ router.post("/:id/launch", (req, res) => {
         qtd, JSON.stringify([monthLabel]), dueDate, req.orgId
       );
       total += qtd;
+      grupos++;
       if (quem) porPessoa[quem] = (porPessoa[quem] || 0) + qtd;
     });
     // Aviso geral para a agência.
@@ -207,7 +209,7 @@ router.post("/:id/launch", (req, res) => {
   if (!jaLancados.includes(month)) jaLancados.push(month);
   db.prepare("UPDATE projects SET launched_months = ? WHERE id = ?").run(JSON.stringify(jaLancados), project.id);
 
-  res.json({ created: total, month: monthLabel });
+  res.json({ created: grupos, pieces: total, month: monthLabel });
 });
 
 export default router;
