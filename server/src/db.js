@@ -259,6 +259,8 @@ ensureColumn("clients", "posts_per_month", "posts_per_month INTEGER");
 ensureColumn("clients", "videos_per_month", "videos_per_month INTEGER");
 ensureColumn("projects", "monthly_posts", "monthly_posts INTEGER");
 ensureColumn("projects", "monthly_videos", "monthly_videos INTEGER");
+// Dia-limite para lançar o mês seguinte (lembrete no card: "Lançar X — até dia N").
+ensureColumn("projects", "launch_by_day", "launch_by_day INTEGER");
 // Metas tipadas: valor (R$), clientes novos, concluir projeto, quantidade livre.
 ensureColumn("goals", "goal_type", "goal_type TEXT NOT NULL DEFAULT 'quantity'");
 ensureColumn("goals", "project_id", "project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL");

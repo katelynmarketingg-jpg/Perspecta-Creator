@@ -61,9 +61,12 @@ router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM projects WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Projeto não encontrado." });
   const merged = { ...cur, ...req.body, id: req.params.id, org_id: req.orgId };
+  // Dia-limite de lançamento: número 1..31 ou vazio.
+  merged.launch_by_day = merged.launch_by_day ? Math.min(31, Math.max(1, Number(merged.launch_by_day))) : null;
   db.prepare(
     `UPDATE projects SET name=@name, client_id=@client_id, description=@description,
-     status=@status, start_date=@start_date, end_date=@end_date WHERE id=@id AND org_id=@org_id`
+     status=@status, start_date=@start_date, end_date=@end_date,
+     launch_by_day=@launch_by_day WHERE id=@id AND org_id=@org_id`
   ).run(merged);
   res.json(db.prepare(`${withClient} WHERE p.id = ?`).get(req.params.id));
 });

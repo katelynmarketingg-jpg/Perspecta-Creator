@@ -13,7 +13,7 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate, CONTENT_TYPES } from "../utils.js";
 
-const EMPTY = { name: "", client_id: "", description: "", status: "active", start_date: "", end_date: "" };
+const EMPTY = { name: "", client_id: "", description: "", status: "active", start_date: "", end_date: "", launch_by_day: "" };
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 // Próximo mês em "YYYY-MM" — você lança em julho o mês de agosto.
 function nextMonthKey() {
@@ -213,7 +213,8 @@ export default function Projects() {
                       <Chip size="small" label={p.status === "done" ? "Concluído" : "Ativo"} color={p.status === "done" ? "success" : "primary"} />
                       {(p.launched_months || []).includes(refMonth)
                         ? <Chip size="small" color="success" variant="outlined" label={`✓ ${monthLabelPt(refMonth)} lançado`} />
-                        : <Chip size="small" variant="outlined" label={`${monthLabelPt(refMonth)}: a lançar`} />}
+                        : <Chip size="small" color={p.launch_by_day ? "warning" : "default"} variant="outlined"
+                            label={`Lançar ${monthLabelPt(refMonth)}${p.launch_by_day ? ` — até dia ${p.launch_by_day}` : ""}`} />}
                     </Stack>
                     <Box>
                       <IconButton size="small" onClick={() => openEdit(p)}><EditIcon fontSize="small" /></IconButton>
@@ -273,6 +274,9 @@ export default function Projects() {
               </TextField>
               <TextField label="Início" type="date" InputLabelProps={{ shrink: true }} value={draft.start_date || ""} onChange={set("start_date")} fullWidth />
               <TextField label="Fim" type="date" InputLabelProps={{ shrink: true }} value={draft.end_date || ""} onChange={set("end_date")} fullWidth />
+              <TextField label="Lançar até o dia" type="number" inputProps={{ min: 1, max: 31 }}
+                value={draft.launch_by_day || ""} onChange={set("launch_by_day")} fullWidth
+                helperText="Dia do mês (lembrete)" />
             </Stack>
 
             <Divider>Quantidades do mês</Divider>
