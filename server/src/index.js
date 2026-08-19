@@ -35,6 +35,7 @@ import billingRoutes, { billingWebhook } from "./routes/billing.js";
 import brandingRoutes from "./routes/branding.js";
 import taskTypesRoutes from "./routes/task-types.js";
 import distributionRoutes from "./routes/distribution.js";
+import adminRoutes from "./routes/admin.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
 import { startPlanMonitor } from "./plans-monitor.js";
@@ -88,6 +89,7 @@ app.use("/api/billing", billingRoutes);
 app.use("/api/branding", brandingRoutes);
 app.use("/api/task-types", taskTypesRoutes);
 app.use("/api/distribution", distributionRoutes);
+app.use("/api/admin", adminRoutes); // porta de serviço (token) p/ painel central
 app.use("/api/webhooks", billingWebhook); // Asaas confirma pagamentos aqui
 
 // Serve o build do frontend (client/dist) em produção

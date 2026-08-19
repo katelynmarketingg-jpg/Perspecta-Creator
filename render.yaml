@@ -17,6 +17,10 @@ services:
         value: 8080
       - key: JWT_SECRET
         generateValue: true # segredo forte gerado pelo Render
+      # Token da porta de serviço (/api/admin) usada pelo painel central.
+      # O Render gera um valor forte; leia-o em Environment para configurar o painel.
+      - key: SERVICE_TOKEN
+        generateValue: true
       - key: DB_PATH
         value: /var/data/agency.db
       - key: UPLOADS_DIR
