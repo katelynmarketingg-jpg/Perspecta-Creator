@@ -44,6 +44,12 @@ import { liveNotifier, sseHandler } from "./live.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
 
+// Aviso de segurança: sem JWT_SECRET, auth e criptografia caem num segredo
+// conhecido ("dev-secret"). No Render ele é gerado; localmente, defina no .env.
+if (!process.env.JWT_SECRET) {
+  console.warn("⚠️  JWT_SECRET não definido — usando segredo inseguro de desenvolvimento. Defina JWT_SECRET em produção.");
+}
+
 const app = express();
 app.set("trust proxy", 1); // atrás do proxy do Render: HTTPS e IP reais
 app.use(cors());

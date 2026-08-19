@@ -223,6 +223,9 @@ CREATE TABLE IF NOT EXISTS files (
 // ---------------------------------------------------------------------------
 function ensureColumn(table, column, ddl) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  // Tabela ainda não existe (ex.: migração roda antes do CREATE): pula sem
+  // quebrar o boot. O CREATE mais abaixo cuida das colunas dela.
+  if (!cols.length) return;
   if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 
@@ -405,7 +408,8 @@ CREATE TABLE IF NOT EXISTS plan_items (
   label        TEXT,                            -- ex: "Post institucional"
   quantity     INTEGER NOT NULL DEFAULT 1,
   assignee_id  INTEGER REFERENCES users(id) ON DELETE SET NULL, -- vazio = por função
-  position     INTEGER NOT NULL DEFAULT 0
+  position     INTEGER NOT NULL DEFAULT 0,
+  days         TEXT                             -- dias do mês (JSON: [5,12,19,26])
 );
 CREATE INDEX IF NOT EXISTS idx_planitems_project ON plan_items(project_id);
 
@@ -567,13 +571,15 @@ function seedOrganizations() {
     }
   };
 
+  // Senhas iniciais configuráveis por ambiente (evita "001" em produção).
+  // Só valem na PRIMEIRA criação de cada usuário; não mexem em quem já existe.
   upsertUser({
     name: "Perspecta Media", username: "admin", email: "admin@perspectamedia.com",
-    password: "001", role: "superadmin", orgId: master.id,
+    password: process.env.SEED_ADMIN_PASSWORD || "001", role: "superadmin", orgId: master.id,
   });
   upsertUser({
     name: "Katy", username: "Katy", email: "katy@perspectiva.com",
-    password: "001", role: "admin", orgId: perspectiva.id,
+    password: process.env.SEED_KATY_PASSWORD || "001", role: "admin", orgId: perspectiva.id,
   });
 
   // Dados que existiam antes do multi-escritório passam a ser da Perspectiva.

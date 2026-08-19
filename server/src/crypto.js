@@ -1,9 +1,13 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 import "dotenv/config";
 
-// Segredos guardados no banco (senhas de clientes, tokens da Meta) ficam
-// cifrados em repouso com a mesma chave derivada do JWT_SECRET.
-const KEY = scryptSync(process.env.JWT_SECRET || "dev-secret", "workspace-salt", 32);
+// Segredos guardados no banco (senhas de clientes, tokens da Meta/Asaas, chaves
+// de IA) ficam cifrados em repouso. A chave vem de ENCRYPTION_KEY; se não houver,
+// cai no JWT_SECRET (compatível com o que já foi cifrado). Defina ENCRYPTION_KEY
+// = valor atual do JWT_SECRET ANTES de um dia rotacionar o JWT_SECRET, senão os
+// dados cifrados existentes deixam de ser lidos.
+const KEY_SOURCE = process.env.ENCRYPTION_KEY || process.env.JWT_SECRET || "dev-secret";
+const KEY = scryptSync(KEY_SOURCE, "workspace-salt", 32);
 
 export function encrypt(text) {
   if (!text) return null;
