@@ -91,6 +91,42 @@ router.post("/users", (req, res) => {
   res.status(201).json({ user: r.user });
 });
 
+// PATCH /api/admin/users/:id — ativar/desativar (revogar) um login.
+// Desativar corta o acesso na hora (login e sessões passam a ser negados).
+router.patch("/users/:id", (req, res) => {
+  const { active } = req.body || {};
+  if (active === undefined) return res.status(400).json({ error: "Informe active (true/false)." });
+  const u = db.prepare("SELECT id FROM users WHERE id = ?").get(req.params.id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado." });
+  db.prepare("UPDATE users SET active = ? WHERE id = ?").run(active ? 1 : 0, req.params.id);
+  res.json({ ok: true, id: Number(req.params.id), active: Boolean(active) });
+});
+
+// POST /api/admin/users/:id/reset-password — define nova senha (por padrão,
+// força a pessoa a trocar no próximo login).
+router.post("/users/:id/reset-password", (req, res) => {
+  const { password, force_change } = req.body || {};
+  if (!password || String(password).length < 4) {
+    return res.status(400).json({ error: "password (mínimo 4 caracteres) é obrigatório." });
+  }
+  const u = db.prepare("SELECT id FROM users WHERE id = ?").get(req.params.id);
+  if (!u) return res.status(404).json({ error: "Usuário não encontrado." });
+  db.prepare("UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?")
+    .run(hashPassword(password), force_change === false ? 0 : 1, req.params.id);
+  res.json({ ok: true });
+});
+
+// PATCH /api/admin/companies/:id — ativar/desativar uma empresa.
+router.patch("/companies/:id", (req, res) => {
+  const { active } = req.body || {};
+  if (active === undefined) return res.status(400).json({ error: "Informe active (true/false)." });
+  const o = db.prepare("SELECT id, is_master FROM organizations WHERE id = ?").get(req.params.id);
+  if (!o) return res.status(404).json({ error: "Empresa não encontrada." });
+  if (o.is_master) return res.status(400).json({ error: "Não é possível desativar a empresa master." });
+  db.prepare("UPDATE organizations SET active = ? WHERE id = ?").run(active ? 1 : 0, req.params.id);
+  res.json({ ok: true, id: Number(req.params.id), active: Boolean(active) });
+});
+
 // GET /api/admin/usage — uso e limites por empresa (para o painel de custos).
 router.get("/usage", (req, res) => {
   const orgs = db.prepare(`
