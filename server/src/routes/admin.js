@@ -138,8 +138,10 @@ router.get("/usage", (req, res) => {
     ORDER BY o.is_master DESC, o.name
   `).all();
 
+  const aiStmt = db.prepare("SELECT calls, tokens_in, tokens_out FROM ai_usage WHERE org_id = ?");
   res.json(orgs.map((o) => {
     const u = computeUsage(o.id);
+    const ai = aiStmt.get(o.id) || { calls: 0, tokens_in: 0, tokens_out: 0 };
     return {
       company_id: o.id,
       company: o.name,
@@ -151,7 +153,10 @@ router.get("/usage", (req, res) => {
         : "expirado",
       plan: o.plan_name || null,
       plan_price: o.plan_price ?? null,
-      usage: { users: u.users, clients: u.clients, storage_gb: u.storage_gb },
+      usage: {
+        users: u.users, clients: u.clients, storage_gb: u.storage_gb,
+        ai_calls: ai.calls, ai_tokens_in: ai.tokens_in, ai_tokens_out: ai.tokens_out,
+      },
       limits: { users: o.max_users ?? null, clients: o.max_clients ?? null, storage_gb: o.storage_gb ?? null },
     };
   }));

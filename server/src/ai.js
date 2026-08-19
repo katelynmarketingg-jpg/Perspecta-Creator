@@ -18,6 +18,21 @@ export function getAiConfig(orgId) {
   };
 }
 
+// Soma o consumo de tokens de uma chamada ao total do escritório.
+function recordUsage(orgId, tokensIn, tokensOut) {
+  try {
+    db.prepare(
+      `INSERT INTO ai_usage (org_id, calls, tokens_in, tokens_out, updated_at)
+       VALUES (?, 1, ?, ?, datetime('now'))
+       ON CONFLICT(org_id) DO UPDATE SET
+         calls = calls + 1,
+         tokens_in = tokens_in + excluded.tokens_in,
+         tokens_out = tokens_out + excluded.tokens_out,
+         updated_at = datetime('now')`
+    ).run(orgId, Number(tokensIn) || 0, Number(tokensOut) || 0);
+  } catch { /* medição não deve derrubar a resposta */ }
+}
+
 export function saveAiConfig(orgId, { provider, api_key, model }) {
   const prov = provider === "anthropic" ? "anthropic" : "openai";
   db.prepare(
@@ -59,6 +74,7 @@ export async function askAi(orgId, { system, user }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || "A IA recusou o pedido.");
+    recordUsage(orgId, data.usage?.input_tokens, data.usage?.output_tokens);
     return data.content?.map((c) => c.text).join("") || "";
   }
 
@@ -77,6 +93,7 @@ export async function askAi(orgId, { system, user }) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error?.message || "A IA recusou o pedido.");
+  recordUsage(orgId, data.usage?.prompt_tokens, data.usage?.completion_tokens);
   return data.choices?.[0]?.message?.content || "";
 }
 
