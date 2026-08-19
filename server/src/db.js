@@ -601,6 +601,25 @@ function seedOrganizations() {
   });
   // O usuário master não pertence a nenhum escritório cliente.
   db.prepare("UPDATE users SET org_id = ? WHERE role = 'superadmin'").run(master.id);
+
+  // Deploy zerado (disco novo): garante etapas do kanban e tipos de evento no
+  // escritório de trabalho, para o quadro não nascer vazio. Idempotente —
+  // se já houver etapas (banco atual), não faz nada.
+  const semEtapas = db.prepare("SELECT COUNT(*) AS n FROM kanban_stages WHERE org_id = ?").get(perspectiva.id).n === 0;
+  if (semEtapas) {
+    const stages = [
+      ["Planejamento", 0, 0], ["Captação", 1, 0], ["Criação", 2, 0],
+      ["Distribuição", 3, 0], ["Aprovação", 4, 0], ["Programados", 5, 1],
+    ];
+    const ins = db.prepare("INSERT INTO kanban_stages (name, position, is_done, org_id) VALUES (?, ?, ?, ?)");
+    stages.forEach((s) => ins.run(...s, perspectiva.id));
+  }
+  const semTipos = db.prepare("SELECT COUNT(*) AS n FROM event_types WHERE org_id = ?").get(perspectiva.id).n === 0;
+  if (semTipos) {
+    const types = [["Reunião", "#EA580C"], ["Captação", "#FB923C"], ["Entrega", "#78716C"]];
+    const insT = db.prepare("INSERT INTO event_types (name, color, org_id) VALUES (?, ?, ?)");
+    types.forEach((t) => insT.run(...t, perspectiva.id));
+  }
 }
 seedOrganizations();
 
