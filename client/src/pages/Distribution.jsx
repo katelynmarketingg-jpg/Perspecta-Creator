@@ -14,11 +14,12 @@ import CalendarViewMonthIcon from "@mui/icons-material/CalendarViewMonth";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import StarIcon from "@mui/icons-material/Star";
+import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import FeedPreview from "../components/FeedPreview.jsx";
-import { CONTENT_TYPES, formatTime } from "../utils.js";
+import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -197,6 +198,13 @@ function PieceCard({ item, onChanged, flash }) {
               Enviar p/ aprovação
             </Button>
           </Stack>
+          {item.client_phone && (
+            <Button size="small" startIcon={<WhatsAppIcon />} sx={{ color: "#25D366", alignSelf: "flex-start" }}
+              onClick={() => window.open(whatsappLink(item.client_phone,
+                `Oi! Preparei um conteúdo novo pra você aprovar. É só entrar na sua área do cliente 🙂`), "_blank")}>
+              Avisar no WhatsApp
+            </Button>
+          )}
 
           <GalleryPicker clientId={item.client_id} open={picker} onClose={() => setPicker(false)} onPick={pickFromGallery} />
           <GalleryPicker clientId={item.client_id} open={coverPicker} onClose={() => setCoverPicker(false)}

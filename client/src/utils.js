@@ -62,3 +62,13 @@ export function fileSize(bytes) {
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
+
+// Link "clique-para-conversar" do WhatsApp (grátis, sem API). Abre o WhatsApp
+// com a mensagem pronta para o número do cliente — a pessoa envia quando quiser.
+// Assume Brasil (+55) quando o número não traz o código do país.
+export function whatsappLink(phone, text = "") {
+  let d = String(phone || "").replace(/\D/g, "");
+  if (!d) return null;
+  if (d.length <= 11 && !d.startsWith("55")) d = "55" + d;
+  return `https://wa.me/${d}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+}

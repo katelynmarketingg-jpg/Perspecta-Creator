@@ -40,7 +40,8 @@ router.get("/", (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.client_id, t.cover_file_id, c.name AS client_name,
+              t.approval_status, t.client_note, t.client_id, t.cover_file_id,
+              c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
        LEFT JOIN clients c ON c.id = t.client_id
