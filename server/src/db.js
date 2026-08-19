@@ -279,6 +279,8 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // ---------------------------------------------------------------------------
 // Login por nome de usuário (em vez de e-mail).
 ensureColumn("users", "username", "username TEXT");
+// Troca de senha obrigatória (usado para tirar senhas-padrão fracas de circulação).
+ensureColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
 
 // Marca do escritório: logo da barra superior e favicon (guardados como
 // data URI — carregam sem depender de rede nem de login).
@@ -590,6 +592,18 @@ function seedOrganizations() {
   db.prepare("UPDATE users SET org_id = ? WHERE role = 'superadmin'").run(master.id);
 }
 seedOrganizations();
+
+// Segurança: qualquer usuário que ainda esteja com a senha-padrão fraca "001"
+// é obrigado a trocar no próximo login. Idempotente — some sozinho quando a
+// pessoa troca a senha (aí "001" deixa de bater).
+(function flagWeakSeedPasswords() {
+  const users = db.prepare("SELECT id, password_hash FROM users").all();
+  const flag = db.prepare("UPDATE users SET must_change_password = 1 WHERE id = ?");
+  users.forEach((u) => {
+    try { if (u.password_hash && bcrypt.compareSync("001", u.password_hash)) flag.run(u.id); }
+    catch { /* hash inválido: ignora */ }
+  });
+})();
 
 // Exclusão automática desligada: cancela qualquer prazo de expiração que ainda
 // esteja marcado, para que nenhum arquivo seja apagado sozinho. A limpeza passa

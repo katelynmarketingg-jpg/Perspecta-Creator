@@ -36,6 +36,7 @@ import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import Brightness4Icon from "@mui/icons-material/Brightness4";
 import { useAuth } from "../auth/AuthContext.jsx";
+import ForcePasswordChange from "./ForcePasswordChange.jsx";
 import { useColorMode } from "../ColorModeContext.jsx";
 import { SIDEBAR } from "../theme.js";
 
@@ -181,6 +182,7 @@ export default function Layout() {
 
   return (
     <Box sx={{ display: "flex", minHeight: "100dvh" }}>
+      <ForcePasswordChange />
       <AppBar
         position="fixed"
         elevation={0}

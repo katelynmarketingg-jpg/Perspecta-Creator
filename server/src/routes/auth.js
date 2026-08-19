@@ -20,6 +20,7 @@ function publicUser(u, org) {
     org_id: u.org_id,
     org_name: org?.name || null,
     is_master: !!org?.is_master,
+    must_change_password: !!u.must_change_password,
   };
 }
 
@@ -65,7 +66,8 @@ router.put("/password", authRequired, (req, res) => {
   if (!user || !verifyPassword(current_password || "", user.password_hash)) {
     return res.status(401).json({ error: "Senha atual incorreta." });
   }
-  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(new_password), user.id);
+  db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?")
+    .run(hashPassword(new_password), user.id);
   res.json({ ok: true });
 });
 
