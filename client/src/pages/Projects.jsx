@@ -49,35 +49,25 @@ export default function Projects() {
   // Mês de referência do quadro (padrão: o próximo). Filtra o status "lançado".
   const [refMonth, setRefMonth] = useState(nextMonthKey());
 
-  // Um dia do mês vira uma data completa (respeitando o último dia do mês).
-  function monthDay(month, day) {
-    const [y, mm] = month.split("-").map(Number);
-    const last = new Date(y, mm, 0).getDate();
-    return `${month}-${String(Math.min(day, last)).padStart(2, "0")}`;
-  }
-  // Monta a lista de peças (tipo × quantidade), pré-preenchendo as datas fixas.
-  function buildPieces(project, month) {
-    const out = [];
-    (project.plan || []).forEach((it) => {
+  // Resumo do lançamento: uma linha por tipo com a quantidade. As datas de cada
+  // peça são definidas depois, na aba Distribuição.
+  function buildPieces(project) {
+    return (project.plan || []).map((it) => {
       const info = tinfo(types, it.content_type);
-      const dias = it.days || [];
-      for (let i = 1; i <= it.quantity; i++) {
-        out.push({
-          content_type: it.content_type, label: it.label || info.label, emoji: info.emoji,
-          i, total: it.quantity, date: dias.length ? monthDay(month, dias[(i - 1) % dias.length]) : "",
-        });
-      }
+      return {
+        content_type: it.content_type,
+        label: it.label || info.label,
+        emoji: info.emoji,
+        total: it.quantity,
+      };
     });
-    return out;
   }
   function openLaunch(p) {
-    const month = refMonth;
-    setLaunch({ project: p, month, assignee_id: "" });
-    setPieces(buildPieces(p, month));
+    setLaunch({ project: p, month: refMonth, assignee_id: "" });
+    setPieces(buildPieces(p));
   }
   function changeLaunchMonth(month) {
     setLaunch((l) => ({ ...l, month }));
-    setPieces((ps) => ps.map((p) => ({ ...p, date: p.date ? monthDay(month, Number(p.date.slice(-2))) : "" })));
   }
 
   const load = () => api.get("/projects").then((r) => setRows(r.data));
