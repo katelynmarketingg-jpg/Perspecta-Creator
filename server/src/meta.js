@@ -109,17 +109,30 @@ export function publicConnection(row) {
   return { ...rest, connected: true };
 }
 
+// Espera o container de VÍDEO terminar o processamento na Meta (o vídeo não
+// publica na hora: a Meta baixa e processa antes). Faz polling com limite.
+async function waitForContainer(containerId, accessToken, { tentativas = 20, intervaloMs = 6000 } = {}) {
+  for (let i = 0; i < tentativas; i++) {
+    const st = await graph(`/${containerId}`, { fields: "status_code", access_token: accessToken });
+    if (st.status_code === "FINISHED") return;
+    if (st.status_code === "ERROR") throw new Error("A Meta falhou ao processar o vídeo.");
+    await new Promise((r) => setTimeout(r, intervaloMs));
+  }
+  throw new Error("O vídeo ainda está processando na Meta. Tente publicar de novo em instantes.");
+}
+
 /**
- * Publica um post no Instagram: sobe o container com a imagem e depois
- * confirma. O arquivo precisa estar acessível por URL pública para a Meta.
+ * Publica no Instagram (foto ou reel). O arquivo precisa estar acessível por
+ * URL pública. Vídeo vira REELS: cria o container, espera processar e confirma.
  */
-export async function publishToInstagram({ conn, imageUrl, caption }) {
+export async function publishToInstagram({ conn, mediaUrl, caption, isVideo }) {
   if (!conn?.ig_user_id) throw new Error("Este cliente não tem Instagram profissional conectado.");
-  const container = await graph(`/${conn.ig_user_id}/media`, {
-    image_url: imageUrl,
-    caption: caption || "",
-    access_token: conn.access_token,
-  }, { method: "POST" });
+  const params = isVideo
+    ? { media_type: "REELS", video_url: mediaUrl, caption: caption || "", access_token: conn.access_token }
+    : { image_url: mediaUrl, caption: caption || "", access_token: conn.access_token };
+
+  const container = await graph(`/${conn.ig_user_id}/media`, params, { method: "POST" });
+  if (isVideo) await waitForContainer(container.id, conn.access_token);
 
   const published = await graph(`/${conn.ig_user_id}/media_publish`, {
     creation_id: container.id,
@@ -129,11 +142,19 @@ export async function publishToInstagram({ conn, imageUrl, caption }) {
   return published.id;
 }
 
-/** Publica na página do Facebook. */
-export async function publishToFacebook({ conn, imageUrl, caption }) {
+/** Publica na página do Facebook (foto ou vídeo). */
+export async function publishToFacebook({ conn, mediaUrl, caption, isVideo }) {
   if (!conn?.page_id) throw new Error("Nenhuma página do Facebook conectada.");
+  if (isVideo) {
+    const result = await graph(`/${conn.page_id}/videos`, {
+      file_url: mediaUrl,
+      description: caption || "",
+      access_token: conn.access_token,
+    }, { method: "POST" });
+    return result.id;
+  }
   const result = await graph(`/${conn.page_id}/photos`, {
-    url: imageUrl,
+    url: mediaUrl,
     caption: caption || "",
     access_token: conn.access_token,
   }, { method: "POST" });
