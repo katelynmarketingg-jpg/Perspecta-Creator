@@ -10,4 +10,17 @@ export default defineConfig({
       "/api": "http://localhost:8080",
     },
   },
+  build: {
+    // Separa as bibliotecas pesadas em pedaços próprios, para o site carregar
+    // mais rápido (cada parte é baixada e cacheada separadamente).
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom", "react-router-dom"],
+          mui: ["@mui/material", "@mui/icons-material", "@emotion/react", "@emotion/styled"],
+          charts: ["recharts"],
+        },
+      },
+    },
+  },
 });
