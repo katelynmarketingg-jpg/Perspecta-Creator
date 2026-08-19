@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button, Stack,
   Chip, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -89,6 +89,71 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
   );
 }
 
+// Capturar um quadro do vídeo anexado e usá-lo como capa do perfil.
+// Tudo no navegador (canvas) — não processa vídeo no servidor.
+function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash }) {
+  const videoRef = useRef(null);
+  const [src, setSrc] = useState(null);
+  const [isVideo, setIsVideo] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open || !fileId) return;
+    let url;
+    api.get(`/files/${fileId}/download`, { responseType: "blob" })
+      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setIsVideo((r.data.type || "").startsWith("video")); })
+      .catch(() => {});
+    return () => url && URL.revokeObjectURL(url);
+  }, [open, fileId]);
+
+  async function capturar() {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth) return;
+    setBusy(true);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = v.videoWidth;
+      canvas.height = v.videoHeight;
+      canvas.getContext("2d").drawImage(v, 0, 0);
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.92));
+      const fd = new FormData();
+      fd.append("files", blob, `capa-${Date.now()}.jpg`);
+      if (clientId) fd.append("client_id", clientId);
+      fd.append("stage", "editados");
+      const { data } = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const newId = data?.[0]?.id;
+      if (newId) { onCaptured(newId); onClose(); }
+    } catch { flash?.("Não foi possível capturar o quadro.", "error"); }
+    setBusy(false);
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Capturar capa do vídeo</DialogTitle>
+      <DialogContent>
+        {!src ? (
+          <Box sx={{ display: "grid", placeItems: "center", py: 4 }}><CircularProgress /></Box>
+        ) : !isVideo ? (
+          <Typography color="text.secondary" sx={{ py: 2 }}>
+            O anexo atual é uma foto. Anexe um vídeo para capturar um quadro.
+          </Typography>
+        ) : (
+          <Stack spacing={1}>
+            <Box component="video" ref={videoRef} src={src} controls
+              sx={{ width: "100%", maxHeight: 420, bgcolor: "#000", borderRadius: 2 }} />
+            <Typography variant="caption" color="text.secondary">
+              Pause no segundo que você quer e clique em "Usar este quadro".
+            </Typography>
+          </Stack>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Fechar</Button>
+        {isVideo && <Button variant="contained" onClick={capturar} disabled={busy}>Usar este quadro</Button>}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // Um cartão por peça: mídia + legenda + observação + data → enviar p/ aprovação.
 function PieceCard({ item, onChanged, flash }) {
   const [caption, setCaption] = useState(item.caption || "");
@@ -101,6 +166,7 @@ function PieceCard({ item, onChanged, flash }) {
   const [uploading, setUploading] = useState(false);
   const [picker, setPicker] = useState(false);
   const [coverPicker, setCoverPicker] = useState(false);
+  const [videoCover, setVideoCover] = useState(false);
   const ct = CONTENT_TYPES[item.content_type];
 
   async function upload(e) {
@@ -182,10 +248,17 @@ function PieceCard({ item, onChanged, flash }) {
             </Button>
           </Stack>
 
-          <Button variant="text" startIcon={<StarIcon />} size="small" onClick={() => setCoverPicker(true)}
-            disabled={!item.client_id} sx={{ alignSelf: "flex-start" }}>
-            {coverId ? "Trocar capa do perfil" : "Definir capa do perfil (opcional)"}
-          </Button>
+          <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>
+            <Button variant="text" startIcon={<StarIcon />} size="small" onClick={() => setCoverPicker(true)}
+              disabled={!item.client_id}>
+              {coverId ? "Trocar capa" : "Definir capa (foto)"}
+            </Button>
+            {fileId && (
+              <Button variant="text" size="small" onClick={() => setVideoCover(true)} disabled={!item.client_id}>
+                Capturar do vídeo
+              </Button>
+            )}
+          </Stack>
 
           <TextField label="Legenda" multiline minRows={2} value={caption} onChange={(e) => setCaption(e.target.value)} fullWidth />
           <TextField label="Observação (interna)" multiline minRows={1} value={obs} onChange={(e) => setObs(e.target.value)} fullWidth />
@@ -209,6 +282,8 @@ function PieceCard({ item, onChanged, flash }) {
           <GalleryPicker clientId={item.client_id} open={picker} onClose={() => setPicker(false)} onPick={pickFromGallery} />
           <GalleryPicker clientId={item.client_id} open={coverPicker} onClose={() => setCoverPicker(false)}
             onPick={setCover} titulo="Escolher a capa do perfil (uma foto)" />
+          <VideoCoverDialog fileId={fileId} clientId={item.client_id} open={videoCover}
+            onClose={() => setVideoCover(false)} onCaptured={setCover} flash={flash} />
         </Stack>
       </CardContent>
     </Card>
