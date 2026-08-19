@@ -36,6 +36,8 @@ import brandingRoutes from "./routes/branding.js";
 import taskTypesRoutes from "./routes/task-types.js";
 import distributionRoutes from "./routes/distribution.js";
 import adminRoutes from "./routes/admin.js";
+import backupRoutes from "./routes/backup.js";
+import { startBackups } from "./backup.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
 import { startPlanMonitor } from "./plans-monitor.js";
@@ -96,6 +98,7 @@ app.use("/api/branding", brandingRoutes);
 app.use("/api/task-types", taskTypesRoutes);
 app.use("/api/distribution", distributionRoutes);
 app.use("/api/admin", adminRoutes); // porta de serviço (token) p/ painel central
+app.use("/api/backup", backupRoutes); // baixar o banco (só superadmin)
 app.use("/api/webhooks", billingWebhook); // Asaas confirma pagamentos aqui
 
 // Serve o build do frontend (client/dist) em produção
@@ -117,4 +120,5 @@ app.listen(PORT, () => {
   // Exclusão automática de arquivos DESLIGADA: a limpeza é manual, na aba
   // Arquivos. (startRetention não é mais chamado.)
   startPlanMonitor(); // vigia limites de plano e testes acabando
+  startBackups();     // cópia diária do banco (mantém as últimas 7)
 });
