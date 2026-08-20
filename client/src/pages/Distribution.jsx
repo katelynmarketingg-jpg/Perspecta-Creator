@@ -18,7 +18,6 @@ import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
-import FeedPreview from "../components/FeedPreview.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -418,6 +417,88 @@ function MonthGrid({ items, onSelect }) {
   );
 }
 
+// Miniatura quadrada da grade (carrega via fetchFile → blob).
+function FeedThumb({ fileId, fetchFile }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    if (!fileId) { setSrc(null); return; }
+    let url, alive = true;
+    fetchFile(fileId).then((b) => { if (alive) { url = URL.createObjectURL(b); setSrc(url); } }).catch(() => {});
+    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
+  }, [fileId, fetchFile]);
+  if (!src) return <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", color: "text.disabled", fontSize: 10 }}>sem arte</Box>;
+  return <Box component="img" src={src} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />;
+}
+
+const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
+
+// Prévia do perfil ARRASTÁVEL: reordena e as datas acompanham a nova ordem.
+// Data no passado ou ausente aparece em vermelho; clicar abre o editor.
+function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
+  const [order, setOrder] = useState(posts);
+  const dragIndex = useRef(null);
+  useEffect(() => { setOrder(posts); }, [posts]);
+
+  const now = Date.now();
+  const errada = (p) => { const d = dtISO(p.scheduled_at); return !d || d.getTime() < now; };
+
+  function solta(i) {
+    const from = dragIndex.current;
+    dragIndex.current = null;
+    if (from == null || from === i) return;
+    const arr = [...order];
+    const [movido] = arr.splice(from, 1);
+    arr.splice(i, 0, movido);
+    // Mantém o conjunto de datas (slots) e reatribui pela nova posição.
+    const slots = order.map((p) => p.scheduled_at);
+    const changes = [];
+    const novo = arr.map((p, idx) => {
+      if (p.scheduled_at !== slots[idx]) changes.push({ id: p.id, scheduled_at: slots[idx] });
+      return { ...p, scheduled_at: slots[idx] };
+    });
+    setOrder(novo);
+    if (changes.length) onReorder(changes);
+  }
+
+  if (!posts.length) {
+    return <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+      Nada com data ainda. Programe as peças (na visão "Por post") que elas aparecem aqui.
+    </Typography>;
+  }
+
+  return (
+    <Box>
+      <Typography variant="subtitle2">{titulo}</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+        Arraste para reordenar — as datas acompanham a nova ordem. Em vermelho = data no passado ou sem data (clique para ajustar).
+      </Typography>
+      <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 3, overflow: "hidden" }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
+          {order.map((p, i) => (
+            <Box key={p.id} draggable
+              onDragStart={() => { dragIndex.current = i; }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => solta(i)}
+              onClick={() => onSelect(p)}
+              sx={{
+                position: "relative", aspectRatio: "1", cursor: "pointer", bgcolor: "action.hover", overflow: "hidden",
+                outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
+              }}>
+              <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile} />
+              <Box sx={{
+                position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
+                bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
+              }}>
+                {p.scheduled_at ? dtISO(p.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "sem data"}
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 export default function Distribution() {
   const [clients, setClients] = useState([]);
   const [clientFilter, setClientFilter] = useState("");
@@ -445,6 +526,16 @@ export default function Distribution() {
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [clientFilter, vTasks, vDist]);
+
+  async function reorder(changes) {
+    try {
+      await api.post("/distribution/reorder", { changes });
+      flash("Ordem do feed atualizada.", "success");
+      load();
+    } catch (e) {
+      flash(e.response?.data?.error || "Não foi possível reordenar.", "error");
+    }
+  }
 
   // Quando algo muda ao vivo, reflete na peça aberta no editor.
   const selectedFresh = selected ? items.find((i) => i.id === selected.id) || selected : null;
@@ -491,7 +582,7 @@ export default function Distribution() {
         <ListView items={items} onSelect={setSelected} />
       ) : view === "feed" ? (
         <Card><CardContent>
-          <FeedPreview posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected}
+          <ReorderableFeed posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected} onReorder={reorder}
             titulo={clientFilter ? "Como o perfil vai ficar" : "Prévia do perfil (todos os clientes)"} />
         </CardContent></Card>
       ) : (

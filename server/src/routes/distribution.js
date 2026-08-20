@@ -53,6 +53,20 @@ router.get("/", (req, res) => {
   res.json({ stage: { id: stage.id, name: stage.name }, items });
 });
 
+// POST /api/distribution/reorder — reordena o feed: recebe a nova data/hora de
+// cada peça (as peças assumem os "slots" de data na nova ordem). Em lote.
+router.post("/reorder", (req, res) => {
+  const changes = Array.isArray(req.body?.changes) ? req.body.changes : [];
+  const upd = db.prepare("UPDATE tasks SET scheduled_at = ? WHERE id = ? AND org_id = ?");
+  const tx = db.transaction(() => {
+    changes.forEach((c) => {
+      if (c && c.id) upd.run(c.scheduled_at || null, c.id, req.orgId);
+    });
+  });
+  tx();
+  res.json({ ok: true, updated: changes.length });
+});
+
 // PUT /api/distribution/:id — salva mídia (file_id), legenda, observação e data.
 router.put("/:id", (req, res) => {
   const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
