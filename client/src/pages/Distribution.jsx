@@ -50,32 +50,62 @@ function Media({ fileId, height = 200 }) {
     : <Box component="img" src={src} alt="" sx={sx} />;
 }
 
-// Escolher um arquivo que já está na galeria de Arquivos daquele cliente.
+// Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
+// aba Arquivos). Mostra as pastas para entrar e os arquivos para selecionar.
 function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar da galeria de arquivos" }) {
+  const [path, setPath] = useState([]); // trilha de pastas: [{id,name}]
+  const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const currentFolder = path[path.length - 1]?.id || null;
+
+  useEffect(() => { if (open) setPath([]); }, [open, clientId]);
+
   useEffect(() => {
     if (!open || !clientId) return;
     setLoading(true);
-    api.get("/files", { params: { client_id: clientId, all: 1 } })
+    const params = { client_id: clientId };
+    if (currentFolder) params.parent_id = currentFolder;
+    const pf = api.get("/files/folders", { params }).then((r) => setFolders(r.data || [])).catch(() => setFolders([]));
+    // Arquivos da pasta atual (na raiz = sem pasta).
+    const fparams = { client_id: clientId };
+    if (currentFolder) fparams.folder_id = currentFolder;
+    const ff = api.get("/files", { params: fparams })
       .then((r) => setFiles((r.data || []).filter((f) => /^(image|video)\//.test(f.mime || ""))))
-      .catch(() => setFiles([]))
-      .finally(() => setLoading(false));
-  }, [open, clientId]);
+      .catch(() => setFiles([]));
+    Promise.all([pf, ff]).finally(() => setLoading(false));
+  }, [open, clientId, currentFolder]);
+
+  const vazio = !loading && folders.length === 0 && files.length === 0;
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle>{titulo}</DialogTitle>
       <DialogContent>
+        {/* Trilha de navegação (breadcrumb) */}
+        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", mb: 1.5 }}>
+          <Button size="small" onClick={() => setPath([])} disabled={!path.length}>📁 Início</Button>
+          {path.map((p, i) => (
+            <Typography key={p.id} variant="body2" sx={{ cursor: "pointer" }}
+              onClick={() => setPath(path.slice(0, i + 1))}>/ {p.name}</Typography>
+          ))}
+        </Stack>
         {loading ? (
           <Box sx={{ display: "grid", placeItems: "center", py: 4 }}><CircularProgress /></Box>
-        ) : files.length === 0 ? (
+        ) : vazio ? (
           <Typography color="text.secondary" sx={{ py: 2 }}>
-            Nenhuma foto/vídeo deste cliente na galeria. Suba primeiro na aba Arquivos.
+            Nada aqui. Suba arquivos ou crie pastas na aba Arquivos.
           </Typography>
         ) : (
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 1.5, pt: 1 }}>
+            {folders.map((fd) => (
+              <Box key={`d${fd.id}`} onClick={() => setPath([...path, { id: fd.id, name: fd.name }])}
+                sx={{ cursor: "pointer", borderRadius: 1.5, p: 1, border: 1, borderColor: "divider", display: "grid", placeItems: "center", gap: 0.5, "&:hover": { borderColor: "primary.main" } }}>
+                <Typography sx={{ fontSize: 34, lineHeight: 1 }}>📁</Typography>
+                <Typography variant="caption" noWrap sx={{ maxWidth: "100%" }}>{fd.name}</Typography>
+              </Box>
+            ))}
             {files.map((f) => (
-              <Box key={f.id} onClick={() => { onPick(f.id); onClose(); }}
+              <Box key={`f${f.id}`} onClick={() => { onPick(f.id); onClose(); }}
                 sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
                 <Media fileId={f.id} height={110} />
                 <Typography variant="caption" noWrap sx={{ display: "block", px: 0.5, py: 0.25 }}>{f.original_name}</Typography>
