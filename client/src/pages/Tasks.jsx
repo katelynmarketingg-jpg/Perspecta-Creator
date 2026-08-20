@@ -21,6 +21,24 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, CardSkeleton } from "../components/ui.jsx";
 import { formatDate, formatDateTime, PRIORITY, CONTENT_TYPES } from "../utils.js";
 
+// Miniatura autenticada do arquivo que o cliente citou ao pedir ajuste.
+function RefThumb({ fileId }) {
+  const [src, setSrc] = useState(null);
+  const [video, setVideo] = useState(false);
+  useEffect(() => {
+    if (!fileId) return undefined;
+    let url;
+    api.get(`/files/${fileId}/download`, { responseType: "blob" })
+      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setVideo((r.data.type || "").startsWith("video")); })
+      .catch(() => {});
+    return () => url && URL.revokeObjectURL(url);
+  }, [fileId]);
+  if (!src) return null;
+  return video
+    ? <Box component="video" src={src} controls sx={{ maxWidth: "100%", maxHeight: 220, borderRadius: 1, mt: 0.5 }} />
+    : <Box component="img" src={src} alt="" sx={{ maxWidth: "100%", maxHeight: 220, borderRadius: 1, mt: 0.5 }} />;
+}
+
 const EMPTY = {
   title: "", description: "", client_id: "", project_id: "", assignee_id: "",
   stage_id: "", priority: "medium", tags: "", due_date: "", quantity: 1,
@@ -574,12 +592,18 @@ export default function Tasks() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {/* Feedback do cliente vindo do portal */}
-            {draft.approval_status === "changes_requested" && (draft.client_note || draft.client_caption) && (
+            {draft.approval_status === "changes_requested" && (draft.client_note || draft.client_caption || draft.client_ref_file_id) && (
               <Alert severity="warning">
                 <strong>O cliente pediu ajustes:</strong>
                 {draft.client_note && <div style={{ marginTop: 4 }}>💬 {draft.client_note}</div>}
                 {draft.client_caption && (
                   <div style={{ marginTop: 4 }}>✏️ Legenda sugerida por ele: “{draft.client_caption}”</div>
+                )}
+                {draft.client_ref_file_id && (
+                  <div style={{ marginTop: 6 }}>
+                    📎 Arquivo que ele citou:
+                    <RefThumb fileId={draft.client_ref_file_id} />
+                  </div>
                 )}
               </Alert>
             )}

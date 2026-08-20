@@ -151,6 +151,28 @@ router.get("/gallery", (req, res) => {
   res.json(out);
 });
 
+// ---- Galeria por PASTAS (a mesma estrutura da aba Galeria da equipe) --------
+// GET /api/portal/gallery-folders?parent_id=
+router.get("/gallery-folders", (req, res) => {
+  const where = ["client_id = @client_id"];
+  const params = { client_id: req.client.client_id };
+  where.push(req.query.parent_id ? "parent_id = @parent_id" : "parent_id IS NULL");
+  if (req.query.parent_id) params.parent_id = req.query.parent_id;
+  res.json(db.prepare(`SELECT id, name, parent_id FROM folders WHERE ${where.join(" AND ")} ORDER BY name`).all(params));
+});
+
+// GET /api/portal/gallery-files?folder_id=  (fotos e vídeos da pasta)
+router.get("/gallery-files", (req, res) => {
+  const where = ["client_id = @client_id"];
+  const params = { client_id: req.client.client_id };
+  where.push(req.query.folder_id ? "folder_id = @folder_id" : "folder_id IS NULL");
+  if (req.query.folder_id) params.folder_id = req.query.folder_id;
+  const rows = db.prepare(
+    `SELECT id, original_name, mime, size FROM files WHERE ${where.join(" AND ")} ORDER BY created_at DESC`
+  ).all(params);
+  res.json(rows.filter((f) => /^(image|video)\//.test(f.mime || "")));
+});
+
 // ---- Calendário (só os posts do cliente) ------------------------------------
 router.get("/calendar", (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7);
@@ -209,16 +231,23 @@ router.post("/approvals/:id/approve", (req, res) => {
 router.post("/approvals/:id/request-changes", (req, res) => {
   const task = getOwnTask(req, res);
   if (!task) return;
-  const { client_caption, client_note } = req.body || {};
-  if (!client_caption && !client_note) {
-    return res.status(400).json({ error: "Edite a legenda ou escreva uma observação." });
+  const { client_caption, client_note, client_ref_file_id } = req.body || {};
+  if (!client_caption && !client_note && !client_ref_file_id) {
+    return res.status(400).json({ error: "Edite a legenda, escreva uma observação ou aponte um arquivo." });
+  }
+  // Referência: só aceita um arquivo que seja do próprio cliente.
+  let refId = null;
+  if (client_ref_file_id) {
+    const own = db.prepare("SELECT id FROM files WHERE id = ? AND client_id = ?")
+      .get(client_ref_file_id, req.client.client_id);
+    refId = own?.id ?? null;
   }
   // Pediu ajuste → volta para a Distribuição, para a equipe corrigir e reenviar.
   const back = findStageByName("%Distribui%", task.org_id);
   db.prepare(
     `UPDATE tasks SET approval_status = 'changes_requested',
-     client_caption = ?, client_note = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
-  ).run(client_caption ?? null, client_note ?? null, back?.id ?? null, task.id);
+     client_caption = ?, client_note = ?, client_ref_file_id = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
+  ).run(client_caption ?? null, client_note ?? null, refId, back?.id ?? null, task.id);
   notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`, task.org_id);
   res.json({ ok: true });
 });

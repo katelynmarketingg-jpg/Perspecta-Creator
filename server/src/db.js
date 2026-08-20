@@ -248,6 +248,8 @@ ensureColumn("tasks", "scheduled_at", "scheduled_at TEXT");
 ensureColumn("tasks", "approval_status", "approval_status TEXT NOT NULL DEFAULT 'pending'");
 ensureColumn("tasks", "client_caption", "client_caption TEXT");
 ensureColumn("tasks", "client_note", "client_note TEXT");
+// Arquivo da galeria que o cliente apontou ao pedir ajuste (referência visual).
+ensureColumn("tasks", "client_ref_file_id", "client_ref_file_id INTEGER");
 // Capa do post na "visão de perfil" (foto separada). Vazio = usa a própria arte.
 ensureColumn("tasks", "cover_file_id", "cover_file_id INTEGER");
 // Quantidade agrupada: ao lançar, cria 1 tarefa por tipo com N peças dentro.

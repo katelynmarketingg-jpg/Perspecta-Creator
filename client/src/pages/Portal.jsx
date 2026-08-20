@@ -4,8 +4,9 @@ import {
   AppBar, Toolbar, Box, Container, Tabs, Tab, Badge, Card, CardContent,
   Typography, Chip, Button, Stack, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, Divider, IconButton, Tooltip, Alert, Link,
-  Checkbox, FormControlLabel,
+  Checkbox, FormControlLabel, ToggleButtonGroup, ToggleButton, CircularProgress,
 } from "@mui/material";
+import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import FeedPreview from "../components/FeedPreview.jsx";
 import PostComments from "../components/PostComments.jsx";
 import Galeria from "../components/Galeria.jsx";
@@ -66,6 +67,67 @@ function PortalThumb({ fileId, size = 56 }) {
     : <Box component="img" src={src} alt="" sx={sx} />;
 }
 
+// Navegador da galeria do cliente POR PASTAS (mesma estrutura da equipe).
+// Com onPick vira um "seletor" (para apontar um arquivo); sem onPick, é só
+// para ver (clicar amplia).
+function GalleryBrowser({ onPick }) {
+  const [path, setPath] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [view, setView] = useState(null);
+  const current = path[path.length - 1]?.id || null;
+
+  useEffect(() => {
+    setLoading(true);
+    const fp = current ? { parent_id: current } : {};
+    const ff = current ? { folder_id: current } : {};
+    const p1 = portalApi.get("/gallery-folders", { params: fp }).then((r) => setFolders(r.data || [])).catch(() => setFolders([]));
+    const p2 = portalApi.get("/gallery-files", { params: ff }).then((r) => setFiles(r.data || [])).catch(() => setFiles([]));
+    Promise.all([p1, p2]).finally(() => setLoading(false));
+  }, [current]);
+
+  const vazio = !loading && folders.length === 0 && files.length === 0;
+  return (
+    <Box>
+      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", mb: 1.5 }}>
+        <Button size="small" onClick={() => setPath([])} disabled={!path.length}>📁 Início</Button>
+        {path.map((p, i) => (
+          <Typography key={p.id} variant="body2" sx={{ cursor: "pointer" }}
+            onClick={() => setPath(path.slice(0, i + 1))}>/ {p.name}</Typography>
+        ))}
+      </Stack>
+      {loading ? (
+        <Box sx={{ display: "grid", placeItems: "center", py: 4 }}><CircularProgress /></Box>
+      ) : vazio ? (
+        <Typography color="text.secondary" sx={{ py: 2 }}>Nada nesta pasta.</Typography>
+      ) : (
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 1.5 }}>
+          {folders.map((fd) => (
+            <Box key={`d${fd.id}`} onClick={() => setPath([...path, { id: fd.id, name: fd.name }])}
+              sx={{ cursor: "pointer", borderRadius: 1.5, p: 1, border: 1, borderColor: "divider", display: "grid", placeItems: "center", gap: 0.5, "&:hover": { borderColor: "primary.main" } }}>
+              <Typography sx={{ fontSize: 32, lineHeight: 1 }}>📁</Typography>
+              <Typography variant="caption" noWrap sx={{ maxWidth: "100%" }}>{fd.name}</Typography>
+            </Box>
+          ))}
+          {files.map((f) => (
+            <Box key={`f${f.id}`} onClick={() => (onPick ? onPick(f) : setView(f))}
+              sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
+              <PortalThumb fileId={f.id} size={110} />
+              <Typography variant="caption" noWrap sx={{ display: "block", px: 0.5, py: 0.25 }}>{f.original_name}</Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
+      <Dialog open={Boolean(view)} onClose={() => setView(null)} fullWidth maxWidth="md">
+        <DialogTitle>{view?.original_name}</DialogTitle>
+        <DialogContent>{view && <AuthImg fileId={view.id} alt={view.original_name} mime={view.mime} maxHeight={520} />}</DialogContent>
+        <DialogActions><Button onClick={() => setView(null)}>Fechar</Button></DialogActions>
+      </Dialog>
+    </Box>
+  );
+}
+
 // Post do calendário ampliado: a arte em destaque, legenda logo abaixo.
 function PostDialog({ post, onClose }) {
   const [attachments, setAttachments] = useState([]);
@@ -109,8 +171,9 @@ function PostDialog({ post, onClose }) {
 
 function ApprovalCard({ post, onDone }) {
   const [attachments, setAttachments] = useState([]);
-  const [ajuste, setAjuste] = useState(null); // { caption, note }
+  const [ajuste, setAjuste] = useState(null); // { caption, note, refFile }
   const [busy, setBusy] = useState(false);
+  const [pickRef, setPickRef] = useState(false); // seletor da galeria aberto
 
   useEffect(() => {
     portalApi.get(`/tasks/${post.id}/attachments`).then((r) => setAttachments(r.data)).catch(() => {});
@@ -128,6 +191,7 @@ function ApprovalCard({ post, onDone }) {
       await portalApi.post(`/approvals/${post.id}/request-changes`, {
         client_caption: ajuste.caption !== post.caption ? ajuste.caption : null,
         client_note: ajuste.note || null,
+        client_ref_file_id: ajuste.refFile?.id || null,
       });
       setAjuste(null);
       onDone();
@@ -203,20 +267,42 @@ function ApprovalCard({ post, onDone }) {
               onChange={(e) => setAjuste((a) => ({ ...a, caption: e.target.value }))}
             />
             <TextField
-              label="Observações sobre o post" multiline rows={3} fullWidth
+              label="Como podemos melhorar aqui?" multiline rows={3} fullWidth
               placeholder="Ex: prefiro outra foto, trocar o horário, destacar a promoção..."
               value={ajuste?.note || ""}
               onChange={(e) => setAjuste((a) => ({ ...a, note: e.target.value }))}
             />
+            {/* Apontar um arquivo da própria galeria como referência */}
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Button variant="outlined" size="small" startIcon={<PhotoLibraryIcon />} onClick={() => setPickRef(true)}>
+                {ajuste?.refFile ? "Trocar foto/vídeo citado" : "Apontar foto/vídeo da galeria"}
+              </Button>
+              {ajuste?.refFile && (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <PortalThumb fileId={ajuste.refFile.id} size={40} />
+                  <Typography variant="caption" noWrap sx={{ maxWidth: 160 }}>{ajuste.refFile.original_name}</Typography>
+                  <IconButton size="small" onClick={() => setAjuste((a) => ({ ...a, refFile: null }))}>✕</IconButton>
+                </Stack>
+              )}
+            </Stack>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setAjuste(null)}>Cancelar</Button>
           <Button variant="contained" onClick={sendChanges}
-            disabled={busy || (!ajuste?.note && ajuste?.caption === (post.caption || ""))}>
+            disabled={busy || (!ajuste?.note && !ajuste?.refFile && ajuste?.caption === (post.caption || ""))}>
             Enviar para a agência
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Seletor: apontar um arquivo da galeria do cliente */}
+      <Dialog open={pickRef} onClose={() => setPickRef(false)} fullWidth maxWidth="md">
+        <DialogTitle>Escolher da sua galeria</DialogTitle>
+        <DialogContent>
+          <GalleryBrowser onPick={(f) => { setAjuste((a) => ({ ...a, refFile: f })); setPickRef(false); }} />
+        </DialogContent>
+        <DialogActions><Button onClick={() => setPickRef(false)}>Fechar</Button></DialogActions>
       </Dialog>
     </Card>
   );
@@ -226,6 +312,7 @@ export default function Portal() {
   const navigate = useNavigate();
   const client = JSON.parse(localStorage.getItem("portal_client") || "null");
   const [tab, setTab] = useState("approvals");
+  const [galleryMode, setGalleryMode] = useState("pastas"); // pastas | etapas
   const [approvals, setApprovals] = useState([]);
   const [payments, setPayments] = useState([]);
   const [contracts, setContracts] = useState([]);
@@ -427,8 +514,19 @@ export default function Portal() {
           </CardContent></Card>
         )}
 
-        {/* ---- Galeria: tudo, por etapa, com prazo para baixar ---- */}
-        {tab === "gallery" && <Galeria dados={galeria} fetchFile={buscarArquivo} />}
+        {/* ---- Galeria: por pastas (como a equipe organiza) ou por etapa ---- */}
+        {tab === "gallery" && (
+          <>
+            <ToggleButtonGroup size="small" exclusive value={galleryMode}
+              onChange={(_, v) => v && setGalleryMode(v)} sx={{ mb: 2 }}>
+              <ToggleButton value="pastas">Pastas</ToggleButton>
+              <ToggleButton value="etapas">Por etapa</ToggleButton>
+            </ToggleButtonGroup>
+            {galleryMode === "pastas"
+              ? <Card><CardContent><GalleryBrowser /></CardContent></Card>
+              : <Galeria dados={galeria} fetchFile={buscarArquivo} />}
+          </>
+        )}
 
         {/* ---- Agenda (captações, reuniões...) ---- */}
         {tab === "agenda" && (
