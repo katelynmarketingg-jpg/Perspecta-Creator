@@ -204,12 +204,24 @@ export default function Files() {
       </TextField>
 
       {!clientId ? (
-        <Card><CardContent sx={{ textAlign: "center", py: 6 }}>
-          <FolderIcon sx={{ fontSize: 40, color: "text.secondary", mb: 1 }} />
-          <Typography color="text.secondary">Escolha um cliente para ver as pastas por etapa e os documentos.</Typography>
-        </CardContent></Card>
+        clients.length === 0 ? (
+          <Typography color="text.secondary" sx={{ py: 2 }}>Nenhum cliente cadastrado ainda.</Typography>
+        ) : (
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 2 }}>
+            {clients.map((c) => (
+              <Card key={c.id} onClick={() => selectClient(c.id)}
+                sx={{ cursor: "pointer", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
+                <CardContent sx={{ textAlign: "center", py: 3 }}>
+                  <FolderIcon sx={{ fontSize: 44, color: "primary.main" }} />
+                  <Typography sx={{ fontWeight: 600, mt: 0.5 }} noWrap>{c.name}</Typography>
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+        )
       ) : (
         <>
+          <Button size="small" onClick={() => selectClient("")} sx={{ mb: 1 }}>← Todos os clientes</Button>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}>
             <Tab value="etapas" label="Etapas do material" />
             <Tab value="docs" label="Documentos" />
