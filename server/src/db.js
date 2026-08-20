@@ -113,6 +113,17 @@ CREATE TABLE IF NOT EXISTS financial_entries (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Planejamento: datas importantes por empresa (efemérides, campanhas, prazos).
+CREATE TABLE IF NOT EXISTS planning_dates (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  client_id     INTEGER REFERENCES clients(id) ON DELETE CASCADE, -- null = geral (todas)
+  date          TEXT NOT NULL,                        -- 'AAAA-MM-DD'
+  title         TEXT NOT NULL,
+  notes         TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS contracts (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   client_id      INTEGER REFERENCES clients(id) ON DELETE SET NULL,

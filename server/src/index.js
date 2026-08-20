@@ -35,6 +35,7 @@ import billingRoutes, { billingWebhook } from "./routes/billing.js";
 import brandingRoutes from "./routes/branding.js";
 import taskTypesRoutes from "./routes/task-types.js";
 import distributionRoutes from "./routes/distribution.js";
+import planningRoutes from "./routes/planning.js";
 import adminRoutes from "./routes/admin.js";
 import backupRoutes from "./routes/backup.js";
 import { startBackups } from "./backup.js";
@@ -93,6 +94,7 @@ app.use("/api/billing", billingRoutes);
 app.use("/api/branding", brandingRoutes);
 app.use("/api/task-types", taskTypesRoutes);
 app.use("/api/distribution", distributionRoutes);
+app.use("/api/planning", planningRoutes);
 app.use("/api/admin", adminRoutes); // porta de serviço (token) p/ painel central
 app.use("/api/backup", backupRoutes); // baixar o banco (só superadmin)
 app.use("/api/webhooks", billingWebhook); // Asaas confirma pagamentos aqui

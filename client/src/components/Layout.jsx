@@ -51,6 +51,7 @@ const NAV = [
   { to: "/projects", label: "Projetos", icon: <FolderIcon /> },
   { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },
   { to: "/distribution", label: "Distribuição", icon: <ScheduleSendIcon /> },
+  { to: "/planning", label: "Planejamento", icon: <CalendarMonthIcon /> },
   { to: "/deliveries", label: "Entregas", icon: <ChecklistRtlIcon /> },
   { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
   { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },
