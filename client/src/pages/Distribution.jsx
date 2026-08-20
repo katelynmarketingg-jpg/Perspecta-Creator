@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button, Stack,
   Chip, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
-  ToggleButtonGroup, ToggleButton, IconButton, Divider,
+  ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox,
 } from "@mui/material";
+import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import SendIcon from "@mui/icons-material/Send";
 import UploadIcon from "@mui/icons-material/Upload";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
@@ -509,6 +510,9 @@ export default function Distribution() {
   const [msg, setMsg] = useState(null);
   const [view, setView] = useState("post"); // post | list | feed | calendar
   const [selected, setSelected] = useState(null); // peça no editor (lista/perfil/calendário)
+  const [selectMode, setSelectMode] = useState(false); // seleção múltipla na visão "Por post"
+  const [checked, setChecked] = useState(() => new Set()); // ids marcados
+  const [sendingBulk, setSendingBulk] = useState(false);
 
   const flash = (texto, tipo = "success") => { setMsg({ texto, tipo }); setTimeout(() => setMsg(null), 4000); };
   const fetchFile = useCallback((id) => api.get(`/files/${id}/download`, { responseType: "blob" }).then((r) => r.data), []);
@@ -536,6 +540,32 @@ export default function Distribution() {
     } catch (e) {
       flash(e.response?.data?.error || "Não foi possível reordenar.", "error");
     }
+  }
+
+  function toggleCheck(id) {
+    setChecked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function sairDaSelecao() { setSelectMode(false); setChecked(new Set()); }
+
+  // Envia todas as peças marcadas para aprovação (uma a uma). Cada peça precisa
+  // ter mídia e data; as que não tiverem são reportadas.
+  async function enviarSelecionadas() {
+    const ids = [...checked];
+    if (!ids.length) return;
+    setSendingBulk(true);
+    let ok = 0; const falhas = [];
+    for (const id of ids) {
+      try { await api.post(`/distribution/${id}/send`); ok++; }
+      catch (e) {
+        const it = items.find((i) => i.id === id);
+        falhas.push(`${it?.title || id}: ${e.response?.data?.error || "erro"}`);
+      }
+    }
+    setSendingBulk(false);
+    sairDaSelecao();
+    load();
+    if (falhas.length) flash(`${ok} enviada(s). ${falhas.length} não foram: ${falhas.join(" · ")}`, "error");
+    else flash(`${ok} peça(s) enviadas para aprovação. ✅`, "success");
   }
 
   // Quando algo muda ao vivo, reflete na peça aberta no editor.
@@ -577,9 +607,49 @@ export default function Distribution() {
         items.length === 0 ? (
           <EmptyState message="Nenhuma peça para preparar. Mova as tarefas prontas para a coluna 'Distribuição' no quadro de Tarefas." />
         ) : (
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
-            {items.map((it) => <PieceCard key={it.id} item={it} flash={flash} onChanged={load} />)}
-          </Box>
+          <>
+            {/* Barra de seleção: marcar várias peças e enviar de uma vez. */}
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
+              {!selectMode ? (
+                <Button size="small" variant="outlined" startIcon={<CheckBoxIcon />} onClick={() => setSelectMode(true)}>
+                  Selecionar para enviar
+                </Button>
+              ) : (
+                <>
+                  <Button size="small" color="inherit" onClick={sairDaSelecao}>Cancelar</Button>
+                  <Button size="small" onClick={() => setChecked(new Set(items.map((i) => i.id)))}>Marcar todas</Button>
+                  <Typography variant="body2" color="text.secondary">{checked.size} marcada(s)</Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Button size="small" variant="contained" startIcon={<SendIcon />}
+                    disabled={sendingBulk || checked.size === 0} onClick={enviarSelecionadas}>
+                    {sendingBulk ? "Enviando..." : `Enviar ${checked.size || ""} para aprovação`}
+                  </Button>
+                </>
+              )}
+            </Stack>
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
+              {items.map((it) => (
+                <Box key={it.id} sx={{ position: "relative" }}>
+                  {selectMode && (
+                    <Checkbox
+                      checked={checked.has(it.id)}
+                      onChange={() => toggleCheck(it.id)}
+                      sx={{ position: "absolute", top: 4, right: 4, zIndex: 2, bgcolor: "background.paper", borderRadius: 1, "&:hover": { bgcolor: "background.paper" } }}
+                    />
+                  )}
+                  <Box onClick={selectMode ? () => toggleCheck(it.id) : undefined}
+                    sx={selectMode ? {
+                      cursor: "pointer",
+                      outline: checked.has(it.id) ? "2px solid" : "2px solid transparent",
+                      outlineColor: "primary.main", borderRadius: 3,
+                      "& *": { pointerEvents: "none" },
+                    } : undefined}>
+                    <PieceCard item={it} flash={flash} onChanged={load} />
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          </>
         )
       ) : view === "list" ? (
         <ListView items={scheduled} onSelect={setSelected} />

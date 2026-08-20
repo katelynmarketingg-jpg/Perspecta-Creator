@@ -193,8 +193,8 @@ export default function Files() {
   return (
     <>
       <PageHeader
-        title="Arquivos"
-        subtitle="Material por cliente, em etapas — enviado e baixado na qualidade original"
+        title="Galeria"
+        subtitle="Material por cliente, em pastas — enviado e baixado na qualidade original"
       />
 
       <TextField select size="small" label="Cliente" value={clientId}
