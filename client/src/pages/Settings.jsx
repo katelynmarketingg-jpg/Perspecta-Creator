@@ -33,6 +33,8 @@ export default function Settings() {
   const [branding, setBranding] = useState({ logo: null, favicon: null });
   const [brandMsg, setBrandMsg] = useState(null);
   const [brandSaving, setBrandSaving] = useState(false);
+  const [approvalMode, setApprovalMode] = useState("notify");
+  const [approvalMsg, setApprovalMsg] = useState(null);
   // Tipos de tarefa/serviço (post, reel, planejamento…) e o responsável de cada.
   const [team, setTeam] = useState([]);
   const [types, setTypes] = useState([]);
@@ -62,7 +64,21 @@ export default function Settings() {
 
   const load = () => api.get("/tasks/stages").then((r) => setStages(r.data));
   const loadServices = () => api.get("/services").then((r) => setServices(r.data));
-  const loadBranding = () => api.get("/branding").then((r) => setBranding({ logo: r.data?.logo || null, favicon: r.data?.favicon || null }));
+  const loadBranding = () => api.get("/branding").then((r) => {
+    setBranding({ logo: r.data?.logo || null, favicon: r.data?.favicon || null });
+    setApprovalMode(r.data?.approval_mode || "notify");
+  });
+
+  async function saveApprovalMode(mode) {
+    setApprovalMode(mode);
+    try {
+      await api.put("/branding/approval-mode", { approval_mode: mode });
+      setApprovalMsg({ tipo: "success", texto: "Preferência de aprovação salva." });
+    } catch {
+      setApprovalMsg({ tipo: "error", texto: "Não foi possível salvar." });
+    }
+    setTimeout(() => setApprovalMsg(null), 4000);
+  }
   const loadTeam = () => api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
   const loadTypes = () => api.get("/task-types").then((r) => setTypes(r.data)).catch(() => {});
   const loadClientLogins = () => api.get("/clients").then((r) => setClientLogins(r.data)).catch(() => {});
@@ -268,6 +284,28 @@ export default function Settings() {
                   </Button>
                 </Box>
               </Stack>
+            </CardContent>
+          </Card>
+        )}
+
+        {isAdmin && (
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 0.5 }}>Aprovação de conteúdo</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                O que acontece quando o cliente <strong>aprova</strong> um conteúdo na Área do Cliente.
+              </Typography>
+              {approvalMsg && <Alert severity={approvalMsg.tipo} sx={{ mb: 2 }}>{approvalMsg.texto}</Alert>}
+              <TextField select fullWidth label="Ao aprovar" value={approvalMode}
+                onChange={(e) => saveApprovalMode(e.target.value)}>
+                <MenuItem value="notify">Avisar a equipe (a gente clica em "Programar")</MenuItem>
+                <MenuItem value="auto">Programar direto (vai para "Programados")</MenuItem>
+              </TextField>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+                📡 A publicação automática no Instagram depende do app <strong>Meta developer</strong>, que
+                ainda não está ligado. Enquanto isso, "Programar" organiza e marca como programado aqui —
+                a postagem no Instagram continua sendo feita manualmente por vocês.
+              </Typography>
             </CardContent>
           </Card>
         )}

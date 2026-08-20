@@ -303,6 +303,9 @@ ensureColumn("users", "must_change_password", "must_change_password INTEGER NOT 
 // Marca do escritório: logo da barra superior e favicon (guardados como
 // data URI — carregam sem depender de rede nem de login).
 ensureColumn("organizations", "logo", "logo TEXT");
+// Ao aprovar: 'notify' avisa a equipe (padrão); 'auto' programa direto (move
+// para "Programados"). A publicação real no Instagram depende do app Meta.
+ensureColumn("organizations", "approval_mode", "approval_mode TEXT NOT NULL DEFAULT 'notify'");
 ensureColumn("organizations", "favicon", "favicon TEXT");
 
 // Assinatura de cada agência com o Perspecta Media: plano, teste e cobrança.

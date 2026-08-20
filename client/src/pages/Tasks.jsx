@@ -16,6 +16,7 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, CardSkeleton } from "../components/ui.jsx";
@@ -184,6 +185,7 @@ export default function Tasks() {
 
   // Tarefas sem etapa não apareceriam em coluna nenhuma — avisa em vez de sumir.
   const orfas = filtered.filter((t) => !stages.some((s) => s.id === t.stage_id));
+  const doneStage = stages.find((s) => s.is_done); // "Programados"
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
 
@@ -551,6 +553,18 @@ export default function Tasks() {
                       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
                         👤 {t.assignee_name}
                       </Typography>
+                    )}
+                    {/* Aprovado pelo cliente e ainda não programado → botão Programar */}
+                    {t.approval_status === "approved" && doneStage && t.stage_id !== doneStage.id && (
+                      <Tooltip title="Publicar direto no Instagram: aguardando o app Meta developer. Por ora, 'Programar' marca como programado e organiza no calendário.">
+                        <span>
+                          <Button fullWidth size="small" variant="contained" color="success"
+                            startIcon={<ScheduleSendIcon />} sx={{ mt: 1 }}
+                            onClick={(e) => { e.stopPropagation(); moveToStage(t.id, doneStage.id); }}>
+                            Programar
+                          </Button>
+                        </span>
+                      </Tooltip>
                     )}
                     <Divider sx={{ my: 1 }} />
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
