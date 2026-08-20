@@ -3,6 +3,17 @@ import bcrypt from "bcryptjs";
 import "dotenv/config";
 import { db } from "./db.js";
 
+// Segurança: em produção o JWT_SECRET é obrigatório. Sem ele, auth e
+// criptografia cairiam num segredo conhecido — então o servidor RECUSA subir.
+// Em desenvolvimento, mantém um fallback com aviso para não travar o dia a dia.
+const IS_PROD = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+if (IS_PROD && !process.env.JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET não definido em produção. Configure-o no Render (aba Environment) antes de subir.");
+  process.exit(1);
+}
+if (!process.env.JWT_SECRET) {
+  console.warn("⚠️  JWT_SECRET não definido — usando segredo inseguro de desenvolvimento.");
+}
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 const TOKEN_TTL = "12h";
 

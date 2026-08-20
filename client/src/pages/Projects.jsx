@@ -13,7 +13,7 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate, CONTENT_TYPES } from "../utils.js";
 
-const EMPTY = { name: "", client_id: "", description: "", status: "active", start_date: "", end_date: "" };
+const EMPTY = { name: "", client_id: "", description: "", status: "active", start_date: "", end_date: "", launch_by_day: "" };
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 // Próximo mês em "YYYY-MM" — você lança em julho o mês de agosto.
 function nextMonthKey() {
@@ -49,35 +49,25 @@ export default function Projects() {
   // Mês de referência do quadro (padrão: o próximo). Filtra o status "lançado".
   const [refMonth, setRefMonth] = useState(nextMonthKey());
 
-  // Um dia do mês vira uma data completa (respeitando o último dia do mês).
-  function monthDay(month, day) {
-    const [y, mm] = month.split("-").map(Number);
-    const last = new Date(y, mm, 0).getDate();
-    return `${month}-${String(Math.min(day, last)).padStart(2, "0")}`;
-  }
-  // Monta a lista de peças (tipo × quantidade), pré-preenchendo as datas fixas.
-  function buildPieces(project, month) {
-    const out = [];
-    (project.plan || []).forEach((it) => {
+  // Resumo do lançamento: uma linha por tipo com a quantidade. As datas de cada
+  // peça são definidas depois, na aba Distribuição.
+  function buildPieces(project) {
+    return (project.plan || []).map((it) => {
       const info = tinfo(types, it.content_type);
-      const dias = it.days || [];
-      for (let i = 1; i <= it.quantity; i++) {
-        out.push({
-          content_type: it.content_type, label: it.label || info.label, emoji: info.emoji,
-          i, total: it.quantity, date: dias.length ? monthDay(month, dias[(i - 1) % dias.length]) : "",
-        });
-      }
+      return {
+        content_type: it.content_type,
+        label: it.label || info.label,
+        emoji: info.emoji,
+        total: it.quantity,
+      };
     });
-    return out;
   }
   function openLaunch(p) {
-    const month = refMonth;
-    setLaunch({ project: p, month, assignee_id: "" });
-    setPieces(buildPieces(p, month));
+    setLaunch({ project: p, month: refMonth, assignee_id: "" });
+    setPieces(buildPieces(p));
   }
   function changeLaunchMonth(month) {
     setLaunch((l) => ({ ...l, month }));
-    setPieces((ps) => ps.map((p) => ({ ...p, date: p.date ? monthDay(month, Number(p.date.slice(-2))) : "" })));
   }
 
   const load = () => api.get("/projects").then((r) => setRows(r.data));
@@ -213,7 +203,8 @@ export default function Projects() {
                       <Chip size="small" label={p.status === "done" ? "Concluído" : "Ativo"} color={p.status === "done" ? "success" : "primary"} />
                       {(p.launched_months || []).includes(refMonth)
                         ? <Chip size="small" color="success" variant="outlined" label={`✓ ${monthLabelPt(refMonth)} lançado`} />
-                        : <Chip size="small" variant="outlined" label={`${monthLabelPt(refMonth)}: a lançar`} />}
+                        : <Chip size="small" color={p.launch_by_day ? "warning" : "default"} variant="outlined"
+                            label={`Lançar ${monthLabelPt(refMonth)}${p.launch_by_day ? ` — até dia ${p.launch_by_day}` : ""}`} />}
                     </Stack>
                     <Box>
                       <IconButton size="small" onClick={() => openEdit(p)}><EditIcon fontSize="small" /></IconButton>
@@ -273,6 +264,9 @@ export default function Projects() {
               </TextField>
               <TextField label="Início" type="date" InputLabelProps={{ shrink: true }} value={draft.start_date || ""} onChange={set("start_date")} fullWidth />
               <TextField label="Fim" type="date" InputLabelProps={{ shrink: true }} value={draft.end_date || ""} onChange={set("end_date")} fullWidth />
+              <TextField label="Lançar até o dia" type="number" inputProps={{ min: 1, max: 31 }}
+                value={draft.launch_by_day || ""} onChange={set("launch_by_day")} fullWidth
+                helperText="Dia do mês (lembrete)" />
             </Stack>
 
             <Divider>Quantidades do mês</Divider>

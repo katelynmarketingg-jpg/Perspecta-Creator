@@ -66,6 +66,16 @@ export function AuthProvider({ children }) {
     setUser(null);
   }
 
+  // Após a troca obrigatória de senha, some com a exigência sem recarregar.
+  function markPasswordChanged() {
+    setUser((u) => {
+      if (!u) return u;
+      const next = { ...u, must_change_password: false };
+      localStorage.setItem("user", JSON.stringify(next));
+      return next;
+    });
+  }
+
   const isMaster = user?.role === "superadmin";
 
   return (
@@ -75,6 +85,7 @@ export function AuthProvider({ children }) {
         isAdmin: user?.role === "admin" || isMaster,
         isMaster,
         viewingOrg, enterOrg, leaveOrg,
+        markPasswordChanged,
       }}
     >
       {children}

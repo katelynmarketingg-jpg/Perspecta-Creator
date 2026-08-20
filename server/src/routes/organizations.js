@@ -14,8 +14,8 @@ export function seedOrgDefaults(orgId) {
   const hasStages = db.prepare("SELECT COUNT(*) AS n FROM kanban_stages WHERE org_id = ?").get(orgId).n;
   if (!hasStages) {
     const stages = [
-      ["A fazer", 0, 0], ["Em andamento", 1, 0], ["Aprovação", 2, 0],
-      ["Programação", 3, 0], ["Concluído", 4, 1],
+      ["Planejamento", 0, 0], ["Captação", 1, 0], ["Criação", 2, 0],
+      ["Distribuição", 3, 0], ["Aprovação", 4, 0], ["Programados", 5, 1],
     ];
     const ins = db.prepare("INSERT INTO kanban_stages (name, position, is_done, org_id) VALUES (?, ?, ?, ?)");
     stages.forEach((s) => ins.run(...s, orgId));

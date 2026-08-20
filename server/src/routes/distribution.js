@@ -40,7 +40,8 @@ router.get("/", (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.client_id, t.cover_file_id, c.name AS client_name,
+              t.approval_status, t.client_note, t.client_id, t.cover_file_id,
+              c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
        LEFT JOIN clients c ON c.id = t.client_id
@@ -50,6 +51,20 @@ router.get("/", (req, res) => {
     .all(params);
 
   res.json({ stage: { id: stage.id, name: stage.name }, items });
+});
+
+// POST /api/distribution/reorder — reordena o feed: recebe a nova data/hora de
+// cada peça (as peças assumem os "slots" de data na nova ordem). Em lote.
+router.post("/reorder", (req, res) => {
+  const changes = Array.isArray(req.body?.changes) ? req.body.changes : [];
+  const upd = db.prepare("UPDATE tasks SET scheduled_at = ? WHERE id = ? AND org_id = ?");
+  const tx = db.transaction(() => {
+    changes.forEach((c) => {
+      if (c && c.id) upd.run(c.scheduled_at || null, c.id, req.orgId);
+    });
+  });
+  tx();
+  res.json({ ok: true, updated: changes.length });
 });
 
 // PUT /api/distribution/:id — salva mídia (file_id), legenda, observação e data.

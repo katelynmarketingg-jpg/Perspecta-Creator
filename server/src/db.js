@@ -223,6 +223,9 @@ CREATE TABLE IF NOT EXISTS files (
 // ---------------------------------------------------------------------------
 function ensureColumn(table, column, ddl) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  // Tabela ainda não existe (ex.: migração roda antes do CREATE): pula sem
+  // quebrar o boot. O CREATE mais abaixo cuida das colunas dela.
+  if (!cols.length) return;
   if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 
@@ -256,6 +259,8 @@ ensureColumn("clients", "posts_per_month", "posts_per_month INTEGER");
 ensureColumn("clients", "videos_per_month", "videos_per_month INTEGER");
 ensureColumn("projects", "monthly_posts", "monthly_posts INTEGER");
 ensureColumn("projects", "monthly_videos", "monthly_videos INTEGER");
+// Dia-limite para lançar o mês seguinte (lembrete no card: "Lançar X — até dia N").
+ensureColumn("projects", "launch_by_day", "launch_by_day INTEGER");
 // Metas tipadas: valor (R$), clientes novos, concluir projeto, quantidade livre.
 ensureColumn("goals", "goal_type", "goal_type TEXT NOT NULL DEFAULT 'quantity'");
 ensureColumn("goals", "project_id", "project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL");
@@ -276,6 +281,8 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // ---------------------------------------------------------------------------
 // Login por nome de usuário (em vez de e-mail).
 ensureColumn("users", "username", "username TEXT");
+// Troca de senha obrigatória (usado para tirar senhas-padrão fracas de circulação).
+ensureColumn("users", "must_change_password", "must_change_password INTEGER NOT NULL DEFAULT 0");
 
 // Marca do escritório: logo da barra superior e favicon (guardados como
 // data URI — carregam sem depender de rede nem de login).
@@ -315,6 +322,15 @@ CREATE TABLE IF NOT EXISTS org_ai (
   provider   TEXT NOT NULL DEFAULT 'openai',  -- openai | anthropic
   api_key    TEXT,                            -- criptografada
   model      TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Consumo de IA acumulado por escritório (para o painel de custos).
+CREATE TABLE IF NOT EXISTS ai_usage (
+  org_id     INTEGER PRIMARY KEY,
+  calls      INTEGER NOT NULL DEFAULT 0,
+  tokens_in  INTEGER NOT NULL DEFAULT 0,
+  tokens_out INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -405,7 +421,8 @@ CREATE TABLE IF NOT EXISTS plan_items (
   label        TEXT,                            -- ex: "Post institucional"
   quantity     INTEGER NOT NULL DEFAULT 1,
   assignee_id  INTEGER REFERENCES users(id) ON DELETE SET NULL, -- vazio = por função
-  position     INTEGER NOT NULL DEFAULT 0
+  position     INTEGER NOT NULL DEFAULT 0,
+  days         TEXT                             -- dias do mês (JSON: [5,12,19,26])
 );
 CREATE INDEX IF NOT EXISTS idx_planitems_project ON plan_items(project_id);
 
@@ -567,13 +584,15 @@ function seedOrganizations() {
     }
   };
 
+  // Senhas iniciais configuráveis por ambiente (evita "001" em produção).
+  // Só valem na PRIMEIRA criação de cada usuário; não mexem em quem já existe.
   upsertUser({
     name: "Perspecta Media", username: "admin", email: "admin@perspectamedia.com",
-    password: "001", role: "superadmin", orgId: master.id,
+    password: process.env.SEED_ADMIN_PASSWORD || "001", role: "superadmin", orgId: master.id,
   });
   upsertUser({
     name: "Katy", username: "Katy", email: "katy@perspectiva.com",
-    password: "001", role: "admin", orgId: perspectiva.id,
+    password: process.env.SEED_KATY_PASSWORD || "001", role: "admin", orgId: perspectiva.id,
   });
 
   // Dados que existiam antes do multi-escritório passam a ser da Perspectiva.
@@ -582,8 +601,39 @@ function seedOrganizations() {
   });
   // O usuário master não pertence a nenhum escritório cliente.
   db.prepare("UPDATE users SET org_id = ? WHERE role = 'superadmin'").run(master.id);
+
+  // Deploy zerado (disco novo): garante etapas do kanban e tipos de evento no
+  // escritório de trabalho, para o quadro não nascer vazio. Idempotente —
+  // se já houver etapas (banco atual), não faz nada.
+  const semEtapas = db.prepare("SELECT COUNT(*) AS n FROM kanban_stages WHERE org_id = ?").get(perspectiva.id).n === 0;
+  if (semEtapas) {
+    const stages = [
+      ["Planejamento", 0, 0], ["Captação", 1, 0], ["Criação", 2, 0],
+      ["Distribuição", 3, 0], ["Aprovação", 4, 0], ["Programados", 5, 1],
+    ];
+    const ins = db.prepare("INSERT INTO kanban_stages (name, position, is_done, org_id) VALUES (?, ?, ?, ?)");
+    stages.forEach((s) => ins.run(...s, perspectiva.id));
+  }
+  const semTipos = db.prepare("SELECT COUNT(*) AS n FROM event_types WHERE org_id = ?").get(perspectiva.id).n === 0;
+  if (semTipos) {
+    const types = [["Reunião", "#EA580C"], ["Captação", "#FB923C"], ["Entrega", "#78716C"]];
+    const insT = db.prepare("INSERT INTO event_types (name, color, org_id) VALUES (?, ?, ?)");
+    types.forEach((t) => insT.run(...t, perspectiva.id));
+  }
 }
 seedOrganizations();
+
+// Segurança: qualquer usuário que ainda esteja com a senha-padrão fraca "001"
+// é obrigado a trocar no próximo login. Idempotente — some sozinho quando a
+// pessoa troca a senha (aí "001" deixa de bater).
+(function flagWeakSeedPasswords() {
+  const users = db.prepare("SELECT id, password_hash FROM users").all();
+  const flag = db.prepare("UPDATE users SET must_change_password = 1 WHERE id = ?");
+  users.forEach((u) => {
+    try { if (u.password_hash && bcrypt.compareSync("001", u.password_hash)) flag.run(u.id); }
+    catch { /* hash inválido: ignora */ }
+  });
+})();
 
 // Exclusão automática desligada: cancela qualquer prazo de expiração que ainda
 // esteja marcado, para que nenhum arquivo seja apagado sozinho. A limpeza passa

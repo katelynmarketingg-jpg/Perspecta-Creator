@@ -6,11 +6,37 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
+import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object } from "../storage.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
 
 const router = Router();
+
+// Serve um arquivo para o cliente HTTP, esteja ele no R2 ou no disco.
+async function serveFile(res, file, asAttachment) {
+  if (isR2Path(file.stored_path)) {
+    try {
+      const obj = await getR2Object(r2Key(file.stored_path));
+      if (obj.ContentType) res.setHeader("Content-Type", obj.ContentType);
+      if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
+      if (asAttachment) res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.original_name)}"`);
+      obj.Body.pipe(res);
+    } catch {
+      res.status(404).json({ error: "Arquivo não encontrado." });
+    }
+    return;
+  }
+  if (!existsSync(file.stored_path)) return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (asAttachment) return res.download(file.stored_path, file.original_name);
+  res.sendFile(file.stored_path);
+}
+
+// Remove o arquivo físico (R2 ou disco).
+async function removeStored(stored_path) {
+  if (isR2Path(stored_path)) { try { await deleteR2Object(r2Key(stored_path)); } catch {} }
+  else { try { unlinkSync(stored_path); } catch {} }
+}
 
 // Os arquivos são gravados em disco exatamente como chegaram (byte a byte).
 // Nenhuma compressão ou conversão — a qualidade original é preservada.
@@ -27,7 +53,7 @@ const upload = multer({
 
 // GET /api/files/shared/:ticket — link assinado e temporário, usado só para a
 // Meta buscar a arte na hora de publicar. Fica antes do authRequired.
-sharedRouter.get("/shared/:ticket", (req, res) => {
+sharedRouter.get("/shared/:ticket", async (req, res) => {
   let payload;
   try {
     payload = jwt.verify(req.params.ticket, JWT_SECRET);
@@ -37,10 +63,8 @@ sharedRouter.get("/shared/:ticket", (req, res) => {
   const file = db
     .prepare("SELECT * FROM files WHERE id = ? AND org_id = ?")
     .get(payload.file_id, payload.org_id);
-  if (!file || !existsSync(file.stored_path)) {
-    return res.status(404).json({ error: "Arquivo não encontrado." });
-  }
-  res.sendFile(file.stored_path);
+  if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
+  await serveFile(res, file, false);
 });
 
 router.use(authRequired, moduleAllowed("arquivos"));
@@ -73,7 +97,7 @@ router.delete("/folders/:id", (req, res) => {
   if (!folder) return res.status(404).json({ error: "Pasta não encontrada." });
   // Remove arquivos físicos da pasta (e subpastas ficam por conta do CASCADE).
   const files = db.prepare("SELECT stored_path FROM files WHERE folder_id = ?").all(req.params.id);
-  files.forEach((f) => { try { unlinkSync(f.stored_path); } catch {} });
+  files.forEach((f) => { removeStored(f.stored_path); });
   db.prepare("DELETE FROM folders WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
 });
@@ -102,31 +126,38 @@ router.get("/", (req, res) => {
 // POST /api/files/upload — multipart; aceita vários arquivos de uma vez.
 const STAGES = ["originais", "editados", "aprovacao", "aprovados", "programados"];
 
-router.post("/upload", upload.array("files", 20), (req, res) => {
+router.post("/upload", upload.array("files", 20), async (req, res) => {
   const { client_id, folder_id } = req.body || {};
   const stage = STAGES.includes(req.body?.stage) ? req.body.stage : "originais";
   const stmt = db.prepare(
     `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, org_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
-  const created = (req.files || []).map((f) => {
+  const created = [];
+  for (const f of (req.files || [])) {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const name = Buffer.from(f.originalname, "latin1").toString("utf8");
-    const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, f.path, stage, req.orgId);
-    // Sem prazo automático: os arquivos ficam até serem apagados manualmente
-    // na aba Arquivos.
-    return db.prepare("SELECT id, original_name, mime, size, created_at FROM files WHERE id = ?").get(info.lastInsertRowid);
-  });
+    let storedPath = f.path; // por padrão fica no disco
+    if (storageConfigured()) {
+      try {
+        const key = `uploads/${req.orgId}/${f.filename}`;
+        storedPath = await uploadFileToR2(f.path, key, f.mimetype);
+        try { unlinkSync(f.path); } catch {} // já está no R2, apaga o local
+      } catch {
+        storedPath = f.path; // se o R2 falhar, não perde: mantém no disco
+      }
+    }
+    const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, storedPath, stage, req.orgId);
+    created.push(db.prepare("SELECT id, original_name, mime, size, created_at FROM files WHERE id = ?").get(info.lastInsertRowid));
+  }
   res.status(201).json(created);
 });
 
 // GET /api/files/:id/download — devolve o arquivo original, intacto.
-router.get("/:id/download", (req, res) => {
+router.get("/:id/download", async (req, res) => {
   const file = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
-  if (!file || !existsSync(file.stored_path)) {
-    return res.status(404).json({ error: "Arquivo não encontrado." });
-  }
-  res.download(file.stored_path, file.original_name);
+  if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
+  await serveFile(res, file, true);
 });
 
 // PUT /api/files/:id/stage — move o arquivo entre etapas (originais → ... → programados).
@@ -144,10 +175,10 @@ router.put("/:id/keep", (req, res) => {
   res.json({ ok: true, keep: !!req.body?.keep });
 });
 
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   const file = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (file) {
-    try { unlinkSync(file.stored_path); } catch {}
+    await removeStored(file.stored_path);
     db.prepare("DELETE FROM files WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   }
   res.json({ ok: true });

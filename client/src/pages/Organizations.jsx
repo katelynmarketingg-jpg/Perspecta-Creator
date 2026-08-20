@@ -13,6 +13,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import BlockIcon from "@mui/icons-material/Block";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PriceChangeIcon from "@mui/icons-material/PriceChange";
+import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { currency } from "../utils.js";
@@ -99,6 +100,20 @@ export default function Organizations() {
     load();
   }
 
+  async function baixarBackup() {
+    try {
+      const r = await api.get("/backup/download", { responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `agency-${new Date().toISOString().slice(0, 10)}.db`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Não foi possível gerar o backup.");
+    }
+  }
+
   async function cobrarPlano(org) {
     try {
       const { data } = await api.post(`/organizations/${org.id}/charge`);
@@ -146,6 +161,7 @@ export default function Organizations() {
         subtitle="Todas as agências que usam o sistema"
         action={
           <Stack direction="row" spacing={1.5}>
+            <Button variant="outlined" startIcon={<CloudDownloadIcon />} onClick={baixarBackup}>Backup</Button>
             <Button variant="outlined" startIcon={<PriceChangeIcon />} onClick={() => setPlansOpen(true)}>Planos</Button>
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>
               Novo escritório

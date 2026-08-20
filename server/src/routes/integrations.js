@@ -118,14 +118,15 @@ export async function publishTask(task, orgId, host, protocol = "https") {
   // PUBLIC_URL é obrigatório aqui (a Meta não alcança localhost).
   let base = process.env.PUBLIC_URL || (host ? `${protocol}://${host}` : "");
   if (base && !base.startsWith("http")) base = `https://${base}`;
-  const ticket = jwt.sign({ file_id: anexo.id, org_id: orgId }, JWT_SECRET, { expiresIn: "1h" });
-  const imageUrl = `${base}/api/files/shared/${ticket}`;
+  const ticket = jwt.sign({ file_id: anexo.id, org_id: orgId }, JWT_SECRET, { expiresIn: "2h" });
+  const mediaUrl = `${base}/api/files/shared/${ticket}`;
   const caption = task.client_caption || task.caption || "";
+  const isVideo = (anexo.mime || "").startsWith("video");
 
   const destino = conn.ig_user_id ? "instagram" : "facebook";
   const postId = destino === "instagram"
-    ? await publishToInstagram({ conn, imageUrl, caption })
-    : await publishToFacebook({ conn, imageUrl, caption });
+    ? await publishToInstagram({ conn, mediaUrl, caption, isVideo })
+    : await publishToFacebook({ conn, mediaUrl, caption, isVideo });
 
   db.prepare(
     "UPDATE tasks SET published_at = datetime('now'), external_post_id = ?, publish_error = NULL WHERE id = ?"

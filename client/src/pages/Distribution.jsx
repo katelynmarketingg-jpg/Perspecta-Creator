@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button, Stack,
   Chip, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -14,11 +14,11 @@ import CalendarViewMonthIcon from "@mui/icons-material/CalendarViewMonth";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import StarIcon from "@mui/icons-material/Star";
+import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
-import FeedPreview from "../components/FeedPreview.jsx";
-import { CONTENT_TYPES, formatTime } from "../utils.js";
+import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -49,32 +49,62 @@ function Media({ fileId, height = 200 }) {
     : <Box component="img" src={src} alt="" sx={sx} />;
 }
 
-// Escolher um arquivo que já está na galeria de Arquivos daquele cliente.
+// Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
+// aba Arquivos). Mostra as pastas para entrar e os arquivos para selecionar.
 function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar da galeria de arquivos" }) {
+  const [path, setPath] = useState([]); // trilha de pastas: [{id,name}]
+  const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const currentFolder = path[path.length - 1]?.id || null;
+
+  useEffect(() => { if (open) setPath([]); }, [open, clientId]);
+
   useEffect(() => {
     if (!open || !clientId) return;
     setLoading(true);
-    api.get("/files", { params: { client_id: clientId, all: 1 } })
+    const params = { client_id: clientId };
+    if (currentFolder) params.parent_id = currentFolder;
+    const pf = api.get("/files/folders", { params }).then((r) => setFolders(r.data || [])).catch(() => setFolders([]));
+    // Arquivos da pasta atual (na raiz = sem pasta).
+    const fparams = { client_id: clientId };
+    if (currentFolder) fparams.folder_id = currentFolder;
+    const ff = api.get("/files", { params: fparams })
       .then((r) => setFiles((r.data || []).filter((f) => /^(image|video)\//.test(f.mime || ""))))
-      .catch(() => setFiles([]))
-      .finally(() => setLoading(false));
-  }, [open, clientId]);
+      .catch(() => setFiles([]));
+    Promise.all([pf, ff]).finally(() => setLoading(false));
+  }, [open, clientId, currentFolder]);
+
+  const vazio = !loading && folders.length === 0 && files.length === 0;
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle>{titulo}</DialogTitle>
       <DialogContent>
+        {/* Trilha de navegação (breadcrumb) */}
+        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", mb: 1.5 }}>
+          <Button size="small" onClick={() => setPath([])} disabled={!path.length}>📁 Início</Button>
+          {path.map((p, i) => (
+            <Typography key={p.id} variant="body2" sx={{ cursor: "pointer" }}
+              onClick={() => setPath(path.slice(0, i + 1))}>/ {p.name}</Typography>
+          ))}
+        </Stack>
         {loading ? (
           <Box sx={{ display: "grid", placeItems: "center", py: 4 }}><CircularProgress /></Box>
-        ) : files.length === 0 ? (
+        ) : vazio ? (
           <Typography color="text.secondary" sx={{ py: 2 }}>
-            Nenhuma foto/vídeo deste cliente na galeria. Suba primeiro na aba Arquivos.
+            Nada aqui. Suba arquivos ou crie pastas na aba Arquivos.
           </Typography>
         ) : (
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 1.5, pt: 1 }}>
+            {folders.map((fd) => (
+              <Box key={`d${fd.id}`} onClick={() => setPath([...path, { id: fd.id, name: fd.name }])}
+                sx={{ cursor: "pointer", borderRadius: 1.5, p: 1, border: 1, borderColor: "divider", display: "grid", placeItems: "center", gap: 0.5, "&:hover": { borderColor: "primary.main" } }}>
+                <Typography sx={{ fontSize: 34, lineHeight: 1 }}>📁</Typography>
+                <Typography variant="caption" noWrap sx={{ maxWidth: "100%" }}>{fd.name}</Typography>
+              </Box>
+            ))}
             {files.map((f) => (
-              <Box key={f.id} onClick={() => { onPick(f.id); onClose(); }}
+              <Box key={`f${f.id}`} onClick={() => { onPick(f.id); onClose(); }}
                 sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
                 <Media fileId={f.id} height={110} />
                 <Typography variant="caption" noWrap sx={{ display: "block", px: 0.5, py: 0.25 }}>{f.original_name}</Typography>
@@ -84,6 +114,71 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
         )}
       </DialogContent>
       <DialogActions><Button onClick={onClose}>Fechar</Button></DialogActions>
+    </Dialog>
+  );
+}
+
+// Capturar um quadro do vídeo anexado e usá-lo como capa do perfil.
+// Tudo no navegador (canvas) — não processa vídeo no servidor.
+function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash }) {
+  const videoRef = useRef(null);
+  const [src, setSrc] = useState(null);
+  const [isVideo, setIsVideo] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open || !fileId) return;
+    let url;
+    api.get(`/files/${fileId}/download`, { responseType: "blob" })
+      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setIsVideo((r.data.type || "").startsWith("video")); })
+      .catch(() => {});
+    return () => url && URL.revokeObjectURL(url);
+  }, [open, fileId]);
+
+  async function capturar() {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth) return;
+    setBusy(true);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = v.videoWidth;
+      canvas.height = v.videoHeight;
+      canvas.getContext("2d").drawImage(v, 0, 0);
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.92));
+      const fd = new FormData();
+      fd.append("files", blob, `capa-${Date.now()}.jpg`);
+      if (clientId) fd.append("client_id", clientId);
+      fd.append("stage", "editados");
+      const { data } = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const newId = data?.[0]?.id;
+      if (newId) { onCaptured(newId); onClose(); }
+    } catch { flash?.("Não foi possível capturar o quadro.", "error"); }
+    setBusy(false);
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Capturar capa do vídeo</DialogTitle>
+      <DialogContent>
+        {!src ? (
+          <Box sx={{ display: "grid", placeItems: "center", py: 4 }}><CircularProgress /></Box>
+        ) : !isVideo ? (
+          <Typography color="text.secondary" sx={{ py: 2 }}>
+            O anexo atual é uma foto. Anexe um vídeo para capturar um quadro.
+          </Typography>
+        ) : (
+          <Stack spacing={1}>
+            <Box component="video" ref={videoRef} src={src} controls
+              sx={{ width: "100%", maxHeight: 420, bgcolor: "#000", borderRadius: 2 }} />
+            <Typography variant="caption" color="text.secondary">
+              Pause no segundo que você quer e clique em "Usar este quadro".
+            </Typography>
+          </Stack>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Fechar</Button>
+        {isVideo && <Button variant="contained" onClick={capturar} disabled={busy}>Usar este quadro</Button>}
+      </DialogActions>
     </Dialog>
   );
 }
@@ -100,6 +195,7 @@ function PieceCard({ item, onChanged, flash }) {
   const [uploading, setUploading] = useState(false);
   const [picker, setPicker] = useState(false);
   const [coverPicker, setCoverPicker] = useState(false);
+  const [videoCover, setVideoCover] = useState(false);
   const ct = CONTENT_TYPES[item.content_type];
 
   async function upload(e) {
@@ -181,10 +277,17 @@ function PieceCard({ item, onChanged, flash }) {
             </Button>
           </Stack>
 
-          <Button variant="text" startIcon={<StarIcon />} size="small" onClick={() => setCoverPicker(true)}
-            disabled={!item.client_id} sx={{ alignSelf: "flex-start" }}>
-            {coverId ? "Trocar capa do perfil" : "Definir capa do perfil (opcional)"}
-          </Button>
+          <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>
+            <Button variant="text" startIcon={<StarIcon />} size="small" onClick={() => setCoverPicker(true)}
+              disabled={!item.client_id}>
+              {coverId ? "Trocar capa" : "Definir capa (foto)"}
+            </Button>
+            {fileId && (
+              <Button variant="text" size="small" onClick={() => setVideoCover(true)} disabled={!item.client_id}>
+                Capturar do vídeo
+              </Button>
+            )}
+          </Stack>
 
           <TextField label="Legenda" multiline minRows={2} value={caption} onChange={(e) => setCaption(e.target.value)} fullWidth />
           <TextField label="Observação (interna)" multiline minRows={1} value={obs} onChange={(e) => setObs(e.target.value)} fullWidth />
@@ -197,10 +300,19 @@ function PieceCard({ item, onChanged, flash }) {
               Enviar p/ aprovação
             </Button>
           </Stack>
+          {item.client_phone && (
+            <Button size="small" startIcon={<WhatsAppIcon />} sx={{ color: "#25D366", alignSelf: "flex-start" }}
+              onClick={() => window.open(whatsappLink(item.client_phone,
+                `Oi! Preparei um conteúdo novo pra você aprovar. É só entrar na sua área do cliente 🙂`), "_blank")}>
+              Avisar no WhatsApp
+            </Button>
+          )}
 
           <GalleryPicker clientId={item.client_id} open={picker} onClose={() => setPicker(false)} onPick={pickFromGallery} />
           <GalleryPicker clientId={item.client_id} open={coverPicker} onClose={() => setCoverPicker(false)}
             onPick={setCover} titulo="Escolher a capa do perfil (uma foto)" />
+          <VideoCoverDialog fileId={fileId} clientId={item.client_id} open={videoCover}
+            onClose={() => setVideoCover(false)} onCaptured={setCover} flash={flash} />
         </Stack>
       </CardContent>
     </Card>
@@ -305,6 +417,88 @@ function MonthGrid({ items, onSelect }) {
   );
 }
 
+// Miniatura quadrada da grade (carrega via fetchFile → blob).
+function FeedThumb({ fileId, fetchFile }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    if (!fileId) { setSrc(null); return; }
+    let url, alive = true;
+    fetchFile(fileId).then((b) => { if (alive) { url = URL.createObjectURL(b); setSrc(url); } }).catch(() => {});
+    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
+  }, [fileId, fetchFile]);
+  if (!src) return <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", color: "text.disabled", fontSize: 10 }}>sem arte</Box>;
+  return <Box component="img" src={src} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />;
+}
+
+const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
+
+// Prévia do perfil ARRASTÁVEL: reordena e as datas acompanham a nova ordem.
+// Data no passado ou ausente aparece em vermelho; clicar abre o editor.
+function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
+  const [order, setOrder] = useState(posts);
+  const dragIndex = useRef(null);
+  useEffect(() => { setOrder(posts); }, [posts]);
+
+  const now = Date.now();
+  const errada = (p) => { const d = dtISO(p.scheduled_at); return !d || d.getTime() < now; };
+
+  function solta(i) {
+    const from = dragIndex.current;
+    dragIndex.current = null;
+    if (from == null || from === i) return;
+    const arr = [...order];
+    const [movido] = arr.splice(from, 1);
+    arr.splice(i, 0, movido);
+    // Mantém o conjunto de datas (slots) e reatribui pela nova posição.
+    const slots = order.map((p) => p.scheduled_at);
+    const changes = [];
+    const novo = arr.map((p, idx) => {
+      if (p.scheduled_at !== slots[idx]) changes.push({ id: p.id, scheduled_at: slots[idx] });
+      return { ...p, scheduled_at: slots[idx] };
+    });
+    setOrder(novo);
+    if (changes.length) onReorder(changes);
+  }
+
+  if (!posts.length) {
+    return <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+      Nada com data ainda. Programe as peças (na visão "Por post") que elas aparecem aqui.
+    </Typography>;
+  }
+
+  return (
+    <Box>
+      <Typography variant="subtitle2">{titulo}</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+        Arraste para reordenar — as datas acompanham a nova ordem. Em vermelho = data no passado ou sem data (clique para ajustar).
+      </Typography>
+      <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 3, overflow: "hidden" }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
+          {order.map((p, i) => (
+            <Box key={p.id} draggable
+              onDragStart={() => { dragIndex.current = i; }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => solta(i)}
+              onClick={() => onSelect(p)}
+              sx={{
+                position: "relative", aspectRatio: "1", cursor: "pointer", bgcolor: "action.hover", overflow: "hidden",
+                outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
+              }}>
+              <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile} />
+              <Box sx={{
+                position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
+                bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
+              }}>
+                {p.scheduled_at ? dtISO(p.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "sem data"}
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 export default function Distribution() {
   const [clients, setClients] = useState([]);
   const [clientFilter, setClientFilter] = useState("");
@@ -332,6 +526,16 @@ export default function Distribution() {
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [clientFilter, vTasks, vDist]);
+
+  async function reorder(changes) {
+    try {
+      await api.post("/distribution/reorder", { changes });
+      flash("Ordem do feed atualizada.", "success");
+      load();
+    } catch (e) {
+      flash(e.response?.data?.error || "Não foi possível reordenar.", "error");
+    }
+  }
 
   // Quando algo muda ao vivo, reflete na peça aberta no editor.
   const selectedFresh = selected ? items.find((i) => i.id === selected.id) || selected : null;
@@ -378,7 +582,7 @@ export default function Distribution() {
         <ListView items={items} onSelect={setSelected} />
       ) : view === "feed" ? (
         <Card><CardContent>
-          <FeedPreview posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected}
+          <ReorderableFeed posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected} onReorder={reorder}
             titulo={clientFilter ? "Como o perfil vai ficar" : "Prévia do perfil (todos os clientes)"} />
         </CardContent></Card>
       ) : (

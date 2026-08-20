@@ -35,6 +35,9 @@ import billingRoutes, { billingWebhook } from "./routes/billing.js";
 import brandingRoutes from "./routes/branding.js";
 import taskTypesRoutes from "./routes/task-types.js";
 import distributionRoutes from "./routes/distribution.js";
+import adminRoutes from "./routes/admin.js";
+import backupRoutes from "./routes/backup.js";
+import { startBackups } from "./backup.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
 import { startPlanMonitor } from "./plans-monitor.js";
@@ -42,6 +45,8 @@ import { liveNotifier, sseHandler } from "./live.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
+// A checagem do JWT_SECRET (fail-fast em produção) fica em auth.js, que é
+// importado antes de qualquer uso da criptografia.
 
 const app = express();
 app.set("trust proxy", 1); // atrás do proxy do Render: HTTPS e IP reais
@@ -88,6 +93,8 @@ app.use("/api/billing", billingRoutes);
 app.use("/api/branding", brandingRoutes);
 app.use("/api/task-types", taskTypesRoutes);
 app.use("/api/distribution", distributionRoutes);
+app.use("/api/admin", adminRoutes); // porta de serviço (token) p/ painel central
+app.use("/api/backup", backupRoutes); // baixar o banco (só superadmin)
 app.use("/api/webhooks", billingWebhook); // Asaas confirma pagamentos aqui
 
 // Serve o build do frontend (client/dist) em produção
@@ -109,4 +116,5 @@ app.listen(PORT, () => {
   // Exclusão automática de arquivos DESLIGADA: a limpeza é manual, na aba
   // Arquivos. (startRetention não é mais chamado.)
   startPlanMonitor(); // vigia limites de plano e testes acabando
+  startBackups();     // cópia diária do banco (mantém as últimas 7)
 });
