@@ -71,33 +71,82 @@ router.get("/renewals", (req, res) => {
   res.json(rows);
 });
 
+const insertEntry = db.prepare(
+  `INSERT INTO financial_entries (type, description, amount, client_id, category, status, due_date, paid_at,
+                                  payment_link, pix_code, boleto_url, invoice_url, recurring, recurring_day, org_id)
+   VALUES (@type, @description, @amount, @client_id, @category, @status, @due_date, @paid_at,
+           @payment_link, @pix_code, @boleto_url, @invoice_url, @recurring, @recurring_day, @org_id)`
+);
+
+// Monta a data de vencimento "AAAA-MM-DD" de um mês, encaixando o dia no último
+// dia do mês quando ele não existe (ex.: dia 31 em fevereiro vira 28/29).
+function dueForMonth(year, monthIndex, day) {
+  const ultimo = new Date(year, monthIndex + 1, 0).getDate();
+  const d = Math.min(Math.max(1, day), ultimo);
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
 router.post("/", (req, res) => {
   const b = req.body || {};
   if (!b.description || b.amount == null) {
     return res.status(400).json({ error: "Descrição e valor são obrigatórios." });
   }
-  const info = db
-    .prepare(
-      `INSERT INTO financial_entries (type, description, amount, client_id, category, status, due_date, paid_at,
-                                      payment_link, pix_code, boleto_url, invoice_url, org_id)
-       VALUES (@type, @description, @amount, @client_id, @category, @status, @due_date, @paid_at,
-               @payment_link, @pix_code, @boleto_url, @invoice_url, @org_id)`
-    )
-    .run({
-      type: b.type ?? "income",
-      description: b.description,
-      amount: Number(b.amount) || 0,
-      client_id: b.client_id ?? null,
-      category: b.category ?? null,
-      status: b.status ?? "pending",
-      due_date: b.due_date ?? null,
-      paid_at: b.status === "paid" ? (b.paid_at ?? new Date().toISOString()) : null,
-      payment_link: b.payment_link ?? null,
-      pix_code: b.pix_code ?? null,
-      boleto_url: b.boleto_url ?? null,
-      invoice_url: b.invoice_url ?? null,
-      org_id: req.orgId,
+
+  const base = {
+    type: b.type ?? "income",
+    description: b.description,
+    amount: Number(b.amount) || 0,
+    client_id: b.client_id ?? null,
+    category: b.category ?? null,
+    status: b.status ?? "pending",
+    due_date: b.due_date ?? null,
+    paid_at: b.status === "paid" ? (b.paid_at ?? new Date().toISOString()) : null,
+    payment_link: b.payment_link ?? null,
+    pix_code: b.pix_code ?? null,
+    boleto_url: b.boleto_url ?? null,
+    invoice_url: b.invoice_url ?? null,
+    recurring: 0,
+    recurring_day: null,
+    org_id: req.orgId,
+  };
+
+  // Lançamento mensal recorrente: cria uma parcela por mês, no mesmo dia, para
+  // os próximos N meses (padrão 12). Cada parcela fica editável/excluível.
+  if (b.recurring) {
+    const meses = Math.min(Math.max(Number(b.months) || 12, 1), 36);
+    // Dia do mês: o escolhido, ou o do vencimento informado, ou hoje.
+    const hoje = new Date();
+    const startDate = b.due_date ? new Date(b.due_date + "T00:00:00") : hoje;
+    const day = Math.min(Math.max(Number(b.recurring_day) || startDate.getDate(), 1), 31);
+    let ano = startDate.getFullYear();
+    let mes = startDate.getMonth();
+    const criadas = [];
+    const tx = db.transaction(() => {
+      for (let i = 0; i < meses; i++) {
+        const due = dueForMonth(ano, mes, day);
+        // Só a 1ª parcela herda o status informado; as futuras nascem pendentes.
+        const status = i === 0 ? base.status : "pending";
+        const info = insertEntry.run({
+          ...base,
+          status,
+          due_date: due,
+          paid_at: status === "paid" ? (base.paid_at ?? new Date().toISOString()) : null,
+          recurring: 1,
+          recurring_day: day,
+        });
+        criadas.push(info.lastInsertRowid);
+        mes += 1;
+        if (mes > 11) { mes = 0; ano += 1; }
+      }
     });
+    tx();
+    return res.status(201).json({
+      recurring: true, count: criadas.length,
+      first: db.prepare(`${SELECT} WHERE f.id = ?`).get(criadas[0]),
+    });
+  }
+
+  const info = insertEntry.run(base);
   res.status(201).json(db.prepare(`${SELECT} WHERE f.id = ?`).get(info.lastInsertRowid));
 });
 

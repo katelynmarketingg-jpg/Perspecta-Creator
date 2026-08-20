@@ -274,6 +274,9 @@ ensureColumn("financial_entries", "payment_link", "payment_link TEXT");
 ensureColumn("financial_entries", "pix_code", "pix_code TEXT");
 ensureColumn("financial_entries", "boleto_url", "boleto_url TEXT");
 ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
+// Despesa/receita mensal recorrente: marca as parcelas geradas e o dia do mês.
+ensureColumn("financial_entries", "recurring", "recurring INTEGER NOT NULL DEFAULT 0");
+ensureColumn("financial_entries", "recurring_day", "recurring_day INTEGER");
 
 // ---------------------------------------------------------------------------
 // Multi-escritório: cada agência só enxerga os próprios dados. O escritório

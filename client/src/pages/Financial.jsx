@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import {
   Button, Card, Grid, Table, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Tabs, Tab, Divider,
+  FormControlLabel, Switch, Typography,
 } from "@mui/material";
+import RepeatIcon from "@mui/icons-material/Repeat";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -15,7 +17,10 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
 
-const EMPTY = { type: "income", description: "", amount: "", client_id: "", category: "", status: "pending", due_date: "" };
+const EMPTY = {
+  type: "income", description: "", amount: "", client_id: "", category: "", status: "pending",
+  due_date: "", recurring: false, recurring_day: "", months: 12,
+};
 
 // Intervalos de período. Abre no mês atual; dá para ampliar.
 function periodoRange(chave) {
@@ -43,6 +48,7 @@ export default function Financial() {
   const [periodo, setPeriodo] = useState("mes"); // abre no mês atual
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
+  const [flash, setFlash] = useState("");
 
   const load = () => {
     const params = periodoRange(periodo);
@@ -62,8 +68,21 @@ export default function Financial() {
 
   async function save() {
     const payload = { ...draft, amount: Number(draft.amount) || 0, client_id: draft.client_id || null };
-    if (draft.id) await api.put(`/financial/${draft.id}`, payload);
-    else await api.post("/financial", payload);
+    if (draft.id) {
+      await api.put(`/financial/${draft.id}`, payload);
+    } else if (draft.recurring) {
+      // Recorrente: o backend cria uma parcela por mês.
+      const r = await api.post("/financial", {
+        ...payload, recurring: true,
+        recurring_day: Number(draft.recurring_day) || undefined,
+        months: Number(draft.months) || 12,
+      });
+      const n = r.data?.count || 0;
+      setFlash(`Criei ${n} parcela(s) mensais no dia ${draft.recurring_day || "escolhido"}.`);
+      setTimeout(() => setFlash(""), 6000);
+    } else {
+      await api.post("/financial", payload);
+    }
     setOpen(false);
     load();
   }
@@ -93,6 +112,8 @@ export default function Financial() {
           </Stack>
         }
       />
+
+      {flash && <Alert severity="success" sx={{ mb: 2.5 }}>{flash}</Alert>}
 
       {/* Contratos encerrando no próximo mês */}
       {renewals.length > 0 && (
@@ -141,7 +162,13 @@ export default function Financial() {
           <TableBody>
             {filtered.map((f) => (
               <TableRow key={f.id} hover>
-                <TableCell>{f.description}</TableCell>
+                <TableCell>
+                  {f.description}
+                  {f.recurring ? (
+                    <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
+                      label="Mensal" sx={{ ml: 1, height: 20 }} />
+                  ) : null}
+                </TableCell>
                 <TableCell>{f.client_name || "—"}</TableCell>
                 <TableCell>{formatDate(f.due_date)}</TableCell>
                 <TableCell><Chip size="small" label={f.status === "paid" ? "Pago" : "Pendente"} color={f.status === "paid" ? "success" : "warning"} /></TableCell>
@@ -192,6 +219,37 @@ export default function Financial() {
                 <MenuItem value="paid">Pago</MenuItem>
               </TextField>
             </Stack>
+
+            {/* Recorrência mensal — só ao criar um lançamento novo. */}
+            {!draft.id && (
+              <>
+                <FormControlLabel
+                  control={
+                    <Switch checked={!!draft.recurring}
+                      onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))} />
+                  }
+                  label="Repetir todo mês"
+                />
+                {draft.recurring && (
+                  <Stack spacing={1}>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                      <TextField label="Dia do mês" type="number" inputProps={{ min: 1, max: 31 }}
+                        value={draft.recurring_day}
+                        onChange={(e) => setDraft((d) => ({ ...d, recurring_day: e.target.value }))}
+                        fullWidth helperText="Ex.: 10 = todo dia 10" />
+                      <TextField label="Por quantos meses" type="number" inputProps={{ min: 1, max: 36 }}
+                        value={draft.months}
+                        onChange={(e) => setDraft((d) => ({ ...d, months: e.target.value }))}
+                        fullWidth helperText="Cria uma parcela por mês" />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">
+                      Vou criar {Number(draft.months) || 12} lançamento(s), um por mês, sempre no dia{" "}
+                      {draft.recurring_day || "informado"}. Cada um pode ser editado ou excluído depois.
+                    </Typography>
+                  </Stack>
+                )}
+              </>
+            )}
 
             <Divider>Pagamento pelo portal do cliente (opcional)</Divider>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
