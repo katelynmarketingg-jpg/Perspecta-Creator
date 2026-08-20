@@ -54,7 +54,6 @@ const NAV = [
   { to: "/deliveries", label: "Entregas", icon: <ChecklistRtlIcon /> },
   { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
   { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },
-  { to: "/calendar", label: "Calendário", icon: <CalendarMonthIcon /> },
   { to: "/files", label: "Arquivos", icon: <FolderCopyIcon /> },
   { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
   { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },

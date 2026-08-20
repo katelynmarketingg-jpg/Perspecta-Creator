@@ -503,6 +503,7 @@ export default function Distribution() {
   const [clients, setClients] = useState([]);
   const [clientFilter, setClientFilter] = useState("");
   const [items, setItems] = useState([]);
+  const [scheduled, setScheduled] = useState([]); // panorama completo (calendário)
   const [stage, setStage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
@@ -520,8 +521,8 @@ export default function Distribution() {
     setLoading(true);
     const params = clientFilter ? { client_id: clientFilter } : {};
     api.get("/distribution", { params })
-      .then((r) => { setItems(r.data.items || []); setStage(r.data.stage); })
-      .catch(() => setItems([]))
+      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setStage(r.data.stage); })
+      .catch(() => { setItems([]); setScheduled([]); })
       .finally(() => setLoading(false));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -540,16 +541,16 @@ export default function Distribution() {
   // Quando algo muda ao vivo, reflete na peça aberta no editor.
   const selectedFresh = selected ? items.find((i) => i.id === selected.id) || selected : null;
 
+  // Perfil/Lista/Calendário usam o panorama completo (todos os posts com data).
   const feedPosts = useMemo(
-    () => items.filter((i) => i.scheduled_at)
-      .map((i) => ({ ...i, file_id: i.cover_file_id || i.file_id }))
+    () => scheduled.map((i) => ({ ...i, file_id: i.cover_file_id || i.file_id }))
       .sort((a, b) => (b.scheduled_at > a.scheduled_at ? 1 : -1)),
-    [items]
+    [scheduled]
   );
 
   return (
     <>
-      <PageHeader title="Distribuição" subtitle="Prepare cada peça e envie para o cliente aprovar"
+      <PageHeader title="Distribuição" subtitle="Prepare as peças, programe e veja o calendário do que vai ao ar"
         action={
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
             <TextField select size="small" label="Empresa" value={clientFilter}
@@ -572,21 +573,23 @@ export default function Distribution() {
         <EmptyState message="Crie uma etapa chamada 'Distribuição' no quadro de Tarefas para usar esta aba." />
       ) : loading ? (
         <Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>
-      ) : items.length === 0 ? (
-        <EmptyState message="Nenhuma peça na Distribuição ainda. Mova as tarefas prontas para a coluna 'Distribuição' no quadro de Tarefas." />
       ) : view === "post" ? (
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
-          {items.map((it) => <PieceCard key={it.id} item={it} flash={flash} onChanged={load} />)}
-        </Box>
+        items.length === 0 ? (
+          <EmptyState message="Nenhuma peça para preparar. Mova as tarefas prontas para a coluna 'Distribuição' no quadro de Tarefas." />
+        ) : (
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
+            {items.map((it) => <PieceCard key={it.id} item={it} flash={flash} onChanged={load} />)}
+          </Box>
+        )
       ) : view === "list" ? (
-        <ListView items={items} onSelect={setSelected} />
+        <ListView items={scheduled} onSelect={setSelected} />
       ) : view === "feed" ? (
         <Card><CardContent>
           <ReorderableFeed posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected} onReorder={reorder}
             titulo={clientFilter ? "Como o perfil vai ficar" : "Prévia do perfil (todos os clientes)"} />
         </CardContent></Card>
       ) : (
-        <MonthGrid items={items} onSelect={setSelected} />
+        <MonthGrid items={scheduled} onSelect={setSelected} />
       )}
 
       {/* Editor aberto a partir da lista / perfil / calendário */}
