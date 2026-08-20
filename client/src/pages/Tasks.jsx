@@ -15,6 +15,7 @@ import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, CardSkeleton } from "../components/ui.jsx";
@@ -64,6 +65,7 @@ export default function Tasks() {
   const [filterMonth, setFilterMonth] = useState(""); // filtro por data (mês)
   const [dateQuick, setDateQuick] = useState("");      // '', 'hoje', 'semana', 'mes'
   const [view, setView] = useState("board");           // 'board' (quadro) | 'list' (lista)
+  const [reorderCols, setReorderCols] = useState(false); // modo de reordenar colunas
   const [apontamentos, setApontamentos] = useState([]);
   const [novoTempo, setNovoTempo] = useState({ minutes: "", note: "" });
   const [flash, setFlash] = useState("");
@@ -288,6 +290,23 @@ export default function Tasks() {
     load();
   }
 
+  // Move uma coluna (etapa) para a esquerda/direita e salva a nova ordem.
+  async function moveStage(idx, dir) {
+    const j = idx + dir;
+    if (j < 0 || j >= stages.length) return;
+    const arr = [...stages];
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    const withPos = arr.map((s, i) => ({ ...s, position: i }));
+    setStages(withPos);
+    try {
+      await Promise.all([idx, j].map((k) => {
+        const s = withPos.find((x) => x.id === stages[k].id);
+        return api.put(`/tasks/stages/${s.id}`, { name: s.name, position: s.position, is_done: s.is_done });
+      }));
+      load();
+    } catch { load(); }
+  }
+
   return (
     <>
       <PageHeader
@@ -364,6 +383,12 @@ export default function Tasks() {
           </Button>
         )}
         <Box sx={{ flex: 1 }} />
+        {view === "board" && (
+          <Button size="small" variant={reorderCols ? "contained" : "outlined"} startIcon={<SwapHorizIcon />}
+            onClick={() => setReorderCols((v) => !v)}>
+            {reorderCols ? "Concluir ordem" : "Reordenar colunas"}
+          </Button>
+        )}
         <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
           <ToggleButton value="board" aria-label="Quadro"><ViewKanbanIcon fontSize="small" /></ToggleButton>
           <ToggleButton value="list" aria-label="Lista"><ViewListIcon fontSize="small" /></ToggleButton>
@@ -430,10 +455,21 @@ export default function Tasks() {
             }}
           >
             <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5, mb: 1 }}>
-              <Typography sx={{ fontWeight: 600 }}>
+              {reorderCols && (
+                <IconButton size="small" disabled={sIdx === 0} onClick={() => moveStage(sIdx, -1)}>
+                  <ChevronLeftIcon fontSize="small" />
+                </IconButton>
+              )}
+              <Typography sx={{ fontWeight: 600, flex: 1, minWidth: 0 }} noWrap>
                 {stage.name} {stage.is_done ? "✓" : ""}
               </Typography>
-              <Chip size="small" label={(byStage[stage.id] || []).length} />
+              {reorderCols ? (
+                <IconButton size="small" disabled={sIdx === stages.length - 1} onClick={() => moveStage(sIdx, 1)}>
+                  <ChevronRightIcon fontSize="small" />
+                </IconButton>
+              ) : (
+                <Chip size="small" label={(byStage[stage.id] || []).length} />
+              )}
             </Stack>
             <Stack spacing={1.5}>
               {loading && [0, 1].map((i) => <CardSkeleton key={i} />)}
