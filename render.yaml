@@ -25,6 +25,16 @@ services:
         value: /var/data/agency.db
       - key: UPLOADS_DIR
         value: /var/data/uploads
+      # Cloudflare R2 (armazenamento das mídias). Defina os valores na aba
+      # Environment; se ficarem vazios, o sistema guarda no disco (padrão).
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
       # Endereço público — usado nos links de assinatura e pela Meta/Asaas.
       # O Render preenche sozinho com a URL do serviço.
       - key: PUBLIC_URL

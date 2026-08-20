@@ -33,6 +33,24 @@ Faça isto se quiser poder trocar o `JWT_SECRET` sem perder os segredos cifrados
 - Cobre o **banco** (dados). As **mídias** (fotos/vídeos em `/var/data/uploads`)
   são protegidas à parte (Cloudflare R2).
 
+## Armazenamento das mídias no Cloudflare R2
+
+O sistema usa o R2 se as 4 variáveis estiverem definidas; senão, usa o disco.
+
+1. No Cloudflare R2, crie um **bucket** e um **API Token** (Object Read & Write).
+2. No Render (aba Environment), defina:
+   - `R2_ACCOUNT_ID` (o id da conta / subdomínio do endpoint),
+   - `R2_ACCESS_KEY_ID`,
+   - `R2_SECRET_ACCESS_KEY`,
+   - `R2_BUCKET` (nome do bucket).
+3. Reinicie o serviço. A partir daí, **novos** uploads vão para o R2.
+4. Para mover os arquivos **já existentes** do disco para o R2 (uma vez), rode
+   no Shell do Render, dentro de `server`:
+   ```bash
+   npm run migrate-r2
+   ```
+   Ele envia cada arquivo, atualiza o banco e apaga a cópia local.
+
 ### Restaurar um backup (emergência)
 
 1. Pegue o arquivo do backup (o que você baixou pelo botão "Backup", ou um de
