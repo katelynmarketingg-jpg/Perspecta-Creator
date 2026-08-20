@@ -7,7 +7,7 @@ import {
 import { useTheme } from "@mui/material/styles";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
-import { currency, monthLabel } from "../utils.js";
+import { currency, monthLabel, CONTENT_TYPES } from "../utils.js";
 
 // Tons de laranja + cinzas quentes — nada fora da paleta da marca.
 const COLORS = ["#EA580C", "#FB923C", "#FDBA74", "#78716C", "#44403C", "#A8A29E"];
@@ -29,6 +29,11 @@ export default function Reports() {
 
   const [tempo, setTempo] = useState(null);
   const [periodoTempo, setPeriodoTempo] = useState("mes");
+  const [prospects, setProspects] = useState(null);
+  const [approvals, setApprovals] = useState(null);
+  const [incomeStatus, setIncomeStatus] = useState([]);
+  const [receivables, setReceivables] = useState(null);
+  const [contentType, setContentType] = useState([]);
 
   useEffect(() => {
     api.get("/reports/planned-vs-delivered", { params: { month: mesEntrega } })
@@ -71,7 +76,21 @@ export default function Reports() {
     api.get("/reports/tasks-by-monthday").then((r) => setTasksMonthday(r.data)).catch(() => {});
     api.get("/reports/new-clients-by-month").then((r) => setNewClients(r.data)).catch(() => {});
     api.get("/goals").then((r) => setGoals(r.data)).catch(() => {});
+    api.get("/reports/prospects").then((r) => setProspects(r.data)).catch(() => {});
+    api.get("/reports/approvals").then((r) => setApprovals(r.data)).catch(() => {});
+    api.get("/reports/income-status").then((r) => setIncomeStatus(r.data)).catch(() => {});
+    api.get("/reports/receivables").then((r) => setReceivables(r.data)).catch(() => {});
+    api.get("/reports/content-by-type").then((r) => setContentType(r.data)).catch(() => {});
   }, []);
+
+  const PROSPECT_LABELS = { novo: "A contatar", conversando: "Conversando", proposta: "Proposta", fechado: "Fechou", perdido: "Não rolou" };
+  const incomeStatusChart = incomeStatus.map((m) => ({ name: monthLabel(m.month), Previsto: m.previsto, Recebido: m.recebido }));
+  const prospectFunnel = prospects ? ["novo", "conversando", "proposta", "fechado", "perdido"].map((k) => ({
+    name: PROSPECT_LABELS[k], Total: (prospects.funnel.find((f) => f.status === k)?.total) || 0,
+  })) : [];
+  const contentChart = contentType.map((c) => ({
+    name: CONTENT_TYPES[c.content_type]?.label || c.content_type, Peças: c.total,
+  }));
 
   const monthChart = [...byMonth].reverse().map((m) => ({ name: monthLabel(m.month), Receita: m.income, Despesa: m.expense }));
   const clientPie = byClient.map((c) => ({ name: c.client_name, value: c.total }));
@@ -87,6 +106,125 @@ export default function Reports() {
       <PageHeader title="Relatórios" subtitle="Faturamento e produtividade" />
 
       <Grid container spacing={2.5}>
+        {/* Previsto × recebido por mês */}
+        <Grid item xs={12} md={7}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 2 }}>Receita prevista × recebida</Typography>
+              <Box sx={{ height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={incomeStatusChart}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.palette.divider} />
+                    <XAxis dataKey="name" stroke={theme.palette.text.secondary} tickLine={false} axisLine={false} />
+                    <YAxis stroke={theme.palette.text.secondary} tickLine={false} axisLine={false} />
+                    <Tooltip formatter={(v) => currency(v)} contentStyle={tooltipStyle} cursor={{ fill: theme.palette.action.hover }} />
+                    <Legend />
+                    <Bar dataKey="Previsto" fill={theme.palette.mode === "dark" ? "#57534E" : "#D6D3D1"} radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="Recebido" fill={theme.palette.primary.main} radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Aprovações + contas a receber em atraso */}
+        <Grid item xs={12} md={5}>
+          <Stack spacing={2.5} sx={{ height: "100%" }}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" sx={{ mb: 1.5 }}>Aprovações dos clientes</Typography>
+                <Grid container spacing={1.5}>
+                  {[["Aguardando", approvals?.aguardando, "warning"], ["Aprovados", approvals?.aprovados, "success"], ["Ajustes pedidos", approvals?.ajustes, "error"]].map(([label, val, color]) => (
+                    <Grid item xs={4} key={label}>
+                      <Box sx={{ textAlign: "center", p: 1, borderRadius: 2, border: 1, borderColor: "divider" }}>
+                        <Typography variant="h4" color={`${color}.main`} sx={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+                          {val ?? "—"}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">{label}</Typography>
+                      </Box>
+                    </Grid>
+                  ))}
+                </Grid>
+              </CardContent>
+            </Card>
+            <Card sx={{ flex: 1 }}>
+              <CardContent>
+                <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
+                  <Typography variant="h6">A receber em atraso</Typography>
+                  <Typography variant="h6" color="error.main" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                    {receivables ? currency(receivables.totalAtrasado) : "—"}
+                  </Typography>
+                </Stack>
+                {receivables?.atrasadas?.length ? (
+                  <Table size="small">
+                    <TableBody>
+                      {receivables.atrasadas.slice(0, 5).map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell sx={{ px: 0 }}>{r.client_name || r.description}</TableCell>
+                          <TableCell align="right" sx={{ px: 0, fontVariantNumeric: "tabular-nums" }}>{currency(r.amount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">Nada em atraso. 🎉</Typography>
+                )}
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                  Total em aberto: {receivables ? currency(receivables.totalEmAberto) : "—"}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Stack>
+        </Grid>
+
+        {/* Funil de prospecção */}
+        <Grid item xs={12} md={7}>
+          <Card>
+            <CardContent>
+              <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 2 }}>
+                <Typography variant="h6">Funil de prospecção</Typography>
+                <Chip color="success" label={`Conversão: ${prospects?.conversion ?? 0}%`} />
+              </Stack>
+              <Box sx={{ height: 260 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={prospectFunnel}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme.palette.divider} />
+                    <XAxis dataKey="name" stroke={theme.palette.text.secondary} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} stroke={theme.palette.text.secondary} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={tooltipStyle} cursor={{ fill: theme.palette.action.hover }} />
+                    <Bar dataKey="Total" fill={theme.palette.primary.main} radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Conteúdo por tipo */}
+        <Grid item xs={12} md={5}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 2 }}>Conteúdo por tipo</Typography>
+              {contentChart.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">Sem peças ainda.</Typography>
+              ) : (
+                <Box sx={{ height: 260 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={contentChart} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={theme.palette.divider} />
+                      <XAxis type="number" allowDecimals={false} stroke={theme.palette.text.secondary} tickLine={false} axisLine={false} />
+                      <YAxis type="category" dataKey="name" width={90} stroke={theme.palette.text.secondary} tickLine={false} axisLine={false} />
+                      <Tooltip contentStyle={tooltipStyle} cursor={{ fill: theme.palette.action.hover }} />
+                      <Bar dataKey="Peças" fill={theme.palette.primary.main} radius={[0, 6, 6, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
         <Grid item xs={12} md={7}>
           <Card>
             <CardContent>

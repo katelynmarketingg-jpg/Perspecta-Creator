@@ -253,6 +253,82 @@ router.get("/new-clients-by-month", (req, res) => {
     GROUP BY month ORDER BY month`).all(req.orgId));
 });
 
+// GET /api/reports/prospects — funil de prospecção e conversão.
+router.get("/prospects", (req, res) => {
+  const org = req.orgId;
+  const funnel = db.prepare(
+    "SELECT status, COUNT(*) AS total FROM prospects WHERE org_id = ? GROUP BY status"
+  ).all(org);
+  const byMonth = db.prepare(`
+    SELECT strftime('%Y-%m', created_at) AS month,
+           COUNT(*) AS total,
+           SUM(CASE WHEN status = 'fechado' THEN 1 ELSE 0 END) AS won
+    FROM prospects WHERE org_id = ? AND created_at >= date('now','-12 months')
+    GROUP BY month ORDER BY month`).all(org);
+  const map = Object.fromEntries(funnel.map((f) => [f.status, f.total]));
+  const fechado = map.fechado || 0, perdido = map.perdido || 0;
+  res.json({
+    funnel, byMonth,
+    total: funnel.reduce((a, f) => a + f.total, 0),
+    conversion: (fechado + perdido) ? Math.round((fechado / (fechado + perdido)) * 100) : 0,
+  });
+});
+
+// GET /api/reports/approvals — status dos conteúdos na aprovação do cliente.
+router.get("/approvals", (req, res) => {
+  const org = req.orgId;
+  const row = db.prepare(`
+    SELECT
+      SUM(CASE WHEN approval_status = 'sent' THEN 1 ELSE 0 END) AS aguardando,
+      SUM(CASE WHEN approval_status = 'approved' THEN 1 ELSE 0 END) AS aprovados,
+      SUM(CASE WHEN approval_status = 'changes_requested' THEN 1 ELSE 0 END) AS ajustes
+    FROM tasks WHERE org_id = ? AND content_type IS NOT NULL`).get(org);
+  res.json({
+    aguardando: row.aguardando || 0,
+    aprovados: row.aprovados || 0,
+    ajustes: row.ajustes || 0,
+  });
+});
+
+// GET /api/reports/income-status — previsto × recebido por mês (12 meses).
+router.get("/income-status", (req, res) => {
+  res.json(db.prepare(`
+    SELECT strftime('%Y-%m', COALESCE(due_date, created_at)) AS month,
+           COALESCE(SUM(amount),0) AS previsto,
+           COALESCE(SUM(CASE WHEN status='paid' THEN amount END),0) AS recebido
+    FROM financial_entries
+    WHERE org_id = ? AND type = 'income'
+      AND COALESCE(due_date, created_at) >= date('now','-12 months')
+    GROUP BY month ORDER BY month`).all(req.orgId));
+});
+
+// GET /api/reports/receivables — contas a receber em atraso (e o total em aberto).
+router.get("/receivables", (req, res) => {
+  const org = req.orgId;
+  const hoje = new Date().toISOString().slice(0, 10);
+  const atrasadas = db.prepare(`
+    SELECT f.id, f.description, f.amount, f.due_date, c.name AS client_name
+    FROM financial_entries f LEFT JOIN clients c ON c.id = f.client_id
+    WHERE f.org_id = ? AND f.type = 'income' AND f.status = 'pending' AND f.due_date < ?
+    ORDER BY f.due_date`).all(org, hoje);
+  const aberto = db.prepare(
+    "SELECT COALESCE(SUM(amount),0) AS v FROM financial_entries WHERE org_id = ? AND type='income' AND status='pending'"
+  ).get(org).v;
+  res.json({
+    atrasadas,
+    totalAtrasado: atrasadas.reduce((a, r) => a + r.amount, 0),
+    totalEmAberto: aberto,
+  });
+});
+
+// GET /api/reports/content-by-type — quantas peças de cada tipo de conteúdo.
+router.get("/content-by-type", (req, res) => {
+  res.json(db.prepare(`
+    SELECT content_type, COUNT(*) AS total
+    FROM tasks WHERE org_id = ? AND content_type IS NOT NULL
+    GROUP BY content_type ORDER BY total DESC`).all(req.orgId));
+});
+
 // GET /api/reports/client-dashboard?client_id=
 router.get("/client-dashboard", (req, res) => {
   const id = req.query.client_id;
