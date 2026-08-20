@@ -5,6 +5,8 @@ import {
   FormControlLabel, Switch, Typography,
 } from "@mui/material";
 import RepeatIcon from "@mui/icons-material/Repeat";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -46,18 +48,29 @@ export default function Financial() {
   const [renewals, setRenewals] = useState([]);
   const [tab, setTab] = useState("all");
   const [periodo, setPeriodo] = useState("mes"); // abre no mês atual
+  const [mesCursor, setMesCursor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
   const [flash, setFlash] = useState("");
 
+  // No modo "Este mês", o mês é o do cursor (dá para andar ◀ ▶). Nos demais, o range fixo.
+  const ymd = (d) => d.toISOString().slice(0, 10);
+  const rangeAtual = () => periodo === "mes"
+    ? {
+        from: ymd(new Date(mesCursor.getFullYear(), mesCursor.getMonth(), 1)),
+        to: ymd(new Date(mesCursor.getFullYear(), mesCursor.getMonth() + 1, 0)),
+      }
+    : periodoRange(periodo);
+
   const load = () => {
-    const params = periodoRange(periodo);
+    const params = rangeAtual();
     api.get("/financial", { params }).then((r) => setRows(r.data));
     api.get("/financial/summary", { params }).then((r) => setSummary(r.data));
   };
   // Ao vivo: 'vFinancial' muda quando alguém lança/edita no financeiro.
   const vFinancial = useLiveVersion("financial");
-  useEffect(() => { load(); }, [periodo, vFinancial]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [periodo, mesCursor, vFinancial]);
   useEffect(() => {
     api.get("/clients").then((r) => setClients(r.data));
     api.get("/financial/renewals").then((r) => setRenewals(r.data)).catch(() => {});
@@ -104,7 +117,20 @@ export default function Financial() {
         title="Financeiro"
         subtitle="Entradas e despesas do período"
         action={
-          <Stack direction="row" spacing={1.5}>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+            {periodo === "mes" && (
+              <Stack direction="row" alignItems="center" spacing={0.5}>
+                <IconButton size="small" onClick={() => setMesCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))}>
+                  <ChevronLeftIcon />
+                </IconButton>
+                <Typography variant="body2" sx={{ minWidth: 118, textAlign: "center", fontWeight: 600, textTransform: "capitalize" }}>
+                  {mesCursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
+                </Typography>
+                <IconButton size="small" onClick={() => setMesCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}>
+                  <ChevronRightIcon />
+                </IconButton>
+              </Stack>
+            )}
             <TextField select size="small" value={periodo} onChange={(e) => setPeriodo(e.target.value)} sx={{ minWidth: 160 }}>
               {PERIODOS.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
             </TextField>
