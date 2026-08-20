@@ -111,6 +111,21 @@ export default function Financial() {
     load();
   }
 
+  // Gera as mensalidades (receita prevista) do mês em foco a partir dos clientes.
+  async function gerarMensalidades() {
+    const month = periodo === "mes"
+      ? `${mesCursor.getFullYear()}-${String(mesCursor.getMonth() + 1).padStart(2, "0")}`
+      : new Date().toISOString().slice(0, 7);
+    try {
+      const r = await api.post("/financial/generate-monthly", { month });
+      setFlash(`Mensalidades de ${month}: ${r.data.created} criada(s), ${r.data.skipped} já existiam ou sem valor definido.`);
+    } catch (e) {
+      setFlash(e.response?.data?.error || "Não foi possível gerar as mensalidades.");
+    }
+    setTimeout(() => setFlash(""), 7000);
+    load();
+  }
+
   return (
     <>
       <PageHeader
@@ -134,6 +149,9 @@ export default function Financial() {
             <TextField select size="small" value={periodo} onChange={(e) => setPeriodo(e.target.value)} sx={{ minWidth: 160 }}>
               {PERIODOS.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
             </TextField>
+            <Tooltip title="Lança a mensalidade de cada cliente como receita prevista deste mês (não duplica)">
+              <Button variant="outlined" startIcon={<RepeatIcon />} onClick={gerarMensalidades}>Gerar mensalidades</Button>
+            </Tooltip>
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>Lançar</Button>
           </Stack>
         }
@@ -203,7 +221,7 @@ export default function Financial() {
                 </TableCell>
                 <TableCell align="right">
                   {f.status !== "paid" && (
-                    <Tooltip title="Marcar como pago">
+                    <Tooltip title={f.type === "income" ? "Marcar como recebido" : "Marcar como pago"}>
                       <IconButton size="small" color="success" onClick={() => markPaid(f)}>
                         <CheckCircleIcon fontSize="small" />
                       </IconButton>
