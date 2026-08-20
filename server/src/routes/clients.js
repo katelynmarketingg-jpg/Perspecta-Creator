@@ -1,11 +1,30 @@
 import { Router } from "express";
+import jwt from "jsonwebtoken";
 import { db } from "../db.js";
-import { authRequired, hashPassword, moduleAllowed, publicBaseUrl } from "../auth.js";
+import { authRequired, hashPassword, moduleAllowed, publicBaseUrl, JWT_SECRET } from "../auth.js";
 import { makeSignToken } from "./sign.js";
 import { canAddClient } from "../plans-monitor.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("clientes"));
+
+// POST /api/clients/:id/preview-token — gera um acesso TEMPORÁRIO ao portal do
+// cliente para a equipe VER exatamente como a Área do Cliente aparece para ele.
+// Só admin/superadmin; token curto (30 min). Não é escalada: o admin já vê tudo
+// do escritório. É o mesmo formato do login do portal.
+router.post("/:id/preview-token", (req, res) => {
+  if (req.user?.role !== "admin" && req.user?.role !== "superadmin") {
+    return res.status(403).json({ error: "Apenas administradores podem pré-visualizar a área do cliente." });
+  }
+  const client = db.prepare("SELECT id, name, company FROM clients WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
+  const token = jwt.sign(
+    { portal: true, client_id: client.id, name: client.name, org_id: req.orgId, preview: true },
+    JWT_SECRET, { expiresIn: "30m" }
+  );
+  res.json({ token, client });
+});
 
 // Nunca expõe o hash da senha do portal; informa apenas se há acesso ativo.
 function publicClient(row, servicesByClient) {
