@@ -32,3 +32,20 @@ Faça isto se quiser poder trocar o `JWT_SECRET` sem perder os segredos cifrados
 - **Manual:** botão **"Backup"** na tela Escritórios (baixa o `agency.db`).
 - Cobre o **banco** (dados). As **mídias** (fotos/vídeos em `/var/data/uploads`)
   são protegidas à parte (Cloudflare R2).
+
+### Restaurar um backup (emergência)
+
+1. Pegue o arquivo do backup (o que você baixou pelo botão "Backup", ou um de
+   `/var/data/backups/agency-AAAA-MM-DD.db`).
+2. No Render, no **Shell** do serviço, pare a aplicação, substitua o banco e
+   suba de novo:
+   ```bash
+   cp "<arquivo-do-backup>" /var/data/agency.db
+   ```
+   (Se preferir, guarde o atual antes: `mv /var/data/agency.db /var/data/agency.db.old`.)
+3. **Reinicie** o serviço no Render (Manual Deploy → Restart) para ele reabrir o
+   banco restaurado.
+
+> O backup é um arquivo SQLite completo — "restaurar" é só colocá-lo no lugar do
+> `agency.db` e reiniciar. Há um teste automatizado (`test/backup.test.mjs`) que
+> prova que a cópia abre com todos os dados.
