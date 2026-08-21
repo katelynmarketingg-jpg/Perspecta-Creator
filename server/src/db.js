@@ -321,6 +321,8 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // Despesa/receita mensal recorrente: marca as parcelas geradas e o dia do mês.
 ensureColumn("financial_entries", "recurring", "recurring INTEGER NOT NULL DEFAULT 0");
 ensureColumn("financial_entries", "recurring_day", "recurring_day INTEGER");
+// Último aviso de atraso enviado (para lembrar no máximo 1x por dia).
+ensureColumn("financial_entries", "last_reminder_at", "last_reminder_at TEXT");
 
 // ---------------------------------------------------------------------------
 // Multi-escritório: cada agência só enxerga os próprios dados. O escritório
