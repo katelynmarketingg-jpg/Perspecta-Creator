@@ -206,6 +206,18 @@ router.get("/approvals", (req, res) => {
   res.json(rows);
 });
 
+// GET /api/portal/approved — conteúdos que o cliente JÁ aprovou (qualquer etapa).
+router.get("/approved", (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at, t.approval_status
+       FROM tasks t WHERE t.client_id = ? AND t.approval_status = 'approved'
+       ORDER BY t.scheduled_at DESC, t.id DESC`
+    )
+    .all(req.client.client_id);
+  res.json(rows);
+});
+
 function getOwnTask(req, res) {
   const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND client_id = ?").get(req.params.id, req.client.client_id);
   if (!task) res.status(404).json({ error: "Post não encontrado." });

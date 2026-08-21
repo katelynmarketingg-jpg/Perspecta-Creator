@@ -316,6 +316,8 @@ export default function Portal() {
   const [galleryMode, setGalleryMode] = useState("pastas"); // pastas | etapas
   const [calView, setCalView] = useState("lista"); // lista | grade
   const [approvals, setApprovals] = useState([]);
+  const [approved, setApproved] = useState([]);
+  const [aprovMode, setAprovMode] = useState("pendentes"); // pendentes | aprovados
   const [payments, setPayments] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [cursor, setCursor] = useState(() => new Date());
@@ -331,8 +333,10 @@ export default function Portal() {
   const [assinatura, setAssinatura] = useState({ nome: "", documento: "", aceito: false });
   const [erroAssinatura, setErroAssinatura] = useState("");
 
-  const loadApprovals = () =>
+  const loadApprovals = () => {
     portalApi.get("/approvals").then((r) => setApprovals(r.data.filter((a) => a.approval_status !== "approved")));
+    portalApi.get("/approved").then((r) => setApproved(r.data)).catch(() => {});
+  };
 
   useEffect(() => {
     if (!localStorage.getItem("portal_token")) { navigate("/portal/login"); return; }
@@ -449,19 +453,60 @@ export default function Portal() {
 
         {/* ---- Aprovações ---- */}
         {tab === "approvals" && (
-          approvals.length === 0 ? (
-            <Card><CardContent sx={{ textAlign: "center", py: 6 }}>
-              <CheckCircleIcon color="success" sx={{ fontSize: 44, mb: 1 }} />
-              <Typography color="text.secondary">Tudo em dia — nada aguardando a sua aprovação.</Typography>
-            </CardContent></Card>
-          ) : (
-            <Stack spacing={2.5}>
-              <Alert severity="info">
-                {approvals.length === 1 ? "1 post aguardando" : `${approvals.length} posts aguardando`} sua aprovação.
-              </Alert>
-              {approvals.map((p) => <ApprovalCard key={p.id} post={p} onDone={loadApprovals} />)}
+          <>
+            <Stack direction="row" justifyContent="center" sx={{ mb: 2 }}>
+              <ToggleButtonGroup size="small" exclusive value={aprovMode} onChange={(_, v) => v && setAprovMode(v)}>
+                <ToggleButton value="pendentes">Aguardando{approvals.length ? ` (${approvals.length})` : ""}</ToggleButton>
+                <ToggleButton value="aprovados">Aprovados{approved.length ? ` (${approved.length})` : ""}</ToggleButton>
+              </ToggleButtonGroup>
             </Stack>
-          )
+
+            {aprovMode === "pendentes" ? (
+              approvals.length === 0 ? (
+                <Card><CardContent sx={{ textAlign: "center", py: 6 }}>
+                  <CheckCircleIcon color="success" sx={{ fontSize: 44, mb: 1 }} />
+                  <Typography color="text.secondary">Tudo em dia — nada aguardando a sua aprovação.</Typography>
+                </CardContent></Card>
+              ) : (
+                <Stack spacing={2.5}>
+                  <Alert severity="info">
+                    {approvals.length === 1 ? "1 post aguardando" : `${approvals.length} posts aguardando`} sua aprovação.
+                  </Alert>
+                  {approvals.map((p) => <ApprovalCard key={p.id} post={p} onDone={loadApprovals} />)}
+                </Stack>
+              )
+            ) : (
+              approved.length === 0 ? (
+                <Card><CardContent sx={{ textAlign: "center", py: 6 }}>
+                  <Typography color="text.secondary">Você ainda não aprovou nenhum conteúdo.</Typography>
+                </CardContent></Card>
+              ) : (
+                <Stack spacing={1.5}>
+                  {approved.map((p) => (
+                    <Card key={p.id}>
+                      <Box onClick={() => setOpenPost(p)} sx={{ display: "flex", gap: 1.5, p: 1.5, cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                            {p.content_type && CONTENT_TYPES[p.content_type] && (
+                              <Chip size="small" color="primary" variant="outlined"
+                                label={`${CONTENT_TYPES[p.content_type].emoji} ${CONTENT_TYPES[p.content_type].label}`} />
+                            )}
+                            <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Aprovado" />
+                          </Stack>
+                          <Typography sx={{ fontWeight: 600, mt: 0.3 }}>{p.title}</Typography>
+                          {p.scheduled_at && (
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(p.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                    </Card>
+                  ))}
+                </Stack>
+              )
+            )}
+          </>
         )}
 
         {/* ---- Calendário ---- */}

@@ -15,6 +15,9 @@ import PrintIcon from "@mui/icons-material/Print";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import FolderIcon from "@mui/icons-material/Folder";
+import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
+import { useNavigate } from "react-router-dom";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState, TableSkeleton } from "../components/ui.jsx";
@@ -46,6 +49,13 @@ export default function Clients() {
   const [link, setLink] = useState(null); // { url }
   const [copiado, setCopiado] = useState(false);
   const [contratoMsg, setContratoMsg] = useState("");
+  const [projetos, setProjetos] = useState(null); // { client, lista }
+  const navigate = useNavigate();
+
+  async function abrirProjetos(c) {
+    const { data } = await api.get("/projects");
+    setProjetos({ client: c, lista: (data || []).filter((p) => String(p.client_id) === String(c.id)) });
+  }
 
   async function abrirContratos(client) {
     const { data } = await api.get(`/clients/${client.id}/contracts`);
@@ -269,6 +279,9 @@ export default function Clients() {
                         <IconButton size="small" component={Link} href={c.drive_url} target="_blank"><DriveIcon fontSize="small" /></IconButton>
                       </Tooltip>
                     )}
+                    <Tooltip title="Projetos e entregas do cliente">
+                      <IconButton size="small" onClick={() => abrirProjetos(c)}><FolderIcon fontSize="small" /></IconButton>
+                    </Tooltip>
                     <Tooltip title="Contratos do cliente">
                       <IconButton size="small" onClick={() => abrirContratos(c)}><DescriptionIcon fontSize="small" /></IconButton>
                     </Tooltip>
@@ -281,6 +294,54 @@ export default function Clients() {
           </Table>
         </Card>
       )}
+
+      {/* Projetos e entregas do cliente (interliga Clientes ↔ Projetos) */}
+      <Dialog open={Boolean(projetos)} onClose={() => setProjetos(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Projetos — {projetos?.client?.name}</DialogTitle>
+        <DialogContent>
+          {(projetos?.lista || []).length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 1 }}>
+              Este cliente ainda não tem projeto. Crie um em Projetos para lançar as entregas do mês.
+            </Typography>
+          ) : (
+            <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+              {projetos.lista.map((p) => (
+                <Card key={p.id} variant="outlined">
+                  <Box sx={{ p: 1.5 }}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                      <Typography sx={{ fontWeight: 700 }}>{p.name}</Typography>
+                      <Chip size="small" label={p.status === "done" ? "Concluído" : "Ativo"} color={p.status === "done" ? "success" : "primary"} />
+                    </Stack>
+                    {(p.plan || []).length > 0 ? (
+                      <Stack direction="row" spacing={0.5} sx={{ mt: 1, flexWrap: "wrap", gap: 0.5 }}>
+                        {p.plan.map((it) => (
+                          <Chip key={it.content_type} size="small" variant="outlined"
+                            label={`${CONTENT_TYPES[it.content_type]?.emoji || ""} ${it.quantity} ${it.label || CONTENT_TYPES[it.content_type]?.label || it.content_type}`} />
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                        Sem quantidades definidas.
+                      </Typography>
+                    )}
+                    {(p.launched_months || []).length > 0 && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                        Já lançado: {(p.launched_months || []).join(", ")}
+                      </Typography>
+                    )}
+                  </Box>
+                </Card>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setProjetos(null)}>Fechar</Button>
+          <Button variant="contained" startIcon={<RocketLaunchIcon />} onClick={() => navigate("/projects")}>
+            Ir para Projetos
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{draft.id ? "Editar cliente" : "Novo cliente"}</DialogTitle>
