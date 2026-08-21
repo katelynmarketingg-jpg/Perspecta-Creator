@@ -86,12 +86,17 @@ function dueForMonth(year, monthIndex, day) {
   return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-// POST /api/financial/generate-monthly { month:'YYYY-MM' }
-// Lança as MENSALIDADES do mês como receita prevista (pendente), uma por cliente
-// ativo que tenha valor de serviços > 0. Idempotente: não duplica no mesmo mês.
+// POST /api/financial/generate-monthly { month:'YYYY-MM', months?:N }
+// Lança as MENSALIDADES como receita recorrente (prevista/pendente) a partir do
+// que está cadastrado na aba Clientes: um lançamento por cliente ativo com valor
+// de serviços > 0, no dia de pagamento do cliente. `months` (1..36, padrão 1)
+// gera esse mesmo mês e os seguintes — cada parcela fica marcada como "Mensal".
+// Idempotente: nunca duplica a mensalidade de um cliente no mesmo mês.
 router.post("/generate-monthly", (req, res) => {
-  const month = (req.body?.month || new Date().toISOString().slice(0, 7)).slice(0, 7);
-  const [year, m] = month.split("-").map(Number);
+  const startMonth = (req.body?.month || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const meses = Math.min(Math.max(Number(req.body?.months) || 1, 1), 36);
+  const [y0, m0] = startMonth.split("-").map(Number);
+
   const clientes = db.prepare(`
     SELECT c.id, c.name, c.payment_day,
            (SELECT COALESCE(SUM(cs.price),0) FROM client_services cs WHERE cs.client_id = c.id) AS valor
@@ -103,24 +108,33 @@ router.post("/generate-monthly", (req, res) => {
     WHERE org_id = ? AND client_id = ? AND category = 'Mensalidade'
       AND strftime('%Y-%m', due_date) = ? LIMIT 1`);
 
+  // O lançamento é "recorrente" quando marca mais de um mês de uma vez.
+  const recorrente = meses > 1 ? 1 : 0;
+
   let criadas = 0, puladas = 0;
   const tx = db.transaction(() => {
-    for (const c of clientes) {
-      if (!c.valor || c.valor <= 0) { puladas++; continue; }
-      if (jaExiste.get(req.orgId, c.id, month)) { puladas++; continue; }
-      const dia = Math.min(Math.max(1, Number(c.payment_day) || 5), new Date(year, m, 0).getDate());
-      const due = `${year}-${String(m).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
-      insertEntry.run({
-        type: "income", description: `Mensalidade — ${c.name}`, amount: c.valor,
-        client_id: c.id, category: "Mensalidade", status: "pending", due_date: due, paid_at: null,
-        payment_link: null, pix_code: null, boleto_url: null, invoice_url: null,
-        recurring: 0, recurring_day: null, org_id: req.orgId,
-      });
-      criadas++;
+    for (let i = 0; i < meses; i++) {
+      const d = new Date(y0, (m0 - 1) + i, 1);
+      const year = d.getFullYear();
+      const mIndex = d.getMonth();           // 0..11
+      const month = `${year}-${String(mIndex + 1).padStart(2, "0")}`;
+      for (const c of clientes) {
+        if (!c.valor || c.valor <= 0) { puladas++; continue; }
+        if (jaExiste.get(req.orgId, c.id, month)) { puladas++; continue; }
+        const dia = Number(c.payment_day) || 5;
+        const due = dueForMonth(year, mIndex, dia);
+        insertEntry.run({
+          type: "income", description: `Mensalidade — ${c.name}`, amount: c.valor,
+          client_id: c.id, category: "Mensalidade", status: "pending", due_date: due, paid_at: null,
+          payment_link: null, pix_code: null, boleto_url: null, invoice_url: null,
+          recurring: recorrente, recurring_day: recorrente ? dia : null, org_id: req.orgId,
+        });
+        criadas++;
+      }
     }
   });
   tx();
-  res.json({ created: criadas, skipped: puladas, month });
+  res.json({ created: criadas, skipped: puladas, month: startMonth, months: meses });
 });
 
 router.post("/", (req, res) => {

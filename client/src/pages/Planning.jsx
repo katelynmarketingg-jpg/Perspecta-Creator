@@ -105,9 +105,12 @@ export default function Planning() {
   const catalogo = useMemo(() => seasonalFor(cursor.getFullYear()), [cursor]);
   const jaAdicionadas = useMemo(() => new Set(dates.map((e) => `${e.date}|${e.title}`)), [dates]);
 
-  async function adicionarSazonal(d) {
-    await api.post("/planning", { date: d.date, title: d.name, notes: "Data comemorativa", client_id: clientFilter || null });
-    load();
+  // Selecionar uma data comemorativa: abre o editor já preenchido para você
+  // escrever a observação (ideia de post, o que preparar…) antes de salvar.
+  function adicionarSazonal(d) {
+    setSeasonalOpen(false);
+    setDayOpen(null);
+    setDraft({ date: d.date, title: d.name, notes: "", client_id: clientFilter || "" });
   }
 
   const load = () => {
@@ -383,7 +386,8 @@ export default function Planning() {
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Adiciona ao planejamento {clientFilter ? `de ${clientName(clientFilter)}` : "(Geral — todas as empresas)"}.
+            Clique em <b>Selecionar</b> para adicionar ao planejamento {clientFilter ? `de ${clientName(clientFilter)}` : "(Geral — todas as empresas)"} —
+            abre para você escrever a observação (ideia de post, o que preparar…) antes de salvar.
             As datas móveis (Mães, Pais, Black Friday, Páscoa…) já vêm no dia certo do ano.
           </Typography>
           <Stack spacing={0}>
@@ -395,8 +399,8 @@ export default function Planning() {
                   <Chip size="small" label={brDate(d.date)} sx={{ fontWeight: 700, minWidth: 78 }} />
                   <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }} noWrap>{d.name}</Typography>
                   <Chip size="small" variant="outlined" color={CATEGORY_COLOR[d.category] || "default"} label={d.category} />
-                  <Button size="small" disabled={added} onClick={() => adicionarSazonal(d)}>
-                    {added ? "✓ Adicionada" : "Adicionar"}
+                  <Button size="small" onClick={() => adicionarSazonal(d)}>
+                    {added ? "✓ Adicionar de novo" : "Selecionar"}
                   </Button>
                 </Stack>
               );
