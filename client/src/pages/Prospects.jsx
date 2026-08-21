@@ -188,9 +188,13 @@ export default function Prospects() {
         </Stack>
       )}
 
-      {rows.length === 0 && !editCols ? (
-        <EmptyState message="Ninguém na prospecção ainda. Anote quem você quer atender."
-          action={<Button onClick={() => { setDraft(EMPTY); setOpen(true); }}>Adicionar</Button>} />
+      {rows.length === 0 && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Ninguém na prospecção ainda — arraste cartões entre as colunas ou clique em "Novo contato".
+        </Alert>
+      )}
+      {stages.length === 0 ? (
+        <EmptyState message="Carregando as colunas…" />
       ) : (
         <Box sx={{ display: "flex", gap: 2, overflowX: "auto", pb: 2, alignItems: "flex-start" }}>
           {stages.map((col, colIdx) => (
