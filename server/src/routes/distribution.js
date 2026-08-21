@@ -68,7 +68,39 @@ router.get("/", (req, res) => {
     )
     .all(params);
 
-  res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled });
+  // Conteúdos APROVADOS pelo cliente e ainda não programados — a fila da Rafa
+  // para agendar. (Filtra por empresa se pedido.)
+  const awhere = ["t.org_id = @org_id", "t.approval_status = 'approved'", "(s.is_done IS NULL OR s.is_done = 0)"];
+  if (req.query.client_id) awhere.push("t.client_id = @client_id");
+  const approved = db
+    .prepare(
+      `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
+              t.client_id, t.cover_file_id, c.name AS client_name, c.phone AS client_phone,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+       FROM tasks t
+       LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN kanban_stages s ON s.id = t.stage_id
+       WHERE ${awhere.join(" AND ")}
+       ORDER BY t.scheduled_at, t.id`
+    )
+    .all(params);
+
+  res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled, approved });
+});
+
+// POST /api/distribution/:id/schedule — programa (manda para "Programados").
+// Publicação automática no Instagram depende do app Meta; por ora, organiza aqui.
+router.post("/:id/schedule", (req, res) => {
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!task) return res.status(404).json({ error: "Peça não encontrada." });
+  const when = req.body?.scheduled_at || task.scheduled_at;
+  if (!when) return res.status(400).json({ error: "Defina a data/hora antes de programar." });
+  const done = db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1").get(req.orgId);
+  if (!done) return res.status(400).json({ error: "Crie a etapa 'Programados' primeiro." });
+  db.prepare(
+    "UPDATE tasks SET stage_id = ?, scheduled_at = ?, completed_at = ? WHERE id = ? AND org_id = ?"
+  ).run(done.id, when, new Date().toISOString(), req.params.id, req.orgId);
+  res.json({ ok: true });
 });
 
 // POST /api/distribution/reorder — reordena o feed: recebe a nova data/hora de
