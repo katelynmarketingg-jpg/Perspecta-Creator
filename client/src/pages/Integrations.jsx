@@ -35,6 +35,9 @@ export default function Integrations() {
   const [billing, setBilling] = useState(null);
   const [asaasKey, setAsaasKey] = useState("");
   const [asaasEnv, setAsaasEnv] = useState("production");
+  // Formas de pagamento oferecidas ao cliente
+  const [payCfg, setPayCfg] = useState(null);
+  const [payMsg, setPayMsg] = useState("");
   // Documentos (Google Docs)
   const [docs, setDocs] = useState([]);
   const [novoDoc, setNovoDoc] = useState({ title: "", url: "", client_id: "" });
@@ -45,8 +48,18 @@ export default function Integrations() {
     api.get("/clients").then((r) => setClients(r.data.filter((c) => c.status === "active"))).catch(() => {});
     api.get("/billing/status").then((r) => setBilling(r.data)).catch(() => {});
     api.get("/org-docs").then((r) => setDocs(r.data)).catch(() => {});
+    api.get("/branding").then((r) => setPayCfg(r.data?.pay_config || null)).catch(() => {});
   };
   useEffect(() => { load(); }, []);
+
+  async function salvarPayCfg() {
+    try {
+      await api.put("/branding/pay-config", { pay_config: payCfg });
+      setPayMsg("Formas de pagamento salvas.");
+    } catch { setPayMsg("Não foi possível salvar."); }
+    setTimeout(() => setPayMsg(""), 4000);
+  }
+  const setPay = (prov, patch) => setPayCfg((c) => ({ ...c, [prov]: { ...(c?.[prov] || {}), ...patch } }));
 
   async function salvarAsaas() {
     await api.put("/billing/config", { api_key: asaasKey || undefined, environment: asaasEnv });
@@ -255,10 +268,56 @@ export default function Integrations() {
             Ao ativar, geramos um link seguro do Asaas para o cliente cadastrar o cartão uma vez.
             Depois, todo mês o Asaas cobra sozinho e o pagamento aparece aqui como confirmado.
           </Typography>
-          <Alert severity="info" sx={{ mt: 2 }}>
-            Em breve: <strong>Mercado Pago</strong> e <strong>Infinite Pay</strong> como opções de pagamento na área do
-            cliente (o cliente escolhe; o juro do parcelamento fica por conta dele).
-          </Alert>
+          {/* Formas de pagamento oferecidas ao cliente */}
+          {isAdmin && payCfg && (
+            <Card sx={{ mt: 3 }}>
+              <CardContent>
+                <Typography variant="h6" sx={{ mb: 0.5 }}>Formas de pagamento na área do cliente</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Escolha quais formas o cliente pode usar. Ele decide na hora de pagar.
+                </Typography>
+                {payMsg && <Alert severity="success" sx={{ mb: 2 }}>{payMsg}</Alert>}
+
+                <Stack spacing={1.5}>
+                  <FormControlLabel
+                    control={<Switch checked={!!payCfg.asaas?.enabled} onChange={(e) => setPay("asaas", { enabled: e.target.checked })} />}
+                    label="Asaas (cartão / PIX / boleto — cobrança automática)" />
+
+                  <Box>
+                    <FormControlLabel
+                      control={<Switch checked={!!payCfg.mercadopago?.enabled} onChange={(e) => setPay("mercadopago", { enabled: e.target.checked })} />}
+                      label="Mercado Pago" />
+                    {payCfg.mercadopago?.enabled && (
+                      <TextField size="small" fullWidth sx={{ mt: 0.5 }} label="Link de pagamento do Mercado Pago"
+                        placeholder="https://mpago.la/..." value={payCfg.mercadopago?.link || ""}
+                        onChange={(e) => setPay("mercadopago", { link: e.target.value })} />
+                    )}
+                  </Box>
+
+                  <Box>
+                    <FormControlLabel
+                      control={<Switch checked={!!payCfg.infinitepay?.enabled} onChange={(e) => setPay("infinitepay", { enabled: e.target.checked })} />}
+                      label="Infinite Pay" />
+                    {payCfg.infinitepay?.enabled && (
+                      <TextField size="small" fullWidth sx={{ mt: 0.5 }} label="Link de pagamento do Infinite Pay"
+                        placeholder="https://invoice.infinitepay.io/..." value={payCfg.infinitepay?.link || ""}
+                        onChange={(e) => setPay("infinitepay", { link: e.target.value })} />
+                    )}
+                  </Box>
+
+                  <FormControlLabel
+                    control={<Switch checked={payCfg.pass_interest !== false} onChange={(e) => setPayCfg((c) => ({ ...c, pass_interest: e.target.checked }))} />}
+                    label="Juro do parcelamento por conta do cliente" />
+
+                  <Box><Button variant="contained" onClick={salvarPayCfg}>Salvar formas de pagamento</Button></Box>
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+                  Por enquanto, Mercado Pago e Infinite Pay abrem o seu link de cobrança (o cliente informa o valor).
+                  A cobrança automática por valor de cada mês precisa das chaves de API — a gente liga depois.
+                </Typography>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 

@@ -319,6 +319,7 @@ export default function Portal() {
   const [approved, setApproved] = useState([]);
   const [aprovMode, setAprovMode] = useState("pendentes"); // pendentes | aprovados
   const [payments, setPayments] = useState([]);
+  const [payMethods, setPayMethods] = useState(null);
   const [contracts, setContracts] = useState([]);
   const [cursor, setCursor] = useState(() => new Date());
   const [posts, setPosts] = useState([]);
@@ -342,6 +343,7 @@ export default function Portal() {
     if (!localStorage.getItem("portal_token")) { navigate("/portal/login"); return; }
     loadApprovals();
     portalApi.get("/payments").then((r) => setPayments(r.data));
+    portalApi.get("/payment-methods").then((r) => setPayMethods(r.data)).catch(() => {});
     portalApi.get("/contracts").then((r) => setContracts(r.data));
     portalApi.get("/events", { params: { days: 90 } }).then((r) => setEvents(r.data)).catch(() => {});
     portalApi.get("/notifications").then((r) => setAvisos(r.data.filter((n) => !n.is_read))).catch(() => {});
@@ -730,6 +732,29 @@ export default function Portal() {
                           <Button size="small" variant="outlined" startIcon={<DescriptionIcon />}
                             component={Link} href={p.invoice_url} target="_blank">
                             Baixar nota
+                          </Button>
+                        )}
+                      </Stack>
+                    </>
+                  )}
+
+                  {/* Formas de pagamento oferecidas pelo escritório (Mercado Pago / Infinite Pay) */}
+                  {p.status !== "paid" && (payMethods?.mercadopago?.link || payMethods?.infinitepay?.link) && (
+                    <>
+                      <Divider sx={{ my: 1.5 }} />
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
+                        Ou pague por outra forma (informe o valor {currency(p.amount)}
+                        {payMethods?.pass_interest ? "; o juro do parcelamento fica por sua conta" : ""}):
+                      </Typography>
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+                        {payMethods?.mercadopago?.link && (
+                          <Button size="small" variant="outlined" component={Link} href={payMethods.mercadopago.link} target="_blank">
+                            Pagar no Mercado Pago
+                          </Button>
+                        )}
+                        {payMethods?.infinitepay?.link && (
+                          <Button size="small" variant="outlined" component={Link} href={payMethods.infinitepay.link} target="_blank">
+                            Pagar no Infinite Pay
                           </Button>
                         )}
                       </Stack>

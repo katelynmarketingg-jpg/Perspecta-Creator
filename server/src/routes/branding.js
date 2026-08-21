@@ -5,13 +5,39 @@ import { authRequired, adminRequired } from "../auth.js";
 const router = Router();
 router.use(authRequired);
 
+// Formas de pagamento padrão (todas desligadas; Asaas ligado por padrão).
+const PAY_DEFAULT = {
+  asaas: { enabled: true },
+  mercadopago: { enabled: false, link: "" },
+  infinitepay: { enabled: false, link: "" },
+  pass_interest: true, // juro do parcelamento por conta do cliente
+};
+function parsePay(raw) {
+  try { return { ...PAY_DEFAULT, ...(raw ? JSON.parse(raw) : {}) }; }
+  catch { return { ...PAY_DEFAULT }; }
+}
+
 // GET /api/branding — logo e favicon do escritório atual.
 router.get("/", (req, res) => {
-  const org = db.prepare("SELECT logo, favicon, name, approval_mode FROM organizations WHERE id = ?").get(req.orgId);
+  const org = db.prepare("SELECT logo, favicon, name, approval_mode, pay_config FROM organizations WHERE id = ?").get(req.orgId);
   res.json({
     logo: org?.logo || null, favicon: org?.favicon || null, name: org?.name || null,
     approval_mode: org?.approval_mode || "notify",
+    pay_config: parsePay(org?.pay_config),
   });
+});
+
+// PUT /api/branding/pay-config — formas de pagamento oferecidas ao cliente.
+router.put("/pay-config", adminRequired, (req, res) => {
+  const b = req.body?.pay_config || {};
+  const clean = {
+    asaas: { enabled: !!b.asaas?.enabled },
+    mercadopago: { enabled: !!b.mercadopago?.enabled, link: String(b.mercadopago?.link || "").trim() },
+    infinitepay: { enabled: !!b.infinitepay?.enabled, link: String(b.infinitepay?.link || "").trim() },
+    pass_interest: b.pass_interest !== false,
+  };
+  db.prepare("UPDATE organizations SET pay_config = ? WHERE id = ?").run(JSON.stringify(clean), req.orgId);
+  res.json({ ok: true, pay_config: clean });
 });
 
 // PUT /api/branding/approval-mode — 'notify' (avisar a equipe) | 'auto' (programar direto).

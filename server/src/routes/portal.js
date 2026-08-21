@@ -74,6 +74,19 @@ router.get("/payments", (req, res) => {
   res.json(rows);
 });
 
+// GET /api/portal/payment-methods — formas de pagamento que o escritório oferece.
+router.get("/payment-methods", (req, res) => {
+  const org = db.prepare("SELECT pay_config FROM organizations WHERE id = ?").get(req.client.org_id);
+  let cfg = {};
+  try { cfg = org?.pay_config ? JSON.parse(org.pay_config) : {}; } catch { cfg = {}; }
+  res.json({
+    asaas: !!cfg.asaas?.enabled,
+    mercadopago: cfg.mercadopago?.enabled ? { link: cfg.mercadopago.link || "" } : null,
+    infinitepay: cfg.infinitepay?.enabled ? { link: cfg.infinitepay.link || "" } : null,
+    pass_interest: cfg.pass_interest !== false,
+  });
+});
+
 // ---- Contratos --------------------------------------------------------------
 router.get("/contracts", (req, res) => {
   const rows = db
