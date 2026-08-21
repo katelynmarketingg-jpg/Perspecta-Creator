@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { createReadStream } from "node:fs";
 
@@ -48,4 +48,12 @@ export async function getR2Object(key) {
 
 export async function deleteR2Object(key) {
   await client.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+}
+
+// Lista objetos sob um prefixo: [{ key, lastModified, size }] (mais recente 1º).
+export async function listR2Objects(prefix) {
+  const out = await client.send(new ListObjectsV2Command({ Bucket: R2_BUCKET, Prefix: prefix }));
+  return (out.Contents || [])
+    .map((o) => ({ key: o.Key, lastModified: o.LastModified, size: o.Size }))
+    .sort((a, b) => (b.lastModified?.getTime() || 0) - (a.lastModified?.getTime() || 0));
 }

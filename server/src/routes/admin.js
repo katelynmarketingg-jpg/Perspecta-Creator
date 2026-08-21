@@ -154,7 +154,8 @@ router.get("/usage", (req, res) => {
       plan: o.plan_name || null,
       plan_price: o.plan_price ?? null,
       usage: {
-        users: u.users, clients: u.clients, storage_gb: u.storage_gb,
+        users: u.users, clients: u.clients,
+        storage_bytes: u.storage_bytes, storage_gb: u.storage_gb,
         ai_calls: ai.calls, ai_tokens_in: ai.tokens_in, ai_tokens_out: ai.tokens_out,
       },
       limits: { users: o.max_users ?? null, clients: o.max_clients ?? null, storage_gb: o.storage_gb ?? null },
