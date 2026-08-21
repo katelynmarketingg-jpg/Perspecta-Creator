@@ -113,6 +113,27 @@ CREATE TABLE IF NOT EXISTS financial_entries (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Colunas (etapas) editáveis da Prospecção. 'won'/'lost' são fixas (relatórios).
+CREATE TABLE IF NOT EXISTS prospect_stages (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  key           TEXT NOT NULL,                        -- casa com prospects.status
+  label         TEXT NOT NULL,
+  position      INTEGER NOT NULL DEFAULT 0,
+  kind          TEXT NOT NULL DEFAULT 'open',         -- 'open' | 'won' | 'lost'
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Modelos de contrato: corpo com marcadores ({{cliente}}, {{valor}}...) que
+-- geram um contrato preenchido para assinatura.
+CREATE TABLE IF NOT EXISTS contract_templates (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  name          TEXT NOT NULL,
+  body          TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Documentos ligados (Google Docs/Sheets/Slides) para abrir dentro do sistema.
 CREATE TABLE IF NOT EXISTS org_docs (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -300,6 +321,8 @@ ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
 // Despesa/receita mensal recorrente: marca as parcelas geradas e o dia do mês.
 ensureColumn("financial_entries", "recurring", "recurring INTEGER NOT NULL DEFAULT 0");
 ensureColumn("financial_entries", "recurring_day", "recurring_day INTEGER");
+// Último aviso de atraso enviado (para lembrar no máximo 1x por dia).
+ensureColumn("financial_entries", "last_reminder_at", "last_reminder_at TEXT");
 
 // ---------------------------------------------------------------------------
 // Multi-escritório: cada agência só enxerga os próprios dados. O escritório

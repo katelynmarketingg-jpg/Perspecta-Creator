@@ -15,6 +15,61 @@ function withTouches(row) {
   };
 }
 
+// ---- Colunas editáveis da Prospecção -------------------------------------
+// Cria as colunas padrão na primeira vez. 'fechado' (won) e 'perdido' (lost)
+// são fixas, para os relatórios de conversão continuarem valendo.
+function ensureStages(orgId) {
+  const n = db.prepare("SELECT COUNT(*) AS c FROM prospect_stages WHERE org_id = ?").get(orgId).c;
+  if (n) return;
+  const defs = [
+    ["novo", "A contatar", 0, "open"],
+    ["conversando", "Conversando", 1, "open"],
+    ["proposta", "Proposta enviada", 2, "open"],
+    ["fechado", "Venda fechada", 3, "won"],
+    ["perdido", "Não rolou", 4, "lost"],
+  ];
+  const ins = db.prepare("INSERT INTO prospect_stages (org_id, key, label, position, kind) VALUES (?, ?, ?, ?, ?)");
+  defs.forEach((d) => ins.run(orgId, ...d));
+}
+
+router.get("/stages", (req, res) => {
+  ensureStages(req.orgId);
+  res.json(db.prepare("SELECT * FROM prospect_stages WHERE org_id = ? ORDER BY position, id").all(req.orgId));
+});
+
+router.post("/stages", (req, res) => {
+  ensureStages(req.orgId);
+  const label = (req.body?.label || "").trim();
+  if (!label) return res.status(400).json({ error: "Dê um nome à coluna." });
+  const key = `col_${Date.now()}`; // chave única e estável
+  const pos = db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM prospect_stages WHERE org_id = ?").get(req.orgId).p;
+  const info = db.prepare("INSERT INTO prospect_stages (org_id, key, label, position, kind) VALUES (?, ?, ?, ?, 'open')")
+    .run(req.orgId, key, label, pos);
+  res.status(201).json(db.prepare("SELECT * FROM prospect_stages WHERE id = ?").get(info.lastInsertRowid));
+});
+
+router.put("/stages/:id", (req, res) => {
+  const cur = db.prepare("SELECT * FROM prospect_stages WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!cur) return res.status(404).json({ error: "Coluna não encontrada." });
+  const label = req.body?.label != null ? String(req.body.label).trim() || cur.label : cur.label;
+  const position = req.body?.position != null ? Number(req.body.position) : cur.position;
+  db.prepare("UPDATE prospect_stages SET label = ?, position = ? WHERE id = ? AND org_id = ?")
+    .run(label, position, req.params.id, req.orgId);
+  res.json(db.prepare("SELECT * FROM prospect_stages WHERE id = ?").get(req.params.id));
+});
+
+router.delete("/stages/:id", (req, res) => {
+  const cur = db.prepare("SELECT * FROM prospect_stages WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!cur) return res.status(404).json({ error: "Coluna não encontrada." });
+  if (cur.kind !== "open") return res.status(400).json({ error: "Esta coluna é fixa e não pode ser excluída." });
+  // Move os prospects desta coluna para a primeira coluna aberta.
+  const destino = db.prepare("SELECT key FROM prospect_stages WHERE org_id = ? AND kind = 'open' AND id != ? ORDER BY position LIMIT 1")
+    .get(req.orgId, req.params.id)?.key || "novo";
+  db.prepare("UPDATE prospects SET status = ? WHERE org_id = ? AND status = ?").run(destino, req.orgId, cur.key);
+  db.prepare("DELETE FROM prospect_stages WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
+  res.json({ ok: true });
+});
+
 router.get("/", (req, res) => {
   const rows = db.prepare("SELECT * FROM prospects WHERE org_id = ? ORDER BY created_at DESC").all(req.orgId);
   res.json(rows.map(withTouches));

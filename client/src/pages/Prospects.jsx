@@ -11,18 +11,14 @@ import ChatIcon from "@mui/icons-material/Chat";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ViewColumnIcon from "@mui/icons-material/ViewColumn";
+import LockIcon from "@mui/icons-material/Lock";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate } from "../utils.js";
-
-const COLUNAS = [
-  { key: "novo", label: "A contatar" },
-  { key: "conversando", label: "Conversando" },
-  { key: "proposta", label: "Proposta enviada" },
-  { key: "fechado", label: "Fechou" },
-  { key: "perdido", label: "Não rolou" },
-];
 
 const EMPTY = {
   name: "", company: "", segment: "", phone: "", email: "", instagram: "",
@@ -39,11 +35,51 @@ export default function Prospects() {
   // Arraste-e-solte entre colunas.
   const dragId = useRef(null);
   const [overCol, setOverCol] = useState(null);
+  // Colunas editáveis.
+  const [stages, setStages] = useState([]);
+  const [editCols, setEditCols] = useState(false);
+  const [novaColuna, setNovaColuna] = useState("");
 
   const load = () => api.get("/prospects").then((r) => setRows(r.data)).catch(() => {});
+  const loadStages = () => api.get("/prospects/stages").then((r) => setStages(r.data)).catch(() => {});
   // Ao vivo: recarrega quando alguém mexe na prospecção.
   const vProspects = useLiveVersion("prospects");
   useEffect(() => { load(); }, [vProspects]);
+  useEffect(() => { loadStages(); }, []);
+
+  const wonKey = stages.find((s) => s.kind === "won")?.key || "fechado";
+  const lostKey = stages.find((s) => s.kind === "lost")?.key || "perdido";
+
+  async function addColuna() {
+    if (!novaColuna.trim()) return;
+    await api.post("/prospects/stages", { label: novaColuna.trim() });
+    setNovaColuna("");
+    loadStages();
+  }
+  async function renomearColuna(s, label) {
+    await api.put(`/prospects/stages/${s.id}`, { label });
+    loadStages();
+  }
+  async function excluirColuna(s) {
+    if (!confirm(`Excluir a coluna "${s.label}"? Os contatos dela vão para a primeira coluna.`)) return;
+    await api.delete(`/prospects/stages/${s.id}`);
+    loadStages(); load();
+  }
+  async function moverColuna(idx, dir) {
+    const j = idx + dir;
+    if (j < 0 || j >= stages.length) return;
+    const arr = [...stages];
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    const withPos = arr.map((s, i) => ({ ...s, position: i }));
+    setStages(withPos);
+    try {
+      await Promise.all([idx, j].map((k) => {
+        const s = withPos.find((x) => x.id === stages[k].id);
+        return api.put(`/prospects/stages/${s.id}`, { position: s.position });
+      }));
+      loadStages();
+    } catch { loadStages(); }
+  }
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
 
@@ -78,7 +114,7 @@ export default function Prospects() {
   // "Finalizar" = encerrar a negociação que não virou cliente (vai para "Não rolou").
   async function finalizar(p) {
     if (!confirm(`Finalizar ${p.name}? Ele vai para "Não rolou" e sai do funil ativo.`)) return;
-    await mudarStatus(p, "perdido");
+    await mudarStatus(p, lostKey);
     setMsg(`${p.name} foi finalizado (Não rolou).`);
     setTimeout(() => setMsg(""), 5000);
   }
@@ -105,8 +141,8 @@ export default function Prospects() {
   // Resumo (mini-relatório): quantos em cada fase, quantos viraram cliente e a
   // taxa de conversão sobre o total já trabalhado.
   const total = rows.length;
-  const fechados = porStatus("fechado").length;
-  const perdidos = porStatus("perdido").length;
+  const fechados = porStatus(wonKey).length;
+  const perdidos = porStatus(lostKey).length;
   const ativos = total - fechados - perdidos;
   const encerrados = fechados + perdidos;
   const conversao = encerrados ? Math.round((fechados / encerrados) * 100) : 0;
@@ -117,10 +153,16 @@ export default function Prospects() {
         title="Prospecção"
         subtitle="Arraste os cartões entre as colunas conforme a conversa anda"
         action={
-          <Button variant="contained" startIcon={<AddIcon />}
-            onClick={() => { setDraft(EMPTY); setOpen(true); }}>
-            Novo contato
-          </Button>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+            <Button variant={editCols ? "contained" : "outlined"} startIcon={<ViewColumnIcon />}
+              onClick={() => setEditCols((v) => !v)}>
+              {editCols ? "Concluir colunas" : "Editar colunas"}
+            </Button>
+            <Button variant="contained" startIcon={<AddIcon />}
+              onClick={() => { setDraft(EMPTY); setOpen(true); }}>
+              Novo contato
+            </Button>
+          </Stack>
         }
       />
 
@@ -137,12 +179,21 @@ export default function Prospects() {
         </Stack>
       )}
 
-      {rows.length === 0 ? (
+      {editCols && (
+        <Stack direction="row" spacing={1} sx={{ mb: 2, maxWidth: 420 }}>
+          <TextField size="small" label="Nova coluna" value={novaColuna} fullWidth
+            onChange={(e) => setNovaColuna(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addColuna()} />
+          <Button variant="contained" onClick={addColuna} disabled={!novaColuna.trim()}>Adicionar</Button>
+        </Stack>
+      )}
+
+      {rows.length === 0 && !editCols ? (
         <EmptyState message="Ninguém na prospecção ainda. Anote quem você quer atender."
           action={<Button onClick={() => { setDraft(EMPTY); setOpen(true); }}>Adicionar</Button>} />
       ) : (
         <Box sx={{ display: "flex", gap: 2, overflowX: "auto", pb: 2, alignItems: "flex-start" }}>
-          {COLUNAS.map((col) => (
+          {stages.map((col, colIdx) => (
             <Box key={col.key}
               onDragOver={(e) => { e.preventDefault(); setOverCol(col.key); }}
               onDragLeave={() => setOverCol((c) => (c === col.key ? null : c))}
@@ -154,10 +205,24 @@ export default function Prospects() {
                 outline: overCol === col.key ? "2px dashed" : "none",
                 outlineColor: "primary.main",
               }}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5, mb: 1 }}>
-                <Typography sx={{ fontWeight: 700 }}>{col.label}</Typography>
-                <Chip size="small" label={porStatus(col.key).length} />
-              </Stack>
+              {editCols ? (
+                <Stack direction="row" alignItems="center" spacing={0.25} sx={{ px: 0.25, mb: 1 }}>
+                  <IconButton size="small" disabled={colIdx === 0} onClick={() => moverColuna(colIdx, -1)}><ChevronLeftIcon sx={{ fontSize: 18 }} /></IconButton>
+                  <TextField size="small" variant="standard" defaultValue={col.label} fullWidth
+                    onBlur={(e) => e.target.value.trim() && e.target.value !== col.label && renomearColuna(col, e.target.value.trim())} />
+                  <IconButton size="small" disabled={colIdx === stages.length - 1} onClick={() => moverColuna(colIdx, 1)}><ChevronRightIcon sx={{ fontSize: 18 }} /></IconButton>
+                  {col.kind === "open" ? (
+                    <IconButton size="small" color="error" onClick={() => excluirColuna(col)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
+                  ) : (
+                    <Tooltip title="Coluna fixa (usada nos relatórios)"><LockIcon sx={{ fontSize: 15, color: "text.disabled" }} /></Tooltip>
+                  )}
+                </Stack>
+              ) : (
+                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5, mb: 1 }}>
+                  <Typography sx={{ fontWeight: 700 }}>{col.label}</Typography>
+                  <Chip size="small" label={porStatus(col.key).length} />
+                </Stack>
+              )}
               <Stack spacing={1.5}>
                 {porStatus(col.key).map((p) => (
                   <Card key={p.id} draggable
@@ -275,7 +340,7 @@ export default function Prospects() {
             </Stack>
             <TextField label="E-mail" value={draft.email || ""} onChange={set("email")} fullWidth />
             <TextField select label="Situação" value={draft.status} onChange={set("status")} fullWidth>
-              {COLUNAS.map((c) => <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>)}
+              {stages.map((c) => <MenuItem key={c.key} value={c.key}>{c.label}</MenuItem>)}
             </TextField>
             <TextField label="Observações" value={draft.notes || ""} onChange={set("notes")}
               fullWidth multiline rows={3}

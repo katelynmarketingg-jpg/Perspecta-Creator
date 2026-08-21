@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { db } from "../db.js";
 import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
+import { remindOverdue } from "../overdue.js";
 
 const router = Router();
 
@@ -259,6 +260,7 @@ router.post("/approvals/:id/request-changes", (req, res) => {
 
 // ---- Avisos para o cliente ---------------------------------------------------
 router.get("/notifications", (req, res) => {
+  try { remindOverdue(req.client.org_id, req.client.client_id); } catch { /* não bloqueia */ }
   const rows = db
     .prepare(
       `SELECT id, message, task_id, is_read, created_at

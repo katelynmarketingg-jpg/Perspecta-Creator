@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired } from "../auth.js";
+import { remindOverdue } from "../overdue.js";
 
 const router = Router();
 router.use(authRequired);
 
 // GET /api/notifications — últimas 30, com nome do cliente.
 router.get("/", (req, res) => {
+  try { remindOverdue(req.orgId); } catch { /* não bloqueia a lista */ }
   const rows = db
     .prepare(
       `SELECT n.*, c.name AS client_name
