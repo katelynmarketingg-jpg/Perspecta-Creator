@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button, Stack,
   Chip, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
-  ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox,
+  ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox, Tooltip,
 } from "@mui/material";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
@@ -26,6 +26,32 @@ const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
+// Bolinha de status: a cor conta, num relance, em que pé está cada peça.
+//  🟢 verde   = já aprovado pelo cliente
+//  🟡 amarelo = enviado, aguardando aprovação
+//  🟠 laranja = ainda não foi enviado para aprovação
+//  🔵 azul    = programado (já foi para "Programados")
+const STATUS = {
+  programado: { color: "#2563EB", label: "Programado" },
+  aprovado:   { color: "#16A34A", label: "Aprovado" },
+  aguardando: { color: "#EAB308", label: "Aguardando aprovação" },
+  nao_enviado:{ color: "#EA580C", label: "Não enviado" },
+};
+function statusOf(p) {
+  if (p.stage_done) return "programado";
+  if (p.approval_status === "approved") return "aprovado";
+  if (p.approval_status === "sent") return "aguardando";
+  return "nao_enviado";
+}
+function StatusDot({ status }) {
+  const s = STATUS[status] || STATUS.nao_enviado;
+  return (
+    <Tooltip title={s.label}>
+      <Box sx={{ width: 13, height: 13, borderRadius: "50%", bgcolor: s.color, flexShrink: 0, boxShadow: "0 0 0 2px rgba(0,0,0,0.06)" }} />
+    </Tooltip>
+  );
+}
+
 // data do banco "YYYY-MM-DD HH:MM" <-> input "YYYY-MM-DDTHH:MM"
 const toInput = (v) => (v ? v.replace(" ", "T").slice(0, 16) : "");
 const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
@@ -44,7 +70,7 @@ function Media({ fileId, height = 200 }) {
     return () => url && URL.revokeObjectURL(url);
   }, [fileId]);
   const sx = { width: "100%", height, objectFit: "cover", borderRadius: 2, bgcolor: "action.hover", display: "block" };
-  if (!fileId) return <Box sx={{ ...sx, display: "grid", placeItems: "center", color: "text.secondary", fontSize: 13 }}>Sem mídia</Box>;
+  if (!fileId) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "text.secondary", fontSize: height <= 90 ? 9 : 13, lineHeight: 1.1, p: 0.25 }}>Sem mídia</Box>;
   if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   return video
     ? <Box component="video" src={src} controls={height > 120} muted sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }} />
@@ -321,25 +347,51 @@ function PieceCard({ item, onChanged, flash }) {
   );
 }
 
-// Visão em lista: uma linha por peça, clique abre o editor.
-function ListView({ items, onSelect }) {
+// Legenda das bolinhas de status (aparece no topo da Lista).
+function StatusLegend() {
+  return (
+    <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", gap: 0.5, mb: 1 }}>
+      {Object.values(STATUS).map((s) => (
+        <Stack key={s.label} direction="row" spacing={0.5} alignItems="center">
+          <Box sx={{ width: 11, height: 11, borderRadius: "50%", bgcolor: s.color }} />
+          <Typography variant="caption" color="text.secondary">{s.label}</Typography>
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+// Visão em lista: uma linha por peça, com bolinha de status à direita.
+// clique abre o editor; no modo seleção, marca para enviar p/ aprovação.
+function ListView({ items, onSelect, selectMode, checked, onToggle }) {
   return (
     <Stack spacing={1}>
       {items.map((it) => {
         const ct = CONTENT_TYPES[it.content_type];
+        const st = statusOf(it);
+        const marcavel = st === "nao_enviado" && it.scheduled_at; // só o "laranja" pode ser enviado
+        const marcada = checked?.has(it.id);
         return (
-          <Card key={it.id}>
-            <Box onClick={() => onSelect(it)} sx={{ display: "flex", gap: 1.5, p: 1, cursor: "pointer", alignItems: "center", "&:hover": { bgcolor: "action.hover" } }}>
-              <Box sx={{ width: 56, height: 56, flexShrink: 0 }}><Media fileId={it.cover_file_id || it.file_id} height={56} /></Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
-                  {ct && <Chip size="small" color="primary" variant="outlined" label={`${ct.emoji} ${ct.label}`} />}
-                  {it.client_name && <Chip size="small" variant="outlined" label={it.client_name} />}
-                </Stack>
-                <Typography sx={{ fontWeight: 600, mt: 0.3 }} noWrap>{it.title}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {it.scheduled_at ? new Date(it.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "Sem data"}
-                </Typography>
+          <Card key={it.id} sx={selectMode && marcada ? { outline: "2px solid", outlineColor: "primary.main" } : undefined}>
+            <Box sx={{ display: "flex", gap: 1.5, p: 1, alignItems: "center" }}>
+              {selectMode && (
+                <Checkbox size="small" checked={!!marcada} disabled={!marcavel}
+                  onChange={() => onToggle(it.id)} sx={{ p: 0.5 }} />
+              )}
+              <Box onClick={selectMode ? (marcavel ? () => onToggle(it.id) : undefined) : () => onSelect(it)}
+                sx={{ display: "flex", gap: 1.5, flex: 1, minWidth: 0, alignItems: "center", cursor: selectMode ? (marcavel ? "pointer" : "default") : "pointer", "&:hover": { bgcolor: selectMode && !marcavel ? "transparent" : "action.hover" }, borderRadius: 1 }}>
+                <Box sx={{ width: 56, height: 56, flexShrink: 0 }}><Media fileId={it.cover_file_id || it.file_id} height={56} /></Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                    {ct && <Chip size="small" color="primary" variant="outlined" label={`${ct.emoji} ${ct.label}`} />}
+                    {it.client_name && <Chip size="small" variant="outlined" label={it.client_name} />}
+                  </Stack>
+                  <Typography sx={{ fontWeight: 600, mt: 0.3 }} noWrap>{it.title}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {it.scheduled_at ? new Date(it.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "Sem data"}
+                  </Typography>
+                </Box>
+                <StatusDot status={st} />
               </Box>
             </Box>
           </Card>
@@ -565,7 +617,7 @@ export default function Distribution() {
     for (const id of ids) {
       try { await api.post(`/distribution/${id}/send`); ok++; }
       catch (e) {
-        const it = items.find((i) => i.id === id);
+        const it = [...items, ...scheduled].find((i) => i.id === id);
         falhas.push(`${it?.title || id}: ${e.response?.data?.error || "erro"}`);
       }
     }
@@ -707,7 +759,32 @@ export default function Distribution() {
           )}
         </>
       ) : view === "list" ? (
-        <ListView items={scheduled} onSelect={setSelected} />
+        <>
+          <StatusLegend />
+          {/* Seleção também na Lista: marca as "laranja" (não enviadas) e manda de uma vez. */}
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
+            {!selectMode ? (
+              <Button size="small" variant="outlined" startIcon={<CheckBoxIcon />} onClick={() => setSelectMode(true)}>
+                Selecionar para enviar
+              </Button>
+            ) : (
+              <>
+                <Button size="small" color="inherit" onClick={sairDaSelecao}>Cancelar</Button>
+                <Button size="small" onClick={() => setChecked(new Set(scheduled.filter((i) => statusOf(i) === "nao_enviado" && i.scheduled_at).map((i) => i.id)))}>
+                  Marcar todas
+                </Button>
+                <Typography variant="body2" color="text.secondary">{checked.size} marcada(s)</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button size="small" variant="contained" startIcon={<SendIcon />}
+                  disabled={sendingBulk || checked.size === 0} onClick={enviarSelecionadas}>
+                  {sendingBulk ? "Enviando..." : `Enviar ${checked.size || ""} para aprovação`}
+                </Button>
+              </>
+            )}
+          </Stack>
+          <ListView items={scheduled} onSelect={setSelected}
+            selectMode={selectMode} checked={checked} onToggle={toggleCheck} />
+        </>
       ) : view === "feed" ? (
         <Card><CardContent>
           <ReorderableFeed posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected} onReorder={reorder}
