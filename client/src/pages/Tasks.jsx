@@ -15,10 +15,30 @@ import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, CardSkeleton } from "../components/ui.jsx";
 import { formatDate, formatDateTime, PRIORITY, CONTENT_TYPES } from "../utils.js";
+
+// Miniatura autenticada do arquivo que o cliente citou ao pedir ajuste.
+function RefThumb({ fileId }) {
+  const [src, setSrc] = useState(null);
+  const [video, setVideo] = useState(false);
+  useEffect(() => {
+    if (!fileId) return undefined;
+    let url;
+    api.get(`/files/${fileId}/download`, { responseType: "blob" })
+      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setVideo((r.data.type || "").startsWith("video")); })
+      .catch(() => {});
+    return () => url && URL.revokeObjectURL(url);
+  }, [fileId]);
+  if (!src) return null;
+  return video
+    ? <Box component="video" src={src} controls sx={{ maxWidth: "100%", maxHeight: 220, borderRadius: 1, mt: 0.5 }} />
+    : <Box component="img" src={src} alt="" sx={{ maxWidth: "100%", maxHeight: 220, borderRadius: 1, mt: 0.5 }} />;
+}
 
 const EMPTY = {
   title: "", description: "", client_id: "", project_id: "", assignee_id: "",
@@ -64,6 +84,7 @@ export default function Tasks() {
   const [filterMonth, setFilterMonth] = useState(""); // filtro por data (mês)
   const [dateQuick, setDateQuick] = useState("");      // '', 'hoje', 'semana', 'mes'
   const [view, setView] = useState("board");           // 'board' (quadro) | 'list' (lista)
+  const [reorderCols, setReorderCols] = useState(false); // modo de reordenar colunas
   const [apontamentos, setApontamentos] = useState([]);
   const [novoTempo, setNovoTempo] = useState({ minutes: "", note: "" });
   const [flash, setFlash] = useState("");
@@ -164,6 +185,7 @@ export default function Tasks() {
 
   // Tarefas sem etapa não apareceriam em coluna nenhuma — avisa em vez de sumir.
   const orfas = filtered.filter((t) => !stages.some((s) => s.id === t.stage_id));
+  const doneStage = stages.find((s) => s.is_done); // "Programados"
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
 
@@ -288,6 +310,23 @@ export default function Tasks() {
     load();
   }
 
+  // Move uma coluna (etapa) para a esquerda/direita e salva a nova ordem.
+  async function moveStage(idx, dir) {
+    const j = idx + dir;
+    if (j < 0 || j >= stages.length) return;
+    const arr = [...stages];
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    const withPos = arr.map((s, i) => ({ ...s, position: i }));
+    setStages(withPos);
+    try {
+      await Promise.all([idx, j].map((k) => {
+        const s = withPos.find((x) => x.id === stages[k].id);
+        return api.put(`/tasks/stages/${s.id}`, { name: s.name, position: s.position, is_done: s.is_done });
+      }));
+      load();
+    } catch { load(); }
+  }
+
   return (
     <>
       <PageHeader
@@ -364,6 +403,12 @@ export default function Tasks() {
           </Button>
         )}
         <Box sx={{ flex: 1 }} />
+        {view === "board" && (
+          <Button size="small" variant={reorderCols ? "contained" : "outlined"} startIcon={<SwapHorizIcon />}
+            onClick={() => setReorderCols((v) => !v)}>
+            {reorderCols ? "Concluir ordem" : "Reordenar colunas"}
+          </Button>
+        )}
         <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
           <ToggleButton value="board" aria-label="Quadro"><ViewKanbanIcon fontSize="small" /></ToggleButton>
           <ToggleButton value="list" aria-label="Lista"><ViewListIcon fontSize="small" /></ToggleButton>
@@ -430,10 +475,21 @@ export default function Tasks() {
             }}
           >
             <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5, mb: 1 }}>
-              <Typography sx={{ fontWeight: 600 }}>
+              {reorderCols && (
+                <IconButton size="small" disabled={sIdx === 0} onClick={() => moveStage(sIdx, -1)}>
+                  <ChevronLeftIcon fontSize="small" />
+                </IconButton>
+              )}
+              <Typography sx={{ fontWeight: 600, flex: 1, minWidth: 0 }} noWrap>
                 {stage.name} {stage.is_done ? "✓" : ""}
               </Typography>
-              <Chip size="small" label={(byStage[stage.id] || []).length} />
+              {reorderCols ? (
+                <IconButton size="small" disabled={sIdx === stages.length - 1} onClick={() => moveStage(sIdx, 1)}>
+                  <ChevronRightIcon fontSize="small" />
+                </IconButton>
+              ) : (
+                <Chip size="small" label={(byStage[stage.id] || []).length} />
+              )}
             </Stack>
             <Stack spacing={1.5}>
               {loading && [0, 1].map((i) => <CardSkeleton key={i} />)}
@@ -498,6 +554,18 @@ export default function Tasks() {
                         👤 {t.assignee_name}
                       </Typography>
                     )}
+                    {/* Aprovado pelo cliente e ainda não programado → botão Programar */}
+                    {t.approval_status === "approved" && doneStage && t.stage_id !== doneStage.id && (
+                      <Tooltip title="Publicar direto no Instagram: aguardando o app Meta developer. Por ora, 'Programar' marca como programado e organiza no calendário.">
+                        <span>
+                          <Button fullWidth size="small" variant="contained" color="success"
+                            startIcon={<ScheduleSendIcon />} sx={{ mt: 1 }}
+                            onClick={(e) => { e.stopPropagation(); moveToStage(t.id, doneStage.id); }}>
+                            Programar
+                          </Button>
+                        </span>
+                      </Tooltip>
+                    )}
                     <Divider sx={{ my: 1 }} />
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
                       <Tooltip title="Etapa anterior">
@@ -538,12 +606,18 @@ export default function Tasks() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {/* Feedback do cliente vindo do portal */}
-            {draft.approval_status === "changes_requested" && (draft.client_note || draft.client_caption) && (
+            {draft.approval_status === "changes_requested" && (draft.client_note || draft.client_caption || draft.client_ref_file_id) && (
               <Alert severity="warning">
                 <strong>O cliente pediu ajustes:</strong>
                 {draft.client_note && <div style={{ marginTop: 4 }}>💬 {draft.client_note}</div>}
                 {draft.client_caption && (
                   <div style={{ marginTop: 4 }}>✏️ Legenda sugerida por ele: “{draft.client_caption}”</div>
+                )}
+                {draft.client_ref_file_id && (
+                  <div style={{ marginTop: 6 }}>
+                    📎 Arquivo que ele citou:
+                    <RefThumb fileId={draft.client_ref_file_id} />
+                  </div>
                 )}
               </Alert>
             )}

@@ -20,6 +20,12 @@ function nextMonthKey() {
   const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+// Soma (ou subtrai) meses a uma chave "YYYY-MM" e devolve outra "YYYY-MM".
+function addMonthsKey(key, n) {
+  const [y, m] = (key || nextMonthKey()).split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 function monthLabelPt(key) {
   if (!key) return "";
   const [y, m] = key.split("-").map(Number);
@@ -62,8 +68,8 @@ export default function Projects() {
       };
     });
   }
-  function openLaunch(p) {
-    setLaunch({ project: p, month: refMonth, assignee_id: "" });
+  function openLaunch(p, month = refMonth) {
+    setLaunch({ project: p, month, assignee_id: "" });
     setPieces(buildPieces(p));
   }
   function changeLaunchMonth(month) {
@@ -239,6 +245,19 @@ export default function Projects() {
                   >
                     {(p.launched_months || []).includes(refMonth) ? `Relançar ${monthLabelPt(refMonth)}` : `Lançar ${monthLabelPt(refMonth)}`}
                   </Button>
+                  {/* Já lançou este mês? Oferece lançar o PRÓXIMO com um clique. */}
+                  {(p.launched_months || []).includes(refMonth) && (p.plan || []).length > 0 && (
+                    <Button
+                      fullWidth size="small" startIcon={<RocketLaunchIcon />} sx={{ mt: 1 }}
+                      variant="contained"
+                      color={(p.launched_months || []).includes(addMonthsKey(refMonth, 1)) ? "inherit" : "primary"}
+                      onClick={() => openLaunch(p, addMonthsKey(refMonth, 1))}
+                    >
+                      {(p.launched_months || []).includes(addMonthsKey(refMonth, 1))
+                        ? `Relançar ${monthLabelPt(addMonthsKey(refMonth, 1))}`
+                        : `Lançar próximo mês (${monthLabelPt(addMonthsKey(refMonth, 1))})`}
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             </Grid>

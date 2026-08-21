@@ -27,6 +27,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import HubIcon from "@mui/icons-material/Hub";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
+import PreviewIcon from "@mui/icons-material/Preview";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -51,11 +52,12 @@ const NAV = [
   { to: "/projects", label: "Projetos", icon: <FolderIcon /> },
   { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },
   { to: "/distribution", label: "Distribuição", icon: <ScheduleSendIcon /> },
+  { to: "/planning", label: "Planejamento", icon: <CalendarMonthIcon /> },
+  { to: "/client-area", label: "Área do Cliente", icon: <PreviewIcon /> },
   { to: "/deliveries", label: "Entregas", icon: <ChecklistRtlIcon /> },
   { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
   { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },
-  { to: "/calendar", label: "Calendário", icon: <CalendarMonthIcon /> },
-  { to: "/files", label: "Arquivos", icon: <FolderCopyIcon /> },
+  { to: "/files", label: "Galeria", icon: <FolderCopyIcon /> },
   { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
   { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },
   { to: "/ai", label: "IA", icon: <AutoAwesomeIcon /> },

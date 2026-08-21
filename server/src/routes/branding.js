@@ -7,8 +7,18 @@ router.use(authRequired);
 
 // GET /api/branding — logo e favicon do escritório atual.
 router.get("/", (req, res) => {
-  const org = db.prepare("SELECT logo, favicon, name FROM organizations WHERE id = ?").get(req.orgId);
-  res.json({ logo: org?.logo || null, favicon: org?.favicon || null, name: org?.name || null });
+  const org = db.prepare("SELECT logo, favicon, name, approval_mode FROM organizations WHERE id = ?").get(req.orgId);
+  res.json({
+    logo: org?.logo || null, favicon: org?.favicon || null, name: org?.name || null,
+    approval_mode: org?.approval_mode || "notify",
+  });
+});
+
+// PUT /api/branding/approval-mode — 'notify' (avisar a equipe) | 'auto' (programar direto).
+router.put("/approval-mode", adminRequired, (req, res) => {
+  const mode = req.body?.approval_mode === "auto" ? "auto" : "notify";
+  db.prepare("UPDATE organizations SET approval_mode = ? WHERE id = ?").run(mode, req.orgId);
+  res.json({ ok: true, approval_mode: mode });
 });
 
 // PUT /api/branding — atualiza logo e/ou favicon (data URI). Só admin.

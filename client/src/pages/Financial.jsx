@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import {
   Button, Card, Grid, Table, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Tabs, Tab, Divider,
+  FormControlLabel, Switch, Typography,
 } from "@mui/material";
+import RepeatIcon from "@mui/icons-material/Repeat";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -15,7 +19,10 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
 
-const EMPTY = { type: "income", description: "", amount: "", client_id: "", category: "", status: "pending", due_date: "" };
+const EMPTY = {
+  type: "income", description: "", amount: "", client_id: "", category: "", status: "pending",
+  due_date: "", recurring: false, recurring_day: "", months: 12,
+};
 
 // Intervalos de período. Abre no mês atual; dá para ampliar.
 function periodoRange(chave) {
@@ -41,17 +48,29 @@ export default function Financial() {
   const [renewals, setRenewals] = useState([]);
   const [tab, setTab] = useState("all");
   const [periodo, setPeriodo] = useState("mes"); // abre no mês atual
+  const [mesCursor, setMesCursor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
+  const [flash, setFlash] = useState("");
+
+  // No modo "Este mês", o mês é o do cursor (dá para andar ◀ ▶). Nos demais, o range fixo.
+  const ymd = (d) => d.toISOString().slice(0, 10);
+  const rangeAtual = () => periodo === "mes"
+    ? {
+        from: ymd(new Date(mesCursor.getFullYear(), mesCursor.getMonth(), 1)),
+        to: ymd(new Date(mesCursor.getFullYear(), mesCursor.getMonth() + 1, 0)),
+      }
+    : periodoRange(periodo);
 
   const load = () => {
-    const params = periodoRange(periodo);
+    const params = rangeAtual();
     api.get("/financial", { params }).then((r) => setRows(r.data));
     api.get("/financial/summary", { params }).then((r) => setSummary(r.data));
   };
   // Ao vivo: 'vFinancial' muda quando alguém lança/edita no financeiro.
   const vFinancial = useLiveVersion("financial");
-  useEffect(() => { load(); }, [periodo, vFinancial]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [periodo, mesCursor, vFinancial]);
   useEffect(() => {
     api.get("/clients").then((r) => setClients(r.data));
     api.get("/financial/renewals").then((r) => setRenewals(r.data)).catch(() => {});
@@ -62,8 +81,21 @@ export default function Financial() {
 
   async function save() {
     const payload = { ...draft, amount: Number(draft.amount) || 0, client_id: draft.client_id || null };
-    if (draft.id) await api.put(`/financial/${draft.id}`, payload);
-    else await api.post("/financial", payload);
+    if (draft.id) {
+      await api.put(`/financial/${draft.id}`, payload);
+    } else if (draft.recurring) {
+      // Recorrente: o backend cria uma parcela por mês.
+      const r = await api.post("/financial", {
+        ...payload, recurring: true,
+        recurring_day: Number(draft.recurring_day) || undefined,
+        months: Number(draft.months) || 12,
+      });
+      const n = r.data?.count || 0;
+      setFlash(`Criei ${n} parcela(s) mensais no dia ${draft.recurring_day || "escolhido"}.`);
+      setTimeout(() => setFlash(""), 6000);
+    } else {
+      await api.post("/financial", payload);
+    }
     setOpen(false);
     load();
   }
@@ -79,20 +111,53 @@ export default function Financial() {
     load();
   }
 
+  // Gera as mensalidades (receita prevista) do mês em foco a partir dos clientes.
+  async function gerarMensalidades() {
+    const month = periodo === "mes"
+      ? `${mesCursor.getFullYear()}-${String(mesCursor.getMonth() + 1).padStart(2, "0")}`
+      : new Date().toISOString().slice(0, 7);
+    try {
+      const r = await api.post("/financial/generate-monthly", { month });
+      setFlash(`Mensalidades de ${month}: ${r.data.created} criada(s), ${r.data.skipped} já existiam ou sem valor definido.`);
+    } catch (e) {
+      setFlash(e.response?.data?.error || "Não foi possível gerar as mensalidades.");
+    }
+    setTimeout(() => setFlash(""), 7000);
+    load();
+  }
+
   return (
     <>
       <PageHeader
         title="Financeiro"
         subtitle="Entradas e despesas do período"
         action={
-          <Stack direction="row" spacing={1.5}>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+            {periodo === "mes" && (
+              <Stack direction="row" alignItems="center" spacing={0.5}>
+                <IconButton size="small" onClick={() => setMesCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))}>
+                  <ChevronLeftIcon />
+                </IconButton>
+                <Typography variant="body2" sx={{ minWidth: 118, textAlign: "center", fontWeight: 600, textTransform: "capitalize" }}>
+                  {mesCursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
+                </Typography>
+                <IconButton size="small" onClick={() => setMesCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}>
+                  <ChevronRightIcon />
+                </IconButton>
+              </Stack>
+            )}
             <TextField select size="small" value={periodo} onChange={(e) => setPeriodo(e.target.value)} sx={{ minWidth: 160 }}>
               {PERIODOS.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
             </TextField>
+            <Tooltip title="Lança a mensalidade de cada cliente como receita prevista deste mês (não duplica)">
+              <Button variant="outlined" startIcon={<RepeatIcon />} onClick={gerarMensalidades}>Gerar mensalidades</Button>
+            </Tooltip>
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>Lançar</Button>
           </Stack>
         }
       />
+
+      {flash && <Alert severity="success" sx={{ mb: 2.5 }}>{flash}</Alert>}
 
       {/* Contratos encerrando no próximo mês */}
       {renewals.length > 0 && (
@@ -103,20 +168,23 @@ export default function Financial() {
         </Alert>
       )}
 
-      <Grid container spacing={2.5} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={2.4}>
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={6} sm={4} md={2}>
           <StatCard label="Previsão de entrada" value={summary ? currency(summary.income) : undefined} />
         </Grid>
-        <Grid item xs={12} sm={6} md={2.4}>
+        <Grid item xs={6} sm={4} md={2}>
           <StatCard label="A receber" value={summary ? currency(Math.max(0, (summary.income || 0) - (summary.paidIncome || 0))) : undefined} />
         </Grid>
-        <Grid item xs={12} sm={6} md={2.4}>
+        <Grid item xs={6} sm={4} md={2}>
           <StatCard label="Já entrou" value={summary ? currency(summary.paidIncome) : undefined} />
         </Grid>
-        <Grid item xs={12} sm={6} md={2.4}>
-          <StatCard label="Despesas do período" value={summary ? currency(summary.expense) : undefined} />
+        <Grid item xs={6} sm={4} md={2}>
+          <StatCard label="Despesas previstas" value={summary ? currency(summary.expense) : undefined} />
         </Grid>
-        <Grid item xs={12} sm={6} md={2.4}>
+        <Grid item xs={6} sm={4} md={2}>
+          <StatCard label="A pagar" value={summary ? currency(Math.max(0, (summary.expense || 0) - (summary.paidExpense || 0))) : undefined} />
+        </Grid>
+        <Grid item xs={6} sm={4} md={2}>
           <StatCard label="Lucro realizado" value={summary ? currency(summary.lucroRealizado) : undefined} />
         </Grid>
       </Grid>
@@ -141,7 +209,13 @@ export default function Financial() {
           <TableBody>
             {filtered.map((f) => (
               <TableRow key={f.id} hover>
-                <TableCell>{f.description}</TableCell>
+                <TableCell>
+                  {f.description}
+                  {f.recurring ? (
+                    <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
+                      label="Mensal" sx={{ ml: 1, height: 20 }} />
+                  ) : null}
+                </TableCell>
                 <TableCell>{f.client_name || "—"}</TableCell>
                 <TableCell>{formatDate(f.due_date)}</TableCell>
                 <TableCell><Chip size="small" label={f.status === "paid" ? "Pago" : "Pendente"} color={f.status === "paid" ? "success" : "warning"} /></TableCell>
@@ -150,7 +224,7 @@ export default function Financial() {
                 </TableCell>
                 <TableCell align="right">
                   {f.status !== "paid" && (
-                    <Tooltip title="Marcar como pago">
+                    <Tooltip title={f.type === "income" ? "Marcar como recebido" : "Marcar como pago"}>
                       <IconButton size="small" color="success" onClick={() => markPaid(f)}>
                         <CheckCircleIcon fontSize="small" />
                       </IconButton>
@@ -192,6 +266,37 @@ export default function Financial() {
                 <MenuItem value="paid">Pago</MenuItem>
               </TextField>
             </Stack>
+
+            {/* Recorrência mensal — só ao criar um lançamento novo. */}
+            {!draft.id && (
+              <>
+                <FormControlLabel
+                  control={
+                    <Switch checked={!!draft.recurring}
+                      onChange={(e) => setDraft((d) => ({ ...d, recurring: e.target.checked }))} />
+                  }
+                  label="Repetir todo mês"
+                />
+                {draft.recurring && (
+                  <Stack spacing={1}>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                      <TextField label="Dia do mês" type="number" inputProps={{ min: 1, max: 31 }}
+                        value={draft.recurring_day}
+                        onChange={(e) => setDraft((d) => ({ ...d, recurring_day: e.target.value }))}
+                        fullWidth helperText="Ex.: 10 = todo dia 10" />
+                      <TextField label="Por quantos meses" type="number" inputProps={{ min: 1, max: 36 }}
+                        value={draft.months}
+                        onChange={(e) => setDraft((d) => ({ ...d, months: e.target.value }))}
+                        fullWidth helperText="Cria uma parcela por mês" />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">
+                      Vou criar {Number(draft.months) || 12} lançamento(s), um por mês, sempre no dia{" "}
+                      {draft.recurring_day || "informado"}. Cada um pode ser editado ou excluído depois.
+                    </Typography>
+                  </Stack>
+                )}
+              </>
+            )}
 
             <Divider>Pagamento pelo portal do cliente (opcional)</Divider>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>

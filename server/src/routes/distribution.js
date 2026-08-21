@@ -50,7 +50,25 @@ router.get("/", (req, res) => {
     )
     .all(params);
 
-  res.json({ stage: { id: stage.id, name: stage.name }, items });
+  // Panorama completo (o "calendário"): TODOS os posts com data marcada do
+  // escritório (ou do cliente filtrado) — para as visões Lista/Perfil/Calendário.
+  const swhere = ["t.org_id = @org_id", "t.scheduled_at IS NOT NULL"];
+  if (req.query.client_id) swhere.push("t.client_id = @client_id");
+  const scheduled = db
+    .prepare(
+      `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
+              t.approval_status, t.client_id, t.cover_file_id,
+              c.name AS client_name, s.is_done AS stage_done,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+       FROM tasks t
+       LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN kanban_stages s ON s.id = t.stage_id
+       WHERE ${swhere.join(" AND ")}
+       ORDER BY t.scheduled_at DESC`
+    )
+    .all(params);
+
+  res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled });
 });
 
 // POST /api/distribution/reorder — reordena o feed: recebe a nova data/hora de

@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, Chip, IconButton, Stack, Dialog,
-  DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Divider, Tooltip,
+  DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Tooltip,
   Alert,
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ChatIcon from "@mui/icons-material/Chat";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
+import DoneAllIcon from "@mui/icons-material/DoneAll";
+import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -35,6 +36,9 @@ export default function Prospects() {
   const [contato, setContato] = useState(null); // prospect recebendo novo contato
   const [novoContato, setNovoContato] = useState({ channel: "whatsapp", summary: "", touch_date: "" });
   const [msg, setMsg] = useState("");
+  // Arraste-e-solte entre colunas.
+  const dragId = useRef(null);
+  const [overCol, setOverCol] = useState(null);
 
   const load = () => api.get("/prospects").then((r) => setRows(r.data)).catch(() => {});
   // Ao vivo: recarrega quando alguém mexe na prospecção.
@@ -71,13 +75,47 @@ export default function Prospects() {
     load();
   }
 
+  // "Finalizar" = encerrar a negociação que não virou cliente (vai para "Não rolou").
+  async function finalizar(p) {
+    if (!confirm(`Finalizar ${p.name}? Ele vai para "Não rolou" e sai do funil ativo.`)) return;
+    await mudarStatus(p, "perdido");
+    setMsg(`${p.name} foi finalizado (Não rolou).`);
+    setTimeout(() => setMsg(""), 5000);
+  }
+
+  // Muda a situação (ao arrastar entre colunas ou pelos botões). Atualiza na hora
+  // e, se der erro, recarrega para voltar ao estado real.
+  async function mudarStatus(p, status) {
+    if (p.status === status) return;
+    setRows((rs) => rs.map((r) => (r.id === p.id ? { ...r, status } : r)));
+    try { await api.put(`/prospects/${p.id}`, { status }); }
+    catch { load(); }
+  }
+
+  function onDrop(colKey) {
+    const id = dragId.current;
+    dragId.current = null;
+    setOverCol(null);
+    const p = rows.find((r) => r.id === id);
+    if (p) mudarStatus(p, colKey);
+  }
+
   const porStatus = (key) => rows.filter((p) => p.status === key);
+
+  // Resumo (mini-relatório): quantos em cada fase, quantos viraram cliente e a
+  // taxa de conversão sobre o total já trabalhado.
+  const total = rows.length;
+  const fechados = porStatus("fechado").length;
+  const perdidos = porStatus("perdido").length;
+  const ativos = total - fechados - perdidos;
+  const encerrados = fechados + perdidos;
+  const conversao = encerrados ? Math.round((fechados / encerrados) * 100) : 0;
 
   return (
     <>
       <PageHeader
         title="Prospecção"
-        subtitle="Quem ainda não é cliente e o histórico de cada conversa"
+        subtitle="Arraste os cartões entre as colunas conforme a conversa anda"
         action={
           <Button variant="contained" startIcon={<AddIcon />}
             onClick={() => { setDraft(EMPTY); setOpen(true); }}>
@@ -88,30 +126,57 @@ export default function Prospects() {
 
       {msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
 
+      {/* Mini-relatório do funil */}
+      {rows.length > 0 && (
+        <Stack direction="row" spacing={1} sx={{ mb: 2.5, flexWrap: "wrap", gap: 1 }}>
+          <Chip color="primary" variant="outlined" label={`No funil: ${ativos}`} />
+          <Chip color="success" variant="outlined" label={`Viraram cliente: ${fechados}`} />
+          <Chip variant="outlined" label={`Não rolou: ${perdidos}`} />
+          <Chip color="success" label={`Conversão: ${conversao}%`}
+            title="Fechados ÷ (fechados + não rolou)" />
+        </Stack>
+      )}
+
       {rows.length === 0 ? (
         <EmptyState message="Ninguém na prospecção ainda. Anote quem você quer atender."
           action={<Button onClick={() => { setDraft(EMPTY); setOpen(true); }}>Adicionar</Button>} />
       ) : (
         <Box sx={{ display: "flex", gap: 2, overflowX: "auto", pb: 2, alignItems: "flex-start" }}>
           {COLUNAS.map((col) => (
-            <Box key={col.key} sx={{ minWidth: 290, width: 290, flexShrink: 0 }}>
+            <Box key={col.key}
+              onDragOver={(e) => { e.preventDefault(); setOverCol(col.key); }}
+              onDragLeave={() => setOverCol((c) => (c === col.key ? null : c))}
+              onDrop={() => onDrop(col.key)}
+              sx={{
+                minWidth: 290, width: 290, flexShrink: 0, borderRadius: 2, p: 0.75,
+                transition: "background-color .15s ease",
+                bgcolor: overCol === col.key ? "action.hover" : "transparent",
+                outline: overCol === col.key ? "2px dashed" : "none",
+                outlineColor: "primary.main",
+              }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5, mb: 1 }}>
                 <Typography sx={{ fontWeight: 700 }}>{col.label}</Typography>
                 <Chip size="small" label={porStatus(col.key).length} />
               </Stack>
               <Stack spacing={1.5}>
                 {porStatus(col.key).map((p) => (
-                  <Card key={p.id} sx={{ "&:hover": { borderColor: "primary.main" }, transition: "border-color .15s ease" }}>
+                  <Card key={p.id} draggable
+                    onDragStart={() => { dragId.current = p.id; }}
+                    onDragEnd={() => { dragId.current = null; setOverCol(null); }}
+                    sx={{ cursor: "grab", "&:hover": { borderColor: "primary.main" }, transition: "border-color .15s ease", "&:active": { cursor: "grabbing" } }}>
                     <CardContent sx={{ p: 1.75, "&:last-child": { pb: 1.75 } }}>
                       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                        <Box sx={{ minWidth: 0 }}>
-                          <Typography sx={{ fontWeight: 600, fontSize: 14.5 }}>{p.name}</Typography>
-                          {p.company && (
-                            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                              {p.company}
-                            </Typography>
-                          )}
-                        </Box>
+                        <Stack direction="row" spacing={0.5} sx={{ minWidth: 0 }}>
+                          <DragIndicatorIcon sx={{ fontSize: 18, color: "text.disabled", mt: 0.25, flexShrink: 0 }} />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontWeight: 600, fontSize: 14.5 }}>{p.name}</Typography>
+                            {p.company && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                                {p.company}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Stack>
                         <Box sx={{ flexShrink: 0 }}>
                           <IconButton size="small" onClick={() => { setDraft({ ...p }); setOpen(true); }}>
                             <EditIcon sx={{ fontSize: 15 }} />
@@ -156,16 +221,25 @@ export default function Prospects() {
                         </Box>
                       )}
 
-                      <Stack direction="row" spacing={1} sx={{ mt: 1.25 }}>
+                      <Stack direction="row" spacing={0.75} sx={{ mt: 1.25, flexWrap: "wrap", gap: 0.5 }}>
                         <Button size="small" startIcon={<ChatIcon sx={{ fontSize: 15 }} />}
                           onClick={() => setContato(p)}>
                           {p.touches?.length ? `${p.touches.length + 1}º contato` : "1º contato"}
                         </Button>
                         {p.status !== "fechado" && (
-                          <Tooltip title="Virou cliente">
-                            <IconButton size="small" color="success" onClick={() => virarCliente(p)}>
-                              <HowToRegIcon fontSize="small" />
-                            </IconButton>
+                          <Button size="small" color="success" variant="outlined"
+                            startIcon={<HowToRegIcon sx={{ fontSize: 16 }} />}
+                            onClick={() => virarCliente(p)}>
+                            Tornar cliente
+                          </Button>
+                        )}
+                        {p.status !== "perdido" && p.status !== "fechado" && (
+                          <Tooltip title="Encerrar — não virou cliente">
+                            <Button size="small" color="inherit"
+                              startIcon={<DoneAllIcon sx={{ fontSize: 16 }} />}
+                              onClick={() => finalizar(p)}>
+                              Finalizar
+                            </Button>
                           </Tooltip>
                         )}
                       </Stack>
@@ -174,7 +248,7 @@ export default function Prospects() {
                 ))}
                 {porStatus(col.key).length === 0 && (
                   <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", py: 2 }}>
-                    Ninguém aqui
+                    Arraste um cartão para cá
                   </Typography>
                 )}
               </Stack>

@@ -151,6 +151,28 @@ router.get("/gallery", (req, res) => {
   res.json(out);
 });
 
+// ---- Galeria por PASTAS (a mesma estrutura da aba Galeria da equipe) --------
+// GET /api/portal/gallery-folders?parent_id=
+router.get("/gallery-folders", (req, res) => {
+  const where = ["client_id = @client_id"];
+  const params = { client_id: req.client.client_id };
+  where.push(req.query.parent_id ? "parent_id = @parent_id" : "parent_id IS NULL");
+  if (req.query.parent_id) params.parent_id = req.query.parent_id;
+  res.json(db.prepare(`SELECT id, name, parent_id FROM folders WHERE ${where.join(" AND ")} ORDER BY name`).all(params));
+});
+
+// GET /api/portal/gallery-files?folder_id=  (fotos e vídeos da pasta)
+router.get("/gallery-files", (req, res) => {
+  const where = ["client_id = @client_id"];
+  const params = { client_id: req.client.client_id };
+  where.push(req.query.folder_id ? "folder_id = @folder_id" : "folder_id IS NULL");
+  if (req.query.folder_id) params.folder_id = req.query.folder_id;
+  const rows = db.prepare(
+    `SELECT id, original_name, mime, size FROM files WHERE ${where.join(" AND ")} ORDER BY created_at DESC`
+  ).all(params);
+  res.json(rows.filter((f) => /^(image|video)\//.test(f.mime || "")));
+});
+
 // ---- Calendário (só os posts do cliente) ------------------------------------
 router.get("/calendar", (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7);
@@ -193,14 +215,19 @@ function getOwnTask(req, res) {
 router.post("/approvals/:id/approve", (req, res) => {
   const task = getOwnTask(req, res);
   if (!task) return;
-  // Aprovado pelo cliente → vai para a etapa final "Programados" e segue
-  // aparecendo no calendário com a data marcada.
-  const next = db
-    .prepare("SELECT * FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1")
-    .get(task.org_id);
+  // Modo do escritório: 'auto' programa direto (vai para "Programados"); 'notify'
+  // (padrão) apenas marca aprovado e avisa a equipe, que clica em "Programar".
+  const org = db.prepare("SELECT approval_mode FROM organizations WHERE id = ?").get(task.org_id);
+  const auto = (org?.approval_mode || "notify") === "auto";
+  const next = auto
+    ? db.prepare("SELECT * FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1").get(task.org_id)
+    : null;
   db.prepare("UPDATE tasks SET approval_status = 'approved', stage_id = COALESCE(?, stage_id) WHERE id = ?")
     .run(next?.id ?? null, task.id);
-  notifyAgency(task.client_id, task.id, `✅ ${req.client.name} aprovou "${task.title}".`, task.org_id);
+  const aviso = auto
+    ? `✅ ${req.client.name} aprovou "${task.title}" — programado.`
+    : `✅ ${req.client.name} aprovou "${task.title}". Clique em Programar para agendar.`;
+  notifyAgency(task.client_id, task.id, aviso, task.org_id);
   res.json({ ok: true });
 });
 
@@ -209,16 +236,23 @@ router.post("/approvals/:id/approve", (req, res) => {
 router.post("/approvals/:id/request-changes", (req, res) => {
   const task = getOwnTask(req, res);
   if (!task) return;
-  const { client_caption, client_note } = req.body || {};
-  if (!client_caption && !client_note) {
-    return res.status(400).json({ error: "Edite a legenda ou escreva uma observação." });
+  const { client_caption, client_note, client_ref_file_id } = req.body || {};
+  if (!client_caption && !client_note && !client_ref_file_id) {
+    return res.status(400).json({ error: "Edite a legenda, escreva uma observação ou aponte um arquivo." });
+  }
+  // Referência: só aceita um arquivo que seja do próprio cliente.
+  let refId = null;
+  if (client_ref_file_id) {
+    const own = db.prepare("SELECT id FROM files WHERE id = ? AND client_id = ?")
+      .get(client_ref_file_id, req.client.client_id);
+    refId = own?.id ?? null;
   }
   // Pediu ajuste → volta para a Distribuição, para a equipe corrigir e reenviar.
   const back = findStageByName("%Distribui%", task.org_id);
   db.prepare(
     `UPDATE tasks SET approval_status = 'changes_requested',
-     client_caption = ?, client_note = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
-  ).run(client_caption ?? null, client_note ?? null, back?.id ?? null, task.id);
+     client_caption = ?, client_note = ?, client_ref_file_id = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
+  ).run(client_caption ?? null, client_note ?? null, refId, back?.id ?? null, task.id);
   notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`, task.org_id);
   res.json({ ok: true });
 });

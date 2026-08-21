@@ -113,6 +113,27 @@ CREATE TABLE IF NOT EXISTS financial_entries (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Documentos ligados (Google Docs/Sheets/Slides) para abrir dentro do sistema.
+CREATE TABLE IF NOT EXISTS org_docs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  client_id     INTEGER REFERENCES clients(id) ON DELETE CASCADE, -- null = geral
+  title         TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Planejamento: datas importantes por empresa (efemérides, campanhas, prazos).
+CREATE TABLE IF NOT EXISTS planning_dates (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  client_id     INTEGER REFERENCES clients(id) ON DELETE CASCADE, -- null = geral (todas)
+  date          TEXT NOT NULL,                        -- 'AAAA-MM-DD'
+  title         TEXT NOT NULL,
+  notes         TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS contracts (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   client_id      INTEGER REFERENCES clients(id) ON DELETE SET NULL,
@@ -237,6 +258,8 @@ ensureColumn("tasks", "scheduled_at", "scheduled_at TEXT");
 ensureColumn("tasks", "approval_status", "approval_status TEXT NOT NULL DEFAULT 'pending'");
 ensureColumn("tasks", "client_caption", "client_caption TEXT");
 ensureColumn("tasks", "client_note", "client_note TEXT");
+// Arquivo da galeria que o cliente apontou ao pedir ajuste (referência visual).
+ensureColumn("tasks", "client_ref_file_id", "client_ref_file_id INTEGER");
 // Capa do post na "visão de perfil" (foto separada). Vazio = usa a própria arte.
 ensureColumn("tasks", "cover_file_id", "cover_file_id INTEGER");
 // Quantidade agrupada: ao lançar, cria 1 tarefa por tipo com N peças dentro.
@@ -274,6 +297,9 @@ ensureColumn("financial_entries", "payment_link", "payment_link TEXT");
 ensureColumn("financial_entries", "pix_code", "pix_code TEXT");
 ensureColumn("financial_entries", "boleto_url", "boleto_url TEXT");
 ensureColumn("financial_entries", "invoice_url", "invoice_url TEXT");
+// Despesa/receita mensal recorrente: marca as parcelas geradas e o dia do mês.
+ensureColumn("financial_entries", "recurring", "recurring INTEGER NOT NULL DEFAULT 0");
+ensureColumn("financial_entries", "recurring_day", "recurring_day INTEGER");
 
 // ---------------------------------------------------------------------------
 // Multi-escritório: cada agência só enxerga os próprios dados. O escritório
@@ -287,6 +313,9 @@ ensureColumn("users", "must_change_password", "must_change_password INTEGER NOT 
 // Marca do escritório: logo da barra superior e favicon (guardados como
 // data URI — carregam sem depender de rede nem de login).
 ensureColumn("organizations", "logo", "logo TEXT");
+// Ao aprovar: 'notify' avisa a equipe (padrão); 'auto' programa direto (move
+// para "Programados"). A publicação real no Instagram depende do app Meta.
+ensureColumn("organizations", "approval_mode", "approval_mode TEXT NOT NULL DEFAULT 'notify'");
 ensureColumn("organizations", "favicon", "favicon TEXT");
 
 // Assinatura de cada agência com o Perspecta Media: plano, teste e cobrança.
