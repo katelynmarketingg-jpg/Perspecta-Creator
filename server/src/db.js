@@ -341,6 +341,9 @@ ensureColumn("organizations", "logo", "logo TEXT");
 // Ao aprovar: 'notify' avisa a equipe (padrão); 'auto' programa direto (move
 // para "Programados"). A publicação real no Instagram depende do app Meta.
 ensureColumn("organizations", "approval_mode", "approval_mode TEXT NOT NULL DEFAULT 'notify'");
+// Formas de pagamento oferecidas ao cliente (JSON): quais provedores estão
+// ligados, seus links e se o juro do parcelamento fica por conta do cliente.
+ensureColumn("organizations", "pay_config", "pay_config TEXT");
 ensureColumn("organizations", "favicon", "favicon TEXT");
 
 // Assinatura de cada agência com o Perspecta Media: plano, teste e cobrança.
