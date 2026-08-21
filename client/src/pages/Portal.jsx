@@ -26,6 +26,7 @@ import { currency, formatDate, formatTime, CONTENT_TYPES } from "../utils.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 // Imagem/vídeo anexado, carregado com o token do portal.
 function AuthImg({ fileId, alt, mime, maxHeight = 360 }) {
@@ -313,6 +314,7 @@ export default function Portal() {
   const client = JSON.parse(localStorage.getItem("portal_client") || "null");
   const [tab, setTab] = useState("approvals");
   const [galleryMode, setGalleryMode] = useState("pastas"); // pastas | etapas
+  const [calView, setCalView] = useState("lista"); // lista | grade
   const [approvals, setApprovals] = useState([]);
   const [payments, setPayments] = useState([]);
   const [contracts, setContracts] = useState([]);
@@ -381,6 +383,16 @@ export default function Portal() {
     return map;
   }, [posts]);
   const sortedDays = Object.keys(byDay).map(Number).sort((a, b) => a - b);
+  const gridCells = useMemo(() => {
+    const y = cursor.getFullYear(), m = cursor.getMonth();
+    const first = new Date(y, m, 1).getDay();
+    const days = new Date(y, m + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < first; i++) cells.push(null);
+    for (let d = 1; d <= days; d++) cells.push(d);
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  }, [cursor]);
 
   function logout() {
     localStorage.removeItem("portal_token");
@@ -455,14 +467,60 @@ export default function Portal() {
         {/* ---- Calendário ---- */}
         {tab === "calendar" && (
           <>
-            <Stack direction="row" alignItems="center" justifyContent="center" spacing={2} sx={{ mb: 2.5 }}>
+            <Stack direction="row" alignItems="center" justifyContent="center" spacing={2} sx={{ mb: 1.5 }}>
               <IconButton onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))}><ChevronLeftIcon /></IconButton>
               <Typography variant="h6" sx={{ minWidth: 190, textAlign: "center" }}>
                 {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
               </Typography>
               <IconButton onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}><ChevronRightIcon /></IconButton>
             </Stack>
-            {sortedDays.length === 0 ? (
+            <Stack direction="row" justifyContent="center" sx={{ mb: 2.5 }}>
+              <ToggleButtonGroup size="small" exclusive value={calView} onChange={(_, v) => v && setCalView(v)}>
+                <ToggleButton value="grade">Calendário</ToggleButton>
+                <ToggleButton value="lista">Lista</ToggleButton>
+              </ToggleButtonGroup>
+            </Stack>
+
+            {calView === "grade" ? (
+              sortedDays.length === 0 ? (
+                <Card><CardContent sx={{ textAlign: "center", py: 5 }}>
+                  <Typography color="text.secondary">Nada programado neste mês.</Typography>
+                </CardContent></Card>
+              ) : (
+                <Card>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: 1, borderColor: "divider" }}>
+                    {WEEKDAYS.map((w) => (
+                      <Typography key={w} variant="caption" sx={{ p: 1, textAlign: "center", fontWeight: 700, color: "text.secondary" }}>{w}</Typography>
+                    ))}
+                  </Box>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+                    {gridCells.map((day, i) => (
+                      <Box key={i} sx={{ minHeight: 92, p: 0.5, borderRight: (i + 1) % 7 !== 0 ? 1 : 0, borderBottom: i < gridCells.length - 7 ? 1 : 0, borderColor: "divider" }}>
+                        {day && (
+                          <>
+                            <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>{day}</Typography>
+                            <Stack spacing={0.5} sx={{ mt: 0.4 }}>
+                              {(byDay[day] || []).slice(0, 2).map((p) => (
+                                <Box key={p.id} onClick={() => setOpenPost(p)}
+                                  sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", position: "relative", "&:hover": { borderColor: "primary.main" } }}>
+                                  {p.file_id ? <PortalThumb fileId={p.file_id} size={44} /> : <Box sx={{ height: 44, bgcolor: "action.hover" }} />}
+                                  <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
+                                    {formatTime(p.scheduled_at)}
+                                  </Box>
+                                </Box>
+                              ))}
+                              {(byDay[day] || []).length > 2 && (
+                                <Typography variant="caption" color="text.secondary" sx={{ pl: 0.5 }}>+{byDay[day].length - 2}</Typography>
+                              )}
+                            </Stack>
+                          </>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                </Card>
+              )
+            ) : sortedDays.length === 0 ? (
               <Card><CardContent sx={{ textAlign: "center", py: 5 }}>
                 <Typography color="text.secondary">Nada programado neste mês.</Typography>
               </CardContent></Card>
