@@ -15,9 +15,11 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EventIcon from "@mui/icons-material/Event";
+import CelebrationIcon from "@mui/icons-material/Celebration";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
+import { seasonalFor, CATEGORY_COLOR } from "../data/seasonalDates.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -97,6 +99,16 @@ export default function Planning() {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [dayOpen, setDayOpen] = useState(null); // iso do dia aberto
   const [draft, setDraft] = useState(null);      // { id?, date, title, notes, client_id }
+  const [seasonalOpen, setSeasonalOpen] = useState(false);
+
+  // Datas comemorativas do ano em foco + quais já foram adicionadas.
+  const catalogo = useMemo(() => seasonalFor(cursor.getFullYear()), [cursor]);
+  const jaAdicionadas = useMemo(() => new Set(dates.map((e) => `${e.date}|${e.title}`)), [dates]);
+
+  async function adicionarSazonal(d) {
+    await api.post("/planning", { date: d.date, title: d.name, notes: "Data comemorativa", client_id: clientFilter || null });
+    load();
+  }
 
   const load = () => {
     const params = clientFilter ? { client_id: clientFilter } : {};
@@ -180,6 +192,9 @@ export default function Planning() {
               <MenuItem value="">Todas</MenuItem>
               {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </TextField>
+            <Button size="small" variant="outlined" startIcon={<CelebrationIcon />} onClick={() => setSeasonalOpen(true)}>
+              Datas comemorativas
+            </Button>
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
               <ToggleButton value="mes" aria-label="Mês"><Tooltip title="Mês"><CalendarViewMonthIcon fontSize="small" /></Tooltip></ToggleButton>
               <ToggleButton value="trimestre" aria-label="Trimestre"><Tooltip title="Trimestre"><CalendarViewWeekIcon fontSize="small" /></Tooltip></ToggleButton>
@@ -352,6 +367,43 @@ export default function Planning() {
           <Button onClick={() => setDraft(null)}>Cancelar</Button>
           <Button variant="contained" onClick={salvar} disabled={!draft?.title || !draft?.date}>Salvar</Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Catálogo de datas comemorativas — clicar adiciona ao planejamento */}
+      <Dialog open={seasonalOpen} onClose={() => setSeasonalOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <span>Datas comemorativas</span>
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <IconButton size="small" onClick={() => setCursor((c) => new Date(c.getFullYear() - 1, c.getMonth(), 1))}><ChevronLeftIcon /></IconButton>
+              <Typography sx={{ fontWeight: 700, minWidth: 48, textAlign: "center" }}>{cursor.getFullYear()}</Typography>
+              <IconButton size="small" onClick={() => setCursor((c) => new Date(c.getFullYear() + 1, c.getMonth(), 1))}><ChevronRightIcon /></IconButton>
+            </Stack>
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Adiciona ao planejamento {clientFilter ? `de ${clientName(clientFilter)}` : "(Geral — todas as empresas)"}.
+            As datas móveis (Mães, Pais, Black Friday, Páscoa…) já vêm no dia certo do ano.
+          </Typography>
+          <Stack spacing={0}>
+            {catalogo.map((d) => {
+              const added = jaAdicionadas.has(`${d.date}|${d.name}`);
+              return (
+                <Stack key={d.date + d.name} direction="row" spacing={1} alignItems="center"
+                  sx={{ borderBottom: 1, borderColor: "divider", py: 0.6 }}>
+                  <Chip size="small" label={brDate(d.date)} sx={{ fontWeight: 700, minWidth: 78 }} />
+                  <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }} noWrap>{d.name}</Typography>
+                  <Chip size="small" variant="outlined" color={CATEGORY_COLOR[d.category] || "default"} label={d.category} />
+                  <Button size="small" disabled={added} onClick={() => adicionarSazonal(d)}>
+                    {added ? "✓ Adicionada" : "Adicionar"}
+                  </Button>
+                </Stack>
+              );
+            })}
+          </Stack>
+        </DialogContent>
+        <DialogActions><Button onClick={() => setSeasonalOpen(false)}>Fechar</Button></DialogActions>
       </Dialog>
     </>
   );
