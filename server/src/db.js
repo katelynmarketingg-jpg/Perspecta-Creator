@@ -113,6 +113,16 @@ CREATE TABLE IF NOT EXISTS financial_entries (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Documentos ligados (Google Docs/Sheets/Slides) para abrir dentro do sistema.
+CREATE TABLE IF NOT EXISTS org_docs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  client_id     INTEGER REFERENCES clients(id) ON DELETE CASCADE, -- null = geral
+  title         TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Planejamento: datas importantes por empresa (efemérides, campanhas, prazos).
 CREATE TABLE IF NOT EXISTS planning_dates (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
