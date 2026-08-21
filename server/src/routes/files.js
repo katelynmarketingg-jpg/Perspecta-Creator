@@ -96,6 +96,30 @@ router.post("/folders", (req, res) => {
   res.status(201).json(db.prepare("SELECT * FROM folders WHERE id = ?").get(info.lastInsertRowid));
 });
 
+// Pastas que já vêm prontas dentro de cada cliente (as antigas "etapas").
+// A dona da agência pode apagar as que não usar e criar outras à vontade.
+const DEFAULT_FOLDERS = ["Originais", "Editados", "Para aprovação", "Aprovados", "Programados"];
+
+// POST /api/files/folders/ensure-defaults { client_id }
+// Garante as pastas padrão na raiz do cliente (cria só as que faltam). Idempotente.
+router.post("/folders/ensure-defaults", (req, res) => {
+  const clientId = req.body?.client_id;
+  if (!clientId) return res.status(400).json({ error: "Informe o cliente." });
+  const existentes = db
+    .prepare("SELECT name FROM folders WHERE org_id = ? AND client_id = ? AND parent_id IS NULL")
+    .all(req.orgId, clientId);
+  const tem = new Set(existentes.map((f) => f.name));
+  const ins = db.prepare("INSERT INTO folders (name, client_id, parent_id, org_id) VALUES (?, ?, NULL, ?)");
+  const tx = db.transaction(() => {
+    DEFAULT_FOLDERS.forEach((nome) => { if (!tem.has(nome)) ins.run(nome, clientId, req.orgId); });
+  });
+  tx();
+  res.json(
+    db.prepare("SELECT * FROM folders WHERE org_id = ? AND client_id = ? AND parent_id IS NULL ORDER BY name")
+      .all(req.orgId, clientId)
+  );
+});
+
 router.delete("/folders/:id", (req, res) => {
   const folder = db.prepare("SELECT id FROM folders WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!folder) return res.status(404).json({ error: "Pasta não encontrada." });

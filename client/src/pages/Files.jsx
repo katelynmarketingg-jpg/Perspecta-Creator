@@ -21,6 +21,17 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
 import { fileSize } from "../utils.js";
 
+// Ordem lógica das pastas padrão (as que nascem dentro de cada cliente).
+const DEFAULT_ORDER = ["Originais", "Editados", "Para aprovação", "Aprovados", "Programados"];
+function ordenarPastas(arr) {
+  const pos = (nome) => { const i = DEFAULT_ORDER.indexOf(nome); return i === -1 ? 999 : i; };
+  return [...arr].sort((a, b) => {
+    const pa = pos(a.name), pb = pos(b.name);
+    if (pa !== pb) return pa - pb;            // padrão primeiro, na ordem certa
+    return a.name.localeCompare(b.name, "pt"); // o resto, alfabético
+  });
+}
+
 function fileIcon(mime = "") {
   if (mime.startsWith("image/")) return <ImageIcon color="primary" />;
   if (mime.startsWith("video/")) return <MovieIcon color="primary" />;
@@ -111,7 +122,7 @@ export default function Files() {
     // Pastas da pasta atual (na raiz, as sem "pai").
     const fParams = { client_id: clientId };
     if (currentFolder) fParams.parent_id = currentFolder;
-    api.get("/files/folders", { params: fParams }).then((r) => setFolders(r.data)).catch(() => setFolders([]));
+    api.get("/files/folders", { params: fParams }).then((r) => setFolders(ordenarPastas(r.data))).catch(() => setFolders([]));
     // Arquivos da pasta atual (na raiz, os "soltos" sem pasta).
     const aParams = { client_id: clientId };
     if (currentFolder) aParams.folder_id = currentFolder;
@@ -121,6 +132,12 @@ export default function Files() {
     if (!clientId) { setAllFolders([]); return; }
     api.get("/files/folders", { params: { client_id: clientId, all: 1 } }).then((r) => setAllFolders(r.data)).catch(() => setAllFolders([]));
   };
+  // Ao abrir um cliente, garante as pastas padrão (Originais, Editados…) dentro dele.
+  useEffect(() => {
+    if (!clientId) return;
+    api.post("/files/folders/ensure-defaults", { client_id: clientId }).then(loadDocs).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
   // Ao vivo: 'vFiles' muda quando alguém envia/move/apaga arquivos.
   const vFiles = useLiveVersion("files");
   useEffect(() => { loadDocs(); }, [clientId, currentFolder, vFiles]);
