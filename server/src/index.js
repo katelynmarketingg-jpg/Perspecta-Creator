@@ -37,6 +37,7 @@ import taskTypesRoutes from "./routes/task-types.js";
 import distributionRoutes from "./routes/distribution.js";
 import planningRoutes from "./routes/planning.js";
 import orgDocsRoutes from "./routes/org-docs.js";
+import contractTemplatesRoutes from "./routes/contract-templates.js";
 import adminRoutes from "./routes/admin.js";
 import backupRoutes from "./routes/backup.js";
 import { startBackups } from "./backup.js";
@@ -97,6 +98,7 @@ app.use("/api/task-types", taskTypesRoutes);
 app.use("/api/distribution", distributionRoutes);
 app.use("/api/planning", planningRoutes);
 app.use("/api/org-docs", orgDocsRoutes);
+app.use("/api/contract-templates", contractTemplatesRoutes);
 app.use("/api/admin", adminRoutes); // porta de serviço (token) p/ painel central
 app.use("/api/backup", backupRoutes); // baixar o banco (só superadmin)
 app.use("/api/webhooks", billingWebhook); // Asaas confirma pagamentos aqui

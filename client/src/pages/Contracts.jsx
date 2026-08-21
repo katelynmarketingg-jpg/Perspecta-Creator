@@ -6,6 +6,8 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import ArticleIcon from "@mui/icons-material/Article";
+import PostAddIcon from "@mui/icons-material/PostAdd";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import PrintIcon from "@mui/icons-material/Print";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -29,6 +31,42 @@ export default function Contracts() {
   const [filtroCliente, setFiltroCliente] = useState("");
   const [link, setLink] = useState(null); // { url }
   const [copiado, setCopiado] = useState(false);
+  // Modelos de contrato
+  const [templates, setTemplates] = useState([]);
+  const [tplManage, setTplManage] = useState(false);       // diálogo de gerenciar modelos
+  const [tplDraft, setTplDraft] = useState(null);          // { id?, name, body }
+  const [gen, setGen] = useState(null);                    // { template_id, client_id, value, duration_months, start_date }
+  const [genMsg, setGenMsg] = useState("");
+
+  const loadTemplates = () => api.get("/contract-templates").then((r) => setTemplates(r.data)).catch(() => {});
+
+  async function salvarModelo() {
+    if (!tplDraft?.name?.trim()) return;
+    if (tplDraft.id) await api.put(`/contract-templates/${tplDraft.id}`, tplDraft);
+    else await api.post("/contract-templates", tplDraft);
+    setTplDraft(null);
+    loadTemplates();
+  }
+  async function removerModelo(id) {
+    if (!confirm("Excluir este modelo?")) return;
+    await api.delete(`/contract-templates/${id}`);
+    loadTemplates();
+  }
+  async function gerarDeModelo() {
+    try {
+      const { data } = await api.post(`/contract-templates/${gen.template_id}/generate`, {
+        client_id: gen.client_id,
+        value: Number(gen.value) || 0,
+        duration_months: gen.duration_months ? Number(gen.duration_months) : null,
+        start_date: gen.start_date || null,
+      });
+      setGen(null);
+      load();
+      setVer(data); // abre o contrato gerado para conferir e mandar assinar
+    } catch (e) {
+      setGenMsg(e.response?.data?.error || "Não foi possível gerar o contrato.");
+    }
+  }
 
   async function gerarLink(c) {
     const { data } = await api.post(`/contracts/${c.id}/sign-link`);
@@ -36,7 +74,7 @@ export default function Contracts() {
   }
 
   const load = () => api.get("/contracts").then((r) => setRows(r.data));
-  useEffect(() => { load(); api.get("/clients").then((r) => setClients(r.data)); }, []);
+  useEffect(() => { load(); loadTemplates(); api.get("/clients").then((r) => setClients(r.data)); }, []);
 
   // Ao vivo: recarrega quando alguém mexe nos contratos.
   const vContracts = useLiveVersion("contracts");
@@ -93,7 +131,16 @@ export default function Contracts() {
       <PageHeader
         title="Contratos"
         subtitle="Contratos com prazo definido ou indeterminado"
-        action={<Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>Novo contrato</Button>}
+        action={
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+            <Button variant="outlined" startIcon={<ArticleIcon />} onClick={() => { setTplManage(true); setTplDraft(null); }}>Modelos</Button>
+            <Button variant="outlined" startIcon={<PostAddIcon />} disabled={templates.length === 0}
+              onClick={() => { setGenMsg(""); setGen({ template_id: templates[0]?.id || "", client_id: "", value: "", duration_months: "", start_date: "" }); }}>
+              Gerar de modelo
+            </Button>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>Novo contrato</Button>
+          </Stack>
+        }
       />
 
       {rows.length > 0 && (
@@ -204,6 +251,94 @@ export default function Contracts() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setLink(null)}>Fechar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Gerenciar modelos de contrato */}
+      <Dialog open={tplManage} onClose={() => { setTplManage(false); setTplDraft(null); }} fullWidth maxWidth="md">
+        <DialogTitle>Modelos de contrato</DialogTitle>
+        <DialogContent>
+          {!tplDraft ? (
+            <>
+              <Button variant="contained" startIcon={<AddIcon />} sx={{ mb: 2 }}
+                onClick={() => setTplDraft({ name: "", body: "" })}>Novo modelo</Button>
+              {templates.length === 0 ? (
+                <Typography color="text.secondary">Nenhum modelo ainda. Crie um para gerar contratos rapidinho.</Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {templates.map((t) => (
+                    <Stack key={t.id} direction="row" alignItems="center" spacing={1}
+                      sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, px: 1.5, py: 1 }}>
+                      <ArticleIcon color="primary" />
+                      <Typography sx={{ flex: 1, fontWeight: 600 }} noWrap>{t.name}</Typography>
+                      <IconButton size="small" onClick={() => setTplDraft({ ...t })}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => removerModelo(t.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </>
+          ) : (
+            <Stack spacing={2} sx={{ mt: 0.5 }}>
+              <TextField label="Nome do modelo *" value={tplDraft.name} autoFocus fullWidth
+                onChange={(e) => setTplDraft((d) => ({ ...d, name: e.target.value }))}
+                placeholder="Ex: Contrato de Social Media" />
+              <Alert severity="info" sx={{ "& .MuiAlert-message": { width: "100%" } }}>
+                Use marcadores que o sistema troca sozinho ao gerar:
+                <Box sx={{ mt: 0.5, fontFamily: "monospace", fontSize: 13 }}>
+                  {"{{cliente}} {{empresa}} {{email}} {{telefone}} {{segmento}} {{endereco}} {{valor}} {{duracao}} {{data}}"}
+                </Box>
+              </Alert>
+              <TextField label="Texto do contrato" value={tplDraft.body} fullWidth multiline minRows={12}
+                onChange={(e) => setTplDraft((d) => ({ ...d, body: e.target.value }))}
+                placeholder={"CONTRATO DE PRESTAÇÃO DE SERVIÇOS\n\nContratante: {{cliente}} ({{empresa}})...\nValor: {{valor}} — {{duracao}}.\n\n{{data}}."} />
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {tplDraft ? (
+            <>
+              <Button onClick={() => setTplDraft(null)}>Voltar</Button>
+              <Button variant="contained" onClick={salvarModelo} disabled={!tplDraft.name.trim()}>Salvar modelo</Button>
+            </>
+          ) : (
+            <Button onClick={() => setTplManage(false)}>Fechar</Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Gerar contrato a partir de um modelo */}
+      <Dialog open={Boolean(gen)} onClose={() => setGen(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Gerar contrato de um modelo</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {genMsg && <Alert severity="error">{genMsg}</Alert>}
+            <TextField select label="Modelo" value={gen?.template_id || ""} fullWidth
+              onChange={(e) => setGen((g) => ({ ...g, template_id: e.target.value }))}>
+              {templates.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+            </TextField>
+            <TextField select label="Cliente *" value={gen?.client_id || ""} fullWidth
+              onChange={(e) => setGen((g) => ({ ...g, client_id: e.target.value }))}>
+              <MenuItem value="">Selecione…</MenuItem>
+              {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            </TextField>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField label="Valor" type="number" value={gen?.value || ""} fullWidth
+                onChange={(e) => setGen((g) => ({ ...g, value: e.target.value }))} />
+              <TextField label="Duração (meses)" type="number" value={gen?.duration_months || ""} fullWidth
+                onChange={(e) => setGen((g) => ({ ...g, duration_months: e.target.value }))}
+                helperText="Vazio = indeterminado" />
+            </Stack>
+            <TextField label="Início" type="date" InputLabelProps={{ shrink: true }} value={gen?.start_date || ""} fullWidth
+              onChange={(e) => setGen((g) => ({ ...g, start_date: e.target.value }))} />
+            <Typography variant="caption" color="text.secondary">
+              O sistema cria o contrato já preenchido. Depois é só abrir e mandar o link de assinatura.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGen(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={gerarDeModelo} disabled={!gen?.template_id || !gen?.client_id}>Gerar contrato</Button>
         </DialogActions>
       </Dialog>
 

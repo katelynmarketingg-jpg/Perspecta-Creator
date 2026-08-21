@@ -113,6 +113,16 @@ CREATE TABLE IF NOT EXISTS financial_entries (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Modelos de contrato: corpo com marcadores ({{cliente}}, {{valor}}...) que
+-- geram um contrato preenchido para assinatura.
+CREATE TABLE IF NOT EXISTS contract_templates (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  name          TEXT NOT NULL,
+  body          TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Documentos ligados (Google Docs/Sheets/Slides) para abrir dentro do sistema.
 CREATE TABLE IF NOT EXISTS org_docs (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
