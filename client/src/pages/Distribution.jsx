@@ -5,6 +5,7 @@ import {
   ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox,
 } from "@mui/material";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
+import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
 import SendIcon from "@mui/icons-material/Send";
 import UploadIcon from "@mui/icons-material/Upload";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
@@ -513,6 +514,8 @@ export default function Distribution() {
   const [selectMode, setSelectMode] = useState(false); // seleção múltipla na visão "Por post"
   const [checked, setChecked] = useState(() => new Set()); // ids marcados
   const [sendingBulk, setSendingBulk] = useState(false);
+  const [approved, setApproved] = useState([]); // aprovados aguardando programação
+  const [postFilter, setPostFilter] = useState("para_aprovar"); // para_aprovar | aprovados
 
   const flash = (texto, tipo = "success") => { setMsg({ texto, tipo }); setTimeout(() => setMsg(null), 4000); };
   const fetchFile = useCallback((id) => api.get(`/files/${id}/download`, { responseType: "blob" }).then((r) => r.data), []);
@@ -525,8 +528,8 @@ export default function Distribution() {
     setLoading(true);
     const params = clientFilter ? { client_id: clientFilter } : {};
     api.get("/distribution", { params })
-      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setStage(r.data.stage); })
-      .catch(() => { setItems([]); setScheduled([]); })
+      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setStage(r.data.stage); })
+      .catch(() => { setItems([]); setScheduled([]); setApproved([]); })
       .finally(() => setLoading(false));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -540,6 +543,11 @@ export default function Distribution() {
     } catch (e) {
       flash(e.response?.data?.error || "Não foi possível reordenar.", "error");
     }
+  }
+
+  async function programar(it) {
+    try { await api.post(`/distribution/${it.id}/schedule`); flash("Programado! ✅", "success"); load(); }
+    catch (e) { flash(e.response?.data?.error || "Não foi possível programar.", "error"); }
   }
 
   function toggleCheck(id) {
@@ -604,9 +612,55 @@ export default function Distribution() {
       ) : loading ? (
         <Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>
       ) : view === "post" ? (
-        items.length === 0 ? (
-          <EmptyState message="Nenhuma peça para preparar. Mova as tarefas prontas para a coluna 'Distribuição' no quadro de Tarefas." />
-        ) : (
+        <>
+          {/* Filtro: para aprovar (preparar/enviar) x aprovados (programar) */}
+          <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
+            <ToggleButtonGroup size="small" exclusive value={postFilter} onChange={(_, v) => v && setPostFilter(v)}>
+              <ToggleButton value="para_aprovar">Para aprovar{items.length ? ` (${items.length})` : ""}</ToggleButton>
+              <ToggleButton value="aprovados">Aprovados{approved.length ? ` (${approved.length})` : ""}</ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
+
+          {postFilter === "aprovados" ? (
+            approved.length === 0 ? (
+              <EmptyState message="Nada aprovado aguardando programação. Quando o cliente aprova, o conteúdo aparece aqui para programar." />
+            ) : (
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
+                {approved.map((a) => {
+                  const ct = CONTENT_TYPES[a.content_type];
+                  return (
+                    <Card key={a.id}>
+                      <CardContent>
+                        <Stack spacing={1}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                            {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
+                            <Chip size="small" color="success" label="Aprovado ✓" />
+                          </Stack>
+                          {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
+                          <Media fileId={a.cover_file_id || a.file_id} height={150} />
+                          <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
+                          <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
+                            {a.scheduled_at
+                              ? new Date(a.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              : "Sem data — edite antes de programar"}
+                          </Typography>
+                          <Stack direction="row" spacing={1}>
+                            <Button size="small" variant="outlined" onClick={() => setSelected(a)}>Editar</Button>
+                            <Button size="small" variant="contained" startIcon={<ScheduleSendIcon />}
+                              disabled={!a.scheduled_at} onClick={() => programar(a)}>
+                              Programar
+                            </Button>
+                          </Stack>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </Box>
+            )
+          ) : items.length === 0 ? (
+            <EmptyState message="Nenhuma peça para preparar. Mova as tarefas prontas para a coluna 'Distribuição' no quadro de Tarefas." />
+          ) : (
           <>
             {/* Barra de seleção: marcar várias peças e enviar de uma vez. */}
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
@@ -650,7 +704,8 @@ export default function Distribution() {
               ))}
             </Box>
           </>
-        )
+          )}
+        </>
       ) : view === "list" ? (
         <ListView items={scheduled} onSelect={setSelected} />
       ) : view === "feed" ? (
