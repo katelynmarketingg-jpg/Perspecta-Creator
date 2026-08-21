@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "seed": "node src/seed.js",
     "reencrypt": "node src/reencrypt.js",
+    "reset-senha": "node src/reset-password.js",
     "migrate-r2": "node src/migrate-r2.js",
     "test": "node --test test/*.test.mjs"
   },

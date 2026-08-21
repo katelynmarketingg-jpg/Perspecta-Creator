@@ -622,10 +622,20 @@ function seedOrganizations() {
     perspectiva = findOrg.get("Perspectiva");
   }
 
+  const IS_PROD = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+
   // Usuários fixos pedidos: admin (master) e Katy (Perspectiva).
-  const upsertUser = ({ name, username, email, password, role, orgId }) => {
+  // Em produção, NÃO cria conta com senha padrão: se a variável do seed faltar
+  // e a conta ainda não existir, aborta com uma mensagem clara (nunca "001").
+  const upsertUser = ({ name, username, email, password, envName, role, orgId }) => {
     const existing = db.prepare("SELECT id FROM users WHERE lower(username) = lower(?) AND org_id = ?").get(username, orgId);
-    if (existing) return;
+    if (existing) return; // já existe → nunca mexe na senha
+    if (!password) {
+      if (IS_PROD) {
+        throw new Error(`Defina a variável ${envName} para criar a conta ${username} (${email}). Sem ela, a conta NÃO é criada com senha padrão.`);
+      }
+      password = "001"; // fallback só fora de produção (dev/teste)
+    }
     const byEmail = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
     const hash = bcrypt.hashSync(password, 10);
     if (byEmail) {
@@ -642,11 +652,13 @@ function seedOrganizations() {
   // Só valem na PRIMEIRA criação de cada usuário; não mexem em quem já existe.
   upsertUser({
     name: "Perspecta Media", username: "admin", email: "admin@perspectamedia.com",
-    password: process.env.SEED_ADMIN_PASSWORD || "001", role: "superadmin", orgId: master.id,
+    password: process.env.SEED_ADMIN_PASSWORD, envName: "SEED_ADMIN_PASSWORD",
+    role: "superadmin", orgId: master.id,
   });
   upsertUser({
     name: "Katy", username: "Katy", email: "katy@perspectiva.com",
-    password: process.env.SEED_KATY_PASSWORD || "001", role: "admin", orgId: perspectiva.id,
+    password: process.env.SEED_KATY_PASSWORD, envName: "SEED_KATY_PASSWORD",
+    role: "admin", orgId: perspectiva.id,
   });
 
   // Dados que existiam antes do multi-escritório passam a ser da Perspectiva.
