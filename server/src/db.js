@@ -113,6 +113,17 @@ CREATE TABLE IF NOT EXISTS financial_entries (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Colunas (etapas) editáveis da Prospecção. 'won'/'lost' são fixas (relatórios).
+CREATE TABLE IF NOT EXISTS prospect_stages (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  key           TEXT NOT NULL,                        -- casa com prospects.status
+  label         TEXT NOT NULL,
+  position      INTEGER NOT NULL DEFAULT 0,
+  kind          TEXT NOT NULL DEFAULT 'open',         -- 'open' | 'won' | 'lost'
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Modelos de contrato: corpo com marcadores ({{cliente}}, {{valor}}...) que
 -- geram um contrato preenchido para assinatura.
 CREATE TABLE IF NOT EXISTS contract_templates (
