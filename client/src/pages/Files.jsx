@@ -3,7 +3,7 @@ import {
   Box, Button, Card, CardContent, Typography, IconButton, Stack, TextField,
   MenuItem, Breadcrumbs, Link, Table, TableBody, TableCell, TableHead, TableRow,
   Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, Grid, Tooltip,
-  Tabs, Tab, Chip, Menu,
+  Tabs, Tab, Chip, Menu, Alert,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -65,21 +65,25 @@ function FileCard({ f, onDownload, onDelete, onMove }) {
           <Tooltip title="Baixar original">
             <IconButton size="small" color="primary" onClick={() => onDownload(f)}><DownloadIcon sx={{ fontSize: 17 }} /></IconButton>
           </Tooltip>
-          <Tooltip title="Mover de etapa">
-            <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)}><DriveFileMoveIcon sx={{ fontSize: 17 }} /></IconButton>
-          </Tooltip>
+          {onMove && (
+            <Tooltip title="Mover de etapa">
+              <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)}><DriveFileMoveIcon sx={{ fontSize: 17 }} /></IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="Excluir">
             <IconButton size="small" color="error" onClick={() => onDelete(f.id)}><DeleteIcon sx={{ fontSize: 17 }} /></IconButton>
           </Tooltip>
         </Stack>
       </Box>
-      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
-        {STAGES.filter((s) => s.key !== f.stage).map((s) => (
-          <MenuItem key={s.key} onClick={() => { setAnchor(null); onMove(f.id, s.key); }}>
-            {s.emoji} Mover para {s.label}
-          </MenuItem>
-        ))}
-      </Menu>
+      {onMove && (
+        <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
+          {STAGES.filter((s) => s.key !== f.stage).map((s) => (
+            <MenuItem key={s.key} onClick={() => { setAnchor(null); onMove(f.id, s.key); }}>
+              {s.emoji} Mover para {s.label}
+            </MenuItem>
+          ))}
+        </Menu>
+      )}
     </Card>
   );
 }
@@ -100,6 +104,8 @@ export default function Files() {
   const stageUpRef = useRef(null); // input de upload por etapa
   const uploadStage = useRef("originais");
   const docInputRef = useRef(null);
+  const zipInputRef = useRef(null);
+  const [zipMsg, setZipMsg] = useState("");
 
   const currentFolder = path[path.length - 1]?.id || null;
 
@@ -175,6 +181,28 @@ export default function Files() {
     }
   }
 
+  // ---- Importar em massa por .ZIP (para a pasta atual) ----
+  async function enviarZip(file) {
+    if (!file) return;
+    setUploading(true);
+    setZipMsg("");
+    try {
+      const form = new FormData();
+      form.append("zip", file);
+      if (clientId) form.append("client_id", clientId);
+      if (currentFolder) form.append("folder_id", currentFolder);
+      const { data } = await api.post("/files/upload-zip", form, { headers: { "Content-Type": "multipart/form-data" } });
+      setZipMsg(`Importei ${data.count} arquivo(s) do ZIP${data.ignorados ? ` (${data.ignorados} ignorado(s) por não serem foto/vídeo)` : ""}.`);
+      loadDocs();
+    } catch (e) {
+      setZipMsg(e.response?.data?.error || "Não foi possível importar o ZIP.");
+    } finally {
+      setUploading(false);
+      if (zipInputRef.current) zipInputRef.current.value = "";
+      setTimeout(() => setZipMsg(""), 8000);
+    }
+  }
+
   async function removeFile(id, recarregar) {
     if (!confirm("Excluir arquivo?")) return;
     await api.delete(`/files/${id}`); recarregar();
@@ -224,7 +252,7 @@ export default function Files() {
           <Button size="small" onClick={() => selectClient("")} sx={{ mb: 1 }}>← Todos os clientes</Button>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}>
             <Tab value="etapas" label="Etapas do material" />
-            <Tab value="docs" label="Documentos" />
+            <Tab value="docs" label="Pastas" />
           </Tabs>
 
           {uploading && <LinearProgress sx={{ mb: 2, borderRadius: 2 }} />}
@@ -263,11 +291,18 @@ export default function Files() {
             </Box>
           ) : (
             <>
-              <Stack direction="row" spacing={1.5} sx={{ mb: 2 }} alignItems="center">
+              <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
                 <Button variant="outlined" startIcon={<CreateNewFolderIcon />} onClick={() => setNewFolderOpen(true)}>Nova pasta</Button>
                 <Button variant="contained" startIcon={<UploadFileIcon />} onClick={() => docInputRef.current?.click()}
                   disabled={!currentFolder}>Enviar para a pasta</Button>
                 <input ref={docInputRef} type="file" multiple hidden onChange={(e) => enviarDocs(e.target.files)} />
+                <Tooltip title={currentFolder ? "Envie um .ZIP com fotos/vídeos — importa tudo de uma vez para esta pasta" : "Abra uma pasta primeiro"}>
+                  <span>
+                    <Button variant="outlined" startIcon={<DriveFileMoveIcon />} onClick={() => zipInputRef.current?.click()}
+                      disabled={!currentFolder}>Importar .ZIP</Button>
+                  </span>
+                </Tooltip>
+                <input ref={zipInputRef} type="file" accept=".zip,application/zip" hidden onChange={(e) => enviarZip(e.target.files?.[0])} />
                 <Breadcrumbs>
                   <Link component="button" underline="hover" color={path.length ? "primary" : "text.primary"} onClick={() => setPath([])}>Pastas</Link>
                   {path.map((p, i) => (
@@ -297,43 +332,27 @@ export default function Files() {
                 </Grid>
               )}
 
-              <Card>
-                {!currentFolder ? (
-                  <CardContent sx={{ textAlign: "center", py: 5 }}>
-                    <Typography color="text.secondary">Abra uma pasta para ver e enviar documentos, ou crie uma nova.</Typography>
-                  </CardContent>
-                ) : files.length === 0 ? (
-                  <CardContent sx={{ textAlign: "center", py: 5 }}>
-                    <Typography color="text.secondary">Pasta vazia. Use "Enviar para a pasta".</Typography>
-                  </CardContent>
-                ) : (
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Arquivo</TableCell><TableCell>Tamanho</TableCell>
-                        <TableCell>Enviado em</TableCell><TableCell align="right">Ações</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {files.map((f) => (
-                        <TableRow key={f.id} hover>
-                          <TableCell>
-                            <Stack direction="row" spacing={1.5} alignItems="center">
-                              {fileIcon(f.mime)}<Typography sx={{ fontWeight: 500 }}>{f.original_name}</Typography>
-                            </Stack>
-                          </TableCell>
-                          <TableCell>{fileSize(f.size)}</TableCell>
-                          <TableCell>{formatDateTime(f.created_at)}</TableCell>
-                          <TableCell align="right">
-                            <IconButton size="small" color="primary" onClick={() => download(f)}><DownloadIcon fontSize="small" /></IconButton>
-                            <IconButton size="small" color="error" onClick={() => removeFile(f.id, loadDocs)}><DeleteIcon fontSize="small" /></IconButton>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </Card>
+              {zipMsg && <Alert severity="info" sx={{ mb: 2 }}>{zipMsg}</Alert>}
+
+              {!currentFolder ? (
+                <Card><CardContent sx={{ textAlign: "center", py: 5 }}>
+                  <Typography color="text.secondary">
+                    {folders.length ? "Abra uma pasta (acima) para ver as fotos/vídeos, ou entre numa subpasta." : "Crie uma pasta para começar."}
+                  </Typography>
+                </CardContent></Card>
+              ) : files.length === 0 ? (
+                <Card><CardContent sx={{ textAlign: "center", py: 5 }}>
+                  <Typography color="text.secondary">Pasta vazia. Use "Enviar para a pasta" ou "Importar .ZIP".</Typography>
+                </CardContent></Card>
+              ) : (
+                <Grid container spacing={1.5}>
+                  {files.map((f) => (
+                    <Grid item xs={6} sm={4} md={3} lg={2} key={f.id}>
+                      <FileCard f={f} onDownload={download} onDelete={(id) => removeFile(id, loadDocs)} />
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
             </>
           )}
         </>

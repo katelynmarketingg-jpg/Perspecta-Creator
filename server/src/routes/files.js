@@ -1,7 +1,8 @@
 import { Router } from "express";
 import multer from "multer";
-import { mkdirSync, existsSync, unlinkSync } from "node:fs";
-import { resolve, join } from "node:path";
+import AdmZip from "adm-zip";
+import { mkdirSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { resolve, join, basename, extname } from "node:path";
 import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
@@ -151,6 +152,63 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
     created.push(db.prepare("SELECT id, original_name, mime, size, created_at FROM files WHERE id = ?").get(info.lastInsertRowid));
   }
   res.status(201).json(created);
+});
+
+// Descobre o tipo (mime) de uma foto/vídeo pela extensão do nome.
+const MIME_BY_EXT = {
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif",
+  ".webp": "image/webp", ".heic": "image/heic", ".heif": "image/heif", ".bmp": "image/bmp",
+  ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".avi": "video/x-msvideo",
+  ".mkv": "video/x-matroska", ".m4v": "video/x-m4v",
+};
+
+// POST /api/files/upload-zip — importa em massa: recebe UM arquivo .zip e cria
+// um arquivo para cada foto/vídeo de dentro dele, no cliente/pasta escolhidos.
+router.post("/upload-zip", upload.single("zip"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Envie um arquivo .zip." });
+  const { client_id, folder_id } = req.body || {};
+  const stage = STAGES.includes(req.body?.stage) ? req.body.stage : "originais";
+
+  let entries;
+  try {
+    entries = new AdmZip(req.file.path).getEntries();
+  } catch {
+    try { unlinkSync(req.file.path); } catch {}
+    return res.status(400).json({ error: "Não consegui ler o .zip. Confira se o arquivo está certo." });
+  }
+
+  const stmt = db.prepare(
+    `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, org_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  let count = 0, ignorados = 0;
+  for (const e of entries) {
+    if (e.isDirectory) continue;
+    const nome = basename(e.entryName);
+    if (!nome || nome.startsWith(".") || e.entryName.startsWith("__MACOSX")) continue;
+    const mime = MIME_BY_EXT[extname(nome).toLowerCase()];
+    if (!mime) { ignorados++; continue; } // só fotos e vídeos
+
+    const buf = e.getData();
+    const localName = `${Date.now()}-${randomUUID()}`;
+    const localPath = join(UPLOADS_DIR, localName);
+    try {
+      writeFileSync(localPath, buf);
+      let storedPath = localPath;
+      if (storageConfigured()) {
+        try {
+          storedPath = await uploadFileToR2(localPath, `uploads/${req.orgId}/${localName}`, mime);
+          try { unlinkSync(localPath); } catch {}
+        } catch { storedPath = localPath; }
+      }
+      stmt.run(folder_id || null, client_id || null, nome, mime, buf.length, storedPath, stage, req.orgId);
+      count++;
+    } catch { ignorados++; }
+  }
+  try { unlinkSync(req.file.path); } catch {} // apaga o zip temporário
+
+  res.status(201).json({ count, ignorados });
 });
 
 // GET /api/files/:id/download — devolve o arquivo original, intacto.
