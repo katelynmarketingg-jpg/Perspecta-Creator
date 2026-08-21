@@ -33,10 +33,29 @@ async function api(path, { token, method = "GET", body, orgHeader } = {}) {
 const login = (organization, username, password) =>
   api("/auth/login", { method: "POST", body: { organization, username, password } });
 
+// Este é um teste de INTEGRAÇÃO: precisa do servidor rodando em :8080. Se ele
+// não estiver no ar, PULA COM AVISO (exit 0) em vez de falhar — assim rodar os
+// testes sem servidor não gera um "vermelho" falso.
+async function serverUp() {
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), 1500);
+    await fetch(`${BASE}/api/auth/login`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: c.signal,
+    });
+    clearTimeout(t);
+    return true;
+  } catch { return false; }
+}
+
 // Texto de tudo que voltou, para procurar vazamentos por nome.
 const blob = (d) => JSON.stringify(d ?? "");
 
 async function main() {
+  if (!(await serverUp())) {
+    console.warn(`\n⚠️  PULADO: nenhum servidor em ${BASE}. Suba o servidor (npm start) e rode 'node test-isolation.mjs' para checar o isolamento entre escritórios.`);
+    process.exit(0);
+  }
   console.log("\n=== 1. Login por escritório + nome + senha ===");
   const master = await login("Perspecta Media", "admin", "001");
   check("Perspecta Media / admin / 001 entra", master.status === 200 && !!master.data?.token);
