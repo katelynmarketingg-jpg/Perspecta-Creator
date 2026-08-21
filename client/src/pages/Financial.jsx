@@ -52,6 +52,8 @@ export default function Financial() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
   const [flash, setFlash] = useState("");
+  const [gerarOpen, setGerarOpen] = useState(false);
+  const [gerarMeses, setGerarMeses] = useState(12);
 
   // No modo "Este mês", o mês é o do cursor (dá para andar ◀ ▶). Nos demais, o range fixo.
   const ymd = (d) => d.toISOString().slice(0, 10);
@@ -111,14 +113,18 @@ export default function Financial() {
     load();
   }
 
-  // Gera as mensalidades (receita prevista) do mês em foco a partir dos clientes.
-  async function gerarMensalidades() {
+  // Gera as mensalidades (receita recorrente) a partir do que está cadastrado
+  // nos clientes: valor dos serviços + dia de pagamento. `meses` = quantos meses
+  // à frente (a partir do mês em foco). Idempotente por cliente/mês.
+  async function gerarMensalidades(meses) {
     const month = periodo === "mes"
       ? `${mesCursor.getFullYear()}-${String(mesCursor.getMonth() + 1).padStart(2, "0")}`
       : new Date().toISOString().slice(0, 7);
+    setGerarOpen(false);
     try {
-      const r = await api.post("/financial/generate-monthly", { month });
-      setFlash(`Mensalidades de ${month}: ${r.data.created} criada(s), ${r.data.skipped} já existiam ou sem valor definido.`);
+      const r = await api.post("/financial/generate-monthly", { month, months: meses });
+      const escopo = meses > 1 ? `${meses} meses a partir de ${month}` : month;
+      setFlash(`Mensalidades (${escopo}): ${r.data.created} criada(s), ${r.data.skipped} já existiam ou sem valor definido.`);
     } catch (e) {
       setFlash(e.response?.data?.error || "Não foi possível gerar as mensalidades.");
     }
@@ -149,8 +155,8 @@ export default function Financial() {
             <TextField select size="small" value={periodo} onChange={(e) => setPeriodo(e.target.value)} sx={{ minWidth: 160 }}>
               {PERIODOS.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
             </TextField>
-            <Tooltip title="Lança a mensalidade de cada cliente como receita prevista deste mês (não duplica)">
-              <Button variant="outlined" startIcon={<RepeatIcon />} onClick={gerarMensalidades}>Gerar mensalidades</Button>
+            <Tooltip title="Puxa a mensalidade de cada cliente (valor + dia de pagamento cadastrados) como receita recorrente">
+              <Button variant="outlined" startIcon={<RepeatIcon />} onClick={() => setGerarOpen(true)}>Gerar mensalidades</Button>
             </Tooltip>
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>Lançar</Button>
           </Stack>
@@ -241,6 +247,33 @@ export default function Financial() {
           </TableBody>
         </Table>
       </Card>
+
+      {/* Gerar mensalidades recorrentes a partir dos clientes cadastrados */}
+      <Dialog open={gerarOpen} onClose={() => setGerarOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Gerar mensalidades</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Vou puxar cada cliente ativo com valor cadastrado e lançar a mensalidade como
+              receita prevista, no dia de pagamento de cada um. Já existentes não são duplicadas.
+            </Typography>
+            <TextField select label="Por quantos meses" value={gerarMeses}
+              onChange={(e) => setGerarMeses(Number(e.target.value))} fullWidth
+              helperText="A partir do mês em foco. Mais de 1 mês fica marcado como 'Mensal'.">
+              <MenuItem value={1}>Somente este mês</MenuItem>
+              <MenuItem value={3}>Próximos 3 meses</MenuItem>
+              <MenuItem value={6}>Próximos 6 meses</MenuItem>
+              <MenuItem value={12}>Próximos 12 meses</MenuItem>
+            </TextField>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGerarOpen(false)}>Cancelar</Button>
+          <Button variant="contained" startIcon={<RepeatIcon />} onClick={() => gerarMensalidades(gerarMeses)}>
+            Gerar
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{draft.id ? "Editar lançamento" : "Novo lançamento"}</DialogTitle>
