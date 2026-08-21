@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, IconButton, Stack, TextField,
-  MenuItem, Breadcrumbs, Link, Table, TableBody, TableCell, TableHead, TableRow,
-  Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, Grid, Tooltip,
-  Tabs, Tab, Chip, Menu, Alert,
+  MenuItem, Breadcrumbs, Link, Dialog, DialogTitle, DialogContent, DialogActions,
+  LinearProgress, Grid, Tooltip, Menu, Alert,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -20,16 +19,18 @@ import EditIcon from "@mui/icons-material/Edit";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
-import { fileSize, formatDateTime } from "../utils.js";
+import { fileSize } from "../utils.js";
 
-// As mesmas etapas do fluxo, na ordem em que o material caminha.
-const STAGES = [
-  { key: "originais", label: "Originais", emoji: "📥" },
-  { key: "editados", label: "Editados", emoji: "✂️" },
-  { key: "aprovacao", label: "Para aprovação", emoji: "👀" },
-  { key: "aprovados", label: "Aprovados", emoji: "✅" },
-  { key: "programados", label: "Programados", emoji: "📅" },
-];
+// Ordem lógica das pastas padrão (as que nascem dentro de cada cliente).
+const DEFAULT_ORDER = ["Originais", "Editados", "Para aprovação", "Aprovados", "Programados"];
+function ordenarPastas(arr) {
+  const pos = (nome) => { const i = DEFAULT_ORDER.indexOf(nome); return i === -1 ? 999 : i; };
+  return [...arr].sort((a, b) => {
+    const pa = pos(a.name), pb = pos(b.name);
+    if (pa !== pb) return pa - pb;            // padrão primeiro, na ordem certa
+    return a.name.localeCompare(b.name, "pt"); // o resto, alfabético
+  });
+}
 
 function fileIcon(mime = "") {
   if (mime.startsWith("image/")) return <ImageIcon color="primary" />;
@@ -42,10 +43,9 @@ function authFetchBlob(id) {
   return fetch(`/api/files/${id}/download`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.blob());
 }
 
-// Cartão de um arquivo no quadro: mostra a miniatura (imagem) ou ícone + ações.
-function FileCard({ f, onDownload, onDelete, onMove, onRename, onMoveFolder, compact }) {
+// Cartão de um arquivo: miniatura (imagem) ou ícone + ações.
+function FileCard({ f, onDownload, onDelete, onRename, onMoveFolder }) {
   const [src, setSrc] = useState(null);
-  const [anchor, setAnchor] = useState(null);
   const [moreAnchor, setMoreAnchor] = useState(null);
   const ehImg = f.mime?.startsWith("image/");
   useEffect(() => {
@@ -57,7 +57,7 @@ function FileCard({ f, onDownload, onDelete, onMove, onRename, onMoveFolder, com
 
   return (
     <Card variant="outlined" sx={{ overflow: "hidden" }}>
-      <Box sx={{ position: "relative", height: compact ? 110 : 150, bgcolor: "action.hover", display: "grid", placeItems: "center" }}>
+      <Box sx={{ position: "relative", height: 110, bgcolor: "action.hover", display: "grid", placeItems: "center" }}>
         {src ? <Box component="img" src={src} alt={f.original_name} sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
           : fileIcon(f.mime)}
       </Box>
@@ -68,11 +68,6 @@ function FileCard({ f, onDownload, onDelete, onMove, onRename, onMoveFolder, com
           <Tooltip title="Baixar original">
             <IconButton size="small" color="primary" onClick={() => onDownload(f)}><DownloadIcon sx={{ fontSize: 17 }} /></IconButton>
           </Tooltip>
-          {onMove && (
-            <Tooltip title="Mover de etapa">
-              <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)}><DriveFileMoveIcon sx={{ fontSize: 17 }} /></IconButton>
-            </Tooltip>
-          )}
           {(onRename || onMoveFolder) && (
             <Tooltip title="Mais">
               <IconButton size="small" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreVertIcon sx={{ fontSize: 17 }} /></IconButton>
@@ -97,15 +92,6 @@ function FileCard({ f, onDownload, onDelete, onMove, onRename, onMoveFolder, com
           )}
         </Menu>
       )}
-      {onMove && (
-        <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
-          {STAGES.filter((s) => s.key !== f.stage).map((s) => (
-            <MenuItem key={s.key} onClick={() => { setAnchor(null); onMove(f.id, s.key); }}>
-              {s.emoji} Mover para {s.label}
-            </MenuItem>
-          ))}
-        </Menu>
-      )}
     </Card>
   );
 }
@@ -113,18 +99,13 @@ function FileCard({ f, onDownload, onDelete, onMove, onRename, onMoveFolder, com
 export default function Files() {
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState("");
-  const [tab, setTab] = useState("etapas");
-  // Quadro de etapas (arquivos do cliente na raiz, sem pasta).
-  const [board, setBoard] = useState([]);
-  // Documentos (pastas).
+  // Navegação por pastas: trilha [{id,name}], pastas e arquivos da pasta atual.
   const [path, setPath] = useState([]);
   const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [uploading, setUploading] = useState(false);
-  const stageUpRef = useRef(null); // input de upload por etapa
-  const uploadStage = useRef("originais");
   const docInputRef = useRef(null);
   const zipInputRef = useRef(null);
   const [zipMsg, setZipMsg] = useState("");
@@ -136,25 +117,29 @@ export default function Files() {
 
   useEffect(() => { api.get("/clients").then((r) => setClients(r.data)); }, []);
 
-  const loadBoard = () => {
-    if (!clientId) { setBoard([]); return; }
-    api.get("/files", { params: { client_id: clientId } }).then((r) => setBoard(r.data));
-  };
   const loadDocs = () => {
     if (!clientId) { setFolders([]); setFiles([]); return; }
-    const params = { client_id: clientId };
-    if (currentFolder) params.folder_id = currentFolder;
-    api.get("/files/folders", { params }).then((r) => setFolders(r.data));
-    if (currentFolder) api.get("/files", { params }).then((r) => setFiles(r.data));
-    else setFiles([]);
+    // Pastas da pasta atual (na raiz, as sem "pai").
+    const fParams = { client_id: clientId };
+    if (currentFolder) fParams.parent_id = currentFolder;
+    api.get("/files/folders", { params: fParams }).then((r) => setFolders(ordenarPastas(r.data))).catch(() => setFolders([]));
+    // Arquivos da pasta atual (na raiz, os "soltos" sem pasta).
+    const aParams = { client_id: clientId };
+    if (currentFolder) aParams.folder_id = currentFolder;
+    api.get("/files", { params: aParams }).then((r) => setFiles(r.data)).catch(() => setFiles([]));
   };
-  // Ao vivo: 'vFiles' muda quando alguém envia/move/apaga arquivos.
   const loadAllFolders = () => {
     if (!clientId) { setAllFolders([]); return; }
     api.get("/files/folders", { params: { client_id: clientId, all: 1 } }).then((r) => setAllFolders(r.data)).catch(() => setAllFolders([]));
   };
+  // Ao abrir um cliente, garante as pastas padrão (Originais, Editados…) dentro dele.
+  useEffect(() => {
+    if (!clientId) return;
+    api.post("/files/folders/ensure-defaults", { client_id: clientId }).then(loadDocs).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
+  // Ao vivo: 'vFiles' muda quando alguém envia/move/apaga arquivos.
   const vFiles = useLiveVersion("files");
-  useEffect(() => { loadBoard(); }, [clientId, vFiles]);
   useEffect(() => { loadDocs(); }, [clientId, currentFolder, vFiles]);
   useEffect(() => { loadAllFolders(); }, [clientId, vFiles]);
 
@@ -170,32 +155,7 @@ export default function Files() {
 
   function selectClient(id) { setClientId(id); setPath([]); }
 
-  // ---- Upload no quadro (etapa) ----
-  function pedirUploadEtapa(stage) {
-    uploadStage.current = stage;
-    stageUpRef.current?.click();
-  }
-  async function enviarNoQuadro(fileList) {
-    if (!fileList?.length || !clientId) return;
-    setUploading(true);
-    try {
-      const form = new FormData();
-      [...fileList].forEach((f) => form.append("files", f));
-      form.append("client_id", clientId);
-      form.append("stage", uploadStage.current);
-      await api.post("/files/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
-      loadBoard();
-    } finally {
-      setUploading(false);
-      if (stageUpRef.current) stageUpRef.current.value = "";
-    }
-  }
-  async function moverEtapa(id, stage) {
-    await api.put(`/files/${id}/stage`, { stage });
-    loadBoard();
-  }
-
-  // ---- Documentos (pastas) ----
+  // ---- Pastas ----
   async function createFolder() {
     if (!newFolderName.trim()) return;
     await api.post("/files/folders", { name: newFolderName.trim(), client_id: clientId || null, parent_id: currentFolder });
@@ -243,9 +203,9 @@ export default function Files() {
     }
   }
 
-  async function removeFile(id, recarregar) {
+  async function removeFile(id) {
     if (!confirm("Excluir arquivo?")) return;
-    await api.delete(`/files/${id}`); recarregar();
+    await api.delete(`/files/${id}`); loadDocs();
   }
   function download(file) {
     authFetchBlob(file.id).then((blob) => {
@@ -256,13 +216,13 @@ export default function Files() {
     });
   }
 
-  const porEtapa = (key) => board.filter((f) => (f.stage || "originais") === key);
+  const vazio = folders.length === 0 && files.length === 0;
 
   return (
     <>
       <PageHeader
         title="Galeria"
-        subtitle="Material por cliente, em pastas — enviado e baixado na qualidade original"
+        subtitle="Material por cliente, em pastas que você cria — enviado e baixado na qualidade original"
       />
 
       <TextField select size="small" label="Cliente" value={clientId}
@@ -290,113 +250,73 @@ export default function Files() {
       ) : (
         <>
           <Button size="small" onClick={() => selectClient("")} sx={{ mb: 1 }}>← Todos os clientes</Button>
-          <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}>
-            <Tab value="etapas" label="Etapas do material" />
-            <Tab value="docs" label="Pastas" />
-          </Tabs>
 
           {uploading && <LinearProgress sx={{ mb: 2, borderRadius: 2 }} />}
-          <input ref={stageUpRef} type="file" multiple hidden onChange={(e) => enviarNoQuadro(e.target.files)} />
 
-          {tab === "etapas" ? (
-            <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "repeat(5, 1fr)" }, alignItems: "start" }}>
-              {STAGES.map((s) => {
-                const arquivos = porEtapa(s.key);
-                return (
-                  <Card key={s.key} sx={{ bgcolor: "action.hover" }}>
-                    <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 1 }}>
-                        <Typography sx={{ fontWeight: 700, fontSize: 13, flex: 1 }}>{s.emoji} {s.label}</Typography>
-                        <Chip size="small" label={arquivos.length} />
-                      </Stack>
-                      <Button fullWidth size="small" variant="outlined" startIcon={<UploadFileIcon />}
-                        sx={{ mb: 1 }} onClick={() => pedirUploadEtapa(s.key)}>
-                        Enviar
-                      </Button>
-                      <Stack spacing={1}>
-                        {arquivos.map((f) => (
-                          <FileCard key={f.id} f={f} onDownload={download}
-                            onDelete={(id) => removeFile(id, loadBoard)} onMove={moverEtapa} />
-                        ))}
-                        {arquivos.length === 0 && (
-                          <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center", py: 1 }}>
-                            Vazio
-                          </Typography>
-                        )}
-                      </Stack>
+          <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
+            <Button variant="outlined" startIcon={<CreateNewFolderIcon />} onClick={() => setNewFolderOpen(true)}>Nova pasta</Button>
+            <Button variant="contained" startIcon={<UploadFileIcon />} onClick={() => docInputRef.current?.click()}>
+              {currentFolder ? "Enviar para a pasta" : "Enviar arquivo"}
+            </Button>
+            <input ref={docInputRef} type="file" multiple hidden onChange={(e) => enviarDocs(e.target.files)} />
+            <Tooltip title="Envie um .ZIP com fotos/vídeos — importa tudo de uma vez para aqui">
+              <Button variant="outlined" startIcon={<DriveFileMoveIcon />} onClick={() => zipInputRef.current?.click()}>Importar .ZIP</Button>
+            </Tooltip>
+            <input ref={zipInputRef} type="file" accept=".zip,application/zip" hidden onChange={(e) => enviarZip(e.target.files?.[0])} />
+            <Breadcrumbs>
+              <Link component="button" underline="hover" color={path.length ? "primary" : "text.primary"} onClick={() => setPath([])}>Início</Link>
+              {path.map((p, i) => (
+                <Link key={p.id} component="button" underline="hover"
+                  color={i === path.length - 1 ? "text.primary" : "primary"}
+                  onClick={() => setPath(path.slice(0, i + 1))}>{p.name}</Link>
+              ))}
+            </Breadcrumbs>
+          </Stack>
+
+          {zipMsg && <Alert severity="info" sx={{ mb: 2 }}>{zipMsg}</Alert>}
+
+          {/* Pastas */}
+          {folders.length > 0 && (
+            <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
+              {folders.map((f) => (
+                <Grid item xs={6} sm={4} md={3} lg={2} key={f.id}>
+                  <Card onClick={() => setPath([...path, { id: f.id, name: f.name }])}
+                    sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main", bgcolor: (t) => alpha(t.palette.primary.main, 0.04) } }}>
+                    <CardContent sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                      <FolderIcon sx={{ color: "primary.main" }} />
+                      <Typography noWrap sx={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{f.name}</Typography>
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); removeFolder(f.id); }}>
+                        <DeleteIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
                     </CardContent>
                   </Card>
-                );
-              })}
-            </Box>
-          ) : (
-            <>
-              <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
-                <Button variant="outlined" startIcon={<CreateNewFolderIcon />} onClick={() => setNewFolderOpen(true)}>Nova pasta</Button>
-                <Button variant="contained" startIcon={<UploadFileIcon />} onClick={() => docInputRef.current?.click()}
-                  disabled={!currentFolder}>Enviar para a pasta</Button>
-                <input ref={docInputRef} type="file" multiple hidden onChange={(e) => enviarDocs(e.target.files)} />
-                <Tooltip title={currentFolder ? "Envie um .ZIP com fotos/vídeos — importa tudo de uma vez para esta pasta" : "Abra uma pasta primeiro"}>
-                  <span>
-                    <Button variant="outlined" startIcon={<DriveFileMoveIcon />} onClick={() => zipInputRef.current?.click()}
-                      disabled={!currentFolder}>Importar .ZIP</Button>
-                  </span>
-                </Tooltip>
-                <input ref={zipInputRef} type="file" accept=".zip,application/zip" hidden onChange={(e) => enviarZip(e.target.files?.[0])} />
-                <Breadcrumbs>
-                  <Link component="button" underline="hover" color={path.length ? "primary" : "text.primary"} onClick={() => setPath([])}>Pastas</Link>
-                  {path.map((p, i) => (
-                    <Link key={p.id} component="button" underline="hover"
-                      color={i === path.length - 1 ? "text.primary" : "primary"}
-                      onClick={() => setPath(path.slice(0, i + 1))}>{p.name}</Link>
-                  ))}
-                </Breadcrumbs>
-              </Stack>
-
-              {folders.length > 0 && (
-                <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
-                  {folders.map((f) => (
-                    <Grid item xs={6} sm={4} md={3} lg={2} key={f.id}>
-                      <Card onClick={() => setPath([...path, { id: f.id, name: f.name }])}
-                        sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main", bgcolor: (t) => alpha(t.palette.primary.main, 0.04) } }}>
-                        <CardContent sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                          <FolderIcon sx={{ color: "primary.main" }} />
-                          <Typography noWrap sx={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{f.name}</Typography>
-                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); removeFolder(f.id); }}>
-                            <DeleteIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
                 </Grid>
-              )}
+              ))}
+            </Grid>
+          )}
 
-              {zipMsg && <Alert severity="info" sx={{ mb: 2 }}>{zipMsg}</Alert>}
-
-              {!currentFolder ? (
-                <Card><CardContent sx={{ textAlign: "center", py: 5 }}>
-                  <Typography color="text.secondary">
-                    {folders.length ? "Abra uma pasta (acima) para ver as fotos/vídeos, ou entre numa subpasta." : "Crie uma pasta para começar."}
-                  </Typography>
-                </CardContent></Card>
-              ) : files.length === 0 ? (
-                <Card><CardContent sx={{ textAlign: "center", py: 5 }}>
-                  <Typography color="text.secondary">Pasta vazia. Use "Enviar para a pasta" ou "Importar .ZIP".</Typography>
-                </CardContent></Card>
-              ) : (
-                <Grid container spacing={1.5}>
-                  {files.map((f) => (
-                    <Grid item xs={4} sm={3} md={2} key={f.id}>
-                      <FileCard f={f} compact onDownload={download}
-                        onDelete={(id) => removeFile(id, loadDocs)}
-                        onRename={(file) => setRenameTarget({ id: file.id, name: file.original_name })}
-                        onMoveFolder={(file) => setMoveTarget({ id: file.id, folder_id: file.folder_id || "" })} />
-                    </Grid>
-                  ))}
+          {/* Arquivos da pasta atual (na raiz, os soltos) */}
+          {files.length > 0 && (
+            <Grid container spacing={1.5}>
+              {files.map((f) => (
+                <Grid item xs={4} sm={3} md={2} key={f.id}>
+                  <FileCard f={f} onDownload={download}
+                    onDelete={removeFile}
+                    onRename={(file) => setRenameTarget({ id: file.id, name: file.original_name })}
+                    onMoveFolder={(file) => setMoveTarget({ id: file.id, folder_id: file.folder_id || "" })} />
                 </Grid>
-              )}
-            </>
+              ))}
+            </Grid>
+          )}
+
+          {vazio && (
+            <Card><CardContent sx={{ textAlign: "center", py: 5 }}>
+              <Typography color="text.secondary">
+                {currentFolder
+                  ? 'Pasta vazia. Use "Enviar para a pasta" ou "Importar .ZIP".'
+                  : 'Crie uma pasta com "Nova pasta" ou envie um arquivo direto para começar.'}
+              </Typography>
+            </CardContent></Card>
           )}
         </>
       )}
