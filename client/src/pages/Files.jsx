@@ -15,6 +15,8 @@ import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import ImageIcon from "@mui/icons-material/Image";
 import MovieIcon from "@mui/icons-material/Movie";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
+import EditIcon from "@mui/icons-material/Edit";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
@@ -41,9 +43,10 @@ function authFetchBlob(id) {
 }
 
 // Cartão de um arquivo no quadro: mostra a miniatura (imagem) ou ícone + ações.
-function FileCard({ f, onDownload, onDelete, onMove }) {
+function FileCard({ f, onDownload, onDelete, onMove, onRename, onMoveFolder, compact }) {
   const [src, setSrc] = useState(null);
   const [anchor, setAnchor] = useState(null);
+  const [moreAnchor, setMoreAnchor] = useState(null);
   const ehImg = f.mime?.startsWith("image/");
   useEffect(() => {
     if (!ehImg) return undefined;
@@ -54,7 +57,7 @@ function FileCard({ f, onDownload, onDelete, onMove }) {
 
   return (
     <Card variant="outlined" sx={{ overflow: "hidden" }}>
-      <Box sx={{ position: "relative", aspectRatio: "1", bgcolor: "action.hover", display: "grid", placeItems: "center" }}>
+      <Box sx={{ position: "relative", height: compact ? 110 : 150, bgcolor: "action.hover", display: "grid", placeItems: "center" }}>
         {src ? <Box component="img" src={src} alt={f.original_name} sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
           : fileIcon(f.mime)}
       </Box>
@@ -70,11 +73,30 @@ function FileCard({ f, onDownload, onDelete, onMove }) {
               <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)}><DriveFileMoveIcon sx={{ fontSize: 17 }} /></IconButton>
             </Tooltip>
           )}
+          {(onRename || onMoveFolder) && (
+            <Tooltip title="Mais">
+              <IconButton size="small" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreVertIcon sx={{ fontSize: 17 }} /></IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="Excluir">
             <IconButton size="small" color="error" onClick={() => onDelete(f.id)}><DeleteIcon sx={{ fontSize: 17 }} /></IconButton>
           </Tooltip>
         </Stack>
       </Box>
+      {(onRename || onMoveFolder) && (
+        <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
+          {onRename && (
+            <MenuItem onClick={() => { setMoreAnchor(null); onRename(f); }}>
+              <EditIcon sx={{ fontSize: 17, mr: 1 }} /> Renomear
+            </MenuItem>
+          )}
+          {onMoveFolder && (
+            <MenuItem onClick={() => { setMoreAnchor(null); onMoveFolder(f); }}>
+              <DriveFileMoveIcon sx={{ fontSize: 17, mr: 1 }} /> Mover para pasta
+            </MenuItem>
+          )}
+        </Menu>
+      )}
       {onMove && (
         <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
           {STAGES.filter((s) => s.key !== f.stage).map((s) => (
@@ -106,6 +128,9 @@ export default function Files() {
   const docInputRef = useRef(null);
   const zipInputRef = useRef(null);
   const [zipMsg, setZipMsg] = useState("");
+  const [allFolders, setAllFolders] = useState([]); // todas as pastas do cliente (p/ mover)
+  const [renameTarget, setRenameTarget] = useState(null); // { id, name }
+  const [moveTarget, setMoveTarget] = useState(null); // { id, folder_id }
 
   const currentFolder = path[path.length - 1]?.id || null;
 
@@ -124,9 +149,24 @@ export default function Files() {
     else setFiles([]);
   };
   // Ao vivo: 'vFiles' muda quando alguém envia/move/apaga arquivos.
+  const loadAllFolders = () => {
+    if (!clientId) { setAllFolders([]); return; }
+    api.get("/files/folders", { params: { client_id: clientId, all: 1 } }).then((r) => setAllFolders(r.data)).catch(() => setAllFolders([]));
+  };
   const vFiles = useLiveVersion("files");
   useEffect(() => { loadBoard(); }, [clientId, vFiles]);
   useEffect(() => { loadDocs(); }, [clientId, currentFolder, vFiles]);
+  useEffect(() => { loadAllFolders(); }, [clientId, vFiles]);
+
+  async function renomearArquivo() {
+    if (!renameTarget?.name.trim()) return;
+    await api.put(`/files/${renameTarget.id}`, { original_name: renameTarget.name.trim() });
+    setRenameTarget(null); loadDocs();
+  }
+  async function moverArquivoPasta() {
+    await api.put(`/files/${moveTarget.id}`, { folder_id: moveTarget.folder_id || null });
+    setMoveTarget(null); loadDocs();
+  }
 
   function selectClient(id) { setClientId(id); setPath([]); }
 
@@ -347,8 +387,11 @@ export default function Files() {
               ) : (
                 <Grid container spacing={1.5}>
                   {files.map((f) => (
-                    <Grid item xs={6} sm={4} md={3} lg={2} key={f.id}>
-                      <FileCard f={f} onDownload={download} onDelete={(id) => removeFile(id, loadDocs)} />
+                    <Grid item xs={4} sm={3} md={2} key={f.id}>
+                      <FileCard f={f} compact onDownload={download}
+                        onDelete={(id) => removeFile(id, loadDocs)}
+                        onRename={(file) => setRenameTarget({ id: file.id, name: file.original_name })}
+                        onMoveFolder={(file) => setMoveTarget({ id: file.id, folder_id: file.folder_id || "" })} />
                     </Grid>
                   ))}
                 </Grid>
@@ -357,6 +400,38 @@ export default function Files() {
           )}
         </>
       )}
+
+      {/* Renomear arquivo */}
+      <Dialog open={Boolean(renameTarget)} onClose={() => setRenameTarget(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Renomear arquivo</DialogTitle>
+        <DialogContent>
+          <TextField label="Nome do arquivo" fullWidth autoFocus sx={{ mt: 1 }}
+            value={renameTarget?.name || ""}
+            onChange={(e) => setRenameTarget((t) => ({ ...t, name: e.target.value }))}
+            onKeyDown={(e) => e.key === "Enter" && renomearArquivo()} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenameTarget(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={renomearArquivo} disabled={!renameTarget?.name?.trim()}>Salvar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Mover arquivo para outra pasta */}
+      <Dialog open={Boolean(moveTarget)} onClose={() => setMoveTarget(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Mover para pasta</DialogTitle>
+        <DialogContent>
+          <TextField select label="Pasta de destino" fullWidth sx={{ mt: 1 }}
+            value={moveTarget?.folder_id ?? ""}
+            onChange={(e) => setMoveTarget((t) => ({ ...t, folder_id: e.target.value }))}>
+            <MenuItem value="">Raiz (sem pasta)</MenuItem>
+            {allFolders.map((f) => <MenuItem key={f.id} value={f.id}>{f.name}</MenuItem>)}
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMoveTarget(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={moverArquivoPasta}>Mover</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={newFolderOpen} onClose={() => setNewFolderOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>Nova pasta</DialogTitle>

@@ -73,12 +73,15 @@ router.use(authRequired, moduleAllowed("arquivos"));
 // ---- Pastas ---------------------------------------------------------------
 // GET /api/files/folders?client_id=&parent_id=
 router.get("/folders", (req, res) => {
-  const { client_id, parent_id } = req.query;
+  const { client_id, parent_id, all } = req.query;
   const where = ["org_id = @org_id"];
   const params = { org_id: req.orgId };
   if (client_id) { where.push("client_id = @client_id"); params.client_id = client_id; }
-  where.push(parent_id ? "parent_id = @parent_id" : "parent_id IS NULL");
-  if (parent_id) params.parent_id = parent_id;
+  // all=1 → todas as pastas do cliente (para o seletor "mover para pasta").
+  if (!all) {
+    where.push(parent_id ? "parent_id = @parent_id" : "parent_id IS NULL");
+    if (parent_id) params.parent_id = parent_id;
+  }
   res.json(
     db.prepare(`SELECT * FROM folders WHERE ${where.join(" AND ")} ORDER BY name`).all(params)
   );
@@ -216,6 +219,27 @@ router.get("/:id/download", async (req, res) => {
   const file = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
   await serveFile(res, file, true);
+});
+
+// PUT /api/files/:id — renomear e/ou mover para outra pasta.
+router.put("/:id", (req, res) => {
+  const file = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
+  const b = req.body || {};
+  // Se veio folder_id, valida que a pasta é do mesmo escritório.
+  let folderId = file.folder_id;
+  if (b.folder_id !== undefined) {
+    if (b.folder_id === null || b.folder_id === "") { folderId = null; }
+    else {
+      const f = db.prepare("SELECT id FROM folders WHERE id = ? AND org_id = ?").get(b.folder_id, req.orgId);
+      if (!f) return res.status(400).json({ error: "Pasta de destino inválida." });
+      folderId = f.id;
+    }
+  }
+  const name = (b.original_name && String(b.original_name).trim()) || file.original_name;
+  db.prepare("UPDATE files SET original_name = ?, folder_id = ? WHERE id = ? AND org_id = ?")
+    .run(name, folderId, req.params.id, req.orgId);
+  res.json(db.prepare("SELECT id, original_name, mime, size, folder_id, created_at FROM files WHERE id = ?").get(req.params.id));
 });
 
 // PUT /api/files/:id/stage — move o arquivo entre etapas (originais → ... → programados).
