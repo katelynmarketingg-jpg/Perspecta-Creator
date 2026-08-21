@@ -19,6 +19,36 @@ function hydrate(row) {
   return { ...row, tags: JSON.parse(row.tags || "[]") };
 }
 
+// Liga captação/reunião à AGENDA: quando uma tarefa desse tipo ganha data, cria
+// (ou atualiza) um compromisso que aparece na agenda da equipe (do responsável)
+// e na agenda do cliente. Se perder a data/tipo, remove o compromisso ligado.
+function syncCaptureEvent(taskId, orgId) {
+  const t = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(taskId, orgId);
+  if (!t) return;
+  const agendavel = t.content_type === "captacao" || t.content_type === "reuniao";
+  const existing = db.prepare("SELECT id FROM events WHERE task_id = ? AND org_id = ?").get(taskId, orgId);
+
+  if (!agendavel || !t.scheduled_at) {
+    if (existing) db.prepare("DELETE FROM events WHERE id = ?").run(existing.id);
+    return;
+  }
+  const label = t.content_type === "captacao" ? "Captação" : "Reunião";
+  const type = db.prepare("SELECT id FROM event_types WHERE org_id = ? AND name LIKE ? LIMIT 1").get(orgId, `%${label}%`);
+  if (existing) {
+    db.prepare(
+      `UPDATE events SET title = ?, start_at = ?, client_id = ?, owner_id = ?, type_id = ?, visible_to_client = 1 WHERE id = ?`
+    ).run(t.title, t.scheduled_at, t.client_id, t.assignee_id, type?.id ?? null, existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO events (title, type_id, client_id, start_at, owner_id, visible_to_client, task_id, org_id)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
+    ).run(t.title, type?.id ?? null, t.client_id, t.scheduled_at, t.assignee_id, taskId, orgId);
+    const cli = t.client_id ? db.prepare("SELECT name FROM clients WHERE id = ?").get(t.client_id)?.name : null;
+    db.prepare("INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, ?, ?, ?)")
+      .run(t.client_id, taskId, `📅 ${label} agendada: "${t.title}"${cli ? " — " + cli : ""}.`, orgId);
+  }
+}
+
 // ---- Etapas do Kanban ---------------------------------------------------
 router.get("/stages", (req, res) => {
   res.json(db.prepare("SELECT * FROM kanban_stages WHERE org_id = ? ORDER BY position, id").all(req.orgId));
@@ -97,6 +127,7 @@ router.post("/", (req, res) => {
     }
   });
   tx();
+  created.forEach((id) => syncCaptureEvent(id, req.orgId));
   const rows = created.map((id) => hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(id)));
   res.status(201).json(count === 1 ? rows[0] : rows);
 });
@@ -118,6 +149,7 @@ router.put("/:id", (req, res) => {
      content_type=@content_type, caption=@caption, scheduled_at=@scheduled_at
      WHERE id=@id AND org_id=@org_id`
   ).run(merged);
+  syncCaptureEvent(req.params.id, req.orgId);
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
 
@@ -196,6 +228,7 @@ router.put("/:id/status", (req, res) => {
   if (stage_id != null && String(stage_id) !== String(task.stage_id)) {
     stopTimersForTask(req.params.id, req.orgId);
   }
+  syncCaptureEvent(req.params.id, req.orgId);
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
 
