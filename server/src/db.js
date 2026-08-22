@@ -155,6 +155,22 @@ CREATE TABLE IF NOT EXISTS planning_dates (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Prioridades/recados internos: a chefia diz o que é prioridade em cada cliente,
+-- para quem vai (equipe) e por quê. Anda num quadrinho até "Concluído".
+CREATE TABLE IF NOT EXISTS priorities (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  client_id   INTEGER REFERENCES clients(id) ON DELETE CASCADE, -- null = geral
+  message     TEXT NOT NULL,                         -- o recado / porquê
+  level       TEXT NOT NULL DEFAULT 'media',         -- alta | media | baixa
+  assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL, -- pra quem vai
+  created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  status      TEXT NOT NULL DEFAULT 'pending',       -- pending | doing | done
+  position    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  done_at     TEXT
+);
+
 CREATE TABLE IF NOT EXISTS contracts (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   client_id      INTEGER REFERENCES clients(id) ON DELETE SET NULL,

@@ -36,6 +36,7 @@ import brandingRoutes from "./routes/branding.js";
 import taskTypesRoutes from "./routes/task-types.js";
 import distributionRoutes from "./routes/distribution.js";
 import planningRoutes from "./routes/planning.js";
+import prioritiesRoutes from "./routes/priorities.js";
 import orgDocsRoutes from "./routes/org-docs.js";
 import contractTemplatesRoutes from "./routes/contract-templates.js";
 import adminRoutes from "./routes/admin.js";
@@ -97,6 +98,7 @@ app.use("/api/branding", brandingRoutes);
 app.use("/api/task-types", taskTypesRoutes);
 app.use("/api/distribution", distributionRoutes);
 app.use("/api/planning", planningRoutes);
+app.use("/api/priorities", prioritiesRoutes);
 app.use("/api/org-docs", orgDocsRoutes);
 app.use("/api/contract-templates", contractTemplatesRoutes);
 app.use("/api/admin", adminRoutes); // porta de serviço (token) p/ painel central
