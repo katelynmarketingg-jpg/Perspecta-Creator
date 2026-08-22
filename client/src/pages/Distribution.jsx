@@ -17,10 +17,21 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import StarIcon from "@mui/icons-material/Star";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
+import DescriptionIcon from "@mui/icons-material/Description";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
+import PlanningRefDialog from "../components/PlanningRefDialog.jsx";
+
+// Mês de referência da peça (para abrir o planejamento certo): usa a data
+// programada; se não tiver, o mês atual.
+const ymOf = (scheduled) => {
+  const s = scheduled ? String(scheduled).slice(0, 7) : "";
+  if (/^\d{4}-\d{2}$/.test(s)) return s;
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -224,6 +235,7 @@ function PieceCard({ item, onChanged, flash }) {
   const [picker, setPicker] = useState(false);
   const [coverPicker, setCoverPicker] = useState(false);
   const [videoCover, setVideoCover] = useState(false);
+  const [planRef, setPlanRef] = useState(false);
   const ct = CONTENT_TYPES[item.content_type];
 
   async function upload(e) {
@@ -317,7 +329,15 @@ function PieceCard({ item, onChanged, flash }) {
             )}
           </Stack>
 
-          <TextField label="Legenda" multiline minRows={2} value={caption} onChange={(e) => setCaption(e.target.value)} fullWidth />
+          <Box>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">Legenda</Typography>
+              <Button size="small" startIcon={<DescriptionIcon />} onClick={() => setPlanRef(true)} disabled={!item.client_id}>
+                Do planejamento
+              </Button>
+            </Stack>
+            <TextField label="Legenda" multiline minRows={2} value={caption} onChange={(e) => setCaption(e.target.value)} fullWidth />
+          </Box>
           <TextField label="Observação (interna)" multiline minRows={1} value={obs} onChange={(e) => setObs(e.target.value)} fullWidth />
           <TextField label="Data e hora" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)}
             fullWidth InputLabelProps={{ shrink: true }} />
@@ -341,6 +361,9 @@ function PieceCard({ item, onChanged, flash }) {
             onPick={setCover} titulo="Escolher a capa do perfil (uma foto)" />
           <VideoCoverDialog fileId={fileId} clientId={item.client_id} open={videoCover}
             onClose={() => setVideoCover(false)} onCaptured={setCover} flash={flash} />
+          <PlanningRefDialog clientId={item.client_id} ym={ymOf(when || item.scheduled_at)}
+            open={planRef} onClose={() => setPlanRef(false)}
+            onUse={(txt) => { setCaption(txt); flash("Legenda trazida do planejamento. Ajuste e salve.", "success"); }} />
         </Stack>
       </CardContent>
     </Card>
