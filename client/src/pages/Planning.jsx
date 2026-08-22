@@ -20,6 +20,7 @@ import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { seasonalFor, CATEGORY_COLOR, CATEGORY_HEX } from "../data/seasonalDates.js";
+import PlanningEditor from "../components/PlanningEditor.jsx";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -194,16 +195,6 @@ export default function Planning() {
   const clientName = (id) => clients.find((c) => String(c.id) === String(id))?.name;
   const dayEntries = dayOpen ? (byDay[dayOpen] || []) : [];
 
-  // Documento: todas as datas em ordem, agrupadas por mês.
-  const doc = useMemo(() => {
-    const groups = {};
-    [...dates].sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((e) => {
-      const key = e.date.slice(0, 7);
-      (groups[key] ||= []).push(e);
-    });
-    return Object.entries(groups);
-  }, [dates]);
-
   return (
     <>
       <PageHeader title="Planejamento"
@@ -228,65 +219,20 @@ export default function Planning() {
           </Stack>
         } />
 
-      {view !== "documento" && (
-        <Stack direction="row" alignItems="center" justifyContent="center" spacing={2} sx={{ mb: 2 }}>
-          <IconButton onClick={() => shift(-1)}><ChevronLeftIcon /></IconButton>
-          <Typography variant="h6" sx={{ minWidth: 260, textAlign: "center" }}>{rangeLabel()}</Typography>
-          <IconButton onClick={() => shift(1)}><ChevronRightIcon /></IconButton>
-        </Stack>
-      )}
+      <Stack direction="row" alignItems="center" justifyContent="center" spacing={2} sx={{ mb: 2 }}>
+        <IconButton onClick={() => shift(-1)}><ChevronLeftIcon /></IconButton>
+        <Typography variant="h6" sx={{ minWidth: 260, textAlign: "center" }}>{rangeLabel()}</Typography>
+        <IconButton onClick={() => shift(1)}><ChevronRightIcon /></IconButton>
+      </Stack>
 
       {view === "documento" ? (
-        <Card>
-          <CardContent>
-            <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-              <Typography variant="h6">
-                Datas importantes {clientFilter ? `— ${clientName(clientFilter)}` : "(todas as empresas)"}
-              </Typography>
-              <Button size="small" startIcon={<AddIcon />}
-                onClick={() => { const t = new Date(); novo(dstr(t.getFullYear(), t.getMonth(), t.getDate())); }}>
-                Nova data
-              </Button>
-            </Stack>
-            {doc.length === 0 ? (
-              <EmptyState message="Nenhuma data importante ainda. Clique num dia no calendário (ou em 'Nova data')." />
-            ) : (
-              doc.map(([key, arr]) => {
-                const [y, m] = key.split("-").map(Number);
-                return (
-                  <Box key={key} sx={{ mb: 2.5 }}>
-                    <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 800, mb: 0.5 }}>
-                      {MONTHS[m - 1]} {y}
-                    </Typography>
-                    <Divider sx={{ mb: 1 }} />
-                    <Stack spacing={1}>
-                      {arr.map((e) => (
-                        <Stack key={e.id} direction="row" spacing={1.5} alignItems="flex-start"
-                          sx={{ "&:hover .acts": { opacity: 1 } }}>
-                          <Chip size="small" icon={<EventIcon sx={{ fontSize: 15 }} />} label={brDate(e.date)}
-                            sx={{ fontWeight: 700, flexShrink: 0 }} />
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography sx={{ fontWeight: 600 }}>
-                              {e.title}
-                              {!clientFilter && e.client_name && (
-                                <Typography component="span" variant="caption" color="text.secondary"> · {e.client_name}</Typography>
-                              )}
-                            </Typography>
-                            {e.notes && <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-wrap" }}>{e.notes}</Typography>}
-                          </Box>
-                          <Box className="acts" sx={{ opacity: { xs: 1, md: 0 }, transition: "opacity .15s", flexShrink: 0 }}>
-                            <IconButton size="small" onClick={() => editar(e)}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
-                            <IconButton size="small" color="error" onClick={() => excluir(e)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
-                          </Box>
-                        </Stack>
-                      ))}
-                    </Stack>
-                  </Box>
-                );
-              })
-            )}
-          </CardContent>
-        </Card>
+        <PlanningEditor
+          clientId={clientFilter}
+          clientName={clientName(clientFilter)}
+          ym={`${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}`}
+          monthLabel={`${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`}
+          monthDates={dates.filter((e) => e.date.slice(0, 7) === `${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}`)}
+        />
       ) : view === "mes" ? (
         <MonthBlock {...blocks[0]} byDay={byDay} seasonalByDay={seasonalByDay} onDay={openDay} full />
       ) : (

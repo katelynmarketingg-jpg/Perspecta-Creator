@@ -6,6 +6,8 @@ import PeopleIcon from "@mui/icons-material/People";
 import FolderIcon from "@mui/icons-material/Folder";
 import ViewKanbanIcon from "@mui/icons-material/ViewKanban";
 import PaidIcon from "@mui/icons-material/Paid";
+import FlagIcon from "@mui/icons-material/Flag";
+import { useNavigate } from "react-router-dom";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
@@ -18,18 +20,26 @@ import { currency, monthLabel, formatDate, PRIORITY } from "../utils.js";
 
 export default function Dashboard() {
   const theme = useTheme();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [series, setSeries] = useState([]);
+  const [prioridades, setPrioridades] = useState([]);
 
   // Ao vivo: o painel resume tarefas, financeiro e clientes — recarrega quando
   // qualquer um deles muda.
   const vTasks = useLiveVersion("tasks");
   const vFinancial = useLiveVersion("financial");
   const vClients = useLiveVersion("clients");
+  const vPri = useLiveVersion("priorities");
   useEffect(() => {
     api.get("/reports/dashboard").then((r) => setData(r.data)).catch(() => {});
     api.get("/financial/summary").then((r) => setSeries(r.data.series || [])).catch(() => {});
   }, [vTasks, vFinancial, vClients]);
+  useEffect(() => {
+    api.get("/priorities").then((r) =>
+      setPrioridades((r.data || []).filter((p) => p.level === "alta" && p.status !== "done"))
+    ).catch(() => setPrioridades([]));
+  }, [vPri]);
 
   const chart = series.map((s) => ({ name: monthLabel(s.month), Receita: s.income, Despesa: s.expense }));
 
@@ -38,6 +48,32 @@ export default function Dashboard() {
       <PageHeader title="Dashboard" subtitle="Visão geral da sua agência" />
 
       <NeedsAttention />
+
+      {/* Prioridades ALTA em aberto — bate o olho ao entrar. */}
+      {prioridades.length > 0 && (
+        <Card sx={{ mb: 2.5, borderLeft: 4, borderLeftColor: "#DC2626", cursor: "pointer" }}
+          onClick={() => navigate("/priorities")}>
+          <CardContent sx={{ py: 1.5 }}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+              <FlagIcon sx={{ color: "#DC2626" }} fontSize="small" />
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>Prioridades altas</Typography>
+              <Chip size="small" label={prioridades.length} sx={{ bgcolor: "#DC2626", color: "#fff", fontWeight: 700 }} />
+            </Stack>
+            <Stack spacing={0.5}>
+              {prioridades.slice(0, 4).map((p) => (
+                <Stack key={p.id} direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                  {p.client_name && <Chip size="small" variant="outlined" label={p.client_name} sx={{ height: 20, flexShrink: 0 }} />}
+                  <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0 }}>{p.message}</Typography>
+                  {p.assignee_name && <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>→ {p.assignee_name}</Typography>}
+                </Stack>
+              ))}
+              {prioridades.length > 4 && (
+                <Typography variant="caption" color="text.secondary">+{prioridades.length - 4} mais — clique para ver todas</Typography>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
 
       <Grid container spacing={2.5} sx={{ mb: 1 }}>
         <Grid item xs={12} sm={6} md={3}>

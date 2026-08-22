@@ -28,6 +28,31 @@ router.get("/", (req, res) => {
   res.json(rows);
 });
 
+// --- Documento de planejamento (texto rico) por cliente e mês -------------
+// (definido ANTES de /:id para não colidir com PUT /:id)
+
+// GET /api/planning/doc?client_id=&ym=
+router.get("/doc", (req, res) => {
+  const { client_id, ym } = req.query;
+  if (!client_id || !ym) return res.status(400).json({ error: "Informe o cliente e o mês." });
+  const row = db.prepare("SELECT content, updated_at FROM planning_docs WHERE org_id=? AND client_id=? AND ym=?")
+    .get(req.orgId, client_id, ym);
+  res.json({ content: row?.content || null, updated_at: row?.updated_at || null });
+});
+
+// PUT /api/planning/doc { client_id, ym, content } — cria/atualiza (upsert).
+router.put("/doc", (req, res) => {
+  const { client_id, ym, content } = req.body || {};
+  if (!client_id || !ym) return res.status(400).json({ error: "Informe o cliente e o mês." });
+  db.prepare(
+    `INSERT INTO planning_docs (org_id, client_id, ym, content, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(org_id, client_id, ym)
+       DO UPDATE SET content = excluded.content, updated_at = datetime('now')`
+  ).run(req.orgId, client_id, ym, content ?? null);
+  res.json({ ok: true });
+});
+
 router.post("/", (req, res) => {
   const b = req.body || {};
   if (!b.date || !b.title) return res.status(400).json({ error: "Data e título são obrigatórios." });
