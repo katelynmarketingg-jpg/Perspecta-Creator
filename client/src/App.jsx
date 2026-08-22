@@ -26,6 +26,7 @@ import Prospects from "./pages/Prospects.jsx";
 import Deliveries from "./pages/Deliveries.jsx";
 import Distribution from "./pages/Distribution.jsx";
 import Planning from "./pages/Planning.jsx";
+import Priorities from "./pages/Priorities.jsx";
 import ClientArea from "./pages/ClientArea.jsx";
 import AI from "./pages/AI.jsx";
 import PortalLogin from "./pages/PortalLogin.jsx";
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="/agenda" element={<Agenda />} />
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/planning" element={<Planning />} />
+        <Route path="/priorities" element={<Priorities />} />
         <Route path="/client-area" element={<ClientArea />} />
         <Route path="/files" element={<Files />} />
         <Route path="/workspace" element={<Workspace />} />

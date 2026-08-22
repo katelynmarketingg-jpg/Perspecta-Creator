@@ -27,6 +27,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import HubIcon from "@mui/icons-material/Hub";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
+import FlagIcon from "@mui/icons-material/Flag";
 import PreviewIcon from "@mui/icons-material/Preview";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
@@ -49,6 +50,7 @@ const NAV = [
   { to: "/clients", label: "Clientes", icon: <PeopleIcon /> },
   { to: "/prospects", label: "Prospecção", icon: <PersonSearchIcon /> },
   { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
+  { to: "/priorities", label: "Prioridades", icon: <FlagIcon /> },
   { to: "/projects", label: "Projetos", icon: <FolderIcon /> },
   { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },
   { to: "/distribution", label: "Distribuição", icon: <ScheduleSendIcon /> },
