@@ -53,10 +53,11 @@ router.post("/", (req, res) => {
   // Avisa a equipe (ainda sem mira por pessoa): mostra pra quem é.
   const alvo = b.assignee_id ? db.prepare("SELECT name FROM users WHERE id = ?").get(b.assignee_id)?.name : null;
   const cli = b.client_id ? db.prepare("SELECT name FROM clients WHERE id = ?").get(b.client_id)?.name : null;
-  db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)")
+  // Mirada: se tem responsável, o aviso vai só para ele; senão, para a equipe.
+  db.prepare("INSERT INTO notifications (audience, client_id, message, org_id, user_id) VALUES ('agency', ?, ?, ?, ?)")
     .run(b.client_id || null,
       `📌 Nova prioridade${alvo ? ` para ${alvo}` : ""}${cli ? ` — ${cli}` : ""}: ${b.message.trim().slice(0, 80)}`,
-      req.orgId);
+      req.orgId, b.assignee_id || null);
 
   res.status(201).json(db.prepare(`${SELECT} WHERE p.id = ?`).get(info.lastInsertRowid));
 });

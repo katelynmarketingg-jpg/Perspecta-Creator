@@ -197,12 +197,12 @@ router.post("/:id/launch", (req, res) => {
       `📦 ${total} peça(s) de ${project.client_name || project.name} lançadas para ${monthLabel}.`,
       req.orgId
     );
-    // Aviso individual para cada responsável.
+    // Aviso individual para cada responsável — mirado só nele.
     Object.entries(porPessoa).forEach(([uid, qtd]) => {
-      db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)").run(
+      db.prepare("INSERT INTO notifications (audience, client_id, message, org_id, user_id) VALUES ('agency', ?, ?, ?, ?)").run(
         project.client_id,
         `👤 ${qtd} peça(s) de ${project.client_name || project.name} atribuídas a você (${monthLabel}).`,
-        req.orgId
+        req.orgId, Number(uid) || null
       );
     });
   });

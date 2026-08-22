@@ -45,8 +45,9 @@ function syncCaptureEvent(taskId, orgId) {
        VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
     ).run(t.title, type?.id ?? null, t.client_id, t.scheduled_at, t.assignee_id, taskId, orgId);
     const cli = t.client_id ? db.prepare("SELECT name FROM clients WHERE id = ?").get(t.client_id)?.name : null;
-    db.prepare("INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, ?, ?, ?)")
-      .run(t.client_id, taskId, `📅 ${label} agendada: "${t.title}"${cli ? " — " + cli : ""}.`, orgId);
+    // Mirada no responsável pela captação/reunião (ex.: a Katy). Sem responsável, vai pra equipe.
+    db.prepare("INSERT INTO notifications (audience, client_id, task_id, message, org_id, user_id) VALUES ('agency', ?, ?, ?, ?, ?)")
+      .run(t.client_id, taskId, `📅 ${label} agendada: "${t.title}"${cli ? " — " + cli : ""}.`, orgId, t.assignee_id || null);
   }
 }
 
