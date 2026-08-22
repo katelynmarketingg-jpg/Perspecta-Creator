@@ -19,7 +19,7 @@ import CelebrationIcon from "@mui/icons-material/Celebration";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
-import { seasonalFor, CATEGORY_COLOR } from "../data/seasonalDates.js";
+import { seasonalFor, CATEGORY_COLOR, CATEGORY_HEX } from "../data/seasonalDates.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -33,7 +33,7 @@ const brDate = (iso) => {
 };
 
 // Bloco de um mês. `full` = mês grande (mostra os títulos); senão, miniatura.
-function MonthBlock({ year, month, byDay, onDay, full }) {
+function MonthBlock({ year, month, byDay, seasonalByDay, onDay, full }) {
   const first = new Date(year, month, 1).getDay();
   const total = new Date(year, month + 1, 0).getDate();
   const cells = [];
@@ -55,7 +55,9 @@ function MonthBlock({ year, month, byDay, onDay, full }) {
         {cells.map((d, i) => {
           const iso = d ? dstr(year, month, d) : null;
           const arr = (d && byDay[iso]) || [];
+          const saz = (d && seasonalByDay?.[iso]) || [];
           const has = arr.length > 0;
+          const temSaz = saz.length > 0;
           return (
             <Box key={i}
               onClick={() => d && onDay(iso)}
@@ -71,7 +73,10 @@ function MonthBlock({ year, month, byDay, onDay, full }) {
                 <>
                   <Stack direction="row" alignItems="center" justifyContent="space-between">
                     <Typography sx={{ fontSize: full ? 12.5 : 10, fontWeight: has ? 800 : 500, color: has ? "primary.main" : "text.secondary" }}>{d}</Typography>
-                    {!full && has && <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "primary.main" }} />}
+                    <Stack direction="row" spacing={0.3} alignItems="center">
+                      {!full && temSaz && <Box sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: CATEGORY_HEX[saz[0].category] || "#999" }} />}
+                      {!full && has && <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "primary.main" }} />}
+                    </Stack>
                   </Stack>
                   {full && arr.slice(0, 2).map((e) => (
                     <Box key={e.id} sx={{ px: 0.5, py: 0.15, borderRadius: 0.75, bgcolor: "primary.main", color: "#fff", fontSize: 10.5, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -81,6 +86,13 @@ function MonthBlock({ year, month, byDay, onDay, full }) {
                   {full && arr.length > 2 && (
                     <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>+{arr.length - 2}</Typography>
                   )}
+                  {/* Datas comemorativas (fundo) — cor por categoria, texto discreto. */}
+                  {full && saz.slice(0, has ? 1 : 2).map((s, k) => (
+                    <Box key={`s${k}`} sx={{ display: "flex", alignItems: "center", gap: 0.4, minWidth: 0 }}>
+                      <Box sx={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, bgcolor: CATEGORY_HEX[s.category] || "#999" }} />
+                      <Typography sx={{ fontSize: 9.5, lineHeight: 1.2, color: "text.secondary", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</Typography>
+                    </Box>
+                  ))}
                 </>
               )}
             </Box>
@@ -127,6 +139,14 @@ export default function Planning() {
     dates.forEach((e) => { (map[e.date] ||= []).push(e); });
     return map;
   }, [dates]);
+
+  // Datas comemorativas por dia, para os anos que aparecem na visão atual.
+  const seasonalByDay = useMemo(() => {
+    const map = {};
+    const anos = new Set([cursor.getFullYear(), cursor.getFullYear() + 1]);
+    anos.forEach((y) => seasonalFor(y).forEach((s) => { (map[s.date] ||= []).push(s); }));
+    return map;
+  }, [cursor]);
 
   // Quantos meses o passo de navegação anda e quantos blocos aparecem.
   const span = view === "trimestre" ? 3 : view === "semestre" ? 6 : view === "ano" ? 12 : 1;
@@ -268,7 +288,7 @@ export default function Planning() {
           </CardContent>
         </Card>
       ) : view === "mes" ? (
-        <MonthBlock {...blocks[0]} byDay={byDay} onDay={openDay} full />
+        <MonthBlock {...blocks[0]} byDay={byDay} seasonalByDay={seasonalByDay} onDay={openDay} full />
       ) : (
         <Box sx={{
           display: "grid", gap: 2,
@@ -278,7 +298,7 @@ export default function Planning() {
               ? { xs: "1fr", sm: "1fr 1fr", md: "repeat(3, 1fr)" }
               : { xs: "1fr", sm: "repeat(3, 1fr)" },
         }}>
-          {blocks.map((b) => <MonthBlock key={`${b.year}-${b.month}`} {...b} byDay={byDay} onDay={openDay} />)}
+          {blocks.map((b) => <MonthBlock key={`${b.year}-${b.month}`} {...b} byDay={byDay} seasonalByDay={seasonalByDay} onDay={openDay} />)}
         </Box>
       )}
 
@@ -288,6 +308,17 @@ export default function Planning() {
         <DialogContent>
           {!draft && (
             <Stack spacing={1} sx={{ mt: 0.5 }}>
+              {/* Datas comemorativas deste dia — clique para adicionar (com observação). */}
+              {(seasonalByDay[dayOpen] || []).map((s, k) => (
+                <Stack key={`sz${k}`} direction="row" spacing={1} alignItems="center"
+                  sx={{ p: 0.75, borderRadius: 1, bgcolor: "action.hover" }}>
+                  <Box sx={{ width: 9, height: 9, borderRadius: "50%", flexShrink: 0, bgcolor: CATEGORY_HEX[s.category] || "#999" }} />
+                  <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }}>{s.name}</Typography>
+                  <Button size="small" onClick={() => setDraft({ date: s.date, title: s.name, notes: "", client_id: clientFilter || "" })}>
+                    Adicionar
+                  </Button>
+                </Stack>
+              ))}
               {dayEntries.length === 0 && (
                 <Typography variant="body2" color="text.secondary">Nada marcado neste dia ainda.</Typography>
               )}
