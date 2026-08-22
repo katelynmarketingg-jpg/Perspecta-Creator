@@ -9,10 +9,11 @@ import { syncTaskMediaToStage } from "../gallery-sync.js";
 
 const router = Router();
 
-function notifyAgency(clientId, taskId, message, orgId) {
+// userId opcional: mira o aviso numa pessoa (ex.: quem programa). NULL = equipe.
+function notifyAgency(clientId, taskId, message, orgId, userId = null) {
   db.prepare(
-    "INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, ?, ?, ?)"
-  ).run(clientId, taskId, message, orgId);
+    "INSERT INTO notifications (audience, client_id, task_id, message, org_id, user_id) VALUES ('agency', ?, ?, ?, ?, ?)"
+  ).run(clientId, taskId, message, orgId, userId);
 }
 
 // A etapa é sempre a do escritório dono do cliente.
@@ -257,7 +258,7 @@ router.post("/approvals/:id/approve", (req, res) => {
   const aviso = auto
     ? `✅ ${req.client.name} aprovou "${task.title}" — programado.`
     : `✅ ${req.client.name} aprovou "${task.title}". Clique em Programar para agendar.`;
-  notifyAgency(task.client_id, task.id, aviso, task.org_id);
+  notifyAgency(task.client_id, task.id, aviso, task.org_id, task.assignee_id || null);
   res.json({ ok: true });
 });
 
@@ -283,7 +284,7 @@ router.post("/approvals/:id/request-changes", (req, res) => {
     `UPDATE tasks SET approval_status = 'changes_requested',
      client_caption = ?, client_note = ?, client_ref_file_id = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
   ).run(client_caption ?? null, client_note ?? null, refId, back?.id ?? null, task.id);
-  notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`, task.org_id);
+  notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`, task.org_id, task.assignee_id || null);
   res.json({ ok: true });
 });
 
@@ -347,7 +348,7 @@ router.post("/tasks/:id/comments", (req, res) => {
     )
     .run(task.org_id, task.id, req.client.client_id, req.client.name, body);
 
-  notifyAgency(task.client_id, task.id, `💬 ${req.client.name} comentou em "${task.title}".`, task.org_id);
+  notifyAgency(task.client_id, task.id, `💬 ${req.client.name} comentou em "${task.title}".`, task.org_id, task.assignee_id || null);
   res.status(201).json(db.prepare("SELECT * FROM task_comments WHERE id = ?").get(info.lastInsertRowid));
 });
 
