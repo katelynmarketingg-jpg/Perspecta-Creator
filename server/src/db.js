@@ -171,6 +171,17 @@ CREATE TABLE IF NOT EXISTS priorities (
   done_at     TEXT
 );
 
+-- Documento de planejamento por cliente e mês (texto rico HTML, escrito no app).
+CREATE TABLE IF NOT EXISTS planning_docs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  client_id   INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  ym          TEXT NOT NULL,                         -- 'AAAA-MM'
+  content     TEXT,                                  -- JSON { html, style, showLogo }
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_planning_docs_unq ON planning_docs(org_id, client_id, ym);
+
 CREATE TABLE IF NOT EXISTS contracts (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   client_id      INTEGER REFERENCES clients(id) ON DELETE SET NULL,
