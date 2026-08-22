@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { db } from "../db.js";
 import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
+import { syncTaskMediaToStage } from "../gallery-sync.js";
 
 const router = Router();
 
@@ -250,6 +251,9 @@ router.post("/approvals/:id/approve", (req, res) => {
     : null;
   db.prepare("UPDATE tasks SET approval_status = 'approved', stage_id = COALESCE(?, stage_id) WHERE id = ?")
     .run(next?.id ?? null, task.id);
+  // A mídia acompanha: aprovado → pasta "Aprovados"; se já programou (modo auto),
+  // vai direto para "Programados".
+  syncTaskMediaToStage(task.org_id, task.id, auto ? "programados" : "aprovados");
   const aviso = auto
     ? `✅ ${req.client.name} aprovou "${task.title}" — programado.`
     : `✅ ${req.client.name} aprovou "${task.title}". Clique em Programar para agendar.`;

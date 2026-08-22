@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { stopTimersForTask } from "./time.js";
+import { syncTaskMediaToStage } from "../gallery-sync.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("tarefas"));
@@ -228,6 +229,9 @@ router.put("/:id/status", (req, res) => {
   if (stage_id != null && String(stage_id) !== String(task.stage_id)) {
     stopTimersForTask(req.params.id, req.orgId);
   }
+  // A mídia acompanha a peça pela Galeria conforme a etapa do quadro.
+  if (stage?.is_done) syncTaskMediaToStage(req.orgId, req.params.id, "programados");
+  else if (entrouNaAprovacao) syncTaskMediaToStage(req.orgId, req.params.id, "aprovacao");
   syncCaptureEvent(req.params.id, req.orgId);
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });

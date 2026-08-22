@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { syncTaskMediaToStage } from "../gallery-sync.js";
 
 // ---------------------------------------------------------------------------
 // Distribuição — a mesa de trabalho de quem programa (ex.: a Rafa).
@@ -100,6 +101,8 @@ router.post("/:id/schedule", (req, res) => {
   db.prepare(
     "UPDATE tasks SET stage_id = ?, scheduled_at = ?, completed_at = ? WHERE id = ? AND org_id = ?"
   ).run(done.id, when, new Date().toISOString(), req.params.id, req.orgId);
+  // A mídia acompanha: vai para a pasta "Programados" da Galeria do cliente.
+  syncTaskMediaToStage(req.orgId, req.params.id, "programados");
   res.json({ ok: true });
 });
 
@@ -167,6 +170,9 @@ router.post("/:id/send", (req, res) => {
     `UPDATE tasks SET stage_id = ?, approval_status = 'sent',
        approval_sent_at = COALESCE(approval_sent_at, ?) WHERE id = ? AND org_id = ?`
   ).run(stage.id, new Date().toISOString(), req.params.id, req.orgId);
+
+  // A mídia acompanha: vai para a pasta "Para aprovação" da Galeria do cliente.
+  syncTaskMediaToStage(req.orgId, req.params.id, "aprovacao");
 
   // Avisa o cliente que tem conteúdo novo para aprovar.
   db.prepare(
