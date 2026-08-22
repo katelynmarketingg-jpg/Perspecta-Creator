@@ -20,10 +20,10 @@ router.get("/dashboard", (req, res) => {
   const expense = sum("SELECT COALESCE(SUM(amount),0) AS v FROM financial_entries WHERE org_id=? AND type='expense'");
 
   const myTasks = db.prepare(`
-    SELECT t.id, t.title, t.due_date, t.priority, c.name AS client_name
+    SELECT t.id, t.title, t.due_date, t.ref_month, t.scheduled_at, t.priority, c.name AS client_name
     FROM tasks t LEFT JOIN clients c ON c.id = t.client_id
     WHERE t.org_id = ? AND t.assignee_id = ? AND t.completed_at IS NULL
-    ORDER BY t.due_date LIMIT 10`).all(org, req.user.id);
+    ORDER BY COALESCE(t.scheduled_at, t.due_date, t.ref_month || '-31') LIMIT 10`).all(org, req.user.id);
 
   res.json({
     clients, activeProjects, doneProjects, pendingTasks, doneTasks,

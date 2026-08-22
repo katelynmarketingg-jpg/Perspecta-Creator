@@ -139,7 +139,11 @@ export default function Dashboard() {
                       secondaryAction={<Chip size="small" color={PRIORITY[t.priority]?.color} label={PRIORITY[t.priority]?.label} />}>
                       <ListItemText
                         primary={t.title}
-                        secondary={`${t.client_name || "Sem cliente"} · ${formatDate(t.due_date)}`}
+                        secondary={`${t.client_name || "Sem cliente"} · ${
+                          t.scheduled_at ? formatDate(t.scheduled_at)
+                            : t.ref_month ? `ref. ${t.ref_month.split("-").reverse().join("/")}`
+                            : t.due_date ? formatDate(t.due_date) : "sem data"
+                        }`}
                       />
                     </ListItem>
                   ))}

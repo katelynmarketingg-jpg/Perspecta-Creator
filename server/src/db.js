@@ -313,6 +313,9 @@ ensureColumn("tasks", "cover_file_id", "cover_file_id INTEGER");
 // Quantidade agrupada: ao lançar, cria 1 tarefa por tipo com N peças dentro.
 // Ao entrar na Distribuição, ela se abre em N tarefas individuais (quantity=1).
 ensureColumn("tasks", "quantity", "quantity INTEGER NOT NULL DEFAULT 1");
+// Mês de referência ('AAAA-MM') das tarefas de conteúdo: a produção é feita ao
+// longo do mês, não num prazo único. Substitui o "prazo" nessas tarefas.
+ensureColumn("tasks", "ref_month", "ref_month TEXT");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
