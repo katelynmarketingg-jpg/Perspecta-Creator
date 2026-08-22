@@ -186,15 +186,15 @@ router.put("/:id/status", (req, res) => {
     const suffix = (task.title || "").match(/—.*$/)?.[0] || ""; // "— Cliente (Mês)"
     const insPiece = db.prepare(
       `INSERT INTO tasks (title, description, client_id, project_id, assignee_id, stage_id, priority,
-         tags, due_date, content_type, caption, quantity, position, org_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+         tags, due_date, ref_month, content_type, caption, quantity, position, org_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     );
     const split = db.transaction(() => {
       for (let i = 1; i <= n; i++) {
         insPiece.run(
           `${base} ${i}/${n}${suffix ? " " + suffix : ""}`.trim(),
           task.description, task.client_id, task.project_id, task.assignee_id, stage_id,
-          task.priority, task.tags, task.due_date, task.content_type, task.caption, i, req.orgId
+          task.priority, task.tags, task.due_date, task.ref_month, task.content_type, task.caption, i, req.orgId
         );
       }
       db.prepare("DELETE FROM tasks WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);

@@ -22,6 +22,14 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, CardSkeleton } from "../components/ui.jsx";
 import { formatDate, formatDateTime, PRIORITY, CONTENT_TYPES } from "../utils.js";
 
+// Mês de referência ('AAAA-MM' -> 'ago/2025'): produção do mês, sem prazo único.
+const MES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const refMonthLabel = (ym) => {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "";
+  const [y, m] = ym.split("-").map(Number);
+  return `${MES_ABREV[m - 1]}/${y}`;
+};
+
 // Miniatura autenticada do arquivo que o cliente citou ao pedir ajuste.
 function RefThumb({ fileId }) {
   const [src, setSrc] = useState(null);
@@ -441,7 +449,9 @@ export default function Tasks() {
                   return (
                     <TableRow key={t.id} hover sx={{ cursor: "pointer" }} onClick={() => openEdit(t)}>
                       <TableCell sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                        {t.scheduled_at ? formatDateTime(t.scheduled_at) : t.due_date ? formatDate(t.due_date) : "—"}
+                        {t.scheduled_at ? formatDateTime(t.scheduled_at)
+                          : t.ref_month ? refMonthLabel(t.ref_month)
+                          : t.due_date ? formatDate(t.due_date) : "—"}
                       </TableCell>
                       <TableCell>{t.title}</TableCell>
                       <TableCell>{t.client_name || "—"}</TableCell>
@@ -523,7 +533,11 @@ export default function Tasks() {
                         <Chip size="small" color="primary" icon={<EventAvailableIcon sx={{ fontSize: 14 }} />}
                           label={formatDateTime(t.scheduled_at)} />
                       )}
-                      {t.due_date && !t.scheduled_at && <Chip size="small" variant="outlined" label={formatDate(t.due_date)} />}
+                      {t.ref_month && !t.scheduled_at && (
+                        <Chip size="small" variant="outlined" icon={<EventAvailableIcon sx={{ fontSize: 14 }} />}
+                          label={`ref. ${refMonthLabel(t.ref_month)}`} />
+                      )}
+                      {t.due_date && !t.scheduled_at && !t.ref_month && <Chip size="small" variant="outlined" label={formatDate(t.due_date)} />}
                       {t.attachment_count > 0 && <Chip size="small" variant="outlined" label={`📎 ${t.attachment_count}`} />}
                       {/* O que falta para este post poder ir à aprovação */}
                       {t.content_type && !t.completed_at && !t.caption && (

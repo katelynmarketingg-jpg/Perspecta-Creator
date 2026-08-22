@@ -160,11 +160,12 @@ router.post("/:id/launch", (req, res) => {
   const firstStage = db
     .prepare("SELECT id FROM kanban_stages WHERE org_id = ? ORDER BY position LIMIT 1")
     .get(req.orgId)?.id ?? null;
-  const dueDate = new Date(year, m, 0).toISOString().slice(0, 10); // último dia do mês
-  // 1 tarefa por tipo de conteúdo, com a quantidade dentro (agrupada). As datas
-  // individuais são definidas depois, na aba Distribuição.
+  const refMonth = `${year}-${String(m).padStart(2, "0")}`; // mês de referência
+  // 1 tarefa por tipo de conteúdo, com a quantidade dentro (agrupada). Sem prazo
+  // único: a produção é do MÊS (ref_month). As datas individuais são definidas
+  // depois, na aba Distribuição.
   const ins = db.prepare(
-    `INSERT INTO tasks (title, client_id, project_id, assignee_id, stage_id, priority, content_type, quantity, tags, due_date, org_id)
+    `INSERT INTO tasks (title, client_id, project_id, assignee_id, stage_id, priority, content_type, quantity, tags, ref_month, org_id)
      VALUES (?, ?, ?, ?, ?, 'medium', ?, ?, ?, ?, ?)`
   );
 
@@ -184,7 +185,7 @@ router.post("/:id/launch", (req, res) => {
       ins.run(
         `${linha.label} — ${project.client_name || project.name} (${monthLabel})`,
         project.client_id, project.id, quem ?? null, firstStage, linha.content_type,
-        qtd, JSON.stringify([monthLabel]), dueDate, req.orgId
+        qtd, JSON.stringify([monthLabel]), refMonth, req.orgId
       );
       total += qtd;
       grupos++;
