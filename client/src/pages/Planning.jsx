@@ -94,6 +94,9 @@ function MonthBlock({ year, month, byDay, seasonalByDay, onDay, full }) {
                       <Typography sx={{ fontSize: 9.5, lineHeight: 1.2, color: "text.secondary", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</Typography>
                     </Box>
                   ))}
+                  {full && saz.length > (has ? 1 : 2) && (
+                    <Typography sx={{ fontSize: 9, color: "text.disabled" }}>+{saz.length - (has ? 1 : 2)} datas</Typography>
+                  )}
                 </>
               )}
             </Box>
