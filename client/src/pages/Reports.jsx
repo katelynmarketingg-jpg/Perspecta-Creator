@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField, Chip, Divider, MenuItem } from "@mui/material";
+import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField, Chip, Divider, MenuItem, Button, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, Cell, Legend,
@@ -29,6 +30,9 @@ export default function Reports() {
 
   const [tempo, setTempo] = useState(null);
   const [periodoTempo, setPeriodoTempo] = useState("mes");
+  const [tempoRefresh, setTempoRefresh] = useState(0);
+  const [clientesTempo, setClientesTempo] = useState([]);
+  const [addTempo, setAddTempo] = useState(null); // { client_id, horas, minutos, note, entry_date }
   const [prospects, setProspects] = useState(null);
   const [approvals, setApprovals] = useState(null);
   const [incomeStatus, setIncomeStatus] = useState([]);
@@ -61,7 +65,20 @@ export default function Reports() {
     const meses = periodoTempo === "3m" ? 3 : periodoTempo === "6m" ? 6 : 1;
     api.get("/time/summary", { params: { from, to } })
       .then((r) => setTempo({ ...r.data, meses })).catch(() => {});
-  }, [periodoTempo]);
+  }, [periodoTempo, tempoRefresh]);
+
+  useEffect(() => { api.get("/clients").then((r) => setClientesTempo(r.data)).catch(() => {}); }, []);
+
+  async function salvarTempo() {
+    const minutes = Math.round((Number(addTempo.horas) || 0) * 60 + (Number(addTempo.minutos) || 0));
+    if (!addTempo.client_id || minutes <= 0) return;
+    await api.post("/time", {
+      client_id: addTempo.client_id, minutes,
+      note: addTempo.note || null, entry_date: addTempo.entry_date || undefined,
+    });
+    setAddTempo(null);
+    setTempoRefresh((n) => n + 1);
+  }
 
   const PERIODOS_TEMPO = [
     ["mes", "Este mês"], ["passado", "Mês passado"], ["3m", "Últimos 3 meses"], ["6m", "Últimos 6 meses"],
@@ -289,9 +306,15 @@ export default function Reports() {
         <Grid item xs={12} md={6}>
           <Card sx={{ height: "100%" }}>
             <CardContent>
-              <Typography variant="h6">Tempo por cliente</Typography>
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Typography variant="h6">Tempo por cliente</Typography>
+                <Button size="small" variant="outlined" startIcon={<AddIcon />}
+                  onClick={() => setAddTempo({ client_id: "", horas: "", minutos: "", note: "", entry_date: new Date().toISOString().slice(0, 10) })}>
+                  Adicionar tempo
+                </Button>
+              </Stack>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Horas apontadas no período e quanto a mensalidade rende por hora.
+                Horas trabalhadas no período — a mensalidade dividida pelas horas dá o "por hora".
               </Typography>
               {(tempo?.porCliente || []).filter((c) => c.minutos > 0).length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
@@ -567,6 +590,39 @@ export default function Reports() {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Adicionar tempo trabalhado (ex.: Captação — 2h) */}
+      <Dialog open={Boolean(addTempo)} onClose={() => setAddTempo(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Adicionar tempo trabalhado</DialogTitle>
+        <DialogContent>
+          {addTempo && (
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField select label="Cliente *" value={addTempo.client_id}
+                onChange={(e) => setAddTempo((d) => ({ ...d, client_id: e.target.value }))} fullWidth>
+                {clientesTempo.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </TextField>
+              <Stack direction="row" spacing={2}>
+                <TextField label="Horas" type="number" inputProps={{ min: 0 }} value={addTempo.horas}
+                  onChange={(e) => setAddTempo((d) => ({ ...d, horas: e.target.value }))} fullWidth />
+                <TextField label="Minutos" type="number" inputProps={{ min: 0, max: 59 }} value={addTempo.minutos}
+                  onChange={(e) => setAddTempo((d) => ({ ...d, minutos: e.target.value }))} fullWidth />
+              </Stack>
+              <TextField label="Atividade (opcional)" value={addTempo.note}
+                onChange={(e) => setAddTempo((d) => ({ ...d, note: e.target.value }))} fullWidth
+                placeholder="Ex.: Captação, Reunião, Edição…" />
+              <TextField label="Data" type="date" InputLabelProps={{ shrink: true }} value={addTempo.entry_date}
+                onChange={(e) => setAddTempo((d) => ({ ...d, entry_date: e.target.value }))} fullWidth />
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddTempo(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={salvarTempo}
+            disabled={!addTempo?.client_id || (!Number(addTempo?.horas) && !Number(addTempo?.minutos))}>
+            Adicionar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }
