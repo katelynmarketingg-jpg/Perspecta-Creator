@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import AdmZip from "adm-zip";
 import { mkdirSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
-import { resolve, join, basename, extname } from "node:path";
+import { resolve, join, dirname, basename, extname } from "node:path";
 import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
@@ -41,7 +41,11 @@ async function removeStored(stored_path) {
 
 // Os arquivos são gravados em disco exatamente como chegaram (byte a byte).
 // Nenhuma compressão ou conversão — a qualidade original é preservada.
-const UPLOADS_DIR = resolve(process.env.UPLOADS_DIR || "./data/uploads");
+// Guarda os uploads no MESMO disco persistente do banco (ex.: /var/data/uploads
+// no Render). Antes caía em "./data/uploads", que é efêmero e some a cada
+// redeploy — por isso as imagens sumiam. (Quando o R2 está ligado, vai pro R2.)
+const DATA_DIR = dirname(process.env.DB_PATH || "./data/agency.db");
+const UPLOADS_DIR = resolve(process.env.UPLOADS_DIR || join(DATA_DIR, "uploads"));
 mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const upload = multer({
