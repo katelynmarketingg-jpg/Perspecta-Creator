@@ -182,6 +182,8 @@ export default function Clients() {
 
   const totalMensal = draft.services.filter((s) => s.billing !== "avulso").reduce((sum, s) => sum + (Number(s.price) || 0), 0);
   const totalAvulso = draft.services.filter((s) => s.billing === "avulso").reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+  // As "quantidades do mês" (posts, reels…) só fazem sentido para social media.
+  const temSocial = draft.services.some((s) => /social|rede social|instagram|conte[úu]do/i.test(s.name || ""));
 
   async function save() {
     const payload = { ...draft, payment_day: draft.payment_day || null };
@@ -379,24 +381,6 @@ export default function Clients() {
               <TextField label="Dia do pagamento" type="number" inputProps={{ min: 1, max: 31 }}
                 value={draft.payment_day} onChange={set("payment_day")} sx={{ minWidth: 140 }} />
             </Stack>
-            <Divider>Quantidades do mês</Divider>
-            <Typography variant="body2" color="text.secondary">
-              Quantas peças de cada tipo por mês. Vira o plano do cliente — depois é só
-              "Lançar mês" em Projetos para gerar as tarefas e notificar os responsáveis.
-            </Typography>
-            <Grid container spacing={1.5}>
-              {MONTHLY_TYPES.map((k) => (
-                <Grid item xs={6} sm={4} key={k}>
-                  <TextField
-                    type="number" size="small" fullWidth inputProps={{ min: 0 }}
-                    label={`${CONTENT_TYPES[k]?.emoji || ""} ${CONTENT_TYPES[k]?.label || k}`}
-                    value={draft.monthly?.[k] ?? ""}
-                    onChange={(e) => setMonthly(k, e.target.value)}
-                  />
-                </Grid>
-              ))}
-            </Grid>
-
             <Divider>Serviços prestados</Divider>
             <Autocomplete
               multiple
@@ -456,6 +440,29 @@ export default function Clients() {
                   <Typography variant="caption" color="text.secondary">+ {currency(totalAvulso)} avulso (parcelado)</Typography>
                 )}
               </Box>
+            )}
+
+            {/* Quantidades do mês — só para Gestão de rede social */}
+            {temSocial && (
+              <>
+                <Divider>Quantidades do mês (rede social)</Divider>
+                <Typography variant="body2" color="text.secondary">
+                  Quantas peças de cada tipo por mês. Vira o plano do cliente — depois é só
+                  "Lançar mês" em Projetos para gerar as tarefas e notificar os responsáveis.
+                </Typography>
+                <Grid container spacing={1.5}>
+                  {MONTHLY_TYPES.map((k) => (
+                    <Grid item xs={6} sm={4} key={k}>
+                      <TextField
+                        type="number" size="small" fullWidth inputProps={{ min: 0 }}
+                        label={`${CONTENT_TYPES[k]?.emoji || ""} ${CONTENT_TYPES[k]?.label || k}`}
+                        value={draft.monthly?.[k] ?? ""}
+                        onChange={(e) => setMonthly(k, e.target.value)}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              </>
             )}
             <FormControlLabel
               control={<Switch checked={draft.generate_contract}
