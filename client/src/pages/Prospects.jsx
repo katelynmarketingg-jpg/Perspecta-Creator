@@ -32,6 +32,7 @@ export default function Prospects() {
   const [contato, setContato] = useState(null); // prospect recebendo novo contato
   const [novoContato, setNovoContato] = useState({ channel: "whatsapp", summary: "", touch_date: "" });
   const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
   // Arraste-e-solte entre colunas.
   const dragId = useRef(null);
   const [overCol, setOverCol] = useState(null);
@@ -97,10 +98,21 @@ export default function Prospects() {
   }
 
   async function registrarContato() {
-    await api.post(`/prospects/${contato.id}/touches`, novoContato);
-    setContato(null);
-    setNovoContato({ channel: "whatsapp", summary: "", touch_date: "" });
-    load();
+    try {
+      await api.post(`/prospects/${contato.id}/touches`, {
+        channel: novoContato.channel || null,
+        summary: novoContato.summary.trim(),
+        touch_date: novoContato.touch_date || undefined, // vazio = hoje
+      });
+      setContato(null);
+      setNovoContato({ channel: "whatsapp", summary: "", touch_date: "" });
+      setMsg("Contato registrado. ✅");
+      setTimeout(() => setMsg(""), 3000);
+      load();
+    } catch (e) {
+      setErr(e.response?.data?.error || "Não foi possível registrar o contato.");
+      setTimeout(() => setErr(""), 5000);
+    }
   }
 
   async function virarCliente(p) {
@@ -167,6 +179,7 @@ export default function Prospects() {
       />
 
       {msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
+      {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr("")}>{err}</Alert>}
 
       {/* Mini-relatório do funil */}
       {rows.length > 0 && (
@@ -364,6 +377,7 @@ export default function Prospects() {
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {err && <Alert severity="error" onClose={() => setErr("")}>{err}</Alert>}
             <Stack direction="row" spacing={2}>
               <TextField select label="Por onde" value={novoContato.channel} sx={{ minWidth: 140 }}
                 onChange={(e) => setNovoContato((c) => ({ ...c, channel: e.target.value }))}>
