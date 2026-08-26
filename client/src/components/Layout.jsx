@@ -28,6 +28,7 @@ import HubIcon from "@mui/icons-material/Hub";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import FlagIcon from "@mui/icons-material/Flag";
+import DesignServicesIcon from "@mui/icons-material/DesignServices";
 import PreviewIcon from "@mui/icons-material/Preview";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
@@ -48,6 +49,7 @@ const NAV = [
   { to: "/organizations", label: "Escritórios", icon: <ApartmentIcon />, masterOnly: true },
   { to: "/", label: "Dashboard", icon: <DashboardIcon />, end: true },
   { to: "/clients", label: "Clientes", icon: <PeopleIcon /> },
+  { to: "/services", label: "Serviços", icon: <DesignServicesIcon /> },
   { to: "/prospects", label: "Prospecção", icon: <PersonSearchIcon /> },
   { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
   { to: "/priorities", label: "Prioridades", icon: <FlagIcon /> },

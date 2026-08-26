@@ -26,6 +26,7 @@ import Prospects from "./pages/Prospects.jsx";
 import Deliveries from "./pages/Deliveries.jsx";
 import Distribution from "./pages/Distribution.jsx";
 import Planning from "./pages/Planning.jsx";
+import Services from "./pages/Services.jsx";
 import Priorities from "./pages/Priorities.jsx";
 import ClientArea from "./pages/ClientArea.jsx";
 import AI from "./pages/AI.jsx";
@@ -61,6 +62,7 @@ export default function App() {
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/clients" element={<Clients />} />
+        <Route path="/services" element={<Services />} />
         <Route path="/prospects" element={<Prospects />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/deliveries" element={<Deliveries />} />

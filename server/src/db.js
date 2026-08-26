@@ -325,6 +325,8 @@ ensureColumn("financial_entries", "card", "card TEXT");
 // (ex.: LP de R$1.000 em 4x de R$250). billing: 'mensal' (recorrente) | 'avulso'.
 ensureColumn("client_services", "installments", "installments INTEGER NOT NULL DEFAULT 1");
 ensureColumn("client_services", "billing", "billing TEXT NOT NULL DEFAULT 'mensal'");
+// Classificação/categoria do serviço (ex.: Social media, Tráfego, Design, Site).
+ensureColumn("services", "category", "category TEXT");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
