@@ -27,12 +27,14 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 const KINDS = {
   gallery: { label: "Imagem", icon: <CollectionsIcon fontSize="small" /> },
   note: { label: "Nota", icon: <StickyNote2Icon fontSize="small" /> },
+  credential: { label: "Senha / acesso", icon: <KeyIcon fontSize="small" /> },
 };
 
 const FILTERS = [
   { value: "all", label: "Todos" },
   { value: "gallery", label: "🖼️ Imagens" },
   { value: "note", label: "📝 Notas" },
+  { value: "credential", label: "🔑 Senhas" },
 ];
 
 const EMPTY = {
@@ -350,6 +352,8 @@ export default function Workspace() {
                           </IconButton>
                         </Stack>
 
+                        {item.kind === "credential" && <CredentialRow item={item} />}
+
                         {item.kind === "note" && item.content && (
                           <Typography variant="body2" color="text.secondary" sx={{
                             mt: 0.75, display: "-webkit-box", WebkitLineClamp: 4,
@@ -403,7 +407,15 @@ export default function Workspace() {
               </TextField>
             </Stack>
             <TextField label="Título *" value={draft.title} onChange={set("title")} fullWidth
-              placeholder={draft.kind === "gallery" ? "Ex: Fotos do cardápio" : "Ex: Ideia / lembrete"} />
+              placeholder={draft.kind === "gallery" ? "Ex: Fotos do cardápio" : draft.kind === "credential" ? "Ex: Instagram, Gmail, Canva…" : "Ex: Ideia / lembrete"} />
+
+            {draft.kind === "credential" && (
+              <>
+                <TextField label="Login / usuário" value={draft.username} onChange={set("username")} fullWidth autoComplete="off" />
+                <TextField label="Senha" value={draft.secret} onChange={set("secret")} fullWidth autoComplete="new-password"
+                  helperText="Guardada criptografada no servidor." />
+              </>
+            )}
 
             {draft.kind === "note" && (
               <TextField label="Nota" value={draft.content} onChange={set("content")} fullWidth multiline rows={5} />
