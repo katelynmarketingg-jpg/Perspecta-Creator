@@ -42,7 +42,7 @@ function publicClient(row, servicesByClient) {
 function loadServices(clientId) {
   const rows = db
     .prepare(
-      `SELECT cs.service_id, cs.price, cs.config, s.name, s.items_schema
+      `SELECT cs.service_id, cs.price, cs.config, cs.installments, cs.billing, s.name, s.items_schema
        FROM client_services cs JOIN services s ON s.id = cs.service_id
        WHERE cs.client_id = ? ORDER BY s.name`
     )
@@ -58,13 +58,15 @@ function saveServices(clientId, services, orgId) {
   if (!Array.isArray(services)) return;
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM client_services WHERE client_id = ?").run(clientId);
-    const ins = db.prepare("INSERT OR IGNORE INTO client_services (client_id, service_id, price, config) VALUES (?, ?, ?, ?)");
+    const ins = db.prepare("INSERT OR IGNORE INTO client_services (client_id, service_id, price, config, installments, billing) VALUES (?, ?, ?, ?, ?, ?)");
     services.forEach((s) => {
       // Só aceita serviços do próprio escritório.
       const owned = db.prepare("SELECT 1 FROM services WHERE id = ? AND org_id = ?").get(s.service_id, orgId);
       if (owned) {
         const config = s.config && typeof s.config === "object" ? JSON.stringify(s.config) : null;
-        ins.run(clientId, s.service_id, Number(s.price) || 0, config);
+        const parcelas = Math.min(Math.max(Number(s.installments) || 1, 1), 60);
+        const billing = s.billing === "avulso" ? "avulso" : "mensal";
+        ins.run(clientId, s.service_id, Number(s.price) || 0, config, parcelas, billing);
       }
     });
   });

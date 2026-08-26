@@ -147,11 +147,17 @@ export default function Clients() {
       ...d,
       services: selected.map((s) => {
         const existing = d.services.find((x) => x.service_id === (s.service_id ?? s.id));
-        return existing || { service_id: s.id, name: s.name, price: s.default_price, config: {} };
+        return existing || { service_id: s.id, name: s.name, price: s.default_price, config: {}, installments: 1, billing: "mensal" };
       }),
     }));
   }
 
+  function setServiceField(serviceId, field, value) {
+    setDraft((d) => ({
+      ...d,
+      services: d.services.map((s) => (s.service_id === serviceId ? { ...s, [field]: value } : s)),
+    }));
+  }
   function setServicePrice(serviceId, price) {
     setDraft((d) => ({
       ...d,
@@ -174,7 +180,8 @@ export default function Clients() {
   const setMonthly = (key, val) =>
     setDraft((d) => ({ ...d, monthly: { ...(d.monthly || {}), [key]: Math.max(0, Number(val) || 0) } }));
 
-  const total = draft.services.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+  const totalMensal = draft.services.filter((s) => s.billing !== "avulso").reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+  const totalAvulso = draft.services.filter((s) => s.billing === "avulso").reduce((sum, s) => sum + (Number(s.price) || 0), 0);
 
   async function save() {
     const payload = { ...draft, payment_day: draft.payment_day || null };
@@ -407,11 +414,27 @@ export default function Clients() {
               const itens = itemsDo(allServices.find((o) => o.id === s.service_id));
               return (
                 <Box key={s.service_id} sx={{ p: 1.5, borderRadius: 2, border: 1, borderColor: "divider" }}>
-                  <Stack direction="row" spacing={2} alignItems="center">
-                    <Typography sx={{ flex: 1, fontWeight: 600 }}>{s.name}</Typography>
-                    <TextField label="Valor (R$/mês)" type="number" size="small" sx={{ width: 160 }}
+                  <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+                    <Typography sx={{ flex: 1, fontWeight: 600, minWidth: 120 }}>{s.name}</Typography>
+                    <TextField select label="Cobrança" size="small" sx={{ width: 150 }}
+                      value={s.billing || "mensal"} onChange={(e) => setServiceField(s.service_id, "billing", e.target.value)}>
+                      <MenuItem value="mensal">Mensal</MenuItem>
+                      <MenuItem value="avulso">Avulso (parcelado)</MenuItem>
+                    </TextField>
+                    <TextField label={s.billing === "avulso" ? "Valor total (R$)" : "Valor (R$/mês)"}
+                      type="number" size="small" sx={{ width: 150 }}
                       value={s.price} onChange={(e) => setServicePrice(s.service_id, e.target.value)} />
+                    {s.billing === "avulso" && (
+                      <TextField label="Em quantas vezes" type="number" size="small" sx={{ width: 130 }}
+                        inputProps={{ min: 1, max: 60 }} value={s.installments || 1}
+                        onChange={(e) => setServiceField(s.service_id, "installments", e.target.value)} />
+                    )}
                   </Stack>
+                  {s.billing === "avulso" && Number(s.installments) > 1 && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                      {Number(s.installments)}x de {currency((Number(s.price) || 0) / Number(s.installments))}
+                    </Typography>
+                  )}
                   {itens.length > 0 && (
                     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5, mt: 1.5 }}>
                       {itens.map((item) => (
@@ -428,7 +451,10 @@ export default function Clients() {
             })}
             {draft.services.length > 0 && (
               <Box sx={{ textAlign: "right" }}>
-                <Typography variant="subtitle2">Total: {currency(total)}/mês</Typography>
+                <Typography variant="subtitle2">Total: {currency(totalMensal)}/mês</Typography>
+                {totalAvulso > 0 && (
+                  <Typography variant="caption" color="text.secondary">+ {currency(totalAvulso)} avulso (parcelado)</Typography>
+                )}
               </Box>
             )}
             <FormControlLabel
@@ -445,14 +471,21 @@ export default function Clients() {
             <TextField label="Observações" value={draft.notes || ""} onChange={set("notes")} fullWidth multiline rows={2} />
 
             <Divider>Acesso ao portal do cliente</Divider>
+            <Typography variant="caption" color="text.secondary">
+              Pode deixar em branco agora (aguardando) e preencher quando o cliente for usar o portal.
+            </Typography>
+            {/* autoComplete desligado para o navegador não sugerir logins salvos */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField label="Nome de acesso" value={draft.portal_username || ""} onChange={set("portal_username")} fullWidth
+                autoComplete="off" inputProps={{ autoComplete: "off" }}
                 helperText={draft.portal_enabled ? "Acesso ativo" : "Com o que o cliente entra"} />
               <TextField label={draft.portal_enabled ? "Nova senha (vazio = manter)" : "Senha do portal"}
                 type="password" value={draft.portal_password || ""} onChange={set("portal_password")} fullWidth
+                autoComplete="new-password" inputProps={{ autoComplete: "new-password" }}
                 helperText="O cliente entra em /portal" />
             </Stack>
             <TextField label="E-mail (opcional)" value={draft.portal_email || ""} onChange={set("portal_email")} fullWidth
+              autoComplete="off" inputProps={{ autoComplete: "off" }}
               helperText="Só para contato. O login também aceita o e-mail, se preferir." />
           </Stack>
         </DialogContent>

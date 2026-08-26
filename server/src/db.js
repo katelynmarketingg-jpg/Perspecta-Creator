@@ -321,6 +321,10 @@ ensureColumn("tasks", "ref_month", "ref_month TEXT");
 ensureColumn("notifications", "user_id", "user_id INTEGER");
 // Cartão/conta vinculada a um lançamento financeiro (ex.: qual cartão paga).
 ensureColumn("financial_entries", "card", "card TEXT");
+// Parcelas de um serviço do cliente: 1 = à vista/mensal; N = parcelado em N vezes
+// (ex.: LP de R$1.000 em 4x de R$250). billing: 'mensal' (recorrente) | 'avulso'.
+ensureColumn("client_services", "installments", "installments INTEGER NOT NULL DEFAULT 1");
+ensureColumn("client_services", "billing", "billing TEXT NOT NULL DEFAULT 'mensal'");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
