@@ -364,6 +364,15 @@ router.post("/", (req, res) => {
   res.status(201).json(publicClient(client));
 });
 
+// PUT /api/clients/:id/banner { banner_file_id } — imagem/banner do cliente.
+router.put("/:id/banner", (req, res) => {
+  const cur = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!cur) return res.status(404).json({ error: "Cliente não encontrado." });
+  db.prepare("UPDATE clients SET banner_file_id = ? WHERE id = ? AND org_id = ?")
+    .run(req.body?.banner_file_id || null, req.params.id, req.orgId);
+  res.json({ ok: true });
+});
+
 router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Cliente não encontrado." });

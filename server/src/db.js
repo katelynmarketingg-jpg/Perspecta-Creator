@@ -339,6 +339,7 @@ ensureColumn("clients", "address", "address TEXT");            // endereço
 ensureColumn("clients", "work_start", "work_start TEXT");      // início do trabalho
 ensureColumn("clients", "work_end", "work_end TEXT");          // fim (vazio = indeterminado)
 ensureColumn("clients", "payment_day", "payment_day INTEGER"); // dia do pagamento no mês
+ensureColumn("clients", "banner_file_id", "banner_file_id INTEGER"); // imagem/banner do cliente na Central
 // Plano mensal de conteúdo (gera o projeto base automaticamente).
 ensureColumn("clients", "posts_per_month", "posts_per_month INTEGER");
 ensureColumn("clients", "videos_per_month", "videos_per_month INTEGER");
