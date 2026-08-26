@@ -34,8 +34,8 @@ router.get("/", (req, res) => {
 router.post("/", (req, res) => {
   const b = req.body || {};
   if (!b.name) return res.status(400).json({ error: "Dê um nome ao modelo." });
-  const info = db.prepare("INSERT INTO contract_templates (org_id, name, body) VALUES (?, ?, ?)")
-    .run(req.orgId, b.name, b.body ?? "");
+  const info = db.prepare("INSERT INTO contract_templates (org_id, name, body, service_id) VALUES (?, ?, ?, ?)")
+    .run(req.orgId, b.name, b.body ?? "", b.service_id || null);
   res.status(201).json(db.prepare("SELECT * FROM contract_templates WHERE id = ?").get(info.lastInsertRowid));
 });
 
@@ -43,8 +43,9 @@ router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM contract_templates WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Modelo não encontrado." });
   const b = req.body || {};
-  db.prepare("UPDATE contract_templates SET name = ?, body = ? WHERE id = ? AND org_id = ?")
-    .run(b.name ?? cur.name, b.body ?? cur.body, req.params.id, req.orgId);
+  db.prepare("UPDATE contract_templates SET name = ?, body = ?, service_id = ? WHERE id = ? AND org_id = ?")
+    .run(b.name ?? cur.name, b.body ?? cur.body,
+      b.service_id !== undefined ? (b.service_id || null) : cur.service_id, req.params.id, req.orgId);
   res.json(db.prepare("SELECT * FROM contract_templates WHERE id = ?").get(req.params.id));
 });
 

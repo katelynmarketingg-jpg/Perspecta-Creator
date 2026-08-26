@@ -53,7 +53,7 @@ signRouter.post("/:token", (req, res) => {
   if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
   if (c.signed_at) return res.status(400).json({ error: "Este contrato já foi assinado." });
 
-  const { signer_name, signer_document, agreed } = req.body || {};
+  const { signer_name, signer_document, agreed, signature_img } = req.body || {};
   if (!signer_name || !signer_document || !agreed) {
     return res.status(400).json({ error: "Informe nome completo, CPF/CNPJ e marque que leu e concorda." });
   }
@@ -62,12 +62,19 @@ signRouter.post("/:token", (req, res) => {
   if (doc.length !== 11 && doc.length !== 14) {
     return res.status(400).json({ error: "CPF ou CNPJ inválido." });
   }
+  // Exige o desenho da assinatura (data URI de imagem), com tamanho sensato.
+  if (!signature_img || !/^data:image\//.test(signature_img)) {
+    return res.status(400).json({ error: "Desenhe sua assinatura no quadro antes de confirmar." });
+  }
+  if (signature_img.length > 400000) {
+    return res.status(400).json({ error: "Assinatura muito grande. Tente novamente." });
+  }
 
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
   db.prepare(
     `UPDATE contracts SET signed_at = datetime('now'), signer_name = ?, signer_document = ?,
-     signer_ip = ?, signed_hash = ? WHERE id = ?`
-  ).run(signer_name.trim(), signer_document.trim(), ip, contractHash(c), c.id);
+     signer_ip = ?, signed_hash = ?, signature_img = ? WHERE id = ?`
+  ).run(signer_name.trim(), signer_document.trim(), ip, contractHash(c), signature_img, c.id);
 
   db.prepare(
     "INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)"
