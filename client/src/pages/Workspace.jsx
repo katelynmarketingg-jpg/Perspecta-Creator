@@ -1,284 +1,437 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Box, Button, Card, CardContent, Typography, IconButton, Dialog, DialogTitle,
-  DialogContent, DialogActions, TextField, Stack, MenuItem, Tooltip, Chip, Link,
+  Box, Button, Card, CardContent, Typography, Chip, IconButton, Dialog,
+  DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
+  Tooltip, Link, Tabs, Tab, Checkbox, LinearProgress,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
 import KeyIcon from "@mui/icons-material/Key";
+import DescriptionIcon from "@mui/icons-material/Description";
 import LinkIcon from "@mui/icons-material/Link";
 import StickyNote2Icon from "@mui/icons-material/StickyNote2";
-import ImageIcon from "@mui/icons-material/Image";
+import CollectionsIcon from "@mui/icons-material/Collections";
+import ChecklistIcon from "@mui/icons-material/Checklist";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
+import MovieIcon from "@mui/icons-material/Movie";
+import CloseIcon from "@mui/icons-material/Close";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 
-// A Central é enxuta: por cliente, só o essencial — banner, notas e acessos
-// (galeria, planejamento etc. vivem nas próprias abas).
 const KINDS = {
-  credential: { label: "Acesso", icon: <KeyIcon fontSize="small" />, color: "#EA580C" },
-  link: { label: "Link", icon: <LinkIcon fontSize="small" />, color: "#2563EB" },
-  note: { label: "Nota", icon: <StickyNote2Icon fontSize="small" />, color: "#7C3AED" },
+  gallery: { label: "Imagem", icon: <CollectionsIcon fontSize="small" /> },
+  note: { label: "Nota", icon: <StickyNote2Icon fontSize="small" /> },
 };
 
-function authBlob(id) {
-  const token = localStorage.getItem("token");
-  return fetch(`/api/files/${id}/download`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => (r.ok ? r.blob() : Promise.reject()));
+const FILTERS = [
+  { value: "all", label: "Todos" },
+  { value: "gallery", label: "🖼️ Imagens" },
+  { value: "note", label: "📝 Notas" },
+];
+
+const EMPTY = {
+  client_id: "", kind: "gallery", title: "", content: "",
+  username: "", secret: "", url: "", gallery: [], checklist: [],
+};
+
+function parseJson(str, fallback) {
+  try { return JSON.parse(str) ?? fallback; } catch { return fallback; }
 }
 
-// Imagem do banner do cliente (autenticada).
-function Banner({ fileId, height = 150 }) {
+// Miniatura autenticada (imagem) ou bloco de vídeo.
+function MediaThumb({ file, size = 64, onRemove }) {
   const [src, setSrc] = useState(null);
+  const isImage = file.mime?.startsWith("image/");
   useEffect(() => {
-    setSrc(null);
-    if (!fileId) return undefined;
-    let url, vivo = true;
-    authBlob(fileId).then((b) => { if (vivo) { url = URL.createObjectURL(b); setSrc(url); } }).catch(() => {});
-    return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
-  }, [fileId]);
+    if (!isImage) return undefined;
+    let url;
+    api.get(`/files/${file.id}/download`, { responseType: "blob" })
+      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); })
+      .catch(() => {});
+    return () => url && URL.revokeObjectURL(url);
+  }, [file.id, isImage]);
+
   return (
-    <Box sx={{ height, bgcolor: "action.hover", borderRadius: 2, overflow: "hidden", display: "grid", placeItems: "center" }}>
-      {src ? <Box component="img" src={src} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        : <ImageIcon sx={{ fontSize: 40, color: "text.disabled" }} />}
+    <Box sx={{ position: "relative", width: size, height: size, borderRadius: 1.5, overflow: "hidden", bgcolor: "action.hover", flexShrink: 0 }}>
+      {isImage && src ? (
+        <Box component="img" src={src} alt={file.name} sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : (
+        <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center" }}>
+          <MovieIcon color="primary" sx={{ fontSize: size * 0.4 }} />
+        </Box>
+      )}
+      {onRemove && (
+        <IconButton size="small" onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          sx={{ position: "absolute", top: 0, right: 0, bgcolor: "rgba(0,0,0,0.55)", color: "#fff", p: 0.2, "&:hover": { bgcolor: "rgba(0,0,0,0.8)" } }}>
+          <CloseIcon sx={{ fontSize: 13 }} />
+        </IconButton>
+      )}
     </Box>
   );
 }
 
-// Campo de senha com mostrar/copiar.
-function Secret({ value }) {
+function CredentialRow({ item }) {
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
-  if (!value) return <Typography variant="body2" color="text.secondary">—</Typography>;
+
+  function copy(text) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
   return (
-    <Stack direction="row" spacing={0.5} alignItems="center">
-      <Typography variant="body2" sx={{ fontFamily: "monospace" }}>{show ? value : "••••••••"}</Typography>
-      <IconButton size="small" onClick={() => setShow((s) => !s)}>{show ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <VisibilityIcon sx={{ fontSize: 16 }} />}</IconButton>
-      <Tooltip title={copied ? "Copiado!" : "Copiar"}>
-        <IconButton size="small" onClick={() => { navigator.clipboard?.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
-          {copied ? <CheckIcon sx={{ fontSize: 16 }} color="success" /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
-        </IconButton>
-      </Tooltip>
-    </Stack>
+    <Box sx={{ mt: 0.75 }}>
+      {item.username && (
+        <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          {item.username}
+          <Tooltip title="Copiar login">
+            <IconButton size="small" onClick={(e) => { e.stopPropagation(); copy(item.username); }}>
+              <ContentCopyIcon sx={{ fontSize: 13 }} />
+            </IconButton>
+          </Tooltip>
+        </Typography>
+      )}
+      {item.secret && (
+        <Typography variant="body2" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontFamily: "monospace" }}>
+          {show ? item.secret : "••••••••"}
+          <Tooltip title={show ? "Ocultar" : "Mostrar"}>
+            <IconButton size="small" onClick={(e) => { e.stopPropagation(); setShow(!show); }}>
+              {show ? <VisibilityOffIcon sx={{ fontSize: 14 }} /> : <VisibilityIcon sx={{ fontSize: 14 }} />}
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={copied ? "Copiado!" : "Copiar senha"}>
+            <IconButton size="small" color={copied ? "success" : "default"}
+              onClick={(e) => { e.stopPropagation(); copy(item.secret); }}>
+              {copied ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 13 }} />}
+            </IconButton>
+          </Tooltip>
+        </Typography>
+      )}
+    </Box>
   );
 }
 
-const EMPTY_ITEM = { kind: "credential", title: "", username: "", secret: "", url: "", content: "" };
-
 export default function Workspace() {
   const [clients, setClients] = useState([]);
-  const [sel, setSel] = useState(null);       // cliente selecionado
   const [items, setItems] = useState([]);
-  const [draft, setDraft] = useState(null);   // item em edição
-  const [notas, setNotas] = useState("");
-  const bannerInput = useRef(null);
+  const [filter, setFilter] = useState("all");
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(EMPTY);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(null); // client_id em destaque
+  const galleryInputRef = useRef(null);
+  const draggingRef = useRef(false);
 
-  const vClients = useLiveVersion("clients");
-  const load = () => api.get("/clients").then((r) => setClients(r.data)).catch(() => {});
-  useEffect(() => { load(); }, [vClients]);
-
-  // Mantém o cliente selecionado sincronizado com a lista.
+  const load = () => api.get("/workspace").then((r) => setItems(r.data));
   useEffect(() => {
-    if (!sel) return;
-    const fresh = clients.find((c) => c.id === sel.id);
-    if (fresh) { setSel(fresh); setNotas(fresh.notes || ""); }
-  }, [clients]); // eslint-disable-line react-hooks/exhaustive-deps
+    api.get("/clients").then((r) => setClients(r.data.filter((c) => c.status === "active")));
+    load();
+  }, []);
 
-  const vWork = useLiveVersion("workspace");
-  useEffect(() => {
-    if (!sel) { setItems([]); return; }
-    api.get("/workspace", { params: { client_id: sel.id } }).then((r) => setItems(r.data)).catch(() => setItems([]));
-  }, [sel?.id, vWork]);
+  // Ao vivo: recarrega quando alguém mexe no workspace.
+  const vWorkspace = useLiveVersion("workspace");
+  useEffect(() => { if (vWorkspace) load(); }, [vWorkspace]);
 
-  function abrir(c) { setSel(c); setNotas(c.notes || ""); }
+  const byClient = useMemo(() => {
+    const map = {};
+    items
+      .filter((i) => filter === "all" || i.kind === filter)
+      .forEach((i) => { (map[i.client_id] ||= []).push(i); });
+    return map;
+  }, [items, filter]);
 
-  async function salvarNotas() {
-    if (!sel) return;
-    await api.put(`/clients/${sel.id}`, { notes: notas }).catch(() => {});
+  const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+
+  function openNew(clientId) {
+    setDraft({ ...EMPTY, client_id: clientId, kind: filter !== "all" ? filter : "gallery" });
+    setOpen(true);
   }
 
-  async function enviarBanner(file) {
-    if (!file || !sel) return;
-    const fd = new FormData();
-    fd.append("files", file);
-    fd.append("client_id", sel.id);
-    const { data } = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-    const fid = data?.[0]?.id;
-    if (fid) { await api.put(`/clients/${sel.id}/banner`, { banner_file_id: fid }); load(); }
+  function openEdit(item) {
+    if (draggingRef.current) { draggingRef.current = false; return; }
+    setDraft({
+      ...item,
+      content: item.content || "",
+      username: item.username || "",
+      secret: item.secret || "",
+      url: item.url || "",
+      gallery: item.kind === "gallery" ? parseJson(item.content, []) : [],
+      checklist: item.kind === "checklist" ? parseJson(item.content, []) : [],
+    });
+    setOpen(true);
   }
 
-  async function salvarItem() {
-    if (!draft.title.trim()) return;
-    const payload = { ...draft, client_id: sel.id };
+  async function save() {
+    let content = draft.content || null;
+    if (draft.kind === "gallery") content = JSON.stringify(draft.gallery);
+    if (draft.kind === "checklist") content = JSON.stringify(draft.checklist.filter((i) => i.text.trim()));
+    const payload = {
+      client_id: draft.client_id,
+      kind: draft.kind,
+      title: draft.title,
+      content,
+      username: draft.username || null,
+      secret: draft.secret || null,
+      url: draft.url || null,
+    };
     if (draft.id) await api.put(`/workspace/${draft.id}`, payload);
     else await api.post("/workspace", payload);
-    setDraft(null);
-    api.get("/workspace", { params: { client_id: sel.id } }).then((r) => setItems(r.data));
+    setOpen(false);
+    load();
   }
-  async function excluirItem(id) {
-    if (!confirm("Excluir este item?")) return;
+
+  async function remove(id) {
+    if (!confirm("Excluir item?")) return;
     await api.delete(`/workspace/${id}`);
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    load();
   }
 
-  // Só os tipos enxutos da Central.
-  const acessos = items.filter((i) => i.kind === "credential");
-  const links = items.filter((i) => i.kind === "link");
-  const notasItens = items.filter((i) => i.kind === "note");
-
-  // ---------- Lista de clientes ----------
-  if (!sel) {
-    return (
-      <>
-        <PageHeader title="Central" subtitle="O essencial de cada cliente — acessos, notas e banner" />
-        {clients.length === 0 ? (
-          <EmptyState message="Nenhum cliente ainda. Cadastre em Clientes." />
-        ) : (
-          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "repeat(3, 1fr)" } }}>
-            {clients.map((c) => (
-              <Card key={c.id} onClick={() => abrir(c)}
-                sx={{ cursor: "pointer", overflow: "hidden", "&:hover": { borderColor: "primary.main" }, border: 1, borderColor: "divider" }}>
-                <Banner fileId={c.banner_file_id} height={110} />
-                <CardContent sx={{ py: 1.5 }}>
-                  <Typography sx={{ fontWeight: 700 }} noWrap>{c.name}</Typography>
-                  {c.company && <Typography variant="caption" color="text.secondary" noWrap>{c.company}</Typography>}
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-        )}
-      </>
-    );
+  // Upload de mídia da galeria — vai para os Arquivos do cliente.
+  async function uploadGallery(fileList) {
+    if (!fileList?.length || !draft.client_id) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      [...fileList].forEach((f) => form.append("files", f));
+      form.append("client_id", draft.client_id);
+      const { data } = await api.post("/files/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
+      setDraft((d) => ({
+        ...d,
+        gallery: [...d.gallery, ...data.map((f) => ({ id: f.id, name: f.original_name, mime: f.mime }))],
+      }));
+    } finally {
+      setUploading(false);
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+    }
   }
 
-  // ---------- Detalhe do cliente ----------
+  // Checkbox da lista direto no card (persiste na hora).
+  async function toggleCheck(item, index) {
+    const list = parseJson(item.content, []);
+    list[index] = { ...list[index], done: !list[index].done };
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, content: JSON.stringify(list) } : i)));
+    await api.put(`/workspace/${item.id}`, { content: JSON.stringify(list) }).catch(() => load());
+  }
+
+  // ---- Arrastar e soltar (reordenar / mover de cliente) --------------------
+  function handleDragStart(e, item) {
+    draggingRef.current = true;
+    e.dataTransfer.setData("text/plain", String(item.id));
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  async function handleDrop(e, targetClientId, targetItemId = null) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(null);
+    const id = Number(e.dataTransfer.getData("text/plain"));
+    const dragged = items.find((i) => i.id === id);
+    if (!dragged || (dragged.id === targetItemId)) return;
+
+    // monta a nova ordem da coluna de destino
+    const target = items.filter((i) => i.client_id === targetClientId && i.id !== id);
+    let insertAt = target.length;
+    if (targetItemId) {
+      const idx = target.findIndex((i) => i.id === targetItemId);
+      if (idx >= 0) insertAt = idx;
+    }
+    target.splice(insertAt, 0, { ...dragged, client_id: targetClientId });
+
+    const moves = target.map((i, pos) => ({ id: i.id, client_id: targetClientId, position: pos }));
+    // reposiciona também a coluna de origem, se mudou de cliente
+    if (dragged.client_id !== targetClientId) {
+      items
+        .filter((i) => i.client_id === dragged.client_id && i.id !== id)
+        .forEach((i, pos) => moves.push({ id: i.id, client_id: i.client_id, position: pos }));
+    }
+
+    // otimista
+    setItems((prev) => {
+      const rest = prev.filter((i) => i.id !== id);
+      const updated = [...rest, { ...dragged, client_id: targetClientId }];
+      const posMap = Object.fromEntries(moves.map((m) => [m.id, m.position]));
+      return updated
+        .map((i) => (posMap[i.id] !== undefined ? { ...i, position: posMap[i.id] } : i))
+        .sort((a, b) => a.position - b.position || a.id - b.id);
+    });
+    await api.put("/workspace/reorder", { items: moves }).catch(() => load());
+  }
+
   return (
     <>
-      <Button size="small" onClick={() => setSel(null)} sx={{ mb: 1 }}>← Todos os clientes</Button>
-      <PageHeader title={sel.name} subtitle={sel.company || "Central do cliente"}
-        action={
-          <Button variant="outlined" startIcon={<ImageIcon />} onClick={() => bannerInput.current?.click()}>
-            {sel.banner_file_id ? "Trocar banner" : "Adicionar banner"}
-          </Button>
-        } />
-      <input ref={bannerInput} type="file" accept="image/*" hidden onChange={(e) => enviarBanner(e.target.files?.[0])} />
+      <PageHeader
+        title="Central de Clientes"
+        subtitle="Acessos, galerias, planejamentos e tudo de cada cliente — arraste para organizar"
+      />
 
-      <Banner fileId={sel.banner_file_id} height={180} />
+      {/* Filtros por tipo, como no Notion */}
+      <Tabs value={filter} onChange={(_, v) => setFilter(v)} variant="scrollable"
+        sx={{ mb: 2.5, borderBottom: 1, borderColor: "divider" }}>
+        {FILTERS.map((f) => <Tab key={f.value} value={f.value} label={f.label} />)}
+      </Tabs>
 
-      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, mt: 2 }}>
-        {/* Notas */}
-        <Card>
-          <CardContent>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>📝 Notas</Typography>
-            <TextField multiline minRows={5} fullWidth value={notas}
-              onChange={(e) => setNotas(e.target.value)} onBlur={salvarNotas}
-              placeholder="Anotações importantes deste cliente (some ao clicar fora = salvo)." />
-          </CardContent>
-        </Card>
-
-        {/* Acessos */}
-        <Card>
-          <CardContent>
-            <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>🔑 Acessos</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setDraft({ ...EMPTY_ITEM, kind: "credential" })}>Novo</Button>
-            </Stack>
-            <Stack spacing={1}>
-              {acessos.map((it) => (
-                <Box key={it.id} sx={{ p: 1, border: 1, borderColor: "divider", borderRadius: 1.5 }}>
-                  <Stack direction="row" alignItems="center">
-                    <Typography sx={{ fontWeight: 600, flex: 1 }}>{it.title}</Typography>
-                    <IconButton size="small" onClick={() => setDraft({ ...it })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => excluirItem(it.id)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
-                  </Stack>
-                  {it.username && <Typography variant="body2" color="text.secondary">login: {it.username}</Typography>}
-                  <Secret value={it.secret} />
+      {clients.length === 0 ? (
+        <EmptyState message="Cadastre clientes para montar a central." />
+      ) : (
+        <Box sx={{ display: "flex", gap: 2, overflowX: "auto", pb: 2, alignItems: "flex-start" }}>
+          {clients.map((client) => (
+            <Box
+              key={client.id}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(client.id); }}
+              onDragLeave={() => setDragOver((v) => (v === client.id ? null : v))}
+              onDrop={(e) => handleDrop(e, client.id)}
+              sx={{
+                minWidth: 300, width: 300, flexShrink: 0, borderRadius: 3, p: 1, m: -1,
+                outline: "2px dashed transparent",
+                transition: "background-color .15s ease, outline-color .15s ease",
+                ...(dragOver === client.id && {
+                  bgcolor: (t) => alpha(t.palette.primary.main, 0.06),
+                  outlineColor: (t) => alpha(t.palette.primary.main, 0.5),
+                }),
+              }}
+            >
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 0.5, mb: 1 }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography noWrap sx={{ fontWeight: 700 }}>{client.name}</Typography>
+                  {client.segment && (
+                    <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>
+                      {client.segment}
+                    </Typography>
+                  )}
                 </Box>
-              ))}
-              {acessos.length === 0 && <Typography variant="body2" color="text.secondary">Nenhum acesso salvo.</Typography>}
-            </Stack>
-          </CardContent>
-        </Card>
-
-        {/* Links */}
-        <Card>
-          <CardContent>
-            <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>🔗 Links</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setDraft({ ...EMPTY_ITEM, kind: "link" })}>Novo</Button>
-            </Stack>
-            <Stack spacing={1}>
-              {links.map((it) => (
-                <Stack key={it.id} direction="row" alignItems="center" spacing={1}>
-                  <LinkIcon fontSize="small" color="primary" />
-                  <Link href={it.url} target="_blank" rel="noreferrer" sx={{ flex: 1 }} noWrap>{it.title}</Link>
-                  <IconButton size="small" onClick={() => setDraft({ ...it })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => excluirItem(it.id)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Chip size="small" label={(byClient[client.id] || []).length} />
+                  <Tooltip title="Adicionar item">
+                    <IconButton size="small" color="primary" onClick={() => openNew(client.id)}>
+                      <AddIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                 </Stack>
-              ))}
-              {links.length === 0 && <Typography variant="body2" color="text.secondary">Nenhum link.</Typography>}
-            </Stack>
-          </CardContent>
-        </Card>
+              </Stack>
 
-        {/* Recados / notas soltas */}
-        <Card>
-          <CardContent>
-            <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>📌 Lembretes</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setDraft({ ...EMPTY_ITEM, kind: "note" })}>Novo</Button>
-            </Stack>
-            <Stack spacing={1}>
-              {notasItens.map((it) => (
-                <Box key={it.id} sx={{ p: 1, border: 1, borderColor: "divider", borderRadius: 1.5 }}>
-                  <Stack direction="row" alignItems="center">
-                    <Typography sx={{ fontWeight: 600, flex: 1 }}>{it.title}</Typography>
-                    <IconButton size="small" onClick={() => setDraft({ ...it })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => excluirItem(it.id)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
-                  </Stack>
-                  {it.content && <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-wrap" }}>{it.content}</Typography>}
-                </Box>
-              ))}
-              {notasItens.length === 0 && <Typography variant="body2" color="text.secondary">Nenhum lembrete.</Typography>}
-            </Stack>
-          </CardContent>
-        </Card>
-      </Box>
+              <Stack spacing={1.5}>
+                {(byClient[client.id] || []).map((item) => {
+                  const gallery = item.kind === "gallery" ? parseJson(item.content, []) : [];
+                  const checklist = item.kind === "checklist" ? parseJson(item.content, []) : [];
+                  const doneCount = checklist.filter((c) => c.done).length;
+                  return (
+                    <Card
+                      key={item.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, item)}
+                      onDragEnd={() => setTimeout(() => { draggingRef.current = false; }, 50)}
+                      onDrop={(e) => handleDrop(e, client.id, item.id)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onClick={() => openEdit(item)}
+                      sx={{ cursor: "grab", "&:active": { cursor: "grabbing" }, "&:hover": { borderColor: "primary.main" }, transition: "border-color .15s ease" }}
+                    >
+                      <CardContent sx={{ p: 1.75, "&:last-child": { pb: 1.75 } }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                            <Box sx={{
+                              width: 28, height: 28, borderRadius: 1.5, flexShrink: 0,
+                              display: "grid", placeItems: "center",
+                              bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: "primary.main",
+                            }}>
+                              {KINDS[item.kind]?.icon}
+                            </Box>
+                            <Typography noWrap sx={{ fontWeight: 600, fontSize: 14.5 }}>{item.title}</Typography>
+                          </Stack>
+                          <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); remove(item.id); }}>
+                            <DeleteIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Stack>
 
-      {/* Dialog de item */}
-      <Dialog open={Boolean(draft)} onClose={() => setDraft(null)} fullWidth maxWidth="xs">
-        <DialogTitle>{draft?.id ? "Editar" : "Novo"} {KINDS[draft?.kind]?.label?.toLowerCase()}</DialogTitle>
+                        {item.kind === "note" && item.content && (
+                          <Typography variant="body2" color="text.secondary" sx={{
+                            mt: 0.75, display: "-webkit-box", WebkitLineClamp: 4,
+                            WebkitBoxOrient: "vertical", overflow: "hidden", whiteSpace: "pre-wrap",
+                          }}>
+                            {item.content}
+                          </Typography>
+                        )}
+
+                        {item.kind === "gallery" && (
+                          <Box sx={{ display: "flex", gap: 0.75, mt: 1, flexWrap: "wrap" }}>
+                            {gallery.slice(0, 4).map((f) => <MediaThumb key={f.id} file={f} size={60} />)}
+                            {gallery.length > 4 && (
+                              <Box sx={{ width: 60, height: 60, borderRadius: 1.5, display: "grid", placeItems: "center", bgcolor: "action.hover", fontWeight: 700, fontSize: 13 }}>
+                                +{gallery.length - 4}
+                              </Box>
+                            )}
+                            {gallery.length === 0 && (
+                              <Typography variant="caption" color="text.secondary">Sem imagem</Typography>
+                            )}
+                          </Box>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+                {(byClient[client.id] || []).length === 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", py: 2 }}>
+                    {filter === "all" ? "Nada aqui ainda — arraste um card para cá" : "Nada deste tipo"}
+                  </Typography>
+                )}
+              </Stack>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* Criar / editar item */}
+      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{draft.id ? "Editar item" : "Novo item"}</DialogTitle>
         <DialogContent>
-          {draft && (
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField label="Título *" value={draft.title} autoFocus fullWidth
-                onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))} />
-              {draft.kind === "credential" && (
-                <>
-                  <TextField label="Login" value={draft.username} fullWidth autoComplete="off"
-                    onChange={(e) => setDraft((d) => ({ ...d, username: e.target.value }))} />
-                  <TextField label="Senha" value={draft.secret} fullWidth autoComplete="new-password"
-                    onChange={(e) => setDraft((d) => ({ ...d, secret: e.target.value }))} />
-                </>
-              )}
-              {draft.kind === "link" && (
-                <TextField label="URL" value={draft.url} fullWidth placeholder="https://..."
-                  onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))} />
-              )}
-              {draft.kind === "note" && (
-                <TextField label="Texto" value={draft.content} fullWidth multiline minRows={3}
-                  onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))} />
-              )}
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField select label="Tipo" value={draft.kind} onChange={set("kind")} fullWidth>
+                {Object.entries(KINDS).map(([key, v]) => (
+                  <MenuItem key={key} value={key}>{v.label}</MenuItem>
+                ))}
+              </TextField>
+              <TextField select label="Cliente" value={draft.client_id} onChange={set("client_id")} fullWidth>
+                {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </TextField>
             </Stack>
-          )}
+            <TextField label="Título *" value={draft.title} onChange={set("title")} fullWidth
+              placeholder={draft.kind === "gallery" ? "Ex: Fotos do cardápio" : "Ex: Ideia / lembrete"} />
+
+            {draft.kind === "note" && (
+              <TextField label="Nota" value={draft.content} onChange={set("content")} fullWidth multiline rows={5} />
+            )}
+
+            {draft.kind === "gallery" && (
+              <>
+                {uploading && <LinearProgress sx={{ borderRadius: 2 }} />}
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                  {draft.gallery.map((f, idx) => (
+                    <MediaThumb key={f.id} file={f} size={76}
+                      onRemove={() => setDraft((d) => ({ ...d, gallery: d.gallery.filter((_, i) => i !== idx) }))} />
+                  ))}
+                </Box>
+                <Button variant="outlined" startIcon={<UploadFileIcon />}
+                  disabled={!draft.client_id || uploading}
+                  onClick={() => galleryInputRef.current?.click()}>
+                  Subir imagem / vídeo
+                </Button>
+                <input ref={galleryInputRef} type="file" multiple accept="image/*,video/*" hidden
+                  onChange={(e) => uploadGallery(e.target.files)} />
+              </>
+            )}
+          </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDraft(null)}>Cancelar</Button>
-          <Button variant="contained" onClick={salvarItem} disabled={!draft?.title?.trim()}>Salvar</Button>
+          <Button onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={save} disabled={!draft.title || !draft.client_id}>Salvar</Button>
         </DialogActions>
       </Dialog>
     </>
