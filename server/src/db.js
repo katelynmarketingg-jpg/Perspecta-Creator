@@ -319,6 +319,8 @@ ensureColumn("tasks", "ref_month", "ref_month TEXT");
 // Notificação mirada numa pessoa: user_id NULL = para a equipe toda; com valor
 // = só aquele usuário vê (ex.: recado só para a Rafaela).
 ensureColumn("notifications", "user_id", "user_id INTEGER");
+// Cartão/conta vinculada a um lançamento financeiro (ex.: qual cartão paga).
+ensureColumn("financial_entries", "card", "card TEXT");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
