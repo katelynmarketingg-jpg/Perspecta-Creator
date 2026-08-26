@@ -235,6 +235,11 @@ export default function Planning() {
           ym={`${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}`}
           monthLabel={`${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`}
           monthDates={dates.filter((e) => e.date.slice(0, 7) === `${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}`)}
+          year={cursor.getFullYear()}
+          month={cursor.getMonth()}
+          byDay={byDay}
+          seasonalByDay={seasonalByDay}
+          onOpenDay={openDay}
         />
       ) : view === "mes" ? (
         <MonthBlock {...blocks[0]} byDay={byDay} seasonalByDay={seasonalByDay} onDay={openDay} full />

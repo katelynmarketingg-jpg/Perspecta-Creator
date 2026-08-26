@@ -16,33 +16,100 @@ import SaveIcon from "@mui/icons-material/Save";
 import PrintIcon from "@mui/icons-material/Print";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import EventNoteIcon from "@mui/icons-material/EventNote";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import api from "../api/client.js";
+import { CATEGORY_HEX } from "../data/seasonalDates.js";
 
 const FONTS = ["Arial", "Georgia", "Times New Roman", "Courier New", "Verdana", "Tahoma", "Trebuchet MS"];
 const SIZES = [["2", "Pequeno"], ["3", "Normal"], ["4", "Médio"], ["5", "Grande"], ["6", "Enorme"], ["7", "Gigante"]];
 const SPACINGS = [["1", "Simples"], ["1.4", "1,5"], ["1.8", "Duplo"]];
 const MARGINS = [["10mm", "Estreita"], ["20mm", "Normal"], ["30mm", "Larga"]];
+const WD = ["D", "S", "T", "Q", "Q", "S", "S"];
 
 const pad = (n) => String(n).padStart(2, "0");
-const brDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return `${pad(d)}/${pad(m)}/${y}`; };
-
-// escapa texto para montar HTML com segurança
+const brDate = (isoStr) => { const [y, m, d] = isoStr.split("-").map(Number); return `${pad(d)}/${pad(m)}/${y}`; };
 const esc = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-export default function PlanningEditor({ clientId, clientName, ym, monthLabel, monthDates = [] }) {
+const BAND_H = 150; // altura da faixa onde o logo flutua
+
+// Calendário compacto do mês, com bolinha para datas do cliente e sazonais.
+// Clicar num dia abre o mesmo diálogo de "adicionar data" do Planejamento.
+function MiniCalendar({ year, month, byDay, seasonalByDay, onDay }) {
+  const first = new Date(year, month, 1).getDay();
+  const total = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < first; i++) cells.push(null);
+  for (let d = 1; d <= total; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return (
+    <Box sx={{ maxWidth: 520, mx: "auto", mb: 2, border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden" }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", bgcolor: "action.hover" }}>
+        {WD.map((w, i) => <Typography key={i} variant="caption" sx={{ textAlign: "center", py: 0.4, fontWeight: 700, color: "text.secondary" }}>{w}</Typography>)}
+      </Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+        {cells.map((d, i) => {
+          const isoStr = d ? `${year}-${pad(month + 1)}-${pad(d)}` : null;
+          const mine = (d && byDay[isoStr]) || [];
+          const saz = (d && seasonalByDay?.[isoStr]) || [];
+          return (
+            <Box key={i} onClick={() => d && onDay(isoStr)}
+              sx={{
+                minHeight: 46, p: 0.4, borderRight: (i + 1) % 7 !== 0 ? 1 : 0, borderTop: 1, borderColor: "divider",
+                cursor: d ? "pointer" : "default", "&:hover": d ? { bgcolor: "action.hover" } : {},
+                display: "flex", flexDirection: "column", gap: 0.25,
+              }}>
+              {d && (
+                <>
+                  <Typography sx={{ fontSize: 11, fontWeight: mine.length ? 800 : 500, color: mine.length ? "primary.main" : "text.secondary" }}>{d}</Typography>
+                  <Stack direction="row" spacing={0.3} sx={{ flexWrap: "wrap" }}>
+                    {mine.length > 0 && <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "primary.main" }} />}
+                    {saz.slice(0, 3).map((s, k) => <Box key={k} sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: CATEGORY_HEX[s.category] || "#999" }} />)}
+                  </Stack>
+                </>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
+// Bloco HTML das datas do mês (para semear o documento vazio e para inserir).
+function blocoDatas(monthDates, monthLabel) {
+  if (!monthDates.length) return "";
+  const linhas = [...monthDates]
+    .sort((a, b) => (a.date < b.date ? -1 : 1))
+    .map((d) => `<li><b>${esc(brDate(d.date))} — ${esc(d.title)}</b>${d.notes ? `: ${esc(d.notes)}` : ""}</li>`)
+    .join("");
+  return `<h3>Datas importantes — ${esc(monthLabel)}</h3><ul>${linhas}</ul><p><br/></p>`;
+}
+
+// Editor do planejamento por cliente/mês.
+export default function PlanningEditor({
+  clientId, clientName, ym, monthLabel, monthDates = [],
+  year, month, byDay = {}, seasonalByDay = {}, onOpenDay,
+}) {
   const ref = useRef(null);
+  const bandRef = useRef(null);
   const [fontFamily, setFontFamily] = useState("Arial");
   const [lineHeight, setLineHeight] = useState("1.4");
   const [margin, setMargin] = useState("20mm");
   const [showLogo, setShowLogo] = useState(true);
   const [logo, setLogo] = useState(null);
+  // Geometria do logo (px dentro da faixa). x null = centralizado.
+  const [logoW, setLogoW] = useState(200);
+  const [logoX, setLogoX] = useState(null);
+  const [logoY, setLogoY] = useState(16);
+  const [showCal, setShowCal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const dirty = useRef(false);
+  const drag = useRef(null);
 
   useEffect(() => { api.get("/branding").then((r) => setLogo(r.data?.logo || null)).catch(() => {}); }, []);
 
-  // Carrega o documento do cliente/mês.
+  // Carrega o documento do cliente/mês (e semeia com as datas se estiver vazio).
   useEffect(() => {
     if (!clientId || !ym) return;
     let vivo = true;
@@ -54,18 +121,24 @@ export default function PlanningEditor({ clientId, clientName, ym, monthLabel, m
         try {
           const j = JSON.parse(raw);
           html = j.html || ""; style = j.style || {}; sl = j.showLogo !== false;
-        } catch { html = raw; } // conteúdo antigo em HTML puro
+        } catch { html = raw; }
       }
       setFontFamily(style.fontFamily || "Arial");
       setLineHeight(style.lineHeight || "1.4");
       setMargin(style.margin || "20mm");
       setShowLogo(sl);
-      if (ref.current) ref.current.innerHTML = html || "";
+      setLogoW(style.logoW || 200);
+      setLogoX(style.logoX ?? null);
+      setLogoY(style.logoY ?? 16);
+      // Documento novo (vazio) já vem com as datas importantes do mês.
+      const seed = (!html && monthDates.length) ? blocoDatas(monthDates, monthLabel) : html;
+      if (ref.current) ref.current.innerHTML = seed || "";
       setSavedAt(r.data?.updated_at || null);
-      dirty.current = false;
+      dirty.current = Boolean(!html && seed); // se semeou, marca para salvar
       try { document.execCommand("styleWithCSS", false, true); } catch { /* ok */ }
     }).catch(() => {});
     return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, ym]);
 
   const cmd = useCallback((name, value = null) => {
@@ -75,39 +148,63 @@ export default function PlanningEditor({ clientId, clientName, ym, monthLabel, m
     dirty.current = true;
   }, []);
 
-  const salvar = useCallback(async (silent) => {
+  const salvar = useCallback(async () => {
     if (!clientId || !ym) return;
     setSaving(true);
     try {
       const payload = {
         html: ref.current?.innerHTML || "",
-        style: { fontFamily, lineHeight, margin },
+        style: { fontFamily, lineHeight, margin, logoW, logoX, logoY },
         showLogo,
       };
       await api.put("/planning/doc", { client_id: clientId, ym, content: JSON.stringify(payload) });
       setSavedAt(new Date().toISOString());
       dirty.current = false;
     } finally { setSaving(false); }
-  }, [clientId, ym, fontFamily, lineHeight, margin, showLogo]);
+  }, [clientId, ym, fontFamily, lineHeight, margin, showLogo, logoW, logoX, logoY]);
 
-  // Insere a lista das datas do mês no ponto do cursor.
   function inserirDatas() {
-    if (!monthDates.length) return;
-    const linhas = [...monthDates]
-      .sort((a, b) => (a.date < b.date ? -1 : 1))
-      .map((d) => `<li><b>${esc(brDate(d.date))} — ${esc(d.title)}</b>${d.notes ? `: ${esc(d.notes)}` : ""}</li>`)
-      .join("");
-    const bloco = `<h3>Datas importantes — ${esc(monthLabel)}</h3><ul>${linhas}</ul><p><br/></p>`;
+    const bloco = blocoDatas(monthDates, monthLabel);
+    if (!bloco) return;
     ref.current?.focus();
     document.execCommand("insertHTML", false, bloco);
     dirty.current = true;
   }
 
-  // Monta o HTML de impressão (usado por Imprimir e Baixar PDF).
+  // ---- Arrastar e redimensionar o logo (segurar e arrastar) ----
+  function iniciarDrag(e, modo) {
+    e.preventDefault();
+    const band = bandRef.current?.getBoundingClientRect();
+    const startX = e.clientX, startY = e.clientY;
+    const baseX = logoX == null ? (band ? (band.width - logoW) / 2 : 0) : logoX;
+    drag.current = { modo, startX, startY, baseX, baseY: logoY, baseW: logoW, bandW: band?.width || 820 };
+    window.addEventListener("pointermove", moverDrag);
+    window.addEventListener("pointerup", soltarDrag);
+  }
+  function moverDrag(e) {
+    const g = drag.current; if (!g) return;
+    if (g.modo === "move") {
+      const nx = Math.max(0, Math.min(g.bandW - logoW, g.baseX + (e.clientX - g.startX)));
+      const ny = Math.max(0, Math.min(BAND_H - 20, g.baseY + (e.clientY - g.startY)));
+      setLogoX(nx); setLogoY(ny);
+    } else {
+      const nw = Math.max(60, Math.min(g.bandW, g.baseW + (e.clientX - g.startX)));
+      setLogoW(nw);
+    }
+    dirty.current = true;
+  }
+  function soltarDrag() {
+    drag.current = null;
+    window.removeEventListener("pointermove", moverDrag);
+    window.removeEventListener("pointerup", soltarDrag);
+    salvar();
+  }
+
   function abrirImpressao() {
     const conteudo = ref.current?.innerHTML || "";
+    const leftCss = logoX == null ? "left:50%;transform:translateX(-50%)" : `left:${logoX}px`;
     const cab = showLogo && logo
-      ? `<img src="${logo}" style="max-height:70px;max-width:260px;object-fit:contain;display:block;margin:0 auto 10px" />`
+      ? `<div style="position:relative;height:${BAND_H}px"><img src="${logo}" style="position:absolute;top:${logoY}px;${leftCss};width:${logoW}px;object-fit:contain" /></div>`
       : "";
     const titulo = `${esc(clientName || "Planejamento")} — ${esc(monthLabel)}`;
     const win = window.open("", "_blank");
@@ -175,7 +272,7 @@ export default function PlanningEditor({ clientId, clientName, ym, monthLabel, m
             {MARGINS.map(([v, l]) => <MenuItem key={v} value={v}>Margem: {l}</MenuItem>)}
           </Select>
         </Tooltip>
-        <Tooltip title={showLogo ? "Logo aparece no topo (clique para tirar)" : "Logo escondido (clique para mostrar)"}>
+        <Tooltip title={showLogo ? "Logo no topo — arraste para mover e use o canto para redimensionar (clique aqui para tirar)" : "Logo escondido (clique para mostrar)"}>
           <Chip size="small" label="Logo" color={showLogo ? "primary" : "default"} variant={showLogo ? "filled" : "outlined"}
             onClick={() => { setShowLogo((v) => !v); dirty.current = true; }} />
         </Tooltip>
@@ -183,8 +280,12 @@ export default function PlanningEditor({ clientId, clientName, ym, monthLabel, m
 
       {/* Ações */}
       <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: "wrap", gap: 1 }} alignItems="center">
-        <Button size="small" variant="contained" startIcon={<SaveIcon />} onClick={() => salvar(false)} disabled={saving}>
+        <Button size="small" variant="contained" startIcon={<SaveIcon />} onClick={salvar} disabled={saving}>
           {saving ? "Salvando..." : "Salvar"}
+        </Button>
+        <Button size="small" variant={showCal ? "contained" : "outlined"} startIcon={<CalendarMonthIcon />}
+          onClick={() => setShowCal((v) => !v)}>
+          {showCal ? "Esconder calendário" : "Ver calendário"}
         </Button>
         {monthDates.length > 0 && (
           <Button size="small" variant="outlined" startIcon={<EventNoteIcon />} onClick={inserirDatas}>
@@ -198,22 +299,40 @@ export default function PlanningEditor({ clientId, clientName, ym, monthLabel, m
         {savedAt && <Typography variant="caption" color="text.secondary">Salvo</Typography>}
       </Stack>
 
+      {/* Calendário do mês em cima (opcional) — clicar num dia adiciona a data */}
+      {showCal && year != null && (
+        <MiniCalendar year={year} month={month} byDay={byDay} seasonalByDay={seasonalByDay}
+          onDay={(isoStr) => onOpenDay && onOpenDay(isoStr)} />
+      )}
+
       {/* Folha do documento */}
       <Box sx={{ display: "flex", justifyContent: "center" }}>
         <Box sx={{ width: "100%", maxWidth: 820, bgcolor: "background.paper", border: 1, borderColor: "divider", borderRadius: 2, boxShadow: 1, overflow: "hidden" }}>
           {showLogo && logo && (
-            <Box sx={{ textAlign: "center", pt: 3, pb: 1 }}>
-              <Box component="img" src={logo} alt="" sx={{ maxHeight: 70, maxWidth: 260, objectFit: "contain" }} />
+            <Box ref={bandRef} sx={{ position: "relative", height: BAND_H, borderBottom: 1, borderColor: "divider" }}>
+              <Box sx={{
+                position: "absolute", top: logoY,
+                left: logoX == null ? "50%" : logoX,
+                transform: logoX == null ? "translateX(-50%)" : "none",
+                width: logoW, cursor: "move", "&:hover .rz": { opacity: 1 },
+              }}
+                onPointerDown={(e) => iniciarDrag(e, "move")}>
+                <Box component="img" src={logo} alt="" draggable={false}
+                  sx={{ width: "100%", objectFit: "contain", display: "block", userSelect: "none", pointerEvents: "none" }} />
+                {/* Alça de redimensionar (canto inferior direito) */}
+                <Box className="rz" onPointerDown={(e) => { e.stopPropagation(); iniciarDrag(e, "resize"); }}
+                  sx={{ position: "absolute", right: -6, bottom: -6, width: 14, height: 14, bgcolor: "primary.main", borderRadius: "50%", cursor: "nwse-resize", opacity: 0.5, transition: "opacity .15s" }} />
+              </Box>
             </Box>
           )}
-          <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: 18, pt: showLogo && logo ? 0 : 3, pb: 1 }}>
+          <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: 18, pt: showLogo && logo ? 1 : 3, pb: 1 }}>
             {clientName} — {monthLabel}
           </Typography>
           <Box
             ref={ref}
             contentEditable
             suppressContentEditableWarning
-            onBlur={() => { if (dirty.current) salvar(true); }}
+            onBlur={() => { if (dirty.current) salvar(); }}
             sx={{
               minHeight: 420, px: { xs: 3, sm: 6 }, py: 3, outline: "none",
               fontFamily, lineHeight: Number(lineHeight),
