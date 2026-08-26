@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { broadcast } from "../live.js";
 
 // ---------------------------------------------------------------------------
 // Prioridades / recados internos — o canal da equipe.
@@ -58,8 +59,10 @@ router.post("/", (req, res) => {
     .run(b.client_id || null,
       `📌 Nova prioridade${alvo ? ` para ${alvo}` : ""}${cli ? ` — ${cli}` : ""}: ${b.message.trim().slice(0, 80)}`,
       req.orgId, b.assignee_id || null);
+  // Faz o sininho da pessoa atualizar na hora.
+  broadcast(req.orgId, "notifications");
 
-  res.status(201).json(db.prepare(`${SELECT} WHERE p.id = ?`).get(info.lastInsertRowid));
+  res.status(201).json({ ...db.prepare(`${SELECT} WHERE p.id = ?`).get(info.lastInsertRowid), notified: alvo || null });
 });
 
 // PUT /api/priorities/:id — edita recado, nível, responsável, cliente.

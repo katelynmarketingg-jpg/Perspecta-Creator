@@ -142,6 +142,19 @@ export default function Tasks() {
     api.get("/tasks/stages").then((r) => setStages(r.data));
     api.get("/tasks").then((r) => { setTasks(r.data); setLoading(false); });
   };
+
+  // Apaga TODAS as tarefas (recomeçar do zero para testar). Só admin.
+  async function limparTudo() {
+    if (!confirm("Isto apaga TODAS as tarefas deste escritório para você recomeçar. Não dá para desfazer. Continuar?")) return;
+    if (!confirm("Tem certeza mesmo? Vou apagar todas as tarefas agora.")) return;
+    try {
+      const r = await api.delete("/tasks/all");
+      alert(`Pronto! ${r.data?.deleted ?? 0} tarefa(s) apagada(s). Agora é só lançar de novo para testar.`);
+      load();
+    } catch (e) {
+      alert(e.response?.data?.error || "Não foi possível limpar as tarefas.");
+    }
+  }
   useEffect(() => {
     load();
     loadSession();
@@ -340,7 +353,16 @@ export default function Tasks() {
       <PageHeader
         title="Tarefas"
         subtitle="Kanban de produção de conteúdo"
-        action={<Button variant="contained" startIcon={<AddIcon />} onClick={openNew}>Nova tarefa</Button>}
+        action={
+          <Stack direction="row" spacing={1}>
+            {(me?.role === "admin" || me?.role === "superadmin") && tasks.length > 0 && (
+              <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={limparTudo}>
+                Limpar todas
+              </Button>
+            )}
+            <Button variant="contained" startIcon={<AddIcon />} onClick={openNew}>Nova tarefa</Button>
+          </Stack>
+        }
       />
 
       {flash && <Alert severity="success" sx={{ mb: 2 }}>{flash}</Alert>}
