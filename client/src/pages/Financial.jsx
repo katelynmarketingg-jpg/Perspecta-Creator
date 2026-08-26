@@ -21,7 +21,7 @@ import { currency, formatDate } from "../utils.js";
 
 const EMPTY = {
   type: "income", description: "", amount: "", client_id: "", category: "", status: "pending",
-  due_date: "", recurring: false, recurring_day: "", months: 12,
+  due_date: "", recurring: false, recurring_day: "", months: 12, fixed: false, card: "",
 };
 
 // Intervalos de período. Abre no mês atual; dá para ampliar.
@@ -86,14 +86,16 @@ export default function Financial() {
     if (draft.id) {
       await api.put(`/financial/${draft.id}`, payload);
     } else if (draft.recurring) {
-      // Recorrente: o backend cria uma parcela por mês.
+      // Recorrente: o backend cria uma parcela por mês. "Fixa" = sem fim (36 meses).
       const r = await api.post("/financial", {
-        ...payload, recurring: true,
+        ...payload, recurring: true, fixed: !!draft.fixed,
         recurring_day: Number(draft.recurring_day) || undefined,
         months: Number(draft.months) || 12,
       });
       const n = r.data?.count || 0;
-      setFlash(`Criei ${n} parcela(s) mensais no dia ${draft.recurring_day || "escolhido"}.`);
+      setFlash(draft.fixed
+        ? `Despesa fixa criada — ${n} parcelas mensais no dia ${draft.recurring_day || "escolhido"} (renova sozinha).`
+        : `Criei ${n} parcela(s) mensais no dia ${draft.recurring_day || "escolhido"}.`);
       setTimeout(() => setFlash(""), 6000);
     } else {
       await api.post("/financial", payload);
@@ -221,6 +223,9 @@ export default function Financial() {
                     <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
                       label="Mensal" sx={{ ml: 1, height: 20 }} />
                   ) : null}
+                  {f.card ? (
+                    <Chip size="small" variant="outlined" label={`💳 ${f.card}`} sx={{ ml: 1, height: 20 }} />
+                  ) : null}
                 </TableCell>
                 <TableCell>{f.client_name || "—"}</TableCell>
                 <TableCell>{formatDate(f.due_date)}</TableCell>
@@ -292,6 +297,9 @@ export default function Financial() {
               <MenuItem value="">Sem cliente</MenuItem>
               {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </TextField>
+            <TextField label="Cartão / conta vinculada" value={draft.card || ""} onChange={set("card")} fullWidth
+              placeholder="Ex.: Nubank PJ, Cartão Inter, conta corrente…" />
+
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField label="Vencimento" type="date" InputLabelProps={{ shrink: true }} value={draft.due_date || ""} onChange={set("due_date")} fullWidth />
               <TextField select label="Status" value={draft.status} onChange={set("status")} fullWidth>
@@ -312,19 +320,30 @@ export default function Financial() {
                 />
                 {draft.recurring && (
                   <Stack spacing={1}>
+                    <FormControlLabel
+                      control={
+                        <Switch checked={!!draft.fixed}
+                          onChange={(e) => setDraft((d) => ({ ...d, fixed: e.target.checked }))} />
+                      }
+                      label="Fixa (todo mês, sem fim)"
+                    />
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                       <TextField label="Dia do mês" type="number" inputProps={{ min: 1, max: 31 }}
                         value={draft.recurring_day}
                         onChange={(e) => setDraft((d) => ({ ...d, recurring_day: e.target.value }))}
                         fullWidth helperText="Ex.: 10 = todo dia 10" />
-                      <TextField label="Por quantos meses" type="number" inputProps={{ min: 1, max: 36 }}
-                        value={draft.months}
-                        onChange={(e) => setDraft((d) => ({ ...d, months: e.target.value }))}
-                        fullWidth helperText="Cria uma parcela por mês" />
+                      {!draft.fixed && (
+                        <TextField label="Quantas vezes (meses)" type="number" inputProps={{ min: 1, max: 36 }}
+                          value={draft.months}
+                          onChange={(e) => setDraft((d) => ({ ...d, months: e.target.value }))}
+                          fullWidth helperText="Cria uma parcela por mês" />
+                      )}
                     </Stack>
                     <Typography variant="caption" color="text.secondary">
-                      Vou criar {Number(draft.months) || 12} lançamento(s), um por mês, sempre no dia{" "}
-                      {draft.recurring_day || "informado"}. Cada um pode ser editado ou excluído depois.
+                      {draft.fixed
+                        ? `Fixa: renova todo mês (crio 36 parcelas à frente) no dia ${draft.recurring_day || "informado"}.`
+                        : `Vou criar ${Number(draft.months) || 12} lançamento(s), um por mês, no dia ${draft.recurring_day || "informado"}.`}
+                      {" "}Cada um pode ser editado ou excluído depois.
                     </Typography>
                   </Stack>
                 )}

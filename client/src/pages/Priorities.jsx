@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, Button, IconButton, Chip, TextField,
-  MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, Avatar,
+  MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, Avatar, Alert,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -63,6 +63,7 @@ export default function Priorities() {
   const [filtroPessoa, setFiltroPessoa] = useState("");
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(null);
+  const [msg, setMsg] = useState("");
   const dragId = useRef(null);
 
   const load = () => {
@@ -88,8 +89,14 @@ export default function Priorities() {
 
   async function salvar() {
     const payload = { ...draft, client_id: draft.client_id || null, assignee_id: draft.assignee_id || null };
-    if (draft.id) await api.put(`/priorities/${draft.id}`, payload);
-    else await api.post("/priorities", payload);
+    if (draft.id) {
+      await api.put(`/priorities/${draft.id}`, payload);
+    } else {
+      const r = await api.post("/priorities", payload);
+      const quem = r.data?.notified;
+      setMsg(quem ? `Prioridade criada — ${quem} foi avisada no sininho dela.` : "Prioridade criada.");
+      setTimeout(() => setMsg(""), 6000);
+    }
     setOpen(false); setDraft(null); load();
   }
   async function excluir(id) {
@@ -114,6 +121,8 @@ export default function Priorities() {
             <Button variant="contained" startIcon={<AddIcon />} onClick={novo}>Nova prioridade</Button>
           </Stack>
         } />
+
+      {msg && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setMsg("")}>{msg}</Alert>}
 
       <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" }, alignItems: "start" }}>
         {COLUMNS.map((col) => (

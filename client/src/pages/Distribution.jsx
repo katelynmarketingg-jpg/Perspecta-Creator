@@ -509,8 +509,9 @@ function FeedThumb({ fileId, fetchFile }) {
 
 const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
 
-// Prévia do perfil ARRASTÁVEL: reordena e as datas acompanham a nova ordem.
-// Data no passado ou ausente aparece em vermelho; clicar abre o editor.
+// Prévia do perfil ARRASTÁVEL: organiza o feed (salva a ORDEM). As datas ficam
+// paradas — cada peça mantém a sua. Sem data ou no passado aparece em vermelho
+// (clique para ajustar). O 1º fica em cima à esquerda; enche → direita → baixo.
 function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
   const [order, setOrder] = useState(posts);
   const dragIndex = useRef(null);
@@ -525,21 +526,14 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
     if (from == null || from === i) return;
     const arr = [...order];
     const [movido] = arr.splice(from, 1);
-    arr.splice(i, 0, movido);
-    // Mantém o conjunto de datas (slots) e reatribui pela nova posição.
-    const slots = order.map((p) => p.scheduled_at);
-    const changes = [];
-    const novo = arr.map((p, idx) => {
-      if (p.scheduled_at !== slots[idx]) changes.push({ id: p.id, scheduled_at: slots[idx] });
-      return { ...p, scheduled_at: slots[idx] };
-    });
-    setOrder(novo);
-    if (changes.length) onReorder(changes);
+    arr.splice(i, 0, movido);          // encaixa entre os outros
+    setOrder(arr);
+    onReorder(arr.map((p) => p.id));    // salva só a ordem; as datas não mudam
   }
 
   if (!posts.length) {
     return <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-      Nada com data ainda. Programe as peças (na visão "Por post") que elas aparecem aqui.
+      Nada por aqui ainda. As peças que estiverem na Distribuição aparecem aqui para organizar.
     </Typography>;
   }
 
@@ -547,7 +541,8 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
     <Box>
       <Typography variant="subtitle2">{titulo}</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-        Arraste para reordenar — as datas acompanham a nova ordem. Em vermelho = data no passado ou sem data (clique para ajustar).
+        Arraste para organizar (encaixa entre um e outro) — a ordem fica salva e as datas não mudam.
+        A data só aparece quando você coloca; em vermelho = sem data ou no passado (clique para ajustar).
       </Typography>
       <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 3, overflow: "hidden" }}>
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
@@ -610,13 +605,13 @@ export default function Distribution() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [clientFilter, vTasks, vDist]);
 
-  async function reorder(changes) {
+  // Organiza o feed salvando SÓ a ordem (posição) — as datas ficam paradas.
+  async function reorderPosition(ids) {
     try {
-      await api.post("/distribution/reorder", { changes });
-      flash("Ordem do feed atualizada.", "success");
+      await api.post("/distribution/reorder-position", { ids });
       load();
     } catch (e) {
-      flash(e.response?.data?.error || "Não foi possível reordenar.", "error");
+      flash(e.response?.data?.error || "Não foi possível organizar.", "error");
     }
   }
 
@@ -654,12 +649,20 @@ export default function Distribution() {
   // Quando algo muda ao vivo, reflete na peça aberta no editor.
   const selectedFresh = selected ? items.find((i) => i.id === selected.id) || selected : null;
 
-  // Perfil/Lista/Calendário usam o panorama completo (todos os posts com data).
-  const feedPosts = useMemo(
-    () => scheduled.map((i) => ({ ...i, file_id: i.cover_file_id || i.file_id }))
-      .sort((a, b) => (b.scheduled_at > a.scheduled_at ? 1 : -1)),
-    [scheduled]
-  );
+  // Prévia do perfil: junta tudo (com ou SEM data) — programados, aprovados e as
+  // peças em preparação — para organizar o feed arrastando. Ordena pela POSIÇÃO
+  // salva (o que você arrumou); sem posição, mais recente primeiro.
+  const feedPosts = useMemo(() => {
+    const map = new Map();
+    [...scheduled, ...approved, ...items].forEach((i) => {
+      if (!map.has(i.id)) map.set(i.id, { ...i, file_id: i.cover_file_id || i.file_id });
+    });
+    return [...map.values()].sort((a, b) => {
+      const pa = a.position ?? 1e9, pb = b.position ?? 1e9;
+      if (pa !== pb) return pa - pb;
+      return (b.scheduled_at || "") > (a.scheduled_at || "") ? 1 : -1;
+    });
+  }, [scheduled, approved, items]);
 
   return (
     <>
@@ -810,7 +813,7 @@ export default function Distribution() {
         </>
       ) : view === "feed" ? (
         <Card><CardContent>
-          <ReorderableFeed posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected} onReorder={reorder}
+          <ReorderableFeed posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected} onReorder={reorderPosition}
             titulo={clientFilter ? "Como o perfil vai ficar" : "Prévia do perfil (todos os clientes)"} />
         </CardContent></Card>
       ) : (

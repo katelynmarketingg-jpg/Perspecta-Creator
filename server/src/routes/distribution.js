@@ -41,7 +41,7 @@ router.get("/", (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.client_id, t.cover_file_id,
+              t.approval_status, t.client_note, t.client_id, t.cover_file_id, t.position,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -58,7 +58,7 @@ router.get("/", (req, res) => {
   const scheduled = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
-              t.approval_status, t.client_id, t.cover_file_id,
+              t.approval_status, t.client_id, t.cover_file_id, t.position,
               c.name AS client_name, s.is_done AS stage_done,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -76,7 +76,7 @@ router.get("/", (req, res) => {
   const approved = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.client_id, t.cover_file_id, c.name AS client_name, c.phone AS client_phone,
+              t.client_id, t.cover_file_id, t.position, c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
        LEFT JOIN clients c ON c.id = t.client_id
@@ -118,6 +118,16 @@ router.post("/reorder", (req, res) => {
   });
   tx();
   res.json({ ok: true, updated: changes.length });
+});
+
+// POST /api/distribution/reorder-position — organiza o feed SEM mexer nas datas.
+// Recebe a nova ordem (ids) e grava só a posição de cada peça.
+router.post("/reorder-position", (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const upd = db.prepare("UPDATE tasks SET position = ? WHERE id = ? AND org_id = ?");
+  const tx = db.transaction(() => { ids.forEach((id, i) => upd.run(i, id, req.orgId)); });
+  tx();
+  res.json({ ok: true, updated: ids.length });
 });
 
 // PUT /api/distribution/:id — salva mídia (file_id), legenda, observação e data.

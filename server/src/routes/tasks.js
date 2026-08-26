@@ -277,6 +277,22 @@ router.put("/:id/tags", (req, res) => {
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
 
+// DELETE /api/tasks/all — apaga TODAS as tarefas do escritório (recomeçar do
+// zero para testar). Só admin. Remove também os eventos que vieram de tarefas
+// (captação/reunião) e os anexos (por cascade). Definido ANTES de /:id.
+router.delete("/all", (req, res) => {
+  if (req.user?.role !== "admin" && req.user?.role !== "superadmin") {
+    return res.status(403).json({ error: "Apenas administradores podem limpar as tarefas." });
+  }
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM events WHERE org_id = ? AND task_id IS NOT NULL").run(req.orgId);
+    const info = db.prepare("DELETE FROM tasks WHERE org_id = ?").run(req.orgId);
+    return info.changes;
+  });
+  const deleted = tx();
+  res.json({ deleted });
+});
+
 router.delete("/:id", (req, res) => {
   db.prepare("DELETE FROM tasks WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });

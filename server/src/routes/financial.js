@@ -73,9 +73,9 @@ router.get("/renewals", (req, res) => {
 
 const insertEntry = db.prepare(
   `INSERT INTO financial_entries (type, description, amount, client_id, category, status, due_date, paid_at,
-                                  payment_link, pix_code, boleto_url, invoice_url, recurring, recurring_day, org_id)
+                                  payment_link, pix_code, boleto_url, invoice_url, recurring, recurring_day, card, org_id)
    VALUES (@type, @description, @amount, @client_id, @category, @status, @due_date, @paid_at,
-           @payment_link, @pix_code, @boleto_url, @invoice_url, @recurring, @recurring_day, @org_id)`
+           @payment_link, @pix_code, @boleto_url, @invoice_url, @recurring, @recurring_day, @card, @org_id)`
 );
 
 // Monta a data de vencimento "AAAA-MM-DD" de um mês, encaixando o dia no último
@@ -127,7 +127,7 @@ router.post("/generate-monthly", (req, res) => {
           type: "income", description: `Mensalidade — ${c.name}`, amount: c.valor,
           client_id: c.id, category: "Mensalidade", status: "pending", due_date: due, paid_at: null,
           payment_link: null, pix_code: null, boleto_url: null, invoice_url: null,
-          recurring: recorrente, recurring_day: recorrente ? dia : null, org_id: req.orgId,
+          recurring: recorrente, recurring_day: recorrente ? dia : null, card: null, org_id: req.orgId,
         });
         criadas++;
       }
@@ -158,13 +158,14 @@ router.post("/", (req, res) => {
     invoice_url: b.invoice_url ?? null,
     recurring: 0,
     recurring_day: null,
+    card: b.card ?? null,
     org_id: req.orgId,
   };
 
   // Lançamento mensal recorrente: cria uma parcela por mês, no mesmo dia, para
-  // os próximos N meses (padrão 12). Cada parcela fica editável/excluível.
+  // os próximos N meses. "Fixa" (sem fim) gera um horizonte longo (36 meses).
   if (b.recurring) {
-    const meses = Math.min(Math.max(Number(b.months) || 12, 1), 36);
+    const meses = b.fixed ? 36 : Math.min(Math.max(Number(b.months) || 12, 1), 36);
     // Dia do mês: o escolhido, ou o do vencimento informado, ou hoje.
     const hoje = new Date();
     const startDate = b.due_date ? new Date(b.due_date + "T00:00:00") : hoje;
@@ -209,7 +210,8 @@ router.put("/:id", (req, res) => {
   db.prepare(
     `UPDATE financial_entries SET type=@type, description=@description, amount=@amount,
      client_id=@client_id, category=@category, status=@status, due_date=@due_date, paid_at=@paid_at,
-     payment_link=@payment_link, pix_code=@pix_code, boleto_url=@boleto_url, invoice_url=@invoice_url
+     payment_link=@payment_link, pix_code=@pix_code, boleto_url=@boleto_url, invoice_url=@invoice_url,
+     card=@card
      WHERE id=@id AND org_id=@org_id`
   ).run(merged);
   res.json(db.prepare(`${SELECT} WHERE f.id = ?`).get(req.params.id));
