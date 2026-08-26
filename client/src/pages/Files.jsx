@@ -44,16 +44,27 @@ function authFetchBlob(id) {
 }
 
 // Cartão de um arquivo: miniatura (imagem) ou ícone + ações.
-function FileCard({ f, onDownload, onDelete, onRename, onMoveFolder }) {
+// O nome fica embaixo e é editável com UM clique (clica fora → salva).
+function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const [src, setSrc] = useState(null);
   const [moreAnchor, setMoreAnchor] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(f.original_name || "");
   const ehImg = f.mime?.startsWith("image/");
+  useEffect(() => { setName(f.original_name || ""); }, [f.original_name]);
   useEffect(() => {
     if (!ehImg) return undefined;
     let url; let vivo = true;
     authFetchBlob(f.id).then((b) => { if (vivo) { url = URL.createObjectURL(b); setSrc(url); } }).catch(() => {});
     return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
   }, [f.id, ehImg]);
+
+  function salvar() {
+    setEditing(false);
+    const novo = name.trim();
+    if (novo && novo !== f.original_name && onSaveName) onSaveName(f.id, novo);
+    else setName(f.original_name || "");
+  }
 
   return (
     <Card variant="outlined" sx={{ overflow: "hidden" }}>
@@ -62,14 +73,26 @@ function FileCard({ f, onDownload, onDelete, onRename, onMoveFolder }) {
           : fileIcon(f.mime)}
       </Box>
       <Box sx={{ p: 1 }}>
-        <Typography noWrap variant="caption" sx={{ display: "block", fontWeight: 600 }}>{f.original_name}</Typography>
+        {editing ? (
+          <TextField value={name} onChange={(e) => setName(e.target.value)} autoFocus fullWidth variant="standard"
+            onBlur={salvar}
+            onKeyDown={(e) => { if (e.key === "Enter") salvar(); if (e.key === "Escape") { setName(f.original_name || ""); setEditing(false); } }}
+            inputProps={{ style: { fontSize: 12, fontWeight: 600 } }} />
+        ) : (
+          <Tooltip title="Clique para renomear">
+            <Typography noWrap variant="caption" onClick={() => setEditing(true)}
+              sx={{ display: "block", fontWeight: 600, cursor: "text", "&:hover": { textDecoration: "underline dotted" } }}>
+              {f.original_name || "Sem nome"}
+            </Typography>
+          </Tooltip>
+        )}
         <Typography variant="caption" color="text.secondary">{fileSize(f.size)}</Typography>
         <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
           <Tooltip title="Baixar original">
             <IconButton size="small" color="primary" onClick={() => onDownload(f)}><DownloadIcon sx={{ fontSize: 17 }} /></IconButton>
           </Tooltip>
-          {(onRename || onMoveFolder) && (
-            <Tooltip title="Mais">
+          {onMoveFolder && (
+            <Tooltip title="Mover para pasta">
               <IconButton size="small" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreVertIcon sx={{ fontSize: 17 }} /></IconButton>
             </Tooltip>
           )}
@@ -78,18 +101,11 @@ function FileCard({ f, onDownload, onDelete, onRename, onMoveFolder }) {
           </Tooltip>
         </Stack>
       </Box>
-      {(onRename || onMoveFolder) && (
+      {onMoveFolder && (
         <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
-          {onRename && (
-            <MenuItem onClick={() => { setMoreAnchor(null); onRename(f); }}>
-              <EditIcon sx={{ fontSize: 17, mr: 1 }} /> Renomear
-            </MenuItem>
-          )}
-          {onMoveFolder && (
-            <MenuItem onClick={() => { setMoreAnchor(null); onMoveFolder(f); }}>
-              <DriveFileMoveIcon sx={{ fontSize: 17, mr: 1 }} /> Mover para pasta
-            </MenuItem>
-          )}
+          <MenuItem onClick={() => { setMoreAnchor(null); onMoveFolder(f); }}>
+            <DriveFileMoveIcon sx={{ fontSize: 17, mr: 1 }} /> Mover para pasta
+          </MenuItem>
         </Menu>
       )}
     </Card>
@@ -110,7 +126,6 @@ export default function Files() {
   const zipInputRef = useRef(null);
   const [zipMsg, setZipMsg] = useState("");
   const [allFolders, setAllFolders] = useState([]); // todas as pastas do cliente (p/ mover)
-  const [renameTarget, setRenameTarget] = useState(null); // { id, name }
   const [moveTarget, setMoveTarget] = useState(null); // { id, folder_id }
 
   const currentFolder = path[path.length - 1]?.id || null;
@@ -143,10 +158,11 @@ export default function Files() {
   useEffect(() => { loadDocs(); }, [clientId, currentFolder, vFiles]);
   useEffect(() => { loadAllFolders(); }, [clientId, vFiles]);
 
-  async function renomearArquivo() {
-    if (!renameTarget?.name.trim()) return;
-    await api.put(`/files/${renameTarget.id}`, { original_name: renameTarget.name.trim() });
-    setRenameTarget(null); loadDocs();
+  // Renomear direto pelo nome embaixo da foto (inline). Atualiza na hora.
+  async function salvarNome(id, nome) {
+    setFiles((prev) => prev.map((x) => (x.id === id ? { ...x, original_name: nome } : x)));
+    try { await api.put(`/files/${id}`, { original_name: nome }); }
+    catch { loadDocs(); }
   }
   async function moverArquivoPasta() {
     await api.put(`/files/${moveTarget.id}`, { folder_id: moveTarget.folder_id || null });
@@ -302,7 +318,7 @@ export default function Files() {
                 <Grid item xs={4} sm={3} md={2} key={f.id}>
                   <FileCard f={f} onDownload={download}
                     onDelete={removeFile}
-                    onRename={(file) => setRenameTarget({ id: file.id, name: file.original_name })}
+                    onSaveName={salvarNome}
                     onMoveFolder={(file) => setMoveTarget({ id: file.id, folder_id: file.folder_id || "" })} />
                 </Grid>
               ))}
@@ -321,20 +337,6 @@ export default function Files() {
         </>
       )}
 
-      {/* Renomear arquivo */}
-      <Dialog open={Boolean(renameTarget)} onClose={() => setRenameTarget(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Renomear arquivo</DialogTitle>
-        <DialogContent>
-          <TextField label="Nome do arquivo" fullWidth autoFocus sx={{ mt: 1 }}
-            value={renameTarget?.name || ""}
-            onChange={(e) => setRenameTarget((t) => ({ ...t, name: e.target.value }))}
-            onKeyDown={(e) => e.key === "Enter" && renomearArquivo()} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRenameTarget(null)}>Cancelar</Button>
-          <Button variant="contained" onClick={renomearArquivo} disabled={!renameTarget?.name?.trim()}>Salvar</Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Mover arquivo para outra pasta */}
       <Dialog open={Boolean(moveTarget)} onClose={() => setMoveTarget(null)} fullWidth maxWidth="xs">
