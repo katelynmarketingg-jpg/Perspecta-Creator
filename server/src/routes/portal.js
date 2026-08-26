@@ -6,6 +6,7 @@ import { db } from "../db.js";
 import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
+import { isR2Path, r2Key, getR2Object } from "../storage.js";
 
 const router = Router();
 
@@ -381,15 +382,23 @@ router.get("/tasks/:id/attachments", (req, res) => {
   res.json(rows);
 });
 
-// Download/preview limitado a arquivos do próprio cliente.
-router.get("/files/:id/download", (req, res) => {
+// Download/preview limitado a arquivos do próprio cliente. Serve do R2 quando
+// o arquivo está lá (stored_path "r2:..."), senão do disco.
+router.get("/files/:id/download", async (req, res) => {
   const file = db
     .prepare("SELECT * FROM files WHERE id = ? AND client_id = ?")
     .get(req.params.id, req.client.client_id);
-  if (!file || !existsSync(file.stored_path)) {
-    return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (isR2Path(file.stored_path)) {
+    try {
+      const obj = await getR2Object(r2Key(file.stored_path));
+      if (obj.ContentType) res.setHeader("Content-Type", obj.ContentType);
+      if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
+      return obj.Body.pipe(res);
+    } catch { return res.status(404).json({ error: "Arquivo não encontrado." }); }
   }
-  res.download(file.stored_path, file.original_name);
+  if (!existsSync(file.stored_path)) return res.status(404).json({ error: "Arquivo não encontrado." });
+  return res.sendFile(file.stored_path);
 });
 
 export default router;
