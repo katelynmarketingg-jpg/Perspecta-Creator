@@ -189,8 +189,9 @@ router.get("/summary", (req, res) => {
     porCliente: porCliente.map((r) => ({
       ...r,
       horas: +(r.minutos / 60).toFixed(1),
-      // Quanto a agência recebe por hora dedicada a este cliente.
-      valorHora: r.minutos > 0 ? +(r.mensalidade / (r.minutos / 60)).toFixed(2) : null,
+      // Quanto a agência recebe por hora dedicada a este cliente. Só calcula com
+      // pelo menos 6 min lançados (senão um minutinho solto vira valor absurdo).
+      valorHora: r.minutos >= 6 ? +(r.mensalidade / (r.minutos / 60)).toFixed(2) : null,
     })),
     porColaborador: porColaborador.map((r) => ({ ...r, horas: +(r.minutos / 60).toFixed(1) })),
     porTipo: porTipo.map((r) => ({
