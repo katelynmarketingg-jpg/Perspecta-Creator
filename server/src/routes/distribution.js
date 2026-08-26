@@ -22,6 +22,17 @@ function stageByName(pattern, orgId) {
     .get(orgId, pattern);
 }
 
+// Garante que exista uma etapa com aquele nome; cria se faltar (para o fluxo
+// não travar caso a agência tenha apagado a coluna). Devolve a etapa.
+function ensureStage(orgId, pattern, name, isDone = 0) {
+  const found = stageByName(pattern, orgId);
+  if (found) return found;
+  const max = db.prepare("SELECT COALESCE(MAX(position), 0) AS m FROM kanban_stages WHERE org_id = ?").get(orgId).m;
+  const info = db.prepare("INSERT INTO kanban_stages (name, position, is_done, org_id) VALUES (?, ?, ?, ?)")
+    .run(name, max + 1, isDone, orgId);
+  return db.prepare("SELECT * FROM kanban_stages WHERE id = ?").get(info.lastInsertRowid);
+}
+
 // GET /api/distribution?client_id= — peças prontas para distribuir/programar.
 router.get("/", (req, res) => {
   const stage = stageByName("%Distribui%", req.orgId);
@@ -96,8 +107,9 @@ router.post("/:id/schedule", (req, res) => {
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });
   const when = req.body?.scheduled_at || task.scheduled_at;
   if (!when) return res.status(400).json({ error: "Defina a data/hora antes de programar." });
-  const done = db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1").get(req.orgId);
-  if (!done) return res.status(400).json({ error: "Crie a etapa 'Programados' primeiro." });
+  // Cria a etapa "Programados" (conclusão) automaticamente se não existir.
+  let done = db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1").get(req.orgId);
+  if (!done) done = ensureStage(req.orgId, "%Programad%", "Programados", 1);
   db.prepare(
     "UPDATE tasks SET stage_id = ?, scheduled_at = ?, completed_at = ? WHERE id = ? AND org_id = ?"
   ).run(done.id, when, new Date().toISOString(), req.params.id, req.orgId);
@@ -173,8 +185,8 @@ router.post("/:id/send", (req, res) => {
   const hasMedia = db.prepare("SELECT 1 FROM task_attachments WHERE task_id = ? LIMIT 1").get(req.params.id);
   if (!hasMedia) return res.status(400).json({ error: "Anexe a foto ou o vídeo antes de enviar." });
 
-  const stage = stageByName("%Aprova%", req.orgId);
-  if (!stage) return res.status(400).json({ error: "Crie uma etapa de Aprovação primeiro." });
+  // Cria a etapa de Aprovação automaticamente se ela não existir.
+  const stage = ensureStage(req.orgId, "%Aprova%", "Aprovação", 0);
 
   db.prepare(
     `UPDATE tasks SET stage_id = ?, approval_status = 'sent',
