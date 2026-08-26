@@ -33,6 +33,7 @@ export default function Contracts() {
   const [copiado, setCopiado] = useState(false);
   // Modelos de contrato
   const [templates, setTemplates] = useState([]);
+  const [services, setServices] = useState([]);
   const [tplManage, setTplManage] = useState(false);       // diálogo de gerenciar modelos
   const [tplDraft, setTplDraft] = useState(null);          // { id?, name, body }
   const [gen, setGen] = useState(null);                    // { template_id, client_id, value, duration_months, start_date }
@@ -74,7 +75,11 @@ export default function Contracts() {
   }
 
   const load = () => api.get("/contracts").then((r) => setRows(r.data));
-  useEffect(() => { load(); loadTemplates(); api.get("/clients").then((r) => setClients(r.data)); }, []);
+  useEffect(() => {
+    load(); loadTemplates();
+    api.get("/clients").then((r) => setClients(r.data));
+    api.get("/services").then((r) => setServices(r.data)).catch(() => {});
+  }, []);
 
   // Ao vivo: recarrega quando alguém mexe nos contratos.
   const vContracts = useLiveVersion("contracts");
@@ -93,8 +98,9 @@ export default function Contracts() {
     if (!w) return;
     const assinatura = c.signed_at
       ? `<div style="margin-top:40px;padding-top:16px;border-top:1px solid #ccc;font-size:13px;color:#555">
+           ${c.signature_img ? `<img src="${c.signature_img}" style="max-height:80px;display:block;margin-bottom:8px" />` : ""}
            Assinado eletronicamente por <b>${c.signer_name || ""}</b>${c.signer_document ? " (" + c.signer_document + ")" : ""}
-           em ${new Date(c.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}.
+           em ${new Date(c.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}${c.signer_ip ? " · IP " + c.signer_ip : ""}.
          </div>`
       : "";
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${c.title}</title>
@@ -205,7 +211,12 @@ export default function Contracts() {
             <Alert severity="success" sx={{ mb: 2 }}>
               Assinado por <strong>{ver.signer_name}</strong>
               {ver.signer_document ? ` (${ver.signer_document})` : ""} em{" "}
-              {new Date(ver.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}.
+              {new Date(ver.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}
+              {ver.signer_ip ? ` · IP ${ver.signer_ip}` : ""}.
+              {ver.signature_img && (
+                <Box component="img" src={ver.signature_img} alt="assinatura"
+                  sx={{ display: "block", mt: 1, maxHeight: 70, bgcolor: "#fff", borderRadius: 1, p: 0.5 }} />
+              )}
             </Alert>
           )}
           <Box sx={{ p: 2, borderRadius: 2, bgcolor: "action.hover" }}>
@@ -271,6 +282,9 @@ export default function Contracts() {
                       sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, px: 1.5, py: 1 }}>
                       <ArticleIcon color="primary" />
                       <Typography sx={{ flex: 1, fontWeight: 600 }} noWrap>{t.name}</Typography>
+                      {t.service_id && (
+                        <Chip size="small" variant="outlined" label={services.find((s) => String(s.id) === String(t.service_id))?.name || "serviço"} />
+                      )}
                       <IconButton size="small" onClick={() => setTplDraft({ ...t })}><EditIcon fontSize="small" /></IconButton>
                       <IconButton size="small" color="error" onClick={() => removerModelo(t.id)}><DeleteIcon fontSize="small" /></IconButton>
                     </Stack>
@@ -283,6 +297,12 @@ export default function Contracts() {
               <TextField label="Nome do modelo *" value={tplDraft.name} autoFocus fullWidth
                 onChange={(e) => setTplDraft((d) => ({ ...d, name: e.target.value }))}
                 placeholder="Ex: Contrato de Social Media" />
+              <TextField select label="Serviço vinculado (opcional)" value={tplDraft.service_id || ""} fullWidth
+                onChange={(e) => setTplDraft((d) => ({ ...d, service_id: e.target.value }))}
+                helperText="Liga este modelo a um serviço, para puxar o contrato certo ao fechar aquele serviço.">
+                <MenuItem value="">Sem vínculo (genérico)</MenuItem>
+                {services.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+              </TextField>
               <Alert severity="info" sx={{ "& .MuiAlert-message": { width: "100%" } }}>
                 Use marcadores que o sistema troca sozinho ao gerar:
                 <Box sx={{ mt: 0.5, fontFamily: "monospace", fontSize: 13 }}>
@@ -315,7 +335,11 @@ export default function Contracts() {
             {genMsg && <Alert severity="error">{genMsg}</Alert>}
             <TextField select label="Modelo" value={gen?.template_id || ""} fullWidth
               onChange={(e) => setGen((g) => ({ ...g, template_id: e.target.value }))}>
-              {templates.map((t) => <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>)}
+              {templates.map((t) => (
+                <MenuItem key={t.id} value={t.id}>
+                  {t.name}{t.service_id ? ` — ${services.find((s) => String(s.id) === String(t.service_id))?.name || ""}` : ""}
+                </MenuItem>
+              ))}
             </TextField>
             <TextField select label="Cliente *" value={gen?.client_id || ""} fullWidth
               onChange={(e) => setGen((g) => ({ ...g, client_id: e.target.value }))}>

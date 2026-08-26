@@ -456,6 +456,9 @@ ensureColumn("contracts", "signer_name", "signer_name TEXT");
 ensureColumn("contracts", "signer_document", "signer_document TEXT");
 ensureColumn("contracts", "signer_ip", "signer_ip TEXT");
 ensureColumn("contracts", "signed_hash", "signed_hash TEXT"); // detecta edição posterior
+ensureColumn("contracts", "signature_img", "signature_img TEXT"); // desenho da assinatura (data URI)
+// Modelo de contrato ligado a um serviço: ao fechar aquele serviço, já puxa o certo.
+ensureColumn("contract_templates", "service_id", "service_id INTEGER");
 
 // Ciclo de vida do arquivo entregue: o cliente tem um prazo para baixar.
 ensureColumn("files", "expires_at", "expires_at TEXT");
