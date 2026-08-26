@@ -71,17 +71,19 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 function Media({ fileId, height = 200 }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
+  const [erro, setErro] = useState(false);
   useEffect(() => {
-    setSrc(null);
+    setSrc(null); setErro(false);
     if (!fileId) return;
     let url;
     api.get(`/files/${fileId}/download`, { responseType: "blob" })
       .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setVideo((r.data.type || "").startsWith("video")); })
-      .catch(() => {});
+      .catch(() => setErro(true));
     return () => url && URL.revokeObjectURL(url);
   }, [fileId]);
   const sx = { width: "100%", height, objectFit: "cover", borderRadius: 2, bgcolor: "action.hover", display: "block" };
   if (!fileId) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "text.secondary", fontSize: height <= 90 ? 9 : 13, lineHeight: 1.1, p: 0.25 }}>Sem mídia</Box>;
+  if (erro) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "error.main", fontSize: height <= 90 ? 9 : 12, lineHeight: 1.15, p: 0.5 }}>Imagem não carregou<br/>(reenvie)</Box>;
   if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   return video
     ? <Box component="video" src={src} controls={height > 120} muted sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }} />
