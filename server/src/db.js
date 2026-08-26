@@ -327,6 +327,8 @@ ensureColumn("client_services", "installments", "installments INTEGER NOT NULL D
 ensureColumn("client_services", "billing", "billing TEXT NOT NULL DEFAULT 'mensal'");
 // Classificação/categoria do serviço (ex.: Social media, Tráfego, Design, Site).
 ensureColumn("services", "category", "category TEXT");
+// Estilo do modelo de contrato (logo posição/tamanho, etc.) em JSON.
+ensureColumn("services", "contract_style", "contract_style TEXT");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
