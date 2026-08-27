@@ -29,6 +29,7 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import FlagIcon from "@mui/icons-material/Flag";
 import DesignServicesIcon from "@mui/icons-material/DesignServices";
+import SavingsIcon from "@mui/icons-material/Savings";
 import PreviewIcon from "@mui/icons-material/Preview";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
@@ -67,6 +68,7 @@ const NAV = [
   { to: "/ai", label: "IA", icon: <AutoAwesomeIcon /> },
   { to: "/integrations", label: "Integrações", icon: <HubIcon /> },
   { to: "/users", label: "Usuários", icon: <GroupIcon />, adminOnly: true },
+  { to: "/minhas-financas", label: "Minhas Finanças", icon: <SavingsIcon /> },
   { to: "/settings", label: "Configurações", icon: <SettingsIcon /> },
 ];
 
