@@ -94,6 +94,16 @@ export default function MinhasFinancas() {
   // criar um novo só digitando.
   const metodos = useMemo(() => [...new Set((data?.entries || []).map((e) => e.method).filter(Boolean))].sort(), [data]);
   const categorias = useMemo(() => [...new Set((data?.entries || []).map((e) => e.category).filter(Boolean))].sort(), [data]);
+  // Gastos da Perspectiva que ainda estão aqui (deveriam estar no Financeiro).
+  const perspectiva = useMemo(() => (data?.entries || []).filter((e) => /perspec/i.test(e.category || "")), [data]);
+
+  async function moverPerspectiva() {
+    if (!confirm(`Mover ${perspectiva.length} gasto(s) da Perspectiva deste mês pro Financeiro (despesas)? Eles saem daqui e passam a aparecer lá, com opção de marcar como pago.`)) return;
+    const r = await api.post("/personal-finance/move-to-financeiro", { ym });
+    setMsg(`${r.data.moved} gasto(s) da Perspectiva movidos pro Financeiro. ✅`);
+    setTimeout(() => setMsg(""), 7000);
+    load();
+  }
 
   async function renomearGrupo(g) {
     const to = prompt(`Renomear o banco / meio de pagamento "${g.nome}" para:`, g.method || g.nome);
@@ -128,8 +138,9 @@ export default function MinhasFinancas() {
     if (!entries.length) { setMsg("Não encontrei linhas no CSV. Confira se tem cabeçalho (Nome, Valor…)."); setTimeout(() => setMsg(""), 6000); return; }
     const replace = data?.entries?.length ? confirm(`Já há ${data.entries.length} gasto(s) em ${MESES[cursor.getMonth()]}. Substituir por ${entries.length} do CSV? (Cancelar = adicionar)`) : false;
     const r = await api.post("/personal-finance/import", { ym, entries, replace, label: file.name });
-    setMsg(`Importados ${r.data.imported} gastos de ${MESES[cursor.getMonth()]}. As contas fixas e parceladas vão seguir sozinhas nos próximos meses. ✅`);
-    setTimeout(() => setMsg(""), 8000);
+    const extra = r.data.toFinanceiro ? ` ${r.data.toFinanceiro} da categoria Perspectiva foram pro Financeiro (despesas).` : "";
+    setMsg(`Importados ${r.data.imported} gastos de ${MESES[cursor.getMonth()]}. As contas fixas e parceladas vão seguir sozinhas nos próximos meses.${extra} ✅`);
+    setTimeout(() => setMsg(""), 9000);
     load();
   }
   async function abrirImportacoes() {
@@ -165,6 +176,13 @@ export default function MinhasFinancas() {
         } />
 
       {msg && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setMsg("")}>{msg}</Alert>}
+
+      {perspectiva.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}
+          action={<Button color="inherit" size="small" onClick={moverPerspectiva}>Mover pro Financeiro</Button>}>
+          Há {perspectiva.length} gasto(s) da categoria <b>Perspectiva</b> aqui ({currency(perspectiva.reduce((a, e) => a + (Number(e.amount) || 0), 0))}). Esses são da empresa — o lugar deles é no <b>Financeiro</b> (despesas). As próximas importações já mandam pra lá sozinhas.
+        </Alert>
+      )}
 
       {/* Salário + resumo */}
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, mb: 2 }}>

@@ -67,6 +67,52 @@ function parcelaInfo(parcela) {
   return { recurring: 0, num: null, total: null };
 }
 
+// Gastos da categoria "Perspectiva" são da empresa: não ficam nas finanças
+// pessoais, vão pro Financeiro (despesas, compartilhado).
+const isPerspectiva = (cat) => /perspec/i.test(String(cat ?? ""));
+
+const insertExpense = db.prepare(
+  `INSERT INTO financial_entries (type, description, amount, client_id, category, status, due_date, paid_at,
+     payment_link, pix_code, boleto_url, invoice_url, recurring, recurring_day, card, org_id)
+   VALUES ('expense', @description, @amount, NULL, @category, @status, @due_date, @paid_at,
+     NULL, NULL, NULL, NULL, @recurring, @recurring_day, @card, @org_id)`
+);
+const expenseExistsInMonth = db.prepare(
+  "SELECT 1 FROM financial_entries WHERE org_id=? AND type='expense' AND description=? AND strftime('%Y-%m', due_date)=? LIMIT 1"
+);
+
+// Joga uma conta da Perspectiva no Financeiro como despesa. Se for fixa/parcelada
+// gera os próximos meses (fixa: 36; parcelada: o que falta), sem duplicar.
+function pushExpenseSeries(org, row, ym, day = 10) {
+  const pi = parcelaInfo(row.parcela);
+  let months = 1;
+  if (pi.recurring) {
+    months = pi.total != null ? Math.max(1, pi.total - (Number(pi.num) || 0) + 1) : 36;
+  }
+  const recurring = months > 1 ? 1 : 0;
+  const desc = row.name;
+  let created = 0;
+  let [y, m] = ym.split("-").map(Number); // m: 1..12
+  for (let i = 0; i < months; i++) {
+    const mm = String(m).padStart(2, "0");
+    const monthKey = `${y}-${mm}`;
+    if (!expenseExistsInMonth.get(org, desc, monthKey)) {
+      const last = new Date(y, m, 0).getDate();
+      const d = String(Math.min(day, last)).padStart(2, "0");
+      const paid = i === 0 && row.paid ? 1 : 0;
+      insertExpense.run({
+        description: desc, amount: Number(row.amount) || 0, category: "Perspectiva",
+        status: paid ? "paid" : "pending", due_date: `${y}-${mm}-${d}`,
+        paid_at: paid ? new Date().toISOString() : null,
+        recurring, recurring_day: recurring ? day : null, card: row.method ?? null, org_id: org,
+      });
+      created++;
+    }
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  return created;
+}
+
 const ymNext = (ym) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const ymPrev = (ym) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const monthHasRows = (org, user, ym) => !!db.prepare("SELECT 1 FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? LIMIT 1").get(org, user, ym);
@@ -75,6 +121,7 @@ const monthHasRows = (org, user, ym) => !!db.prepare("SELECT 1 FROM personal_fin
 // se a conta acabou (parcela final) ou não se repete.
 function rollForward(row, ym, i) {
   if (!row.recurring) return null;
+  if (isPerspectiva(row.category)) return null; // Perspectiva vive no Financeiro, não aqui
   let parcela = row.parcela, num = row.installment_num, total = row.installment_total;
   if (total != null) {
     const next = (Number(num) || 0) + 1;
@@ -140,7 +187,7 @@ router.post("/import", (req, res) => {
   const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
   const replace = req.body?.replace === true;
   const label = (req.body?.label || "").toString().slice(0, 120) || "Importação CSV";
-  let n = 0, importId = null;
+  let n = 0, toFinanceiro = 0, importId = null;
   const tx = db.transaction(() => {
     if (replace) db.prepare("DELETE FROM personal_finance WHERE org_id=? AND user_id=? AND ym=?").run(req.orgId, uid(req), ym);
     const imp = db.prepare(
@@ -149,6 +196,13 @@ router.post("/import", (req, res) => {
     importId = imp.lastInsertRowid;
     entries.forEach((e, i) => {
       if (!e?.name?.toString().trim()) return;
+      // Perspectiva = empresa → vai pro Financeiro, não pras finanças pessoais.
+      if (isPerspectiva(e.category)) {
+        toFinanceiro += pushExpenseSeries(req.orgId, {
+          name: String(e.name).trim(), amount: e.amount, method: e.method, parcela: e.parcela, paid: e.paid,
+        }, ym);
+        return;
+      }
       const pi = parcelaInfo(e.parcela);
       insert.run({
         org_id: req.orgId, user_id: uid(req), ym, name: String(e.name).trim(),
@@ -162,7 +216,28 @@ router.post("/import", (req, res) => {
     db.prepare("UPDATE personal_finance_imports SET count=? WHERE id=?").run(n, importId);
   });
   tx();
-  res.json({ imported: n, ym, importId });
+  res.json({ imported: n, toFinanceiro, ym, importId });
+});
+
+// POST /api/personal-finance/move-to-financeiro { ym } — move os gastos que já
+// estão nas finanças pessoais e são da categoria Perspectiva pro Financeiro
+// (despesas). Remove eles daqui. Se ym vier vazio, faz de todos os meses.
+router.post("/move-to-financeiro", (req, res) => {
+  const ym = (req.body?.ym || "").slice(0, 7);
+  let moved = 0, expenses = 0;
+  const tx = db.transaction(() => {
+    const rows = ym
+      ? db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND user_id=? AND ym=?").all(req.orgId, uid(req), ym)
+      : db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND user_id=?").all(req.orgId, uid(req));
+    for (const r of rows) {
+      if (!isPerspectiva(r.category)) continue;
+      expenses += pushExpenseSeries(req.orgId, r, r.ym);
+      db.prepare("DELETE FROM personal_finance WHERE id=? AND user_id=?").run(r.id, uid(req));
+      moved++;
+    }
+  });
+  tx();
+  res.json({ moved, expenses });
 });
 
 // GET /api/personal-finance/imports?ym= — registro das importações do mês.
