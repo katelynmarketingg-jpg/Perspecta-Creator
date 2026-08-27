@@ -184,10 +184,8 @@ export default function Services() {
                 </Box>
               </Alert>
 
-              {/* Folha do contrato com o logo móvel no topo */}
+              {/* Barra em cima; o logo (móvel) fica dentro da folha, acima do texto */}
               <Card variant="outlined" sx={{ overflow: "hidden", mb: 2 }}>
-                <LogoBanner geom={draft.contract_style || {}}
-                  onGeom={(g) => setDraft((d) => ({ ...d, contract_style: g }))} />
                 <Box sx={{ p: 2 }}>
                   <RichEditor
                     docKey={draft.id || "novo"}
@@ -195,6 +193,12 @@ export default function Services() {
                     onChange={(html) => setDraft((d) => ({ ...d, contract_template: html }))}
                     minHeight={360}
                     placeholder="Escreva aqui o contrato deste serviço (com os marcadores acima)…"
+                    header={
+                      <Box sx={{ mb: 1, border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden" }}>
+                        <LogoBanner geom={draft.contract_style || {}}
+                          onGeom={(g) => setDraft((d) => ({ ...d, contract_style: g }))} />
+                      </Box>
+                    }
                   />
                 </Box>
               </Card>
