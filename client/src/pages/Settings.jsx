@@ -12,11 +12,6 @@ import { PageHeader } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { currency } from "../utils.js";
 
-const EMPTY_SERVICE = { name: "", default_price: "", contract_template: "", items_schema: [] };
-
-const PLACEHOLDERS =
-  "{{cliente}} {{empresa}} {{segmento}} {{endereco}} {{servico}} {{valor}} {{valor_total}} {{itens}} {{inicio}} {{fim}} {{duracao_meses}} {{dia_pagamento}}";
-
 // Lê um arquivo de imagem como data URI (para guardar a marca no banco).
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -42,8 +37,6 @@ export default function Settings() {
   const [novoTipo, setNovoTipo] = useState("");
   const [name, setName] = useState("");
   const [isDone, setIsDone] = useState(false);
-  const [services, setServices] = useState([]);
-  const [svc, setSvc] = useState(null); // draft do serviço em edição
   const [pwd, setPwd] = useState({ atual: "", nova: "" });
   const [pwdMsg, setPwdMsg] = useState(null);
   // Central de acessos dos clientes ao portal (nome de acesso + senha).
@@ -63,7 +56,6 @@ export default function Settings() {
   }
 
   const load = () => api.get("/tasks/stages").then((r) => setStages(r.data));
-  const loadServices = () => api.get("/services").then((r) => setServices(r.data));
   const loadBranding = () => api.get("/branding").then((r) => {
     setBranding({ logo: r.data?.logo || null, favicon: r.data?.favicon || null });
     setApprovalMode(r.data?.approval_mode || "notify");
@@ -83,7 +75,7 @@ export default function Settings() {
   const loadTypes = () => api.get("/task-types").then((r) => setTypes(r.data)).catch(() => {});
   const loadClientLogins = () => api.get("/clients").then((r) => setClientLogins(r.data)).catch(() => {});
   useEffect(() => {
-    load(); loadServices(); loadBranding(); loadTeam(); loadTypes();
+    load(); loadBranding(); loadTeam(); loadTypes();
     if (isAdmin) loadClientLogins();
   }, [isAdmin]);
 
@@ -165,42 +157,6 @@ export default function Settings() {
     setTimeout(() => setBrandMsg(null), 6000);
   }
 
-  async function saveService() {
-    const payload = {
-      ...svc,
-      default_price: Number(svc.default_price) || 0,
-      items_schema: (svc.items_schema || []).filter((i) => i.label?.trim()),
-    };
-    if (svc.id) await api.put(`/services/${svc.id}`, payload);
-    else await api.post("/services", payload);
-    setSvc(null);
-    loadServices();
-  }
-
-  // Itens do serviço (posts, reels, verba...) que viram campos de quantidade.
-  const setItem = (idx, campo, valor) =>
-    setSvc((s) => ({
-      ...s,
-      items_schema: s.items_schema.map((it, i) => (i === idx ? { ...it, [campo]: valor } : it)),
-    }));
-  const addItem = () => setSvc((s) => ({ ...s, items_schema: [...(s.items_schema || []), { label: "", unit: "" }] }));
-  const removeItem = (idx) =>
-    setSvc((s) => ({ ...s, items_schema: s.items_schema.filter((_, i) => i !== idx) }));
-
-  function editarServico(s) {
-    setSvc({
-      ...s,
-      default_price: String(s.default_price),
-      contract_template: s.contract_template || "",
-      items_schema: s.items_schema ? JSON.parse(s.items_schema) : [],
-    });
-  }
-
-  async function removeService(id) {
-    if (!confirm("Excluir serviço? Ele some das opções de cadastro de clientes.")) return;
-    await api.delete(`/services/${id}`);
-    loadServices();
-  }
 
   async function addStage() {
     if (!name.trim()) return;
@@ -334,43 +290,6 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 0.5 }}>Serviços prestados</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Cadastre os serviços com valor padrão e o modelo de contrato de cada um.
-              No cadastro do cliente é só selecionar — o valor preenche sozinho.
-            </Typography>
-            <List dense>
-              {services.map((s) => (
-                <ListItem key={s.id} disableGutters
-                  secondaryAction={
-                    <Box>
-                      <IconButton size="small" onClick={() => editarServico(s)}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton size="small" color="error" onClick={() => removeService(s.id)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  }>
-                  <ListItemText primary={s.name} secondary={currency(s.default_price)} />
-                  {s.contract_template ? <Chip size="small" variant="outlined" label="Contrato modelo" sx={{ mr: 8 }} /> : null}
-                </ListItem>
-              ))}
-              {services.length === 0 && (
-                <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                  Nenhum serviço cadastrado ainda.
-                </Typography>
-              )}
-            </List>
-            <Divider sx={{ my: 1.5 }} />
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setSvc({ ...EMPTY_SERVICE })}>
-              Novo serviço
-            </Button>
-          </CardContent>
-        </Card>
-
         {isAdmin && (
           <Card>
             <CardContent>
@@ -487,56 +406,6 @@ export default function Settings() {
           </CardContent>
         </Card>
       </Stack>
-
-      {/* Criar / editar serviço */}
-      <Dialog open={Boolean(svc)} onClose={() => setSvc(null)} fullWidth maxWidth="sm">
-        <DialogTitle>{svc?.id ? "Editar serviço" : "Novo serviço"}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField label="Nome do serviço *" value={svc?.name || ""} fullWidth
-                placeholder="Ex: Gestão de Redes Sociais, Tráfego Pago..."
-                onChange={(e) => setSvc((s) => ({ ...s, name: e.target.value }))} />
-              <TextField label="Valor padrão (R$/mês)" type="number" value={svc?.default_price || ""} sx={{ minWidth: 180 }}
-                onChange={(e) => setSvc((s) => ({ ...s, default_price: e.target.value }))} />
-            </Stack>
-            <Divider>Itens que você configura por cliente</Divider>
-            <Typography variant="body2" color="text.secondary">
-              Ex.: em Gestão, "Posts no feed", "Reels", "Stories"; em Tráfego, "Verba mensal",
-              "Campanhas". Na hora de fechar o contrato você só preenche a quantidade de cada um,
-              e eles saem discriminados no contrato.
-            </Typography>
-            {(svc?.items_schema || []).map((it, idx) => (
-              <Stack key={idx} direction="row" spacing={1} alignItems="center">
-                <TextField size="small" label="Item" value={it.label} fullWidth
-                  placeholder="Ex: Posts no feed"
-                  onChange={(e) => setItem(idx, "label", e.target.value)} />
-                <TextField size="small" label="Unidade" value={it.unit} sx={{ width: 160 }}
-                  placeholder="por mês"
-                  onChange={(e) => setItem(idx, "unit", e.target.value)} />
-                <IconButton size="small" color="error" onClick={() => removeItem(idx)}>
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </Stack>
-            ))}
-            <Box>
-              <Button size="small" startIcon={<AddIcon />} onClick={addItem}>Adicionar item</Button>
-            </Box>
-
-            <TextField
-              label="Modelo de contrato" multiline rows={10} fullWidth
-              value={svc?.contract_template || ""}
-              onChange={(e) => setSvc((s) => ({ ...s, contract_template: e.target.value }))}
-              placeholder={"Deixe vazio para usar o modelo padrão.\n\nUse {{itens}} onde quiser a lista discriminada."}
-              helperText={`Campos automáticos: ${PLACEHOLDERS}`}
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSvc(null)}>Cancelar</Button>
-          <Button variant="contained" onClick={saveService} disabled={!svc?.name}>Salvar</Button>
-        </DialogActions>
-      </Dialog>
 
       <Dialog open={Boolean(loginDraft)} onClose={() => setLoginDraft(null)} fullWidth maxWidth="xs">
         <DialogTitle>Acesso ao portal — {loginDraft?.name}</DialogTitle>
