@@ -16,7 +16,9 @@ const SIZES = [["2", "Pequeno"], ["3", "Normal"], ["4", "Médio"], ["5", "Grande
 // Editor de texto rico reutilizável (contentEditable + execCommand).
 // value = HTML; onChange(html) a cada digitação. `docKey` reinicia o conteúdo
 // quando muda (ex.: trocou de serviço).
-export default function RichEditor({ value = "", onChange, docKey, minHeight = 260, placeholder = "Escreva aqui…" }) {
+// `header` é um bloco opcional renderizado ENTRE a barra e o texto (ex.: o logo
+// dentro da folha). A barra fica no topo (sticky).
+export default function RichEditor({ value = "", onChange, docKey, minHeight = 260, placeholder = "Escreva aqui…", header = null }) {
   const ref = useRef(null);
 
   // (Re)inicia o conteúdo quando o documento muda.
@@ -37,7 +39,7 @@ export default function RichEditor({ value = "", onChange, docKey, minHeight = 2
   return (
     <Box>
       <Stack direction="row" spacing={0.5} alignItems="center"
-        sx={{ flexWrap: "wrap", gap: 0.5, p: 0.75, border: 1, borderColor: "divider", borderRadius: 2, mb: 1 }}>
+        sx={{ flexWrap: "wrap", gap: 0.5, p: 0.75, border: 1, borderColor: "divider", borderRadius: 2, mb: 1, position: "sticky", top: 8, bgcolor: "background.paper", zIndex: 2 }}>
         <Select size="small" defaultValue="Arial" onChange={(e) => cmd("fontName", e.target.value)} sx={{ minWidth: 120 }}>
           {FONTS.map((f) => <MenuItem key={f} value={f} sx={{ fontFamily: f }}>{f}</MenuItem>)}
         </Select>
@@ -56,6 +58,7 @@ export default function RichEditor({ value = "", onChange, docKey, minHeight = 2
         <Tooltip title="Lista"><IconButton size="small" onClick={() => cmd("insertUnorderedList")}><FormatListBulletedIcon fontSize="small" /></IconButton></Tooltip>
         <Tooltip title="Lista numerada"><IconButton size="small" onClick={() => cmd("insertOrderedList")}><FormatListNumberedIcon fontSize="small" /></IconButton></Tooltip>
       </Stack>
+      {header}
       <Box
         ref={ref}
         contentEditable
