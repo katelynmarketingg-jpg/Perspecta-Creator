@@ -171,6 +171,30 @@ CREATE TABLE IF NOT EXISTS priorities (
   done_at     TEXT
 );
 
+-- Finanças PESSOAIS (privadas por usuário): cada pessoa só vê as suas. Espelha
+-- a planilha de gastos: nome, parcela, valor, método, categoria, pago, por mês.
+CREATE TABLE IF NOT EXISTS personal_finance (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  ym          TEXT NOT NULL,                 -- 'AAAA-MM'
+  name        TEXT NOT NULL,
+  parcela     TEXT,                          -- '3/5', 'fixa', 'variáveis'
+  amount      REAL NOT NULL DEFAULT 0,
+  method      TEXT,                          -- Pix, Nubank PF, Nubank PJ, Sicoob...
+  category    TEXT,                          -- Casa, Roupas, Gastos extras...
+  paid        INTEGER NOT NULL DEFAULT 0,
+  position    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- Config pessoal (salário para calcular o quanto está comprometido).
+CREATE TABLE IF NOT EXISTS personal_finance_config (
+  org_id   INTEGER NOT NULL,
+  user_id  INTEGER NOT NULL,
+  salary   REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, user_id)
+);
+
 -- Documento de planejamento por cliente e mês (texto rico HTML, escrito no app).
 CREATE TABLE IF NOT EXISTS planning_docs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
