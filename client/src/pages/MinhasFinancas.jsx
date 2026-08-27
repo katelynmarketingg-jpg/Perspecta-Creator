@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, Button, IconButton, Chip, TextField,
   MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Checkbox, Collapse, Tooltip, Alert,
+  Autocomplete,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -11,6 +12,8 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
+import HistoryIcon from "@mui/icons-material/History";
+import RepeatIcon from "@mui/icons-material/Repeat";
 import LockIcon from "@mui/icons-material/Lock";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
 import { useTheme } from "@mui/material/styles";
@@ -64,6 +67,8 @@ export default function MinhasFinancas() {
   const [draft, setDraft] = useState(null);
   const [salaryDraft, setSalaryDraft] = useState("");
   const [msg, setMsg] = useState("");
+  const [imports, setImports] = useState([]);
+  const [importsOpen, setImportsOpen] = useState(false);
   const csvInput = useRef(null);
 
   const ym = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
@@ -84,6 +89,20 @@ export default function MinhasFinancas() {
     return Object.entries(map).map(([nome, g]) => ({ nome, ...g, allPaid: g.items.length > 0 && g.pagos === g.items.length }))
       .sort((a, b) => b.total - a.total);
   }, [data]);
+
+  // Listas de métodos e categorias já usados — pra sugerir no formulário e deixar
+  // criar um novo só digitando.
+  const metodos = useMemo(() => [...new Set((data?.entries || []).map((e) => e.method).filter(Boolean))].sort(), [data]);
+  const categorias = useMemo(() => [...new Set((data?.entries || []).map((e) => e.category).filter(Boolean))].sort(), [data]);
+
+  async function renomearGrupo(g) {
+    const to = prompt(`Renomear o banco / meio de pagamento "${g.nome}" para:`, g.method || g.nome);
+    if (to == null) return;
+    const novo = to.trim();
+    if (!novo || novo === (g.method || "")) return;
+    await api.put("/personal-finance/rename-method", { ym, from: g.method || "", to: novo });
+    load();
+  }
 
   async function salvarSalario() {
     await api.put("/personal-finance/config", { salary: Number(salaryDraft) || 0 });
@@ -108,10 +127,20 @@ export default function MinhasFinancas() {
     const entries = parseCSV(text);
     if (!entries.length) { setMsg("Não encontrei linhas no CSV. Confira se tem cabeçalho (Nome, Valor…)."); setTimeout(() => setMsg(""), 6000); return; }
     const replace = data?.entries?.length ? confirm(`Já há ${data.entries.length} gasto(s) em ${MESES[cursor.getMonth()]}. Substituir por ${entries.length} do CSV? (Cancelar = adicionar)`) : false;
-    const r = await api.post("/personal-finance/import", { ym, entries, replace });
-    setMsg(`Importados ${r.data.imported} gastos de ${MESES[cursor.getMonth()]}. ✅`);
-    setTimeout(() => setMsg(""), 6000);
+    const r = await api.post("/personal-finance/import", { ym, entries, replace, label: file.name });
+    setMsg(`Importados ${r.data.imported} gastos de ${MESES[cursor.getMonth()]}. As contas fixas e parceladas vão seguir sozinhas nos próximos meses. ✅`);
+    setTimeout(() => setMsg(""), 8000);
     load();
+  }
+  async function abrirImportacoes() {
+    const r = await api.get("/personal-finance/imports", { params: { ym } });
+    setImports(r.data); setImportsOpen(true);
+  }
+  async function excluirImportacao(imp) {
+    if (!confirm(`Apagar a importação "${imp.label}" (${imp.count} gasto(s) de ${MESES[cursor.getMonth()]})? Isso remove só os gastos que ela trouxe.`)) return;
+    await api.delete(`/personal-finance/imports/${imp.id}`);
+    const r = await api.get("/personal-finance/imports", { params: { ym } });
+    setImports(r.data); load();
   }
 
   const s = data?.summary;
@@ -128,6 +157,9 @@ export default function MinhasFinancas() {
             <IconButton onClick={() => shift(1)}><ChevronRightIcon /></IconButton>
             <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => csvInput.current?.click()}>Importar CSV</Button>
             <input ref={csvInput} type="file" accept=".csv,text/csv" hidden onChange={(e) => importarCSV(e.target.files?.[0])} />
+            <Tooltip title="Ver e desfazer importações deste mês">
+              <Button variant="text" startIcon={<HistoryIcon />} onClick={abrirImportacoes}>Importações</Button>
+            </Tooltip>
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDraft({ ...VAZIO })}>Novo gasto</Button>
           </Stack>
         } />
@@ -207,6 +239,9 @@ export default function MinhasFinancas() {
                   <Typography sx={{ fontWeight: 700 }}>{g.nome}</Typography>
                   <Typography variant="caption" color="text.secondary">{g.items.length} item(ns) · {g.pagos}/{g.items.length} pagos</Typography>
                 </Box>
+                <Tooltip title="Renomear este banco / meio de pagamento">
+                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); renomearGrupo(g); }}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
+                </Tooltip>
                 <Typography sx={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", mr: 0.5 }}>{currency(g.total)}</Typography>
                 {expanded[g.nome] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               </Box>
@@ -221,10 +256,15 @@ export default function MinhasFinancas() {
                         <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
                           {e.parcela && <Chip size="small" variant="outlined" label={e.parcela} sx={{ height: 18 }} />}
                           {e.category && <Chip size="small" variant="outlined" label={e.category} sx={{ height: 18 }} />}
+                          {e.recurring ? (
+                            <Tooltip title={e.installment_total ? `Parcelado — segue até ${e.installment_total}/${e.installment_total}` : "Fixa — repete todo mês"}>
+                              <Chip size="small" icon={<RepeatIcon sx={{ fontSize: 12 }} />} label={e.installment_total ? "parcelado" : "todo mês"} sx={{ height: 18, ".MuiChip-label": { pl: 0.5 } }} color="default" variant="outlined" />
+                            </Tooltip>
+                          ) : null}
                         </Stack>
                       </Box>
                       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{currency(e.amount)}</Typography>
-                      <Box className="acts" sx={{ opacity: { xs: 1, md: 0 }, transition: "opacity .15s" }}>
+                      <Box className="acts" sx={{ opacity: { xs: 1, md: 0.55 }, transition: "opacity .15s" }}>
                         <IconButton size="small" onClick={() => setDraft({ ...e, paid: !!e.paid })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
                         <IconButton size="small" color="error" onClick={() => excluir(e.id)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
                       </Box>
@@ -245,11 +285,18 @@ export default function MinhasFinancas() {
             <Stack spacing={2} sx={{ mt: 1 }}>
               <TextField label="Nome *" value={draft.name} autoFocus fullWidth onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
               <Stack direction="row" spacing={2}>
-                <TextField label="Parcela" value={draft.parcela} sx={{ width: 120 }} placeholder="3/5, fixa…" onChange={(e) => setDraft((d) => ({ ...d, parcela: e.target.value }))} />
+                <TextField label="Parcela" value={draft.parcela} sx={{ width: 130 }} placeholder="3/5, fixa…" onChange={(e) => setDraft((d) => ({ ...d, parcela: e.target.value }))} />
                 <TextField label="Valor (R$)" type="number" value={draft.amount} fullWidth onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} />
               </Stack>
-              <TextField label="Meio de pagamento" value={draft.method} fullWidth placeholder="Nubank PF, Sicoob, Pix…" onChange={(e) => setDraft((d) => ({ ...d, method: e.target.value }))} />
-              <TextField label="Categoria" value={draft.category} fullWidth placeholder="Casa, Roupas, Gastos extras…" onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))} />
+              <Alert severity="info" icon={<RepeatIcon fontSize="inherit" />} sx={{ py: 0.25 }}>
+                Escreva <b>fixa</b> pra repetir todo mês, ou <b>8/10</b> pra parcelado — ele avança sozinho (9/10, 10/10) e some quando acabar. Deixe em branco pra ser só deste mês.
+              </Alert>
+              <Autocomplete freeSolo options={metodos} value={draft.method || ""}
+                onInputChange={(_, v) => setDraft((d) => ({ ...d, method: v }))}
+                renderInput={(p) => <TextField {...p} label="Meio de pagamento (banco)" placeholder="Nubank PF, Sicoob, Pix… ou digite um novo" helperText="Escolha um que já usa ou digite um novo banco" />} />
+              <Autocomplete freeSolo options={categorias} value={draft.category || ""}
+                onInputChange={(_, v) => setDraft((d) => ({ ...d, category: v }))}
+                renderInput={(p) => <TextField {...p} label="Categoria" placeholder="Casa, Roupas… ou digite uma nova" helperText="Escolha uma que já usa ou digite uma nova" />} />
               <Stack direction="row" alignItems="center">
                 <Checkbox checked={!!draft.paid} onChange={(e) => setDraft((d) => ({ ...d, paid: e.target.checked }))} />
                 <Typography variant="body2">Já pago</Typography>
@@ -260,6 +307,33 @@ export default function MinhasFinancas() {
         <DialogActions>
           <Button onClick={() => setDraft(null)}>Cancelar</Button>
           <Button variant="contained" onClick={salvarEntry} disabled={!draft?.name?.trim()}>Salvar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Registro de importações — pra desfazer uma que entrou errada */}
+      <Dialog open={importsOpen} onClose={() => setImportsOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Importações de {MESES[cursor.getMonth()]}</DialogTitle>
+        <DialogContent>
+          {imports.length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 2 }}>Nenhuma importação neste mês. As contas que aparecem vieram de meses anteriores (repetição automática) ou foram adicionadas à mão.</Typography>
+          ) : (
+            <Stack spacing={1} sx={{ mt: 1 }}>
+              {imports.map((imp) => (
+                <Stack key={imp.id} direction="row" alignItems="center" spacing={1} sx={{ p: 1, border: 1, borderColor: "divider", borderRadius: 1 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{imp.label}</Typography>
+                    <Typography variant="caption" color="text.secondary">{imp.count} gasto(s) · {new Date(imp.created_at + "Z").toLocaleString("pt-BR")}</Typography>
+                  </Box>
+                  <Tooltip title="Apagar esta importação (remove só os gastos que ela trouxe)">
+                    <IconButton size="small" color="error" onClick={() => excluirImportacao(imp)}><DeleteIcon sx={{ fontSize: 18 }} /></IconButton>
+                  </Tooltip>
+                </Stack>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportsOpen(false)}>Fechar</Button>
         </DialogActions>
       </Dialog>
     </>
