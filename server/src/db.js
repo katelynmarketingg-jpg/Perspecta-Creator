@@ -194,6 +194,16 @@ CREATE TABLE IF NOT EXISTS personal_finance_config (
   salary   REAL NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, user_id)
 );
+-- Registro de cada importação de CSV (para poder apagar uma que entrou errada).
+CREATE TABLE IF NOT EXISTS personal_finance_imports (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  ym          TEXT NOT NULL,                 -- mês em que foi importado
+  label       TEXT,                          -- nome do arquivo / descrição
+  count       INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Documento de planejamento por cliente e mês (texto rico HTML, escrito no app).
 CREATE TABLE IF NOT EXISTS planning_docs (
@@ -345,6 +355,12 @@ ensureColumn("tasks", "ref_month", "ref_month TEXT");
 ensureColumn("notifications", "user_id", "user_id INTEGER");
 // Cartão/conta vinculada a um lançamento financeiro (ex.: qual cartão paga).
 ensureColumn("financial_entries", "card", "card TEXT");
+
+// Finanças pessoais: recorrência mês a mês.
+ensureColumn("personal_finance", "recurring", "recurring INTEGER NOT NULL DEFAULT 0"); // repete nos próximos meses
+ensureColumn("personal_finance", "installment_num", "installment_num INTEGER");        // parcela atual (8 de 8/10)
+ensureColumn("personal_finance", "installment_total", "installment_total INTEGER");    // total de parcelas (10 de 8/10)
+ensureColumn("personal_finance", "import_id", "import_id INTEGER");                     // qual importação criou a linha
 // Parcelas de um serviço do cliente: 1 = à vista/mensal; N = parcelado em N vezes
 // (ex.: LP de R$1.000 em 4x de R$250). billing: 'mensal' (recorrente) | 'avulso'.
 ensureColumn("client_services", "installments", "installments INTEGER NOT NULL DEFAULT 1");
