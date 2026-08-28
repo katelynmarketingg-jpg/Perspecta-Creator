@@ -24,6 +24,27 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 import PlanningRefDialog from "../components/PlanningRefDialog.jsx";
 
+// Cache de mídias por sessão: cada arquivo é baixado UMA vez e reaproveitado
+// entre telas, filtros e re-renderizações. Antes cada componente rebaixava o
+// blob e o revogava ao desmontar — trocar de visão/rolar recarregava tudo, o
+// que deixava a Distribuição lenta. Aqui a URL do objeto vive enquanto a página
+// estiver aberta (o cache é o dono; ninguém revoga).
+const _mediaCache = new Map();    // fileId -> { url, type }
+const _mediaInflight = new Map(); // fileId -> Promise<{url,type}>
+function loadMedia(fileId) {
+  if (!fileId) return Promise.resolve(null);
+  if (_mediaCache.has(fileId)) return Promise.resolve(_mediaCache.get(fileId));
+  if (_mediaInflight.has(fileId)) return _mediaInflight.get(fileId);
+  const p = api.get(`/files/${fileId}/download`, { responseType: "blob" })
+    .then((r) => {
+      const v = { url: URL.createObjectURL(r.data), type: r.data.type || "" };
+      _mediaCache.set(fileId, v); _mediaInflight.delete(fileId); return v;
+    })
+    .catch((e) => { _mediaInflight.delete(fileId); throw e; });
+  _mediaInflight.set(fileId, p);
+  return p;
+}
+
 // Mês de referência da peça (para abrir o planejamento certo): usa a data
 // programada; se não tiver, o mês atual.
 const ymOf = (scheduled) => {
@@ -75,11 +96,11 @@ function Media({ fileId, height = 200 }) {
   useEffect(() => {
     setSrc(null); setErro(false);
     if (!fileId) return;
-    let url;
-    api.get(`/files/${fileId}/download`, { responseType: "blob" })
-      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setVideo((r.data.type || "").startsWith("video")); })
-      .catch(() => setErro(true));
-    return () => url && URL.revokeObjectURL(url);
+    let alive = true;
+    loadMedia(fileId)
+      .then((m) => { if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); } })
+      .catch(() => { if (alive) setErro(true); });
+    return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId]);
   const sx = { width: "100%", height, objectFit: "cover", borderRadius: 2, bgcolor: "action.hover", display: "block" };
   if (!fileId) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "text.secondary", fontSize: height <= 90 ? 9 : 13, lineHeight: 1.1, p: 0.25 }}>Sem mídia</Box>;
@@ -496,15 +517,15 @@ function MonthGrid({ items, onSelect }) {
   );
 }
 
-// Miniatura quadrada da grade (carrega via fetchFile → blob).
-function FeedThumb({ fileId, fetchFile }) {
+// Miniatura da grade — usa o cache de mídia (baixa uma vez por sessão).
+function FeedThumb({ fileId }) {
   const [src, setSrc] = useState(null);
   useEffect(() => {
     if (!fileId) { setSrc(null); return; }
-    let url, alive = true;
-    fetchFile(fileId).then((b) => { if (alive) { url = URL.createObjectURL(b); setSrc(url); } }).catch(() => {});
-    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
-  }, [fileId, fetchFile]);
+    let alive = true;
+    loadMedia(fileId).then((m) => { if (alive && m) setSrc(m.url); }).catch(() => {});
+    return () => { alive = false; };  // não revoga: o cache é dono da URL
+  }, [fileId]);
   if (!src) return <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", color: "text.disabled", fontSize: 10 }}>sem arte</Box>;
   return <Box component="img" src={src} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />;
 }
