@@ -555,7 +555,7 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
               onDrop={() => solta(i)}
               onClick={() => onSelect(p)}
               sx={{
-                position: "relative", aspectRatio: "1", cursor: "pointer", bgcolor: "action.hover", overflow: "hidden",
+                position: "relative", aspectRatio: "1080 / 1440", cursor: "pointer", bgcolor: "action.hover", overflow: "hidden",
                 outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
               }}>
               <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile} />
