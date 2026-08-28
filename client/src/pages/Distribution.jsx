@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button, Stack,
   Chip, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
-  ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox, Tooltip,
+  ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox, Tooltip, Slider,
 } from "@mui/material";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
@@ -187,14 +187,28 @@ function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash }
   const [src, setSrc] = useState(null);
   const [isVideo, setIsVideo] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [dur, setDur] = useState(0);
+  const [cur, setCur] = useState(0);
   useEffect(() => {
-    if (!open || !fileId) return;
-    let url;
-    api.get(`/files/${fileId}/download`, { responseType: "blob" })
-      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setIsVideo((r.data.type || "").startsWith("video")); })
+    if (!open || !fileId) { setSrc(null); setDur(0); setCur(0); return; }
+    let alive = true;
+    loadMedia(fileId)
+      .then((m) => { if (alive && m) { setSrc(m.url); setIsVideo((m.type || "").startsWith("video")); } })
       .catch(() => {});
-    return () => url && URL.revokeObjectURL(url);
+    return () => { alive = false; };
   }, [open, fileId]);
+
+  const fmt = (s) => {
+    if (!Number.isFinite(s)) return "0:00";
+    const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+    return `${m}:${String(ss).padStart(2, "0")}`;
+  };
+  // Arrasta a barra → move o vídeo pro instante escolhido (mostra o frame ao vivo).
+  const seek = (t) => {
+    setCur(t);
+    const v = videoRef.current;
+    if (v) { try { v.pause(); v.currentTime = t; } catch { /* ignore */ } }
+  };
 
   async function capturar() {
     const v = videoRef.current;
@@ -219,27 +233,43 @@ function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash }
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Capturar capa do vídeo</DialogTitle>
+      <DialogTitle>Escolher a capa do vídeo</DialogTitle>
       <DialogContent>
         {!src ? (
           <Box sx={{ display: "grid", placeItems: "center", py: 4 }}><CircularProgress /></Box>
         ) : !isVideo ? (
           <Typography color="text.secondary" sx={{ py: 2 }}>
-            O anexo atual é uma foto. Anexe um vídeo para capturar um quadro.
+            O anexo atual é uma foto. Anexe um vídeo para escolher um quadro.
           </Typography>
         ) : (
           <Stack spacing={1}>
-            <Box component="video" ref={videoRef} src={src} controls
+            <Box component="video" ref={videoRef} src={src} playsInline
+              onLoadedMetadata={(e) => setDur(e.currentTarget.duration || 0)}
+              onTimeUpdate={(e) => setCur(e.currentTarget.currentTime || 0)}
               sx={{ width: "100%", maxHeight: 420, bgcolor: "#000", borderRadius: 2 }} />
             <Typography variant="caption" color="text.secondary">
-              Pause no segundo que você quer e clique em "Usar este quadro".
+              Arraste a barra até o momento do vídeo que você quer como capa — o quadro aparece acima.
             </Typography>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", minWidth: 34 }}>{fmt(cur)}</Typography>
+              <Slider size="small" min={0} max={dur || 0} step={0.05} value={Math.min(cur, dur || 0)}
+                onChange={(_, v) => seek(Array.isArray(v) ? v[0] : v)} sx={{ flex: 1 }} disabled={!dur} />
+              <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", minWidth: 34 }}>{fmt(dur)}</Typography>
+            </Stack>
+            <Stack direction="row" spacing={1}>
+              <Button size="small" variant="outlined" onClick={() => { const v = videoRef.current; if (v) v.paused ? v.play() : v.pause(); }}>
+                Play / Pause
+              </Button>
+              <Typography variant="caption" color="text.secondary" sx={{ alignSelf: "center" }}>
+                (dá pra dar play pra achar o trecho e depois ajustar na barra)
+              </Typography>
+            </Stack>
           </Stack>
         )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Fechar</Button>
-        {isVideo && <Button variant="contained" onClick={capturar} disabled={busy}>Usar este quadro</Button>}
+        {isVideo && <Button variant="contained" onClick={capturar} disabled={busy}>Usar este quadro como capa</Button>}
       </DialogActions>
     </Dialog>
   );
@@ -411,7 +441,7 @@ function PieceCard({ item, onChanged, flash }) {
                 </Button>
                 {fileId && (
                   <Button variant="text" size="small" onClick={() => setVideoCover(true)} disabled={!item.client_id}>
-                    Capturar do vídeo
+                    Escolher capa do vídeo
                   </Button>
                 )}
               </Stack>
