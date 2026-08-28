@@ -79,7 +79,7 @@ export default function Services() {
         ? `<div style="position:relative;height:${BAND_H}px"><img src="${logo}" style="position:absolute;top:${st.logoY ?? 16}px;${leftCss};width:${st.logoW || 200}px;object-fit:contain" /></div>`
         : "";
       win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${draft.name || "Contrato"}</title>
-        <style>@page{margin:20mm} body{font-family:Georgia,serif;line-height:1.6;color:#111} ul,ol{padding-left:22px}</style>
+        <style>@page{margin:0} body{margin:0;padding:20mm;font-family:Georgia,serif;line-height:1.6;color:#111} ul,ol{padding-left:22px}</style>
         </head><body>${cab}<h2 style="text-align:center">${draft.name || ""}</h2>${draft.contract_template || ""}
         <script>window.onload=function(){window.focus();window.print();}<\/script></body></html>`);
       win.document.close();

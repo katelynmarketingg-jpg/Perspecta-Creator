@@ -546,7 +546,7 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
         Arraste para organizar (encaixa entre um e outro) — a ordem fica salva e as datas não mudam.
         A data só aparece quando você coloca; em vermelho = sem data ou no passado (clique para ajustar).
       </Typography>
-      <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 3, overflow: "hidden" }}>
+      <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
           {order.map((p, i) => (
             <Box key={p.id} draggable
