@@ -755,6 +755,18 @@ export default function Distribution() {
     });
   }, [scheduled, approved, items]);
 
+  // Um perfil é de UM cliente. Sem filtro ("Todas"), agrupa por cliente para
+  // mostrar um grid separado por empresa (em vez de misturar todo mundo num só).
+  const feedGroups = useMemo(() => {
+    const m = new Map();
+    feedPosts.forEach((p) => {
+      const k = p.client_id ?? "sem";
+      if (!m.has(k)) m.set(k, { clientId: k, clientName: p.client_name || "Sem cliente", posts: [] });
+      m.get(k).posts.push(p);
+    });
+    return [...m.values()].sort((a, b) => a.clientName.localeCompare(b.clientName, "pt-BR"));
+  }, [feedPosts]);
+
   return (
     <>
       <PageHeader title="Distribuição" subtitle="Prepare as peças, programe e veja o calendário do que vai ao ar"
@@ -903,10 +915,26 @@ export default function Distribution() {
             selectMode={selectMode} checked={checked} onToggle={toggleCheck} />
         </>
       ) : view === "feed" ? (
-        <Card><CardContent>
-          <ReorderableFeed posts={feedPosts} fetchFile={fetchFile} onSelect={setSelected} onReorder={reorderPosition}
-            titulo={clientFilter ? "Como o perfil vai ficar" : "Prévia do perfil (todos os clientes)"} />
-        </CardContent></Card>
+        clientFilter ? (
+          <Card><CardContent>
+            <ReorderableFeed posts={feedPosts} onSelect={setSelected} onReorder={reorderPosition}
+              titulo="Como o perfil vai ficar" />
+          </CardContent></Card>
+        ) : feedGroups.length === 0 ? (
+          <Card><CardContent><Typography color="text.secondary">Nenhuma peça ainda.</Typography></CardContent></Card>
+        ) : (
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary">
+              Cada empresa tem o seu perfil. Escolha uma empresa acima para focar em uma só.
+            </Typography>
+            {feedGroups.map((g) => (
+              <Card key={g.clientId}><CardContent>
+                <ReorderableFeed posts={g.posts} onSelect={setSelected} onReorder={reorderPosition}
+                  titulo={`Perfil — ${g.clientName}`} />
+              </CardContent></Card>
+            ))}
+          </Stack>
+        )
       ) : (
         <MonthGrid items={scheduled} onSelect={setSelected} />
       )}
