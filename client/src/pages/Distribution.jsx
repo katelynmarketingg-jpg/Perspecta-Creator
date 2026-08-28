@@ -24,6 +24,27 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 import PlanningRefDialog from "../components/PlanningRefDialog.jsx";
 
+// Cache de mídias por sessão: cada arquivo é baixado UMA vez e reaproveitado
+// entre telas, filtros e re-renderizações. Antes cada componente rebaixava o
+// blob e o revogava ao desmontar — trocar de visão/rolar recarregava tudo, o
+// que deixava a Distribuição lenta. Aqui a URL do objeto vive enquanto a página
+// estiver aberta (o cache é o dono; ninguém revoga).
+const _mediaCache = new Map();    // fileId -> { url, type }
+const _mediaInflight = new Map(); // fileId -> Promise<{url,type}>
+function loadMedia(fileId) {
+  if (!fileId) return Promise.resolve(null);
+  if (_mediaCache.has(fileId)) return Promise.resolve(_mediaCache.get(fileId));
+  if (_mediaInflight.has(fileId)) return _mediaInflight.get(fileId);
+  const p = api.get(`/files/${fileId}/download`, { responseType: "blob" })
+    .then((r) => {
+      const v = { url: URL.createObjectURL(r.data), type: r.data.type || "" };
+      _mediaCache.set(fileId, v); _mediaInflight.delete(fileId); return v;
+    })
+    .catch((e) => { _mediaInflight.delete(fileId); throw e; });
+  _mediaInflight.set(fileId, p);
+  return p;
+}
+
 // Mês de referência da peça (para abrir o planejamento certo): usa a data
 // programada; se não tiver, o mês atual.
 const ymOf = (scheduled) => {
@@ -75,11 +96,11 @@ function Media({ fileId, height = 200 }) {
   useEffect(() => {
     setSrc(null); setErro(false);
     if (!fileId) return;
-    let url;
-    api.get(`/files/${fileId}/download`, { responseType: "blob" })
-      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setVideo((r.data.type || "").startsWith("video")); })
-      .catch(() => setErro(true));
-    return () => url && URL.revokeObjectURL(url);
+    let alive = true;
+    loadMedia(fileId)
+      .then((m) => { if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); } })
+      .catch(() => { if (alive) setErro(true); });
+    return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId]);
   const sx = { width: "100%", height, objectFit: "cover", borderRadius: 2, bgcolor: "action.hover", display: "block" };
   if (!fileId) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "text.secondary", fontSize: height <= 90 ? 9 : 13, lineHeight: 1.1, p: 0.25 }}>Sem mídia</Box>;
@@ -238,7 +259,36 @@ function PieceCard({ item, onChanged, flash }) {
   const [coverPicker, setCoverPicker] = useState(false);
   const [videoCover, setVideoCover] = useState(false);
   const [planRef, setPlanRef] = useState(false);
+  const [slides, setSlides] = useState(item.media_ids || []); // carrossel
+  const [slidePicker, setSlidePicker] = useState(false);
+  const [slideUploading, setSlideUploading] = useState(false);
   const ct = CONTENT_TYPES[item.content_type];
+  const isCarousel = item.content_type === "carrossel";
+
+  async function saveSlides(next) {
+    setSlides(next);
+    if (next[0]) { setCoverId(next[0]); setFileId(next[0]); }
+    try { await api.put(`/distribution/${item.id}`, { media_ids: next }); }
+    catch (err) { flash(err.response?.data?.error || "Não foi possível salvar as slides.", "error"); }
+  }
+  const addSlide = (id) => { if (id && !slides.includes(id)) saveSlides([...slides, id]); };
+  const removeSlide = (id) => saveSlides(slides.filter((s) => s !== id));
+  const makeInitial = (id) => saveSlides([id, ...slides.filter((s) => s !== id)]);
+  async function uploadSlide(e) {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    setSlideUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("files", file);
+      if (item.client_id) fd.append("client_id", item.client_id);
+      fd.append("stage", "editados");
+      const { data } = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const newId = data?.[0]?.id;
+      if (newId) saveSlides([...slides, newId]);
+    } catch (err) { flash(err.response?.data?.error || "Falha no upload.", "error"); }
+    setSlideUploading(false);
+  }
 
   async function upload(e) {
     const file = e.target.files?.[0];
@@ -308,28 +358,65 @@ function PieceCard({ item, onChanged, flash }) {
           )}
 
           <Media fileId={fileId} />
-          <Stack direction="row" spacing={1}>
-            <Button component="label" variant="outlined" startIcon={<UploadIcon />} disabled={uploading} size="small" sx={{ flex: 1 }}>
-              {uploading ? "Enviando..." : "Subir"}
-              <input type="file" hidden accept="image/*,video/*" onChange={upload} />
-            </Button>
-            <Button variant="outlined" startIcon={<PhotoLibraryIcon />} size="small" sx={{ flex: 1 }}
-              onClick={() => setPicker(true)} disabled={!item.client_id}>
-              Da galeria
-            </Button>
-          </Stack>
 
-          <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>
-            <Button variant="text" startIcon={<StarIcon />} size="small" onClick={() => setCoverPicker(true)}
-              disabled={!item.client_id}>
-              {coverId ? "Trocar capa" : "Definir capa (foto)"}
-            </Button>
-            {fileId && (
-              <Button variant="text" size="small" onClick={() => setVideoCover(true)} disabled={!item.client_id}>
-                Capturar do vídeo
-              </Button>
-            )}
-          </Stack>
+          {isCarousel ? (
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                Slides do carrossel — a primeira (★ inicial) é a capa que aparece no perfil.
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 0.5 }}>
+                {slides.map((id, i) => (
+                  <Box key={id} sx={{ position: "relative", width: 74, flex: "0 0 auto" }}>
+                    <Box sx={{ borderRadius: 1, overflow: "hidden", border: 2, borderColor: i === 0 ? "primary.main" : "divider" }}>
+                      <Media fileId={id} height={98} />
+                    </Box>
+                    {i === 0
+                      ? <Chip size="small" color="primary" label="★ inicial" sx={{ position: "absolute", top: 3, left: 3, height: 18, fontSize: 9, "& .MuiChip-label": { px: 0.6 } }} />
+                      : <Button size="small" onClick={() => makeInitial(id)} sx={{ position: "absolute", bottom: 3, left: 3, minWidth: 0, px: 0.5, py: 0, fontSize: 9, lineHeight: 1.4, bgcolor: "rgba(0,0,0,0.55)", color: "#fff", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>tornar inicial</Button>}
+                    <IconButton size="small" onClick={() => removeSlide(id)} sx={{ position: "absolute", top: 0, right: 0, p: 0.25, color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "error.main" } }}>
+                      <Typography sx={{ fontSize: 13, lineHeight: 1, fontWeight: 700 }}>×</Typography>
+                    </IconButton>
+                  </Box>
+                ))}
+                {!slides.length && <Typography variant="caption" color="text.disabled" sx={{ py: 2 }}>Nenhuma slide ainda — adicione abaixo.</Typography>}
+              </Stack>
+              <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                <Button component="label" variant="outlined" startIcon={<UploadIcon />} disabled={slideUploading} size="small" sx={{ flex: 1 }}>
+                  {slideUploading ? "Enviando..." : "+ Slide"}
+                  <input type="file" hidden accept="image/*,video/*" onChange={uploadSlide} />
+                </Button>
+                <Button variant="outlined" startIcon={<PhotoLibraryIcon />} size="small" sx={{ flex: 1 }}
+                  onClick={() => setSlidePicker(true)} disabled={!item.client_id}>
+                  + Da galeria
+                </Button>
+              </Stack>
+            </Box>
+          ) : (
+            <>
+              <Stack direction="row" spacing={1}>
+                <Button component="label" variant="outlined" startIcon={<UploadIcon />} disabled={uploading} size="small" sx={{ flex: 1 }}>
+                  {uploading ? "Enviando..." : "Subir"}
+                  <input type="file" hidden accept="image/*,video/*" onChange={upload} />
+                </Button>
+                <Button variant="outlined" startIcon={<PhotoLibraryIcon />} size="small" sx={{ flex: 1 }}
+                  onClick={() => setPicker(true)} disabled={!item.client_id}>
+                  Da galeria
+                </Button>
+              </Stack>
+
+              <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>
+                <Button variant="text" startIcon={<StarIcon />} size="small" onClick={() => setCoverPicker(true)}
+                  disabled={!item.client_id}>
+                  {coverId ? "Trocar capa" : "Definir capa (foto)"}
+                </Button>
+                {fileId && (
+                  <Button variant="text" size="small" onClick={() => setVideoCover(true)} disabled={!item.client_id}>
+                    Capturar do vídeo
+                  </Button>
+                )}
+              </Stack>
+            </>
+          )}
 
           <Box>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
@@ -361,6 +448,8 @@ function PieceCard({ item, onChanged, flash }) {
           <GalleryPicker clientId={item.client_id} open={picker} onClose={() => setPicker(false)} onPick={pickFromGallery} />
           <GalleryPicker clientId={item.client_id} open={coverPicker} onClose={() => setCoverPicker(false)}
             onPick={setCover} titulo="Escolher a capa do perfil (uma foto)" />
+          <GalleryPicker clientId={item.client_id} open={slidePicker} onClose={() => setSlidePicker(false)}
+            onPick={addSlide} titulo="Adicionar slide ao carrossel" />
           <VideoCoverDialog fileId={fileId} clientId={item.client_id} open={videoCover}
             onClose={() => setVideoCover(false)} onCaptured={setCover} flash={flash} />
           <PlanningRefDialog clientId={item.client_id} ym={ymOf(when || item.scheduled_at)}
@@ -496,15 +585,15 @@ function MonthGrid({ items, onSelect }) {
   );
 }
 
-// Miniatura quadrada da grade (carrega via fetchFile → blob).
-function FeedThumb({ fileId, fetchFile }) {
+// Miniatura da grade — usa o cache de mídia (baixa uma vez por sessão).
+function FeedThumb({ fileId }) {
   const [src, setSrc] = useState(null);
   useEffect(() => {
     if (!fileId) { setSrc(null); return; }
-    let url, alive = true;
-    fetchFile(fileId).then((b) => { if (alive) { url = URL.createObjectURL(b); setSrc(url); } }).catch(() => {});
-    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
-  }, [fileId, fetchFile]);
+    let alive = true;
+    loadMedia(fileId).then((m) => { if (alive && m) setSrc(m.url); }).catch(() => {});
+    return () => { alive = false; };  // não revoga: o cache é dono da URL
+  }, [fileId]);
   if (!src) return <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", color: "text.disabled", fontSize: 10 }}>sem arte</Box>;
   return <Box component="img" src={src} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />;
 }

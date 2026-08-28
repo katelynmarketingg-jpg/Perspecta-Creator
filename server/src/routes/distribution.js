@@ -3,6 +3,13 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
 
+// Slides do carrossel: guardados como JSON de file ids (o 1º é a capa/inicial).
+function parseMediaIds(raw) {
+  if (!raw) return [];
+  try { const a = JSON.parse(raw); return Array.isArray(a) ? a.filter((n) => Number.isFinite(Number(n))).map(Number) : []; }
+  catch { return []; }
+}
+
 // ---------------------------------------------------------------------------
 // Distribuição — a mesa de trabalho de quem programa (ex.: a Rafa).
 //
@@ -52,7 +59,7 @@ router.get("/", (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.client_id, t.cover_file_id, t.position,
+              t.approval_status, t.client_note, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -60,7 +67,8 @@ router.get("/", (req, res) => {
        WHERE ${where.join(" AND ")}
        ORDER BY c.name, t.scheduled_at, t.id`
     )
-    .all(params);
+    .all(params)
+    .map((it) => ({ ...it, media_ids: parseMediaIds(it.media_ids) }));
 
   // Panorama completo (o "calendário"): TODOS os posts com data marcada do
   // escritório (ou do cliente filtrado) — para as visões Lista/Perfil/Calendário.
@@ -147,7 +155,7 @@ router.put("/:id", (req, res) => {
   const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });
 
-  const { caption, description, scheduled_at, file_id, cover_file_id } = req.body || {};
+  const { caption, description, scheduled_at, file_id, cover_file_id, media_ids } = req.body || {};
   db.prepare(
     `UPDATE tasks SET
        caption      = COALESCE(?, caption),
@@ -160,6 +168,23 @@ router.put("/:id", (req, res) => {
   if (cover_file_id !== undefined) {
     db.prepare("UPDATE tasks SET cover_file_id = ? WHERE id = ? AND org_id = ?")
       .run(cover_file_id || null, req.params.id, req.orgId);
+  }
+
+  // Slides do carrossel: array de file ids na ordem (o 1º é a inicial). Guarda
+  // como JSON e já usa o 1º como capa do perfil (o que aparece na prévia).
+  if (media_ids !== undefined) {
+    const ids = Array.isArray(media_ids) ? media_ids.map(Number).filter(Number.isFinite) : [];
+    db.prepare("UPDATE tasks SET media_ids = ? WHERE id = ? AND org_id = ?")
+      .run(ids.length ? JSON.stringify(ids) : null, req.params.id, req.orgId);
+    // a inicial do carrossel vira a capa do perfil, e a mídia principal da peça
+    if (ids.length) {
+      db.prepare("UPDATE tasks SET cover_file_id = ? WHERE id = ? AND org_id = ?").run(ids[0], req.params.id, req.orgId);
+      const tx = db.transaction(() => {
+        db.prepare("DELETE FROM task_attachments WHERE task_id = ?").run(req.params.id);
+        db.prepare("INSERT OR IGNORE INTO task_attachments (task_id, file_id) VALUES (?, ?)").run(req.params.id, ids[0]);
+      });
+      tx();
+    }
   }
 
   // Mídia: substitui o anexo (a arte do post). file_id null = remove.
