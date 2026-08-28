@@ -194,7 +194,7 @@ export default function Services() {
                     minHeight={360}
                     placeholder="Escreva aqui o contrato deste serviço (com os marcadores acima)…"
                     header={
-                      <Box sx={{ mb: 1, border: 1, borderColor: "divider", borderRadius: 2, overflow: "hidden" }}>
+                      <Box sx={{ overflow: "hidden" }}>
                         <LogoBanner geom={draft.contract_style || {}}
                           onGeom={(g) => setDraft((d) => ({ ...d, contract_style: g }))} />
                       </Box>
