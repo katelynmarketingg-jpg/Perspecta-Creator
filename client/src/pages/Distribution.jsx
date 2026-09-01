@@ -593,8 +593,8 @@ function MonthGrid({ items, onSelect }) {
                   <Stack spacing={0.5} sx={{ mt: 0.4 }}>
                     {(byDay[day] || []).slice(0, 2).map((it) => (
                       <Box key={it.id} onClick={() => onSelect(it)} sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
-                        <Box sx={{ position: "relative" }}>
-                          <Media fileId={it.cover_file_id || it.file_id} height={44} />
+                        <Box sx={{ position: "relative", aspectRatio: "1" }}>
+                          <Media fileId={it.cover_file_id || it.file_id} height="100%" />
                           <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
                             {formatTime(it.scheduled_at)}
                           </Box>
