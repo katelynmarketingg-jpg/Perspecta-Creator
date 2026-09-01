@@ -356,6 +356,7 @@ ensureColumn("tasks", "media_ids", "media_ids TEXT"); // slides do carrossel (JS
 ensureColumn("notifications", "user_id", "user_id INTEGER");
 // Cartão/conta vinculada a um lançamento financeiro (ex.: qual cartão paga).
 ensureColumn("financial_entries", "card", "card TEXT");
+ensureColumn("financial_entries", "paid_amount", "paid_amount REAL NOT NULL DEFAULT 0"); // pagamento parcial acumulado
 
 // Finanças pessoais: recorrência mês a mês.
 ensureColumn("personal_finance", "recurring", "recurring INTEGER NOT NULL DEFAULT 0"); // repete nos próximos meses

@@ -54,6 +54,16 @@ export default function Financial() {
   const [flash, setFlash] = useState("");
   const [gerarOpen, setGerarOpen] = useState(false);
   const [gerarMeses, setGerarMeses] = useState(12);
+  const [parcial, setParcial] = useState(""); // valor do pagamento parcial
+
+  async function lancarParcial() {
+    const v = Number(parcial);
+    if (!v || v <= 0 || !draft.id) return;
+    const r = await api.put(`/financial/${draft.id}`, { pay: v });
+    setDraft((d) => ({ ...d, ...r.data }));
+    setParcial("");
+    load();
+  }
 
   // No modo "Este mês", o mês é o do cursor (dá para andar ◀ ▶). Nos demais, o range fixo.
   const ymd = (d) => d.toISOString().slice(0, 10);
@@ -229,7 +239,13 @@ export default function Financial() {
                 </TableCell>
                 <TableCell>{f.client_name || "—"}</TableCell>
                 <TableCell>{formatDate(f.due_date)}</TableCell>
-                <TableCell><Chip size="small" label={f.status === "paid" ? "Pago" : "Pendente"} color={f.status === "paid" ? "success" : "warning"} /></TableCell>
+                <TableCell>
+                  {f.status === "paid"
+                    ? <Chip size="small" label="Pago" color="success" />
+                    : f.status === "partial"
+                      ? <Chip size="small" color="info" label={`Parcial · ${currency(f.paid_amount || 0)}/${currency(f.amount)}`} />
+                      : <Chip size="small" label="Pendente" color="warning" />}
+                </TableCell>
                 <TableCell align="right" sx={{ color: f.type === "income" ? "primary.main" : "text.secondary", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                   {f.type === "income" ? "+" : "−"} {currency(f.amount)}
                 </TableCell>
@@ -304,9 +320,26 @@ export default function Financial() {
               <TextField label="Vencimento" type="date" InputLabelProps={{ shrink: true }} value={draft.due_date || ""} onChange={set("due_date")} fullWidth />
               <TextField select label="Status" value={draft.status} onChange={set("status")} fullWidth>
                 <MenuItem value="pending">Pendente</MenuItem>
+                <MenuItem value="partial">Parcial</MenuItem>
                 <MenuItem value="paid">Pago</MenuItem>
               </TextField>
             </Stack>
+
+            {/* Pagamento parcial — só em lançamento já existente. */}
+            {draft.id && (
+              <Card variant="outlined" sx={{ p: 1.5, bgcolor: "action.hover" }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Pagamento parcial</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                  Já {draft.type === "income" ? "recebido" : "pago"}: <b>{currency(draft.paid_amount || 0)}</b> de {currency(Number(draft.amount) || 0)}
+                  {" — falta "}<b>{currency(Math.max(0, (Number(draft.amount) || 0) - (Number(draft.paid_amount) || 0)))}</b>
+                </Typography>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                  <TextField size="small" type="number" label="Lançar valor recebido agora (R$)"
+                    value={parcial} onChange={(e) => setParcial(e.target.value)} sx={{ flex: 1 }} />
+                  <Button variant="outlined" onClick={lancarParcial} disabled={!Number(parcial)}>Lançar</Button>
+                </Stack>
+              </Card>
+            )}
 
             {/* Recorrência mensal — só ao criar um lançamento novo. */}
             {!draft.id && (
