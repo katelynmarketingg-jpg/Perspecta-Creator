@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import {
@@ -6,62 +6,7 @@ import {
   Checkbox, FormControlLabel, Divider, CircularProgress,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-
-// Quadro para desenhar a assinatura (dedo no celular ou mouse).
-function SignaturePad({ onChange }) {
-  const canvasRef = useRef(null);
-  const drawing = useRef(false);
-  const last = useRef(null);
-
-  useEffect(() => {
-    const cv = canvasRef.current;
-    if (!cv) return;
-    // Ajusta a resolução ao tamanho real (nitidez em telas retina).
-    const ratio = window.devicePixelRatio || 1;
-    const rect = cv.getBoundingClientRect();
-    cv.width = rect.width * ratio;
-    cv.height = rect.height * ratio;
-    const ctx = cv.getContext("2d");
-    ctx.scale(ratio, ratio);
-    ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.strokeStyle = "#111";
-  }, []);
-
-  function pos(e) {
-    const rect = canvasRef.current.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  }
-  function start(e) { e.preventDefault(); drawing.current = true; last.current = pos(e); }
-  function move(e) {
-    if (!drawing.current) return;
-    e.preventDefault();
-    const ctx = canvasRef.current.getContext("2d");
-    const p = pos(e);
-    ctx.beginPath(); ctx.moveTo(last.current.x, last.current.y); ctx.lineTo(p.x, p.y); ctx.stroke();
-    last.current = p;
-  }
-  function end() {
-    if (!drawing.current) return;
-    drawing.current = false;
-    onChange(canvasRef.current.toDataURL("image/png"));
-  }
-  function limpar() {
-    const cv = canvasRef.current;
-    cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
-    onChange("");
-  }
-
-  return (
-    <Box>
-      <Box component="canvas" ref={canvasRef}
-        onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerLeave={end}
-        sx={{ width: "100%", height: 150, bgcolor: "#fff", borderRadius: 2, border: 1, borderColor: "divider", touchAction: "none", cursor: "crosshair" }} />
-      <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
-        <Typography variant="caption" color="text.secondary">Assine com o dedo ou o mouse</Typography>
-        <Button size="small" onClick={limpar}>Limpar</Button>
-      </Stack>
-    </Box>
-  );
-}
+import SignaturePad from "../components/SignaturePad.jsx";
 
 // Página pública: o cliente abre o link do WhatsApp e assina, sem conta.
 export default function SignContract() {

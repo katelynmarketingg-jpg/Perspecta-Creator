@@ -7,6 +7,7 @@ import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
 import { isR2Path, r2Key, getR2Object } from "../storage.js";
+import { receiptView } from "../receipts.js";
 
 const router = Router();
 
@@ -67,11 +68,15 @@ router.get("/me", (req, res) => {
 router.get("/payments", (req, res) => {
   const rows = db
     .prepare(
-      `SELECT id, description, amount, status, due_date, paid_at,
-              payment_link, pix_code, boleto_url, invoice_url
-       FROM financial_entries
-       WHERE client_id = ? AND type = 'income'
-       ORDER BY due_date DESC, id DESC`
+      // `receipt_id` só vem quando a cobrança está paga e o recibo foi emitido —
+      // é ele que libera o botão "Baixar recibo" no card do pagamento.
+      `SELECT f.id, f.description, f.amount, f.status, f.due_date, f.paid_at,
+              f.payment_link, f.pix_code, f.boleto_url, f.invoice_url,
+              (SELECT r.id FROM receipts r
+                WHERE r.entry_id = f.id AND r.status = 'issued' AND f.status = 'paid') AS receipt_id
+       FROM financial_entries f
+       WHERE f.client_id = ? AND f.type = 'income'
+       ORDER BY f.due_date DESC, f.id DESC`
     )
     .all(req.client.client_id);
   res.json(rows);
@@ -88,6 +93,33 @@ router.get("/payment-methods", (req, res) => {
     infinitepay: cfg.infinitepay?.enabled ? { link: cfg.infinitepay.link || "" } : null,
     pass_interest: cfg.pass_interest !== false,
   });
+});
+
+// ---- Recibos ----------------------------------------------------------------
+// O cliente só enxerga recibo emitido de cobrança PAGA — e só das dele.
+const SELECT_RECIBOS = `
+  SELECT r.* FROM receipts r
+  JOIN financial_entries f ON f.id = r.entry_id
+  WHERE r.client_id = @client_id AND r.org_id = @org_id
+    AND r.status = 'issued' AND f.status = 'paid'`;
+
+router.get("/receipts", (req, res) => {
+  const rows = db.prepare(`${SELECT_RECIBOS} ORDER BY r.year DESC, r.seq DESC`)
+    .all({ client_id: req.client.client_id, org_id: req.client.org_id });
+  // Na lista não vai imagem (logo/assinatura): só o resumo para montar o card.
+  res.json(rows.map((r) => ({
+    id: r.id, number: r.number, amount: r.amount, description: r.description,
+    receipt_date: r.receipt_date, entry_id: r.entry_id,
+  })));
+});
+
+router.get("/receipts/:id", (req, res) => {
+  const r = db.prepare(`${SELECT_RECIBOS} AND r.id = @id`)
+    .get({ client_id: req.client.client_id, org_id: req.client.org_id, id: req.params.id });
+  if (!r) {
+    return res.status(403).json({ error: "Recibo indisponível — a cobrança precisa estar paga." });
+  }
+  res.json(receiptView(r));
 });
 
 // ---- Contratos --------------------------------------------------------------
