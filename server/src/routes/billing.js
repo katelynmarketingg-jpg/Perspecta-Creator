@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, adminRequired } from "../auth.js";
 import { encrypt, decrypt } from "../crypto.js";
+import { ensureReceiptForEntry } from "../receipts.js";
 
 const router = Router();
 
@@ -55,6 +56,9 @@ billingWebhook.post("/asaas", (req, res) => {
       ).get(client.id, client.org_id);
       if (entry) {
         db.prepare("UPDATE financial_entries SET status='paid', paid_at=datetime('now') WHERE id=?").run(entry.id);
+        // Pagou pelo cartão/PIX do Asaas: o recibo já fica pronto para as duas partes.
+        try { ensureReceiptForEntry(entry.id, { ip: req.ip }); }
+        catch (e) { console.error("[recibo] falha ao gerar pelo webhook:", e.message); }
       }
       db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)")
         .run(client.id, `💳 Pagamento confirmado no cartão (${pay.value ? "R$ " + pay.value : "assinatura"}).`, client.org_id);

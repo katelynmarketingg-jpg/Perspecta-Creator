@@ -1,13 +1,17 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { ensureReceiptForEntry, cancelReceiptForEntry } from "../receipts.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("financeiro"));
 
 const SELECT = `
-  SELECT f.*, c.name AS client_name
-  FROM financial_entries f LEFT JOIN clients c ON c.id = f.client_id`;
+  SELECT f.*, c.name AS client_name,
+         r.id AS receipt_id, r.number AS receipt_number, r.status AS receipt_status
+  FROM financial_entries f
+  LEFT JOIN clients c ON c.id = f.client_id
+  LEFT JOIN receipts r ON r.entry_id = f.id`;
 
 router.get("/", (req, res) => {
   const { type, status, from, to } = req.query;
@@ -192,19 +196,31 @@ router.post("/", (req, res) => {
           recurring: 1,
           recurring_day: day,
         });
-        criadas.push(info.lastInsertRowid);
+        criadas.push({ id: info.lastInsertRowid, status });
         mes += 1;
         if (mes > 11) { mes = 0; ano += 1; }
       }
     });
     tx();
+    // Só a 1ª parcela pode nascer paga — se nasceu, já sai com recibo.
+    for (const p of criadas) {
+      if (base.type === "income" && p.status === "paid") {
+        try { ensureReceiptForEntry(p.id, { userId: req.user?.id || null, ip: req.ip }); }
+        catch (e) { console.error("[recibo] falha ao gerar na recorrência:", e.message); }
+      }
+    }
     return res.status(201).json({
       recurring: true, count: criadas.length,
-      first: db.prepare(`${SELECT} WHERE f.id = ?`).get(criadas[0]),
+      first: db.prepare(`${SELECT} WHERE f.id = ?`).get(criadas[0].id),
     });
   }
 
   const info = insertEntry.run(base);
+  // Lançado já como pago: o recibo sai junto.
+  if (base.type === "income" && base.status === "paid") {
+    try { ensureReceiptForEntry(info.lastInsertRowid, { userId: req.user?.id || null, ip: req.ip }); }
+    catch (e) { console.error("[recibo] falha ao gerar no lançamento novo:", e.message); }
+  }
   res.status(201).json(db.prepare(`${SELECT} WHERE f.id = ?`).get(info.lastInsertRowid));
 });
 
@@ -245,6 +261,17 @@ router.put("/:id", (req, res) => {
      card=@card
      WHERE id=@id AND org_id=@org_id`
   ).run(merged);
+
+  // Virou "pago": o recibo daquele lançamento nasce aqui, já numerado e
+  // assinado. Voltou para "pendente": o recibo fica cancelado (não some).
+  // Se algo der errado na geração, o pagamento continua salvo do mesmo jeito.
+  try {
+    if (status === "paid") ensureReceiptForEntry(cur.id, { userId: req.user?.id || null, ip: req.ip });
+    else if (status === "pending") cancelReceiptForEntry(cur.id);
+  } catch (e) {
+    console.error("[recibo] não consegui gerar o recibo do lançamento", cur.id, e.message);
+  }
+
   res.json(db.prepare(`${SELECT} WHERE f.id = ?`).get(req.params.id));
 });
 
