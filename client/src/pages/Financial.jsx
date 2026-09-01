@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Button, Card, Grid, Table, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Tabs, Tab, Divider,
-  FormControlLabel, Switch, Typography,
+  FormControlLabel, Switch, Typography, Box,
 } from "@mui/material";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -12,12 +12,15 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import PrintIcon from "@mui/icons-material/Print";
 import Tooltip from "@mui/material/Tooltip";
 import { Alert } from "@mui/material";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
+import { receiptHtml, printReceipt } from "../receipt.js";
 
 const EMPTY = {
   type: "income", description: "", amount: "", client_id: "", category: "", status: "pending",
@@ -55,6 +58,49 @@ export default function Financial() {
   const [gerarOpen, setGerarOpen] = useState(false);
   const [gerarMeses, setGerarMeses] = useState(12);
   const [parcial, setParcial] = useState(""); // valor do pagamento parcial
+  // Recibo aberto para conferir/editar/baixar.
+  const [recibo, setRecibo] = useState(null);
+  const [reciboErro, setReciboErro] = useState("");
+  const [reciboSalvando, setReciboSalvando] = useState(false);
+
+  // Abre o recibo do lançamento: se ainda não existe (e está pago), gera na hora.
+  async function abrirRecibo(row) {
+    setReciboErro("");
+    try {
+      const existente = await api.get(`/receipts/entry/${row.id}`);
+      if (existente.data) { setRecibo(existente.data); return; }
+      const novo = await api.post(`/receipts/entry/${row.id}`);
+      setRecibo(novo.data);
+      load();
+    } catch (e) {
+      setReciboErro(e.response?.data?.error || "Não foi possível abrir o recibo.");
+      setTimeout(() => setReciboErro(""), 6000);
+    }
+  }
+
+  const setRec = (k) => (e) => setRecibo((r) => ({ ...r, [k]: e.target.value }));
+
+  // Salvar gera uma versão nova do documento (com hash novo) — o recibo antigo
+  // deixa de conferir, e isso fica registrado no rodapé.
+  async function salvarRecibo() {
+    if (!recibo?.id) return;
+    setReciboSalvando(true);
+    try {
+      const { data } = await api.put(`/receipts/${recibo.id}`, {
+        description: recibo.description, reference: recibo.reference,
+        payment_method: recibo.payment_method, place: recibo.place,
+        receipt_date: recibo.receipt_date, notes: recibo.notes,
+        payer_name: recibo.payer_name, payer_document: recibo.payer_document,
+        payer_address: recibo.payer_address,
+        emitter_name: recibo.emitter_name, emitter_document: recibo.emitter_document,
+        emitter_address: recibo.emitter_address, body: recibo.body,
+      });
+      setRecibo(data);
+    } catch (e) {
+      setReciboErro(e.response?.data?.error || "Não foi possível salvar o recibo.");
+    }
+    setReciboSalvando(false);
+  }
 
   async function lancarParcial() {
     const v = Number(parcial);
@@ -176,6 +222,7 @@ export default function Financial() {
       />
 
       {flash && <Alert severity="success" sx={{ mb: 2.5 }}>{flash}</Alert>}
+      {reciboErro && <Alert severity="error" sx={{ mb: 2.5 }}>{reciboErro}</Alert>}
 
       {/* Contratos encerrando no próximo mês */}
       {renewals.length > 0 && (
@@ -257,6 +304,21 @@ export default function Financial() {
                       </IconButton>
                     </Tooltip>
                   )}
+                  {/* Recibo — só de receita, e só depois de marcada como paga. */}
+                  {f.type === "income" && (
+                    <Tooltip title={
+                      f.status !== "paid"
+                        ? "Disponível depois de marcar como pago"
+                        : f.receipt_id ? `Ver / baixar recibo ${f.receipt_number || ""}` : "Gerar recibo"
+                    }>
+                      <span>
+                        <IconButton size="small" color={f.receipt_id ? "primary" : "default"}
+                          disabled={f.status !== "paid"} onClick={() => abrirRecibo(f)}>
+                          <ReceiptLongIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  )}
                   <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
                   <IconButton size="small" color="error" onClick={() => remove(f.id)}><DeleteIcon fontSize="small" /></IconButton>
                 </TableCell>
@@ -292,6 +354,88 @@ export default function Financial() {
           <Button onClick={() => setGerarOpen(false)}>Cancelar</Button>
           <Button variant="contained" startIcon={<RepeatIcon />} onClick={() => gerarMensalidades(gerarMeses)}>
             Gerar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Recibo do lançamento: edita à esquerda, vê o documento à direita. */}
+      <Dialog open={!!recibo} onClose={() => setRecibo(null)} fullWidth maxWidth="lg">
+        <DialogTitle>
+          Recibo {recibo?.number}
+          {recibo?.status === "canceled" && (
+            <Chip size="small" color="error" label="Cancelado" sx={{ ml: 1 }} />
+          )}
+          {recibo?.version > 1 && (
+            <Chip size="small" variant="outlined" label={`versão ${recibo.version}`} sx={{ ml: 1 }} />
+          )}
+        </DialogTitle>
+        <DialogContent dividers>
+          {recibo && (
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={5}>
+                <Stack spacing={2} sx={{ mt: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    O valor vem do lançamento. Editar aqui gera uma versão nova do documento
+                    (com novo código de verificação).
+                  </Typography>
+                  <TextField label="Descrição do serviço" value={recibo.description || ""}
+                    onChange={setRec("description")} fullWidth multiline minRows={2} />
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                    <TextField label="Competência / período" value={recibo.reference || ""}
+                      onChange={setRec("reference")} fullWidth placeholder="09/2026" />
+                    <TextField label="Forma de pagamento" value={recibo.payment_method || ""}
+                      onChange={setRec("payment_method")} fullWidth placeholder="PIX, boleto…" />
+                  </Stack>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                    <TextField label="Cidade (local e data)" value={recibo.place || ""}
+                      onChange={setRec("place")} fullWidth />
+                    <TextField label="Data do recibo" type="date" InputLabelProps={{ shrink: true }}
+                      value={(recibo.receipt_date || "").slice(0, 10)} onChange={setRec("receipt_date")} fullWidth />
+                  </Stack>
+                  <Divider>Quem pagou</Divider>
+                  <TextField label="Nome / razão social" value={recibo.payer_name || ""}
+                    onChange={setRec("payer_name")} fullWidth />
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                    <TextField label="CPF / CNPJ" value={recibo.payer_document || ""}
+                      onChange={setRec("payer_document")} fullWidth />
+                    <TextField label="Endereço" value={recibo.payer_address || ""}
+                      onChange={setRec("payer_address")} fullWidth />
+                  </Stack>
+                  <Divider>Quem recebeu</Divider>
+                  <TextField label="Nome / razão social" value={recibo.emitter_name || ""}
+                    onChange={setRec("emitter_name")} fullWidth />
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                    <TextField label="CPF / CNPJ" value={recibo.emitter_document || ""}
+                      onChange={setRec("emitter_document")} fullWidth />
+                    <TextField label="Endereço" value={recibo.emitter_address || ""}
+                      onChange={setRec("emitter_address")} fullWidth />
+                  </Stack>
+                  <TextField label="Observações (saem no recibo)" value={recibo.notes || ""}
+                    onChange={setRec("notes")} fullWidth multiline minRows={2} />
+                  {!recibo.signer_name && (
+                    <Alert severity="info">
+                      Nenhuma assinatura salva ainda. Configure em <b>Configurações → Recibos</b>
+                      {" "}para ela sair automaticamente em todos os recibos.
+                    </Alert>
+                  )}
+                </Stack>
+              </Grid>
+              <Grid item xs={12} md={7}>
+                <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "#fff" }}>
+                  <iframe title="Prévia do recibo" srcDoc={receiptHtml(recibo)}
+                    style={{ width: "100%", height: 620, border: 0 }} />
+                </Box>
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRecibo(null)}>Fechar</Button>
+          <Button onClick={salvarRecibo} disabled={reciboSalvando}>
+            {reciboSalvando ? "Salvando…" : "Salvar alterações"}
+          </Button>
+          <Button variant="contained" startIcon={<PrintIcon />} onClick={() => printReceipt(recibo)}>
+            Baixar / imprimir
           </Button>
         </DialogActions>
       </Dialog>

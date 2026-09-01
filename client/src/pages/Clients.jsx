@@ -29,7 +29,7 @@ const MONTHLY_TYPES = ["post", "reel", "foto", "captacao", "stories", "reuniao"]
 
 const EMPTY = {
   name: "", company: "", email: "", phone: "", drive_url: "", status: "active", notes: "",
-  segment: "", address: "", work_start: "", work_end: "", payment_day: "",
+  segment: "", address: "", document: "", work_start: "", work_end: "", payment_day: "",
   portal_username: "", portal_email: "", portal_password: "",
   monthly: {},
   services: [], generate_contract: false,
@@ -368,8 +368,13 @@ export default function Clients() {
               <TextField label="E-mail" value={draft.email || ""} onChange={set("email")} fullWidth />
               <TextField label="Telefone" value={draft.phone || ""} onChange={set("phone")} fullWidth />
             </Stack>
-            <TextField label="Endereço" value={draft.address || ""} onChange={set("address")} fullWidth
-              placeholder="Rua, número, bairro, cidade" />
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField label="Endereço" value={draft.address || ""} onChange={set("address")} fullWidth
+                placeholder="Rua, número, bairro, cidade" />
+              {/* Sai no recibo como documento de quem pagou. */}
+              <TextField label="CPF / CNPJ" value={draft.document || ""} onChange={set("document")} fullWidth
+                placeholder="Usado no recibo" sx={{ maxWidth: { sm: 240 } }} />
+            </Stack>
             <TextField label="Google Drive (URL)" value={draft.drive_url || ""} onChange={set("drive_url")} fullWidth />
 
             <Divider>Trabalho e pagamento</Divider>

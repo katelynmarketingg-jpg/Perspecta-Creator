@@ -23,6 +23,7 @@ import LinkIcon from "@mui/icons-material/Link";
 import DescriptionIcon from "@mui/icons-material/Description";
 import portalApi from "../api/portal.js";
 import { currency, formatDate, formatTime, CONTENT_TYPES } from "../utils.js";
+import { printReceipt } from "../receipt.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -333,6 +334,19 @@ export default function Portal() {
   const [assinando, setAssinando] = useState(null);
   const [assinatura, setAssinatura] = useState({ nome: "", documento: "", aceito: false });
   const [erroAssinatura, setErroAssinatura] = useState("");
+  const [erroRecibo, setErroRecibo] = useState("");
+
+  // Baixar recibo: o servidor só entrega se a cobrança estiver paga.
+  async function baixarRecibo(reciboId) {
+    setErroRecibo("");
+    try {
+      const { data } = await portalApi.get(`/receipts/${reciboId}`);
+      printReceipt(data);
+    } catch (e) {
+      setErroRecibo(e.response?.data?.error || "Não foi possível abrir o recibo.");
+      setTimeout(() => setErroRecibo(""), 6000);
+    }
+  }
 
   const loadApprovals = () => {
     portalApi.get("/approvals").then((r) => setApprovals(r.data.filter((a) => a.approval_status !== "approved")));
@@ -686,6 +700,7 @@ export default function Portal() {
         {tab === "payments" && (
           <Stack spacing={2}>
             {copied && <Alert severity="success">Código PIX copiado.</Alert>}
+            {erroRecibo && <Alert severity="error">{erroRecibo}</Alert>}
             {payments.length === 0 && (
               <Card><CardContent sx={{ textAlign: "center", py: 5 }}>
                 <Typography color="text.secondary">Nenhuma cobrança registrada.</Typography>
@@ -707,10 +722,17 @@ export default function Portal() {
                         color={p.status === "paid" ? "success" : "warning"} />
                     </Stack>
                   </Stack>
-                  {(p.pix_code || p.boleto_url || p.payment_link || p.invoice_url) && (
+                  {(p.receipt_id || p.pix_code || p.boleto_url || p.payment_link || p.invoice_url) && (
                     <>
                       <Divider sx={{ my: 1.5 }} />
                       <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+                        {/* Recibo: só aparece quando a cobrança já está paga. */}
+                        {p.receipt_id && (
+                          <Button size="small" variant="contained" startIcon={<ReceiptLongIcon />}
+                            onClick={() => baixarRecibo(p.receipt_id)}>
+                            Baixar recibo
+                          </Button>
+                        )}
                         {p.pix_code && (
                           <Button size="small" variant="outlined" startIcon={<PixIcon />} onClick={() => copyPix(p.pix_code)}>
                             Copiar PIX
