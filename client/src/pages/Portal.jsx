@@ -335,17 +335,21 @@ export default function Portal() {
   const [assinatura, setAssinatura] = useState({ nome: "", documento: "", aceito: false });
   const [erroAssinatura, setErroAssinatura] = useState("");
   const [erroRecibo, setErroRecibo] = useState("");
+  const [baixando, setBaixando] = useState(null); // id da cobrança em que cliquei
 
-  // Baixar recibo: o servidor só entrega se a cobrança estiver paga.
-  async function baixarRecibo(reciboId) {
+  // Baixar recibo da cobrança: o servidor só entrega se ela estiver paga, e
+  // emite o documento na hora se ainda não existir.
+  async function baixarRecibo(pagamento) {
     setErroRecibo("");
+    setBaixando(pagamento.id);
     try {
-      const { data } = await portalApi.get(`/receipts/${reciboId}`);
+      const { data } = await portalApi.get(`/receipts/entry/${pagamento.id}`);
       printReceipt(data);
     } catch (e) {
       setErroRecibo(e.response?.data?.error || "Não foi possível abrir o recibo.");
       setTimeout(() => setErroRecibo(""), 6000);
     }
+    setBaixando(null);
   }
 
   const loadApprovals = () => {
@@ -722,17 +726,17 @@ export default function Portal() {
                         color={p.status === "paid" ? "success" : "warning"} />
                     </Stack>
                   </Stack>
-                  {(p.receipt_id || p.pix_code || p.boleto_url || p.payment_link || p.invoice_url) && (
+                  {(p.can_receipt || p.pix_code || p.boleto_url || p.payment_link || p.invoice_url) && (
                     <>
                       <Divider sx={{ my: 1.5 }} />
                       <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
                         {/* Recibo: só aparece quando a cobrança já está paga. */}
-                        {p.receipt_id && (
+                        {p.can_receipt ? (
                           <Button size="small" variant="contained" startIcon={<ReceiptLongIcon />}
-                            onClick={() => baixarRecibo(p.receipt_id)}>
-                            Baixar recibo
+                            disabled={baixando === p.id} onClick={() => baixarRecibo(p)}>
+                            {baixando === p.id ? "Gerando…" : "Baixar recibo"}
                           </Button>
-                        )}
+                        ) : null}
                         {p.pix_code && (
                           <Button size="small" variant="outlined" startIcon={<PixIcon />} onClick={() => copyPix(p.pix_code)}>
                             Copiar PIX
