@@ -90,7 +90,18 @@ export default function ReceiptSettings() {
     setTimeout(() => setMsg(null), 6000);
   }
 
-  if (!dados || !modelo) return null;
+  // Nunca some a seção: se ainda não carregou (ou uma chamada falhou), mostra o
+  // card com "Carregando…" em vez de sumir — assim a Katelyn sempre acha os Recibos.
+  if (!dados || !modelo) {
+    return (
+      <Card>
+        <CardContent>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>Recibos</Typography>
+          <Typography variant="body2" color="text.secondary">Carregando…</Typography>
+        </CardContent>
+      </Card>
+    );
+  }
   const st = modelo.style || {};
   // A prévia vem do servidor, mas o que ainda não foi salvo (assinatura, CNPJ,
   // endereço) entra por cima — assim dá para ver antes de gravar.
