@@ -152,6 +152,9 @@ router.post("/templates/preview", (req, res) => {
   const b = req.body || {};
   const o = db.prepare("SELECT name, document, address, city, logo, signature_img, signer_name, signer_document, signer_role FROM organizations WHERE id = ?")
     .get(req.orgId) || {};
+  // Sem corpo/estilo no pedido, a prévia mostra o MODELO SALVO — é assim que a
+  // aba Modelos exibe "como o recibo está hoje", e não o texto de fábrica.
+  const salvo = defaultTemplate(req.orgId);
   const exemplo = {
     id: 0, status: "issued", number: "0001/" + new Date().getFullYear(),
     amount: 1250.9, amount_words: valorPorExtenso(1250.9),
@@ -163,11 +166,11 @@ router.post("/templates/preview", (req, res) => {
     emitter_name: o.name || "", emitter_document: o.document || "", emitter_address: o.address || "",
     payer_name: "Empresa Exemplo LTDA", payer_document: "12345678000199",
     payer_address: "Rua Exemplo, 100",
-    logo: b.logo === undefined ? (o.logo || null) : b.logo,
+    logo: b.logo === undefined ? (salvo.logo || o.logo || null) : b.logo,
     signature_img: o.signature_img || null, signer_name: o.signer_name || "",
     signer_document: o.signer_document || "", signer_role: o.signer_role || "",
-    body: b.body ?? DEFAULT_BODY,
-    style: JSON.stringify({ ...DEFAULT_STYLE, ...(b.style || {}) }),
+    body: b.body ?? salvo.body ?? DEFAULT_BODY,
+    style: JSON.stringify({ ...DEFAULT_STYLE, ...parseStyle(salvo.style), ...(b.style || {}) }),
     content_hash: "previa-sem-validade", version: 1, issued_at: new Date().toISOString(),
   };
   res.json({ ...receiptView(exemplo), preview: true });
@@ -288,7 +291,7 @@ router.post("/:id/refresh", (req, res) => {
     emitter_name: org.name || cur.emitter_name,
     emitter_document: org.document || "",
     emitter_address: org.address || "",
-    payer_name: cliente?.company || cliente?.name || cur.payer_name,
+    payer_name: cliente?.legal_name || cliente?.name || cur.payer_name,
     payer_document: cliente?.document || "",
     payer_address: cliente?.address || "",
     logo: modelo.logo || org.logo || null,

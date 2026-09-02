@@ -264,7 +264,7 @@ export function ensureReceiptForEntry(entryId, { userId = null, ip = null } = {}
       emitter_name: org.name || "",
       emitter_document: org.document || "",
       emitter_address: org.address || "",
-      payer_name: cliente?.company || cliente?.name || "",
+      payer_name: cliente?.legal_name || cliente?.name || "",
       payer_document: cliente?.document || "",
       payer_address: cliente?.address || "",
       logo: modelo.logo || org.logo || null,
