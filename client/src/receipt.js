@@ -76,8 +76,9 @@ export function receiptHtml(r) {
   .parte { flex: 1 1 220px; }
   .parte h2 { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
               color: #888; margin: 0 0 6px; font-weight: 700; }
-  .linha { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
-  .linha span { color: #777; }
+  .linha { display: flex; gap: 8px; padding: 1px 0; align-items: baseline; }
+  .linha span { color: #777; flex: 0 0 78px; }
+  .linha b { flex: 1; min-width: 0; }
   .obs { font-size: 12.5px; color: #444; margin-top: 14px; white-space: pre-wrap; }
   .local { margin-top: 30px; font-size: 13.5px; }
   .assinatura { margin-top: 26px; text-align: center; }
@@ -100,7 +101,6 @@ export function receiptHtml(r) {
     ${logo}
     <div class="titulo">
       <h1>${esc(st.header || "Recibo de pagamento")}</h1>
-      <div class="numero">Recibo nº <b>${esc(r.number || "—")}</b>${r.receipt_date_fmt ? "Data: " + esc(r.receipt_date_fmt) : ""}</div>
     </div>
   </div>
 
