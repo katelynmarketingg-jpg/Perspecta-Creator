@@ -157,27 +157,35 @@ router.get("/deliveries", (req, res) => {
     `).get(c.id, org).n
       || (db.prepare("SELECT COALESCE(posts_per_month,0)+COALESCE(videos_per_month,0) AS n FROM clients WHERE id = ?").get(c.id).n);
 
-    // Entregue: tarefas do cliente programadas para o mês.
-    const total = db.prepare(`
+    // ENTREGUE = PROGRAMADA. Para a agência, a peça está entregue quando tem
+    // data de publicação marcada no quadro — é isso que enche a barra. Também
+    // conta a que foi concluída no mês sem data (arrastada para "Programados").
+    const programadas = db.prepare(`
       SELECT COUNT(*) AS n FROM tasks
-      WHERE client_id = ? AND org_id = ? AND strftime('%Y-%m', scheduled_at) = ?
-    `).get(c.id, org, month).n;
+      WHERE client_id = ? AND org_id = ?
+        AND (strftime('%Y-%m', scheduled_at) = ?
+             OR (scheduled_at IS NULL AND strftime('%Y-%m', completed_at) = ?))
+    `).get(c.id, org, month, month).n;
+    // Concluídas: as que já passaram pela etapa final (fica como detalhe).
     const concluidas = db.prepare(`
       SELECT COUNT(*) AS n FROM tasks
-      WHERE client_id = ? AND org_id = ? AND strftime('%Y-%m', scheduled_at) = ? AND completed_at IS NOT NULL
-    `).get(c.id, org, month).n;
+      WHERE client_id = ? AND org_id = ? AND completed_at IS NOT NULL
+        AND (strftime('%Y-%m', scheduled_at) = ? OR strftime('%Y-%m', completed_at) = ?)
+    `).get(c.id, org, month, month).n;
+    // Em produção: ainda sem data de publicação, mas prevista para o mês.
     const emProducao = db.prepare(`
       SELECT COUNT(*) AS n FROM tasks
       WHERE client_id = ? AND org_id = ? AND completed_at IS NULL
         AND (strftime('%Y-%m', scheduled_at) = ? OR strftime('%Y-%m', due_date) = ?)
     `).get(c.id, org, month, month).n;
 
-    const base = planned || total || 0;
+    const base = planned || programadas || 0;
     return {
       id: c.id, client_name: c.name,
-      planejado: planned, programadas: total, concluidas, em_producao: emProducao,
-      percentual: base ? Math.min(100, Math.round((concluidas / base) * 100)) : 0,
-      falta: Math.max(base - concluidas, 0),
+      planejado: planned, programadas, entregues: programadas, concluidas,
+      em_producao: emProducao,
+      percentual: base ? Math.min(100, Math.round((programadas / base) * 100)) : 0,
+      falta: Math.max(base - programadas, 0),
     };
   }).filter((r) => r.planejado > 0 || r.programadas > 0);
 
