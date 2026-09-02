@@ -17,6 +17,7 @@ import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import FolderIcon from "@mui/icons-material/Folder";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
+import GavelIcon from "@mui/icons-material/Gavel";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
@@ -29,7 +30,9 @@ const MONTHLY_TYPES = ["post", "reel", "foto", "captacao", "stories", "reuniao"]
 
 const EMPTY = {
   name: "", company: "", email: "", phone: "", drive_url: "", status: "active", notes: "",
-  segment: "", address: "", work_start: "", work_end: "", payment_day: "",
+  segment: "", address: "", document: "", legal_name: "", rep_name: "", rep_document: "",
+  rep_doc_type: "cpf",
+  work_start: "", work_end: "", payment_day: "",
   portal_username: "", portal_email: "", portal_password: "",
   monthly: {},
   services: [], generate_contract: false,
@@ -118,6 +121,15 @@ export default function Clients() {
   useEffect(() => { if (vClients) load(); }, [vClients]);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+
+  // O que ainda falta para contrato e recibo saírem completos.
+  const faltaDoc = !draft ? [] : [
+    !(draft.legal_name || draft.name) && "razão social",
+    !draft.document && "CNPJ / CPF",
+    !draft.address && "endereço",
+    !draft.rep_name && "representante legal",
+    (draft.rep_name && !draft.rep_document) && (draft.rep_doc_type === "oab" ? "nº da OAB" : "CPF do representante"),
+  ].filter(Boolean);
 
   function openNew() { setDraft(EMPTY); setOpen(true); }
   function openEdit(row) {
@@ -368,9 +380,39 @@ export default function Clients() {
               <TextField label="E-mail" value={draft.email || ""} onChange={set("email")} fullWidth />
               <TextField label="Telefone" value={draft.phone || ""} onChange={set("phone")} fullWidth />
             </Stack>
-            <TextField label="Endereço" value={draft.address || ""} onChange={set("address")} fullWidth
-              placeholder="Rua, número, bairro, cidade" />
             <TextField label="Google Drive (URL)" value={draft.drive_url || ""} onChange={set("drive_url")} fullWidth />
+
+            {/* Tudo que o contrato e o recibo precisam, junto e sinalizado. */}
+            <Divider>Dados para contrato e recibo</Divider>
+            <Alert severity={faltaDoc.length ? "warning" : "success"} icon={<GavelIcon fontSize="small" />}>
+              {faltaDoc.length
+                ? <>Falta preencher: <b>{faltaDoc.join(", ")}</b>. Sem isso o contrato e o recibo saem com o campo em branco.</>
+                : <>Tudo preenchido — contrato e recibo saem completos.</>}
+            </Alert>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField label="Razão social" value={draft.legal_name || ""} onChange={set("legal_name")} fullWidth
+                placeholder="Como está no CNPJ (vazio = usa o nome da empresa)"
+                helperText="É o nome que sai no documento" />
+              <TextField label="CNPJ / CPF" value={draft.document || ""} onChange={set("document")} fullWidth
+                sx={{ maxWidth: { sm: 260 } }} helperText="Do pagador" />
+            </Stack>
+            <TextField label="Endereço completo" value={draft.address || ""} onChange={set("address")} fullWidth
+              placeholder="Rua, número, bairro, cidade — UF, CEP" />
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField label="Representante legal" value={draft.rep_name || ""} onChange={set("rep_name")} fullWidth
+                placeholder="Quem assina pela empresa" helperText="Usado no contrato" />
+              {/* Advogado assina pela OAB; os demais, pelo CPF. */}
+              <TextField select label="Documento" value={draft.rep_doc_type || "cpf"}
+                onChange={set("rep_doc_type")} sx={{ minWidth: 110 }}>
+                <MenuItem value="cpf">CPF</MenuItem>
+                <MenuItem value="oab">OAB</MenuItem>
+              </TextField>
+              <TextField
+                label={draft.rep_doc_type === "oab" ? "Nº da OAB" : "CPF do representante"}
+                value={draft.rep_document || ""} onChange={set("rep_document")} fullWidth
+                placeholder={draft.rep_doc_type === "oab" ? "Ex.: OAB/PR 123.456" : ""}
+                sx={{ maxWidth: { sm: 260 } }} />
+            </Stack>
 
             <Divider>Trabalho e pagamento</Divider>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>

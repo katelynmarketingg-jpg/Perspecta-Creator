@@ -1,13 +1,17 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { ensureReceiptForEntry, cancelReceiptForEntry } from "../receipts.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("financeiro"));
 
 const SELECT = `
-  SELECT f.*, c.name AS client_name
-  FROM financial_entries f LEFT JOIN clients c ON c.id = f.client_id`;
+  SELECT f.*, c.name AS client_name,
+         r.id AS receipt_id, r.number AS receipt_number, r.status AS receipt_status
+  FROM financial_entries f
+  LEFT JOIN clients c ON c.id = f.client_id
+  LEFT JOIN receipts r ON r.entry_id = f.id`;
 
 router.get("/", (req, res) => {
   const { type, status, from, to } = req.query;
@@ -35,12 +39,18 @@ router.get("/summary", (req, res) => {
   const sum = (extra) =>
     db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM financial_entries WHERE org_id = ? ${filtroPeriodo} ${extra}`)
       .get(...params).v;
+  // Valor efetivamente realizado (conta pagamento parcial: pago total = amount,
+  // parcial = o quanto já entrou/saiu).
+  const realized = (tipo) =>
+    db.prepare(`SELECT COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE COALESCE(paid_amount,0) END),0) AS v
+                FROM financial_entries WHERE org_id = ? ${filtroPeriodo} AND type='${tipo}'`)
+      .get(...params).v;
 
   const income = sum("AND type='income'");
   const expense = sum("AND type='expense'");
-  const paidIncome = sum("AND type='income' AND status='paid'");
-  const paidExpense = sum("AND type='expense' AND status='paid'");
-  const pending = sum("AND status='pending'");
+  const paidIncome = realized("income");
+  const paidExpense = realized("expense");
+  const pending = Math.max(0, (income - paidIncome)) + Math.max(0, (expense - paidExpense));
 
   const series = db.prepare(`
     SELECT strftime('%Y-%m', COALESCE(due_date, created_at)) AS month,
@@ -186,34 +196,82 @@ router.post("/", (req, res) => {
           recurring: 1,
           recurring_day: day,
         });
-        criadas.push(info.lastInsertRowid);
+        criadas.push({ id: info.lastInsertRowid, status });
         mes += 1;
         if (mes > 11) { mes = 0; ano += 1; }
       }
     });
     tx();
+    // Só a 1ª parcela pode nascer paga — se nasceu, já sai com recibo.
+    for (const p of criadas) {
+      if (base.type === "income" && p.status === "paid") {
+        try { ensureReceiptForEntry(p.id, { userId: req.user?.id || null, ip: req.ip }); }
+        catch (e) { console.error("[recibo] falha ao gerar na recorrência:", e.message); }
+      }
+    }
     return res.status(201).json({
       recurring: true, count: criadas.length,
-      first: db.prepare(`${SELECT} WHERE f.id = ?`).get(criadas[0]),
+      first: db.prepare(`${SELECT} WHERE f.id = ?`).get(criadas[0].id),
     });
   }
 
   const info = insertEntry.run(base);
+  // Lançado já como pago: o recibo sai junto.
+  if (base.type === "income" && base.status === "paid") {
+    try { ensureReceiptForEntry(info.lastInsertRowid, { userId: req.user?.id || null, ip: req.ip }); }
+    catch (e) { console.error("[recibo] falha ao gerar no lançamento novo:", e.message); }
+  }
   res.status(201).json(db.prepare(`${SELECT} WHERE f.id = ?`).get(info.lastInsertRowid));
 });
 
 router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM financial_entries WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Lançamento não encontrado." });
-  const merged = { ...cur, ...req.body, id: req.params.id, org_id: req.orgId };
-  merged.paid_at = merged.status === "paid" ? (merged.paid_at ?? new Date().toISOString()) : null;
+  const b = req.body || {};
+  const merged = { ...cur, ...b, id: req.params.id, org_id: req.orgId };
+  const amount = Number(merged.amount) || 0;
+
+  // Pagamento parcial: `pay` incrementa o valor já pago; `paid_amount` define o total.
+  let paidAmount = Number(cur.paid_amount) || 0;
+  if (b.paid_amount !== undefined) paidAmount = Number(b.paid_amount) || 0;
+  if (b.pay !== undefined) paidAmount = paidAmount + (Number(b.pay) || 0);
+
+  // Status: se veio explícito, respeita (e ajusta o pago); senão deriva do valor pago.
+  if (b.status === "paid") paidAmount = amount;
+  else if (b.status === "pending") paidAmount = 0;
+
+  if (paidAmount < 0) paidAmount = 0;
+  if (paidAmount > amount) paidAmount = amount;
+
+  let status;
+  if (b.status === "paid" || b.status === "pending" || b.status === "partial") status = b.status;
+  else status = amount > 0 && paidAmount >= amount ? "paid" : paidAmount > 0 ? "partial" : "pending";
+  if (status === "partial" && paidAmount >= amount && amount > 0) status = "paid"; // coerência
+
+  merged.status = status;
+  merged.paid_amount = paidAmount;
+  // paid_at marca quando começou a ser pago (parcial ou total); some se voltar a pendente.
+  merged.paid_at = status === "pending" ? null : (cur.paid_at ?? new Date().toISOString());
+
   db.prepare(
     `UPDATE financial_entries SET type=@type, description=@description, amount=@amount,
      client_id=@client_id, category=@category, status=@status, due_date=@due_date, paid_at=@paid_at,
+     paid_amount=@paid_amount,
      payment_link=@payment_link, pix_code=@pix_code, boleto_url=@boleto_url, invoice_url=@invoice_url,
      card=@card
      WHERE id=@id AND org_id=@org_id`
   ).run(merged);
+
+  // Virou "pago": o recibo daquele lançamento nasce aqui, já numerado e
+  // assinado. Voltou para "pendente": o recibo fica cancelado (não some).
+  // Se algo der errado na geração, o pagamento continua salvo do mesmo jeito.
+  try {
+    if (status === "paid") ensureReceiptForEntry(cur.id, { userId: req.user?.id || null, ip: req.ip });
+    else if (status === "pending") cancelReceiptForEntry(cur.id);
+  } catch (e) {
+    console.error("[recibo] não consegui gerar o recibo do lançamento", cur.id, e.message);
+  }
+
   res.json(db.prepare(`${SELECT} WHERE f.id = ?`).get(req.params.id));
 });
 

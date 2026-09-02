@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, Button, IconButton, Chip, TextField,
-  Dialog, DialogContent, Alert, Divider, Tooltip, AppBar, Toolbar,
+  Dialog, DialogContent, Alert, Divider, Tooltip, AppBar, Toolbar, Tabs, Tab,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -14,7 +14,10 @@ import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import api from "../api/client.js";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { currency } from "../utils.js";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RichEditor from "../components/RichEditor.jsx";
+import ReceiptSettings from "../components/ReceiptSettings.jsx";
+import { receiptHtml } from "../receipt.js";
 import LogoBanner, { BAND_H } from "../components/LogoBanner.jsx";
 
 const VAZIO = { name: "", category: "", default_price: "", contract_template: "", items_schema: [], contract_style: {} };
@@ -24,9 +27,15 @@ export default function Services() {
   const [services, setServices] = useState([]);
   const [draft, setDraft] = useState(null);
   const [msg, setMsg] = useState("");
+  const [reciboOpen, setReciboOpen] = useState(false); // editor do modelo do recibo
+  const [aba, setAba] = useState("servicos");          // servicos | modelos
+  const [previaRecibo, setPrevia] = useState(null);    // como o recibo está hoje
 
   const load = () => api.get("/services").then((r) => setServices(r.data)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  // A prévia do recibo usa o modelo salvo — é o "modelo pronto" da aba Modelos.
+  const loadPrevia = () => api.post("/receipts/templates/preview", {})
+    .then((r) => setPrevia(r.data)).catch(() => setPrevia(null));
+  useEffect(() => { load(); loadPrevia(); }, []);
 
   function abrirNovo() { setDraft({ ...VAZIO }); }
   function abrirEditar(s) {
@@ -91,12 +100,93 @@ export default function Services() {
 
   return (
     <>
-      <PageHeader title="Serviços" subtitle="Seus serviços, a classificação e o modelo de contrato de cada um"
-        action={<Button variant="contained" startIcon={<AddIcon />} onClick={abrirNovo}>Novo serviço</Button>} />
+      <PageHeader title="Serviços" subtitle="Seus serviços e os modelos de documento da agência"
+        action={aba === "servicos"
+          ? <Button variant="contained" startIcon={<AddIcon />} onClick={abrirNovo}>Novo serviço</Button>
+          : null} />
+
+      <Tabs value={aba} onChange={(_, v) => setAba(v)} sx={{ mb: 2.5, borderBottom: 1, borderColor: "divider" }}>
+        <Tab value="servicos" label="Serviços" />
+        <Tab value="modelos" label="Modelos de documento" />
+      </Tabs>
 
       {msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
 
-      {services.length === 0 ? (
+      {aba === "modelos" && (
+        <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
+          {/* RECIBO — um modelo só, da agência inteira. */}
+          <Card variant="outlined">
+            <CardContent>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                <ReceiptLongIcon color="primary" />
+                <Typography sx={{ flex: 1, fontWeight: 700 }}>Recibo</Typography>
+                <Chip size="small" variant="outlined" color={previaRecibo ? "success" : "default"}
+                  label={previaRecibo ? "Modelo pronto ✓" : "Sem modelo"} />
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Sai sozinho quando você marca uma receita como paga. Vale para todos os clientes.
+              </Typography>
+              <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden",
+                         bgcolor: "#fff", height: 360 }}>
+                {previaRecibo
+                  ? <iframe title="Modelo do recibo" srcDoc={receiptHtml(previaRecibo)}
+                      style={{ width: "200%", height: 720, border: 0, transform: "scale(.5)",
+                               transformOrigin: "top left" }} />
+                  : <Box sx={{ display: "grid", placeItems: "center", height: "100%" }}>
+                      <Typography variant="body2" color="text.secondary">Carregando a prévia…</Typography>
+                    </Box>}
+              </Box>
+              <Button fullWidth variant="outlined" sx={{ mt: 1.5 }} startIcon={<EditIcon />}
+                onClick={() => setReciboOpen(true)}>
+                {previaRecibo ? "Editar modelo do recibo" : "Criar modelo do recibo"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* CONTRATO — um modelo por serviço. */}
+          <Card variant="outlined">
+            <CardContent>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                <DescriptionIcon color="primary" />
+                <Typography sx={{ flex: 1, fontWeight: 700 }}>Contrato</Typography>
+                <Chip size="small" variant="outlined"
+                  color={services.some((s) => s.contract_template) ? "success" : "default"}
+                  label={`${services.filter((s) => s.contract_template).length} de ${services.length} serviços`} />
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Cada serviço tem o seu contrato. Clique em um para ver o modelo pronto ou criar.
+              </Typography>
+              {services.length === 0 ? (
+                <EmptyState message="Cadastre um serviço primeiro, na aba ao lado." />
+              ) : (
+                <Stack spacing={1} sx={{ maxHeight: 360, overflowY: "auto", pr: 0.5 }}>
+                  {services.map((s) => (
+                    <Card key={s.id} variant="outlined" onClick={() => abrirEditar(s)}
+                      sx={{ cursor: "pointer", "&:hover": { borderColor: "primary.main" } }}>
+                      <CardContent sx={{ py: 1.25, "&:last-child": { pb: 1.25 } }}>
+                        <Stack direction="row" alignItems="center" spacing={1}>
+                          <Typography sx={{ flex: 1, fontWeight: 600 }} noWrap>{s.name}</Typography>
+                          <Chip size="small" variant="outlined"
+                            color={s.contract_template ? "success" : "default"}
+                            label={s.contract_template ? "Modelo pronto ✓" : "Criar modelo"} />
+                        </Stack>
+                        {s.contract_template && (
+                          <Typography variant="caption" color="text.secondary"
+                            sx={{ display: "block", mt: 0.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {s.contract_template.replace(/<[^>]*>/g, " ").trim().slice(0, 90)}…
+                          </Typography>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Stack>
+              )}
+            </CardContent>
+          </Card>
+        </Box>
+      )}
+
+      {aba === "servicos" && (services.length === 0 ? (
         <EmptyState message="Nenhum serviço ainda. Crie o primeiro (ex.: Gestão de rede social, Tráfego pago, Landing page)." />
       ) : (
         Object.entries(grupos).map(([cat, arr]) => (
@@ -122,7 +212,22 @@ export default function Services() {
             </Box>
           </Box>
         ))
-      )}
+      ))}
+
+      {/* Modelo do recibo: texto, logo, assinatura salva e prévia ao vivo. */}
+      <Dialog open={reciboOpen} onClose={() => { setReciboOpen(false); loadPrevia(); }} fullScreen>
+        <AppBar position="sticky" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: "divider" }}>
+          <Toolbar sx={{ gap: 1 }}>
+            <Typography sx={{ flex: 1, fontWeight: 700 }}>Personalizar recibo</Typography>
+            <IconButton onClick={() => { setReciboOpen(false); loadPrevia(); }}><CloseIcon /></IconButton>
+          </Toolbar>
+        </AppBar>
+        <DialogContent sx={{ bgcolor: "action.hover" }}>
+          <Box sx={{ maxWidth: 1100, mx: "auto", py: 2 }}>
+            <ReceiptSettings />
+          </Box>
+        </DialogContent>
+      </Dialog>
 
       {/* Editor em TELA CHEIA */}
       <Dialog open={Boolean(draft)} onClose={() => setDraft(null)} fullScreen>

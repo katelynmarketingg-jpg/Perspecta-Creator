@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Button, Card, Grid, Table, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Tabs, Tab, Divider,
-  FormControlLabel, Switch, Typography,
+  FormControlLabel, Switch, Typography, Box,
 } from "@mui/material";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -12,12 +12,15 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import PrintIcon from "@mui/icons-material/Print";
 import Tooltip from "@mui/material/Tooltip";
 import { Alert } from "@mui/material";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
+import { receiptHtml, printReceipt } from "../receipt.js";
 
 const EMPTY = {
   type: "income", description: "", amount: "", client_id: "", category: "", status: "pending",
@@ -54,6 +57,61 @@ export default function Financial() {
   const [flash, setFlash] = useState("");
   const [gerarOpen, setGerarOpen] = useState(false);
   const [gerarMeses, setGerarMeses] = useState(12);
+  const [parcial, setParcial] = useState(""); // valor do pagamento parcial
+  // Recibo aberto para conferir/editar/baixar.
+  const [recibo, setRecibo] = useState(null);
+  const [reciboErro, setReciboErro] = useState("");
+  const [reciboSalvando, setReciboSalvando] = useState(false);
+
+  // Abre o recibo do lançamento: se ainda não existe (e está pago), gera na hora.
+  async function abrirRecibo(row) {
+    setReciboErro("");
+    try {
+      const existente = await api.get(`/receipts/entry/${row.id}`);
+      if (existente.data) { setRecibo(existente.data); return; }
+      const novo = await api.post(`/receipts/entry/${row.id}`);
+      setRecibo(novo.data);
+      load();
+    } catch (e) {
+      setReciboErro(e.response?.data?.error || "Não foi possível abrir o recibo.");
+      setTimeout(() => setReciboErro(""), 6000);
+    }
+  }
+
+  // Só a data é editável no dia a dia — o resto vem pronto do modelo.
+  async function trocarData(data) {
+    setRecibo((r) => ({ ...r, receipt_date: data }));
+    if (!recibo?.id || !data) return;
+    try {
+      const { data: atualizado } = await api.put(`/receipts/${recibo.id}`, { receipt_date: data });
+      setRecibo(atualizado);
+    } catch (e) {
+      setReciboErro(e.response?.data?.error || "Não foi possível salvar a data.");
+    }
+  }
+
+  // Refaz o documento com o modelo de Serviços e os dados de hoje do cadastro,
+  // mantendo o mesmo número. Serve para os recibos criados antes de mexer no modelo.
+  async function refazerRecibo() {
+    if (!recibo?.id) return;
+    setReciboSalvando(true);
+    try {
+      const { data } = await api.post(`/receipts/${recibo.id}/refresh`);
+      setRecibo(data);
+    } catch (e) {
+      setReciboErro(e.response?.data?.error || "Não foi possível refazer o recibo.");
+    }
+    setReciboSalvando(false);
+  }
+
+  async function lancarParcial() {
+    const v = Number(parcial);
+    if (!v || v <= 0 || !draft.id) return;
+    const r = await api.put(`/financial/${draft.id}`, { pay: v });
+    setDraft((d) => ({ ...d, ...r.data }));
+    setParcial("");
+    load();
+  }
 
   // No modo "Este mês", o mês é o do cursor (dá para andar ◀ ▶). Nos demais, o range fixo.
   const ymd = (d) => d.toISOString().slice(0, 10);
@@ -166,6 +224,7 @@ export default function Financial() {
       />
 
       {flash && <Alert severity="success" sx={{ mb: 2.5 }}>{flash}</Alert>}
+      {reciboErro && <Alert severity="error" sx={{ mb: 2.5 }}>{reciboErro}</Alert>}
 
       {/* Contratos encerrando no próximo mês */}
       {renewals.length > 0 && (
@@ -229,7 +288,13 @@ export default function Financial() {
                 </TableCell>
                 <TableCell>{f.client_name || "—"}</TableCell>
                 <TableCell>{formatDate(f.due_date)}</TableCell>
-                <TableCell><Chip size="small" label={f.status === "paid" ? "Pago" : "Pendente"} color={f.status === "paid" ? "success" : "warning"} /></TableCell>
+                <TableCell>
+                  {f.status === "paid"
+                    ? <Chip size="small" label="Pago" color="success" />
+                    : f.status === "partial"
+                      ? <Chip size="small" color="info" label={`Parcial · ${currency(f.paid_amount || 0)}/${currency(f.amount)}`} />
+                      : <Chip size="small" label="Pendente" color="warning" />}
+                </TableCell>
                 <TableCell align="right" sx={{ color: f.type === "income" ? "primary.main" : "text.secondary", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                   {f.type === "income" ? "+" : "−"} {currency(f.amount)}
                 </TableCell>
@@ -239,6 +304,21 @@ export default function Financial() {
                       <IconButton size="small" color="success" onClick={() => markPaid(f)}>
                         <CheckCircleIcon fontSize="small" />
                       </IconButton>
+                    </Tooltip>
+                  )}
+                  {/* Recibo — só de receita, e só depois de marcada como paga. */}
+                  {f.type === "income" && (
+                    <Tooltip title={
+                      f.status !== "paid"
+                        ? "Disponível depois de marcar como pago"
+                        : f.receipt_id ? `Ver / baixar recibo ${f.receipt_number || ""}` : "Gerar recibo"
+                    }>
+                      <span>
+                        <IconButton size="small" color={f.receipt_id ? "primary" : "default"}
+                          disabled={f.status !== "paid"} onClick={() => abrirRecibo(f)}>
+                          <ReceiptLongIcon fontSize="small" />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   )}
                   <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
@@ -280,6 +360,57 @@ export default function Financial() {
         </DialogActions>
       </Dialog>
 
+      {/* Recibo: já vem pronto do modelo. Só a data fica à mão — o resto vem do
+          cadastro do cliente, do escritório e do mês do lançamento. */}
+      <Dialog open={!!recibo} onClose={() => setRecibo(null)} fullWidth maxWidth="md">
+        <DialogTitle sx={{ pb: 1 }}>
+          Recibo {recibo?.number}
+          {recibo?.status === "canceled" && (
+            <Chip size="small" color="error" label="Cancelado" sx={{ ml: 1 }} />
+          )}
+          {recibo?.version > 1 && (
+            <Chip size="small" variant="outlined" label={`versão ${recibo.version}`} sx={{ ml: 1 }} />
+          )}
+        </DialogTitle>
+        <DialogContent dividers>
+          {recibo && (
+            <Stack spacing={2}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
+                <TextField label="Dia do recibo" type="date" size="small"
+                  InputLabelProps={{ shrink: true }} sx={{ maxWidth: 200 }}
+                  value={(recibo.receipt_date || "").slice(0, 10)}
+                  onChange={(e) => trocarData(e.target.value)} />
+                <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                  O resto vem pronto: empresa e CNPJ do cadastro, valor e mês do lançamento,
+                  logo e assinatura salvas.
+                </Typography>
+                <Button size="small" onClick={refazerRecibo} disabled={reciboSalvando}>
+                  Refazer com o modelo atual
+                </Button>
+              </Stack>
+
+              {!recibo.payer_document && (
+                <Alert severity="warning">
+                  Esta empresa está sem <b>CNPJ</b> no cadastro — o recibo sai com o campo vazio.
+                  Preencha em <b>Clientes</b> e clique em "Refazer com o modelo atual".
+                </Alert>
+              )}
+
+              <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "#fff" }}>
+                <iframe title="Recibo" srcDoc={receiptHtml(recibo)}
+                  style={{ width: "100%", height: 620, border: 0 }} />
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRecibo(null)}>Fechar</Button>
+          <Button variant="contained" startIcon={<PrintIcon />} onClick={() => printReceipt(recibo)}>
+            Baixar / imprimir
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{draft.id ? "Editar lançamento" : "Novo lançamento"}</DialogTitle>
         <DialogContent>
@@ -304,9 +435,26 @@ export default function Financial() {
               <TextField label="Vencimento" type="date" InputLabelProps={{ shrink: true }} value={draft.due_date || ""} onChange={set("due_date")} fullWidth />
               <TextField select label="Status" value={draft.status} onChange={set("status")} fullWidth>
                 <MenuItem value="pending">Pendente</MenuItem>
+                <MenuItem value="partial">Parcial</MenuItem>
                 <MenuItem value="paid">Pago</MenuItem>
               </TextField>
             </Stack>
+
+            {/* Pagamento parcial — só em lançamento já existente. */}
+            {draft.id && (
+              <Card variant="outlined" sx={{ p: 1.5, bgcolor: "action.hover" }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Pagamento parcial</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                  Já {draft.type === "income" ? "recebido" : "pago"}: <b>{currency(draft.paid_amount || 0)}</b> de {currency(Number(draft.amount) || 0)}
+                  {" — falta "}<b>{currency(Math.max(0, (Number(draft.amount) || 0) - (Number(draft.paid_amount) || 0)))}</b>
+                </Typography>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                  <TextField size="small" type="number" label="Lançar valor recebido agora (R$)"
+                    value={parcial} onChange={(e) => setParcial(e.target.value)} sx={{ flex: 1 }} />
+                  <Button variant="outlined" onClick={lancarParcial} disabled={!Number(parcial)}>Lançar</Button>
+                </Stack>
+              </Card>
+            )}
 
             {/* Recorrência mensal — só ao criar um lançamento novo. */}
             {!draft.id && (

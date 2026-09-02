@@ -15,7 +15,7 @@ export default function Deliveries() {
   const [mes, setMes] = useState(() => new Date().toISOString().slice(0, 7));
   const [dados, setDados] = useState([]);
 
-  // Ao vivo: as entregas derivam das tarefas concluídas.
+  // Ao vivo: a barra acompanha o quadro — programou lá, enche aqui.
   const vTasks = useLiveVersion("tasks");
   useEffect(() => {
     api.get("/reports/deliveries", { params: { month: mes } })
@@ -23,14 +23,14 @@ export default function Deliveries() {
   }, [mes, vTasks]);
 
   const totalPlanejado = dados.reduce((s, d) => s + d.planejado, 0);
-  const totalConcluido = dados.reduce((s, d) => s + d.concluidas, 0);
-  const geral = totalPlanejado ? Math.round((totalConcluido / totalPlanejado) * 100) : 0;
+  const totalEntregue = dados.reduce((s, d) => s + (d.entregues ?? d.programadas), 0);
+  const geral = totalPlanejado ? Math.min(100, Math.round((totalEntregue / totalPlanejado) * 100)) : 0;
 
   return (
     <>
       <PageHeader
         title="Entregas"
-        subtitle="Quanto falta de cada cliente no mês"
+        subtitle="A barra enche conforme as peças são programadas no quadro"
         action={
           <TextField type="month" size="small" value={mes}
             onChange={(e) => setMes(e.target.value)} InputLabelProps={{ shrink: true }} />
@@ -52,7 +52,7 @@ export default function Deliveries() {
                 color={geral >= 100 ? "success" : geral >= 50 ? "primary" : "warning"}
                 sx={{ height: 12, borderRadius: 6 }} />
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {totalConcluido} de {totalPlanejado} peças concluídas.
+                {totalEntregue} de {totalPlanejado} peças programadas.
               </Typography>
             </CardContent>
           </Card>
@@ -66,7 +66,7 @@ export default function Deliveries() {
                     <Typography sx={{ fontWeight: 700 }}>{d.client_name}</Typography>
                     <Stack direction="row" spacing={1} alignItems="center">
                       <Chip size="small" variant="outlined"
-                        label={`${d.concluidas}/${d.planejado || d.programadas} concluídas`} />
+                        label={`${d.entregues ?? d.programadas}/${d.planejado || d.programadas} programadas`} />
                       {d.falta > 0 && <Chip size="small" color="warning" label={`faltam ${d.falta}`} />}
                       <Typography sx={{ fontWeight: 700, minWidth: 44, textAlign: "right" }}>{d.percentual}%</Typography>
                     </Stack>
@@ -76,7 +76,10 @@ export default function Deliveries() {
                     sx={{ height: 9, borderRadius: 5 }} />
                   <Stack direction="row" spacing={1} sx={{ mt: 1.25, flexWrap: "wrap", gap: 0.5 }} alignItems="center">
                     <Chip size="small" variant="outlined" label={`${d.em_producao} em produção`} />
-                    <Chip size="small" variant="outlined" label={`${d.programadas} programadas`} />
+                    {d.concluidas > 0 && (
+                      <Chip size="small" variant="outlined" color="success"
+                        label={`${d.concluidas} no "Programados"`} />
+                    )}
                     <Box sx={{ flex: 1 }} />
                     <Button size="small" endIcon={<OpenInNewIcon sx={{ fontSize: 15 }} />}
                       onClick={() => navigate("/tasks")}>
@@ -89,7 +92,7 @@ export default function Deliveries() {
           </Stack>
 
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2, textAlign: "center" }}>
-            Para confirmar uma entrega, arraste o card até "Concluído" na aba Tarefas.
+            A peça conta como entregue quando ganha data de publicação no quadro (aba Tarefas).
           </Typography>
         </>
       )}

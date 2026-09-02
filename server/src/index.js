@@ -40,6 +40,7 @@ import prioritiesRoutes from "./routes/priorities.js";
 import personalFinanceRoutes from "./routes/personal-finance.js";
 import orgDocsRoutes from "./routes/org-docs.js";
 import contractTemplatesRoutes from "./routes/contract-templates.js";
+import receiptsRoutes from "./routes/receipts.js";
 import adminRoutes from "./routes/admin.js";
 import backupRoutes from "./routes/backup.js";
 import { startBackups } from "./backup.js";
@@ -103,6 +104,7 @@ app.use("/api/priorities", prioritiesRoutes);
 app.use("/api/personal-finance", personalFinanceRoutes);
 app.use("/api/org-docs", orgDocsRoutes);
 app.use("/api/contract-templates", contractTemplatesRoutes);
+app.use("/api/receipts", receiptsRoutes);
 app.use("/api/admin", adminRoutes); // porta de serviço (token) p/ painel central
 app.use("/api/backup", backupRoutes); // baixar o banco (só superadmin)
 app.use("/api/webhooks", billingWebhook); // Asaas confirma pagamentos aqui

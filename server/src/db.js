@@ -356,6 +356,7 @@ ensureColumn("tasks", "media_ids", "media_ids TEXT"); // slides do carrossel (JS
 ensureColumn("notifications", "user_id", "user_id INTEGER");
 // Cartão/conta vinculada a um lançamento financeiro (ex.: qual cartão paga).
 ensureColumn("financial_entries", "card", "card TEXT");
+ensureColumn("financial_entries", "paid_amount", "paid_amount REAL NOT NULL DEFAULT 0"); // pagamento parcial acumulado
 
 // Finanças pessoais: recorrência mês a mês.
 ensureColumn("personal_finance", "recurring", "recurring INTEGER NOT NULL DEFAULT 0"); // repete nos próximos meses
@@ -682,6 +683,93 @@ CREATE TABLE IF NOT EXISTS integrations (
 );
 CREATE INDEX IF NOT EXISTS idx_integrations_org ON integrations(org_id);
 `);
+
+// ---------------------------------------------------------------------------
+// Recibos: um por lançamento de receita, criado quando ele vira "pago".
+// O recibo guarda uma CÓPIA dos dados no momento da emissão (emitente, pagador,
+// assinatura, logo) — se o cadastro mudar depois, o documento já emitido não
+// muda sozinho. `content_hash` é a prova de integridade: editar gera versão nova
+// e hash novo, então dá para provar que um PDF antigo não confere mais.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS receipts (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id           INTEGER NOT NULL,
+  entry_id         INTEGER NOT NULL REFERENCES financial_entries(id) ON DELETE CASCADE,
+  client_id        INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+  status           TEXT NOT NULL DEFAULT 'issued',   -- 'draft' | 'issued' | 'canceled'
+  number           TEXT,                             -- '0001/2026'
+  year             INTEGER,
+  seq              INTEGER,
+  amount           REAL NOT NULL DEFAULT 0,
+  amount_words     TEXT,
+  description      TEXT,
+  reference        TEXT,                             -- competência / período
+  payment_method   TEXT,
+  place            TEXT,                             -- cidade do "local e data"
+  receipt_date     TEXT,                             -- data que sai no documento
+  notes            TEXT,
+  emitter_name     TEXT,
+  emitter_document TEXT,
+  emitter_address  TEXT,
+  payer_name       TEXT,
+  payer_document   TEXT,
+  payer_address    TEXT,
+  logo             TEXT,
+  signature_img    TEXT,
+  signer_name      TEXT,
+  signer_document  TEXT,
+  signer_role      TEXT,
+  template_id      INTEGER,
+  body             TEXT,                             -- corpo com marcadores
+  style            TEXT,                             -- JSON de layout
+  content_hash     TEXT,
+  version          INTEGER NOT NULL DEFAULT 1,
+  issued_at        TEXT,
+  issued_by        INTEGER,
+  issued_ip        TEXT,
+  canceled_at      TEXT,
+  cancel_reason    TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_entry ON receipts(entry_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_org ON receipts(org_id);
+CREATE INDEX IF NOT EXISTS idx_receipts_client ON receipts(client_id);
+-- Numeração sequencial por escritório e por ano, sem repetir.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_number ON receipts(org_id, year, seq);
+
+-- Modelo do recibo: corpo com marcadores ({{cliente}}, {{valor}}...) e o
+-- layout salvo (logo, cor, cabeçalho/rodapé). O marcado como padrão é o usado
+-- na emissão automática.
+CREATE TABLE IF NOT EXISTS receipt_templates (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  name          TEXT NOT NULL,
+  body          TEXT NOT NULL DEFAULT '',
+  style         TEXT,
+  logo          TEXT,                                -- logo só do recibo (vazio = a da marca)
+  is_default    INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_receipt_templates_org ON receipt_templates(org_id);
+`);
+
+// Dados do emitente e a assinatura salva do escritório (usados no recibo).
+ensureColumn("organizations", "document", "document TEXT");             // CNPJ/CPF do emitente
+ensureColumn("organizations", "address", "address TEXT");               // endereço do emitente
+ensureColumn("organizations", "city", "city TEXT");                     // cidade do "local e data"
+ensureColumn("organizations", "signature_img", "signature_img TEXT");   // assinatura salva (data URI)
+ensureColumn("organizations", "signer_name", "signer_name TEXT");       // quem assina
+ensureColumn("organizations", "signer_document", "signer_document TEXT");
+ensureColumn("organizations", "signer_role", "signer_role TEXT");       // cargo de quem assina
+// Documento do cliente (CPF/CNPJ do pagador) — exigido no recibo.
+ensureColumn("clients", "document", "document TEXT");
+// Dados que o contrato e o recibo precisam: razão social e quem assina pelo cliente.
+ensureColumn("clients", "legal_name", "legal_name TEXT");     // razão social (vazio = usa o nome)
+ensureColumn("clients", "rep_name", "rep_name TEXT");         // representante legal
+ensureColumn("clients", "rep_document", "rep_document TEXT"); // documento do representante
+// Advogado assina pela OAB, não pelo CPF: guarda qual dos dois é.
+ensureColumn("clients", "rep_doc_type", "rep_doc_type TEXT NOT NULL DEFAULT 'cpf'"); // 'cpf' | 'oab' 
 
 // Toda tabela de dados carrega o escritório dona da linha.
 export const TENANT_TABLES = [

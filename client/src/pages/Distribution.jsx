@@ -593,8 +593,8 @@ function MonthGrid({ items, onSelect }) {
                   <Stack spacing={0.5} sx={{ mt: 0.4 }}>
                     {(byDay[day] || []).slice(0, 2).map((it) => (
                       <Box key={it.id} onClick={() => onSelect(it)} sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
-                        <Box sx={{ position: "relative" }}>
-                          <Media fileId={it.cover_file_id || it.file_id} height={44} />
+                        <Box sx={{ position: "relative", aspectRatio: "1" }}>
+                          <Media fileId={it.cover_file_id || it.file_id} height="100%" />
                           <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
                             {formatTime(it.scheduled_at)}
                           </Box>
@@ -635,21 +635,33 @@ const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
 // (clique para ajustar). O 1º fica em cima à esquerda; enche → direita → baixo.
 function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
   const [order, setOrder] = useState(posts);
+  const [dragId, setDragId] = useState(null); // qual peça está sendo arrastada
   const dragIndex = useRef(null);
-  useEffect(() => { setOrder(posts); }, [posts]);
+  const movedRef = useRef(false);
+  // Só ressincroniza com o servidor quando NÃO está arrastando (evita "pulo").
+  useEffect(() => { if (dragIndex.current == null) setOrder(posts); }, [posts]);
 
   const now = Date.now();
   const errada = (p) => { const d = dtISO(p.scheduled_at); return !d || d.getTime() < now; };
 
-  function solta(i) {
+  // Ao passar por cima de outro quadrado, já reencaixa ao vivo (os outros se
+  // ajustam na hora). No fim (soltar) só salva a ordem — sem recarregar a tela.
+  function onEnter(i) {
     const from = dragIndex.current;
-    dragIndex.current = null;
     if (from == null || from === i) return;
-    const arr = [...order];
-    const [movido] = arr.splice(from, 1);
-    arr.splice(i, 0, movido);          // encaixa entre os outros
-    setOrder(arr);
-    onReorder(arr.map((p) => p.id));    // salva só a ordem; as datas não mudam
+    setOrder((arr) => {
+      const next = [...arr];
+      const [m] = next.splice(from, 1);
+      next.splice(i, 0, m);
+      return next;
+    });
+    dragIndex.current = i;
+    movedRef.current = true;
+  }
+  function fim() {
+    dragIndex.current = null;
+    setDragId(null);
+    if (movedRef.current) { movedRef.current = false; onReorder(order.map((p) => p.id)); }
   }
 
   if (!posts.length) {
@@ -669,12 +681,15 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
           {order.map((p, i) => (
             <Box key={p.id} draggable
-              onDragStart={() => { dragIndex.current = i; }}
+              onDragStart={() => { dragIndex.current = i; movedRef.current = false; setDragId(p.id); }}
+              onDragEnter={() => onEnter(i)}
               onDragOver={(e) => e.preventDefault()}
-              onDrop={() => solta(i)}
+              onDragEnd={fim}
+              onDrop={(e) => { e.preventDefault(); fim(); }}
               onClick={() => onSelect(p)}
               sx={{
-                position: "relative", aspectRatio: "1080 / 1440", cursor: "pointer", bgcolor: "action.hover", overflow: "hidden",
+                position: "relative", aspectRatio: "1080 / 1440", cursor: "grab", bgcolor: "action.hover", overflow: "hidden",
+                opacity: dragId === p.id ? 0.35 : 1, transition: "opacity .12s ease",
                 outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
               }}>
               <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile} />
@@ -699,6 +714,7 @@ export default function Distribution() {
   const [scheduled, setScheduled] = useState([]); // panorama completo (calendário)
   const [stage, setStage] = useState(null);
   const [loading, setLoading] = useState(true);
+  const loadedOnce = useRef(false);
   const [msg, setMsg] = useState(null);
   const [view, setView] = useState("post"); // post | list | feed | calendar
   const [selected, setSelected] = useState(null); // peça no editor (lista/perfil/calendário)
@@ -715,24 +731,28 @@ export default function Distribution() {
 
   const vTasks = useLiveVersion("tasks");
   const vDist = useLiveVersion("distribution");
-  const load = () => {
-    setLoading(true);
+  const load = (opts = {}) => {
+    // Só mostra o spinner de tela cheia na 1ª carga. Recargas de fundo (SSE,
+    // reorganizar) atualizam sem piscar — o feed fica liso.
+    if (!loadedOnce.current && !opts.silent) setLoading(true);
     const params = clientFilter ? { client_id: clientFilter } : {};
     api.get("/distribution", { params })
       .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setStage(r.data.stage); })
       .catch(() => { setItems([]); setScheduled([]); setApproved([]); })
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); loadedOnce.current = true; });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [clientFilter, vTasks, vDist]);
 
   // Organiza o feed salvando SÓ a ordem (posição) — as datas ficam paradas.
   async function reorderPosition(ids) {
+    // A ordem já foi aplicada na tela (otimista). Só persiste — sem recarregar,
+    // pra não piscar. A sincronização entre telas vem pelo SSE, silenciosa.
     try {
       await api.post("/distribution/reorder-position", { ids });
-      load();
     } catch (e) {
       flash(e.response?.data?.error || "Não foi possível organizar.", "error");
+      load({ silent: true });
     }
   }
 

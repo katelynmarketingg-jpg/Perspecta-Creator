@@ -22,16 +22,22 @@ export function remindOverdue(orgId, clientId = null) {
 
   const insClient = db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('client', ?, ?, ?)");
   const insAgency = db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)");
+  const delClient = db.prepare("DELETE FROM notifications WHERE org_id = ? AND client_id = ? AND audience = 'client' AND is_read = 0 AND message LIKE '%em aberto%'");
   const mark = db.prepare("UPDATE financial_entries SET last_reminder_at = datetime('now') WHERE id = ?");
 
+  // Agrupa por cliente: o cliente recebe UM aviso com a contagem; a agência
+  // continua vendo cada cobrança em detalhe.
+  const porCliente = {};
   const tx = db.transaction(() => {
     for (const f of overdue) {
       const venc = f.due_date.slice(0, 10).split("-").reverse().join("/");
-      if (f.client_id) {
-        insClient.run(f.client_id, `💳 Pagamento em aberto: "${f.description}" venceu em ${venc}.`, orgId);
-      }
+      if (f.client_id) (porCliente[f.client_id] = (porCliente[f.client_id] || 0) + 1);
       insAgency.run(f.client_id, `⚠️ Pagamento atrasado: "${f.description}" (venceu ${venc}).`, orgId);
       mark.run(f.id);
+    }
+    for (const [cid, n] of Object.entries(porCliente)) {
+      delClient.run(orgId, cid);
+      insClient.run(cid, `💳 Você tem ${n} pagamento${n > 1 ? "s" : ""} em aberto.`, orgId);
     }
   });
   tx();

@@ -28,7 +28,7 @@ function Celula({ post, fetchFile, onClick }) {
       <Box
         onClick={() => onClick?.(post)}
         sx={{
-          position: "relative", aspectRatio: "1", cursor: "pointer", overflow: "hidden",
+          position: "relative", aspectRatio: "1080 / 1440", cursor: "pointer", overflow: "hidden",
           bgcolor: "action.hover", display: "grid", placeItems: "center",
           "&:hover .capa": { opacity: 1 },
         }}
