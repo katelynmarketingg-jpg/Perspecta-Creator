@@ -97,11 +97,18 @@ export default function MinhasFinancas() {
   // Gastos da Perspectiva que ainda estão aqui (deveriam estar no Financeiro).
   const perspectiva = useMemo(() => (data?.entries || []).filter((e) => /perspec/i.test(e.category || "")), [data]);
 
-  async function moverPerspectiva() {
-    if (!confirm(`Mover ${perspectiva.length} gasto(s) da Perspectiva deste mês pro Financeiro (despesas)? Eles saem daqui e passam a aparecer lá, com opção de marcar como pago.`)) return;
-    const r = await api.post("/personal-finance/move-to-financeiro", { ym });
-    setMsg(`${r.data.moved} gasto(s) da Perspectiva movidos pro Financeiro. ✅`);
-    setTimeout(() => setMsg(""), 7000);
+  // `todos` = varre todos os meses; senão, só o mês aberto. Gasto da empresa não
+  // é gasto pessoal: o lugar dele é no Financeiro, como despesa.
+  async function moverPerspectiva(todos = false) {
+    const alvo = todos
+      ? "TODOS os meses (inclusive os anteriores)"
+      : `o mês de ${cursor.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}`;
+    if (!confirm(`Mover os gastos da categoria Perspectiva de ${alvo} pro Financeiro (despesas)?\n\nEles saem daqui e passam a aparecer lá, com opção de marcar como pago.`)) return;
+    const r = await api.post("/personal-finance/move-to-financeiro", todos ? {} : { ym });
+    setMsg(r.data.moved
+      ? `${r.data.moved} gasto(s) da Perspectiva movidos pro Financeiro — abra a aba Financeiro → Despesas para vê-los. ✅`
+      : "Nenhum gasto da Perspectiva encontrado para mover.");
+    setTimeout(() => setMsg(""), 9000);
     load();
   }
 
@@ -179,8 +186,15 @@ export default function MinhasFinancas() {
 
       {perspectiva.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}
-          action={<Button color="inherit" size="small" onClick={moverPerspectiva}>Mover pro Financeiro</Button>}>
-          Há {perspectiva.length} gasto(s) da categoria <b>Perspectiva</b> aqui ({currency(perspectiva.reduce((a, e) => a + (Number(e.amount) || 0), 0))}). Esses são da empresa — o lugar deles é no <b>Financeiro</b> (despesas). As próximas importações já mandam pra lá sozinhas.
+          action={
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+              <Button color="inherit" size="small" onClick={() => moverPerspectiva(false)}>Só deste mês</Button>
+              <Button color="inherit" size="small" variant="outlined" onClick={() => moverPerspectiva(true)}>
+                Mover de todos os meses
+              </Button>
+            </Stack>
+          }>
+          Há {perspectiva.length} gasto(s) da categoria <b>Perspectiva</b> aqui ({currency(perspectiva.reduce((a, e) => a + (Number(e.amount) || 0), 0))}). Esses são da empresa — o lugar deles é no <b>Financeiro → Despesas</b>. As próximas importações já mandam pra lá sozinhas; estes aqui vieram de antes e precisam de um clique.
         </Alert>
       )}
 

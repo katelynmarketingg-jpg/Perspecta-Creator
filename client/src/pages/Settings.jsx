@@ -9,7 +9,6 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
-import ReceiptSettings from "../components/ReceiptSettings.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { currency } from "../utils.js";
 
@@ -244,8 +243,6 @@ export default function Settings() {
             </CardContent>
           </Card>
         )}
-
-        {isAdmin && <ReceiptSettings />}
 
         {isAdmin && (
           <Card>

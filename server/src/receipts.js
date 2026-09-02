@@ -90,6 +90,14 @@ export function dataExtenso(iso) {
   return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
+/** "agosto de 2026" — o mês a que a cobrança se refere. */
+export function mesExtenso(iso) {
+  const s = String(iso || "").slice(0, 7);
+  const [y, m] = s.split("-").map(Number);
+  if (!y || !m || m < 1 || m > 12) return "";
+  return `${MESES[m - 1]} de ${y}`;
+}
+
 export function dataCurta(iso) {
   const s = String(iso || "").slice(0, 10);
   const [y, m, d] = s.split("-");
@@ -106,10 +114,10 @@ export function formataDocumento(doc) {
 
 // --- Modelo padrão ----------------------------------------------------------
 export const DEFAULT_BODY =
-  `Recebi(emos) de {{cliente}}{{documento_cliente_paren}} a importância de ` +
-  `{{valor}} ({{valor_extenso}}), referente a {{descricao}}{{competencia_frase}}.\n\n` +
-  `Para maior clareza, firmo(amos) o presente recibo, dando plena e geral ` +
-  `quitação do valor acima, nada mais tendo a reclamar.`;
+  `Recebemos de **{{cliente}}**, inscrita no CNPJ nº **{{documento_cliente}}**, a ` +
+  `importância de **{{valor}} ({{valor_extenso}})**, referente aos serviços prestados ` +
+  `pela **{{emitente}}** no mês de **{{mes_extenso}}**.\n\n` +
+  `Para os devidos fins, damos plena quitação do valor acima declarado.`;
 
 export const DEFAULT_STYLE = {
   accent: "#EA580C",
@@ -139,7 +147,10 @@ export function defaultTemplate(orgId) {
 /** Valores dos {{marcadores}} a partir de um recibo já montado. */
 export function marcadores(r) {
   const docCliente = formataDocumento(r.payer_document);
+  // A competência já nasce por extenso ("agosto de 2026"); se alguém digitar
+  // outra coisa, respeita o que foi digitado.
   const competencia = (r.reference || "").trim();
+  const mes = competencia || mesExtenso(r.receipt_date);
   return {
     numero: r.number || "—",
     cliente: r.payer_name || "",
@@ -150,6 +161,8 @@ export function marcadores(r) {
     valor_extenso: r.amount_words || valorPorExtenso(r.amount),
     descricao: r.description || "",
     competencia,
+    mes_extenso: mes,
+    mes: mes,
     competencia_frase: competencia ? `, referente ao período de ${competencia}` : "",
     forma_pagamento: r.payment_method || "",
     data: dataCurta(r.receipt_date),
@@ -243,7 +256,7 @@ export function ensureReceiptForEntry(entryId, { userId = null, ip = null } = {}
       amount: entry.amount,
       amount_words: valorPorExtenso(entry.amount),
       description: entry.description || "",
-      reference: entry.due_date ? entry.due_date.slice(0, 7).split("-").reverse().join("/") : "",
+      reference: mesExtenso(entry.due_date || dataRecibo),
       payment_method: entry.card || "",
       place: org.city || "",
       receipt_date: dataRecibo,

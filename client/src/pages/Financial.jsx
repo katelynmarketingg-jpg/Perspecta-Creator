@@ -78,26 +78,28 @@ export default function Financial() {
     }
   }
 
-  const setRec = (k) => (e) => setRecibo((r) => ({ ...r, [k]: e.target.value }));
+  // Só a data é editável no dia a dia — o resto vem pronto do modelo.
+  async function trocarData(data) {
+    setRecibo((r) => ({ ...r, receipt_date: data }));
+    if (!recibo?.id || !data) return;
+    try {
+      const { data: atualizado } = await api.put(`/receipts/${recibo.id}`, { receipt_date: data });
+      setRecibo(atualizado);
+    } catch (e) {
+      setReciboErro(e.response?.data?.error || "Não foi possível salvar a data.");
+    }
+  }
 
-  // Salvar gera uma versão nova do documento (com hash novo) — o recibo antigo
-  // deixa de conferir, e isso fica registrado no rodapé.
-  async function salvarRecibo() {
+  // Refaz o documento com o modelo de Serviços e os dados de hoje do cadastro,
+  // mantendo o mesmo número. Serve para os recibos criados antes de mexer no modelo.
+  async function refazerRecibo() {
     if (!recibo?.id) return;
     setReciboSalvando(true);
     try {
-      const { data } = await api.put(`/receipts/${recibo.id}`, {
-        description: recibo.description, reference: recibo.reference,
-        payment_method: recibo.payment_method, place: recibo.place,
-        receipt_date: recibo.receipt_date, notes: recibo.notes,
-        payer_name: recibo.payer_name, payer_document: recibo.payer_document,
-        payer_address: recibo.payer_address,
-        emitter_name: recibo.emitter_name, emitter_document: recibo.emitter_document,
-        emitter_address: recibo.emitter_address, body: recibo.body,
-      });
+      const { data } = await api.post(`/receipts/${recibo.id}/refresh`);
       setRecibo(data);
     } catch (e) {
-      setReciboErro(e.response?.data?.error || "Não foi possível salvar o recibo.");
+      setReciboErro(e.response?.data?.error || "Não foi possível refazer o recibo.");
     }
     setReciboSalvando(false);
   }
@@ -358,9 +360,10 @@ export default function Financial() {
         </DialogActions>
       </Dialog>
 
-      {/* Recibo do lançamento: edita à esquerda, vê o documento à direita. */}
-      <Dialog open={!!recibo} onClose={() => setRecibo(null)} fullWidth maxWidth="lg">
-        <DialogTitle>
+      {/* Recibo: já vem pronto do modelo. Só a data fica à mão — o resto vem do
+          cadastro do cliente, do escritório e do mês do lançamento. */}
+      <Dialog open={!!recibo} onClose={() => setRecibo(null)} fullWidth maxWidth="md">
+        <DialogTitle sx={{ pb: 1 }}>
           Recibo {recibo?.number}
           {recibo?.status === "canceled" && (
             <Chip size="small" color="error" label="Cancelado" sx={{ ml: 1 }} />
@@ -371,69 +374,37 @@ export default function Financial() {
         </DialogTitle>
         <DialogContent dividers>
           {recibo && (
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={5}>
-                <Stack spacing={2} sx={{ mt: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    O valor vem do lançamento. Editar aqui gera uma versão nova do documento
-                    (com novo código de verificação).
-                  </Typography>
-                  <TextField label="Descrição do serviço" value={recibo.description || ""}
-                    onChange={setRec("description")} fullWidth multiline minRows={2} />
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                    <TextField label="Competência / período" value={recibo.reference || ""}
-                      onChange={setRec("reference")} fullWidth placeholder="09/2026" />
-                    <TextField label="Forma de pagamento" value={recibo.payment_method || ""}
-                      onChange={setRec("payment_method")} fullWidth placeholder="PIX, boleto…" />
-                  </Stack>
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                    <TextField label="Cidade (local e data)" value={recibo.place || ""}
-                      onChange={setRec("place")} fullWidth />
-                    <TextField label="Data do recibo" type="date" InputLabelProps={{ shrink: true }}
-                      value={(recibo.receipt_date || "").slice(0, 10)} onChange={setRec("receipt_date")} fullWidth />
-                  </Stack>
-                  <Divider>Quem pagou</Divider>
-                  <TextField label="Nome / razão social" value={recibo.payer_name || ""}
-                    onChange={setRec("payer_name")} fullWidth />
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                    <TextField label="CPF / CNPJ" value={recibo.payer_document || ""}
-                      onChange={setRec("payer_document")} fullWidth />
-                    <TextField label="Endereço" value={recibo.payer_address || ""}
-                      onChange={setRec("payer_address")} fullWidth />
-                  </Stack>
-                  <Divider>Quem recebeu</Divider>
-                  <TextField label="Nome / razão social" value={recibo.emitter_name || ""}
-                    onChange={setRec("emitter_name")} fullWidth />
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                    <TextField label="CPF / CNPJ" value={recibo.emitter_document || ""}
-                      onChange={setRec("emitter_document")} fullWidth />
-                    <TextField label="Endereço" value={recibo.emitter_address || ""}
-                      onChange={setRec("emitter_address")} fullWidth />
-                  </Stack>
-                  <TextField label="Observações (saem no recibo)" value={recibo.notes || ""}
-                    onChange={setRec("notes")} fullWidth multiline minRows={2} />
-                  {!recibo.signer_name && (
-                    <Alert severity="info">
-                      Nenhuma assinatura salva ainda. Configure em <b>Configurações → Recibos</b>
-                      {" "}para ela sair automaticamente em todos os recibos.
-                    </Alert>
-                  )}
-                </Stack>
-              </Grid>
-              <Grid item xs={12} md={7}>
-                <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "#fff" }}>
-                  <iframe title="Prévia do recibo" srcDoc={receiptHtml(recibo)}
-                    style={{ width: "100%", height: 620, border: 0 }} />
-                </Box>
-              </Grid>
-            </Grid>
+            <Stack spacing={2}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
+                <TextField label="Dia do recibo" type="date" size="small"
+                  InputLabelProps={{ shrink: true }} sx={{ maxWidth: 200 }}
+                  value={(recibo.receipt_date || "").slice(0, 10)}
+                  onChange={(e) => trocarData(e.target.value)} />
+                <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                  O resto vem pronto: empresa e CNPJ do cadastro, valor e mês do lançamento,
+                  logo e assinatura salvas.
+                </Typography>
+                <Button size="small" onClick={refazerRecibo} disabled={reciboSalvando}>
+                  Refazer com o modelo atual
+                </Button>
+              </Stack>
+
+              {!recibo.payer_document && (
+                <Alert severity="warning">
+                  Esta empresa está sem <b>CNPJ</b> no cadastro — o recibo sai com o campo vazio.
+                  Preencha em <b>Clientes</b> e clique em "Refazer com o modelo atual".
+                </Alert>
+              )}
+
+              <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "#fff" }}>
+                <iframe title="Recibo" srcDoc={receiptHtml(recibo)}
+                  style={{ width: "100%", height: 620, border: 0 }} />
+              </Box>
+            </Stack>
           )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRecibo(null)}>Fechar</Button>
-          <Button onClick={salvarRecibo} disabled={reciboSalvando}>
-            {reciboSalvando ? "Salvando…" : "Salvar alterações"}
-          </Button>
           <Button variant="contained" startIcon={<PrintIcon />} onClick={() => printReceipt(recibo)}>
             Baixar / imprimir
           </Button>

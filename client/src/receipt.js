@@ -15,6 +15,12 @@ function esc(s) {
 
 const ALINHA = { left: "flex-start", center: "center", right: "flex-end" };
 
+// O corpo é texto simples, mas **assim** vira negrito — é como o modelo destaca
+// o nome da empresa, o CNPJ e o valor. Escapa primeiro, então não entra HTML.
+function corpo(texto) {
+  return esc(texto).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+}
+
 /** HTML completo do recibo (A4, pronto para imprimir). */
 export function receiptHtml(r) {
   if (!r) return "";
@@ -103,7 +109,7 @@ export function receiptHtml(r) {
     <span class="e">(${esc(r.amount_words || "")})</span>
   </div>
 
-  <div class="corpo">${esc(r.body_rendered || "")}</div>
+  <div class="corpo">${corpo(r.body_rendered || "")}</div>
 
   <div class="partes">
     <div class="parte">

@@ -7,7 +7,7 @@ import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
 import { isR2Path, r2Key, getR2Object } from "../storage.js";
-import { receiptView } from "../receipts.js";
+import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 
 const router = Router();
 
@@ -68,10 +68,12 @@ router.get("/me", (req, res) => {
 router.get("/payments", (req, res) => {
   const rows = db
     .prepare(
-      // `receipt_id` só vem quando a cobrança está paga e o recibo foi emitido —
-      // é ele que libera o botão "Baixar recibo" no card do pagamento.
+      // Cobrança paga = recibo disponível, ponto. `receipt_id` vem quando ele já
+      // foi emitido; quando não (cobranças pagas antes de existir recibo), o
+      // botão continua aparecendo e o documento é emitido no clique.
       `SELECT f.id, f.description, f.amount, f.status, f.due_date, f.paid_at,
               f.payment_link, f.pix_code, f.boleto_url, f.invoice_url,
+              (f.status = 'paid') AS can_receipt,
               (SELECT r.id FROM receipts r
                 WHERE r.entry_id = f.id AND r.status = 'issued' AND f.status = 'paid') AS receipt_id
        FROM financial_entries f
@@ -111,6 +113,23 @@ router.get("/receipts", (req, res) => {
     id: r.id, number: r.number, amount: r.amount, description: r.description,
     receipt_date: r.receipt_date, entry_id: r.entry_id,
   })));
+});
+
+// GET /api/portal/receipts/entry/:entryId — recibo de uma cobrança do cliente.
+// Se a cobrança está paga e ainda não tem recibo (as que foram quitadas antes
+// desta função existir), o documento é emitido agora — assim toda cobrança paga
+// tem recibo para baixar, sem depender de alguém abrir a tela da equipe.
+router.get("/receipts/entry/:entryId", (req, res) => {
+  const entry = db.prepare(
+    "SELECT * FROM financial_entries WHERE id = ? AND client_id = ? AND type = 'income'"
+  ).get(req.params.entryId, req.client.client_id);
+  if (!entry) return res.status(404).json({ error: "Cobrança não encontrada." });
+  if (entry.status !== "paid") {
+    return res.status(403).json({ error: "Recibo indisponível — a cobrança precisa estar paga." });
+  }
+  const r = ensureReceiptForEntry(entry.id, { ip: req.ip });
+  if (!r) return res.status(404).json({ error: "Não foi possível emitir o recibo desta cobrança." });
+  res.json(receiptView(r));
 });
 
 router.get("/receipts/:id", (req, res) => {
