@@ -323,11 +323,13 @@ router.post("/", (req, res) => {
   const info = db
     .prepare(
       `INSERT INTO clients (name, email, phone, company, drive_url, status, notes,
-                            segment, address, document, work_start, work_end, payment_day,
+                            segment, address, document, legal_name, rep_name, rep_document,
+                            work_start, work_end, payment_day,
                             posts_per_month, videos_per_month,
                             portal_username, portal_email, portal_password_hash, org_id)
        VALUES (@name, @email, @phone, @company, @drive_url, @status, @notes,
-               @segment, @address, @document, @work_start, @work_end, @payment_day,
+               @segment, @address, @document, @legal_name, @rep_name, @rep_document,
+               @work_start, @work_end, @payment_day,
                @posts_per_month, @videos_per_month,
                @portal_username, @portal_email, @portal_password_hash, @org_id)`
     )
@@ -345,6 +347,9 @@ router.post("/", (req, res) => {
       segment: b.segment ?? null,
       address: b.address ?? null,
       document: b.document ?? null,
+      legal_name: b.legal_name ?? null,
+      rep_name: b.rep_name ?? null,
+      rep_document: b.rep_document ?? null,
       work_start: b.work_start ?? null,
       work_end: b.work_end ?? null,
       payment_day: b.payment_day ? Number(b.payment_day) : null,
@@ -394,7 +399,8 @@ router.put("/:id", (req, res) => {
   db.prepare(
     `UPDATE clients SET name=@name, email=@email, phone=@phone, company=@company,
      drive_url=@drive_url, status=@status, notes=@notes,
-     segment=@segment, address=@address, document=@document, work_start=@work_start, work_end=@work_end,
+     segment=@segment, address=@address, document=@document, legal_name=@legal_name,
+     rep_name=@rep_name, rep_document=@rep_document, work_start=@work_start, work_end=@work_end,
      payment_day=@payment_day, posts_per_month=@posts_per_month,
      videos_per_month=@videos_per_month, portal_username=@portal_username,
      portal_email=@portal_email,

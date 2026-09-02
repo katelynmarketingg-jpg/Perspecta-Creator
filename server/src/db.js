@@ -764,6 +764,10 @@ ensureColumn("organizations", "signer_document", "signer_document TEXT");
 ensureColumn("organizations", "signer_role", "signer_role TEXT");       // cargo de quem assina
 // Documento do cliente (CPF/CNPJ do pagador) — exigido no recibo.
 ensureColumn("clients", "document", "document TEXT");
+// Dados que o contrato e o recibo precisam: razão social e quem assina pelo cliente.
+ensureColumn("clients", "legal_name", "legal_name TEXT");     // razão social (vazio = usa o nome)
+ensureColumn("clients", "rep_name", "rep_name TEXT");         // representante legal
+ensureColumn("clients", "rep_document", "rep_document TEXT"); // CPF do representante
 
 // Toda tabela de dados carrega o escritório dona da linha.
 export const TENANT_TABLES = [
