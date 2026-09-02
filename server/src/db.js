@@ -767,7 +767,9 @@ ensureColumn("clients", "document", "document TEXT");
 // Dados que o contrato e o recibo precisam: razão social e quem assina pelo cliente.
 ensureColumn("clients", "legal_name", "legal_name TEXT");     // razão social (vazio = usa o nome)
 ensureColumn("clients", "rep_name", "rep_name TEXT");         // representante legal
-ensureColumn("clients", "rep_document", "rep_document TEXT"); // CPF do representante
+ensureColumn("clients", "rep_document", "rep_document TEXT"); // documento do representante
+// Advogado assina pela OAB, não pelo CPF: guarda qual dos dois é.
+ensureColumn("clients", "rep_doc_type", "rep_doc_type TEXT NOT NULL DEFAULT 'cpf'"); // 'cpf' | 'oab' 
 
 // Toda tabela de dados carrega o escritório dona da linha.
 export const TENANT_TABLES = [

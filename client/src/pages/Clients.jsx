@@ -31,6 +31,7 @@ const MONTHLY_TYPES = ["post", "reel", "foto", "captacao", "stories", "reuniao"]
 const EMPTY = {
   name: "", company: "", email: "", phone: "", drive_url: "", status: "active", notes: "",
   segment: "", address: "", document: "", legal_name: "", rep_name: "", rep_document: "",
+  rep_doc_type: "cpf",
   work_start: "", work_end: "", payment_day: "",
   portal_username: "", portal_email: "", portal_password: "",
   monthly: {},
@@ -127,6 +128,7 @@ export default function Clients() {
     !draft.document && "CNPJ / CPF",
     !draft.address && "endereço",
     !draft.rep_name && "representante legal",
+    (draft.rep_name && !draft.rep_document) && (draft.rep_doc_type === "oab" ? "nº da OAB" : "CPF do representante"),
   ].filter(Boolean);
 
   function openNew() { setDraft(EMPTY); setOpen(true); }
@@ -399,7 +401,16 @@ export default function Clients() {
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField label="Representante legal" value={draft.rep_name || ""} onChange={set("rep_name")} fullWidth
                 placeholder="Quem assina pela empresa" helperText="Usado no contrato" />
-              <TextField label="CPF do representante" value={draft.rep_document || ""} onChange={set("rep_document")} fullWidth
+              {/* Advogado assina pela OAB; os demais, pelo CPF. */}
+              <TextField select label="Documento" value={draft.rep_doc_type || "cpf"}
+                onChange={set("rep_doc_type")} sx={{ minWidth: 110 }}>
+                <MenuItem value="cpf">CPF</MenuItem>
+                <MenuItem value="oab">OAB</MenuItem>
+              </TextField>
+              <TextField
+                label={draft.rep_doc_type === "oab" ? "Nº da OAB" : "CPF do representante"}
+                value={draft.rep_document || ""} onChange={set("rep_document")} fullWidth
+                placeholder={draft.rep_doc_type === "oab" ? "Ex.: OAB/PR 123.456" : ""}
                 sx={{ maxWidth: { sm: 260 } }} />
             </Stack>
 
