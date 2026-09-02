@@ -3,7 +3,7 @@ import { db } from "../db.js";
 import { authRequired, adminRequired, moduleAllowed } from "../auth.js";
 import {
   ensureReceiptForEntry, receiptView, receiptHash, valorPorExtenso, entryPago,
-  defaultTemplate, DEFAULT_BODY, DEFAULT_STYLE, parseStyle,
+  defaultTemplate, DEFAULT_BODY, DEFAULT_STYLE, parseStyle, mesExtenso,
 } from "../receipts.js";
 
 const router = Router();
@@ -260,6 +260,59 @@ router.put("/:id", (req, res) => {
       body = @body, style = @style, content_hash = @content_hash, version = @version
     WHERE id = @id AND org_id = @org_id
   `).run({ ...merged, id: cur.id, org_id: req.orgId });
+
+  res.json(receiptView(db.prepare("SELECT * FROM receipts WHERE id = ?").get(cur.id)));
+});
+
+// POST /api/receipts/:id/refresh — refaz o recibo com o modelo atual e com os
+// dados de hoje do cliente e do escritório, mantendo o mesmo número. É o que
+// atualiza os recibos antigos depois de mexer no modelo em Serviços.
+router.post("/:id/refresh", (req, res) => {
+  const cur = carregaRecibo(req, res);
+  if (!cur) return;
+  const entry = db.prepare("SELECT * FROM financial_entries WHERE id = ? AND org_id = ?")
+    .get(cur.entry_id, req.orgId);
+  const org = db.prepare("SELECT * FROM organizations WHERE id = ?").get(req.orgId) || {};
+  const cliente = entry?.client_id
+    ? db.prepare("SELECT * FROM clients WHERE id = ? AND org_id = ?").get(entry.client_id, req.orgId)
+    : null;
+  const modelo = defaultTemplate(req.orgId);
+
+  const novo = {
+    ...cur,
+    amount: entry?.amount ?? cur.amount,
+    amount_words: valorPorExtenso(entry?.amount ?? cur.amount),
+    description: entry?.description || cur.description,
+    reference: mesExtenso(entry?.due_date || cur.receipt_date),
+    place: org.city || cur.place,
+    emitter_name: org.name || cur.emitter_name,
+    emitter_document: org.document || "",
+    emitter_address: org.address || "",
+    payer_name: cliente?.company || cliente?.name || cur.payer_name,
+    payer_document: cliente?.document || "",
+    payer_address: cliente?.address || "",
+    logo: modelo.logo || org.logo || null,
+    signature_img: org.signature_img || null,
+    signer_name: org.signer_name || "",
+    signer_document: org.signer_document || "",
+    signer_role: org.signer_role || "",
+    template_id: modelo.id,
+    body: modelo.body || DEFAULT_BODY,
+    style: modelo.style || JSON.stringify(DEFAULT_STYLE),
+    version: (cur.version || 1) + 1,
+  };
+  novo.content_hash = receiptHash(novo);
+
+  db.prepare(`
+    UPDATE receipts SET amount=@amount, amount_words=@amount_words, description=@description,
+      reference=@reference, place=@place,
+      emitter_name=@emitter_name, emitter_document=@emitter_document, emitter_address=@emitter_address,
+      payer_name=@payer_name, payer_document=@payer_document, payer_address=@payer_address,
+      logo=@logo, signature_img=@signature_img, signer_name=@signer_name,
+      signer_document=@signer_document, signer_role=@signer_role,
+      template_id=@template_id, body=@body, style=@style, content_hash=@content_hash, version=@version
+    WHERE id=@id AND org_id=@org_id
+  `).run({ ...novo, id: cur.id, org_id: req.orgId });
 
   res.json(receiptView(db.prepare("SELECT * FROM receipts WHERE id = ?").get(cur.id)));
 });

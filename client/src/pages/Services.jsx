@@ -14,7 +14,9 @@ import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import api from "../api/client.js";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { currency } from "../utils.js";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RichEditor from "../components/RichEditor.jsx";
+import ReceiptSettings from "../components/ReceiptSettings.jsx";
 import LogoBanner, { BAND_H } from "../components/LogoBanner.jsx";
 
 const VAZIO = { name: "", category: "", default_price: "", contract_template: "", items_schema: [], contract_style: {} };
@@ -24,6 +26,7 @@ export default function Services() {
   const [services, setServices] = useState([]);
   const [draft, setDraft] = useState(null);
   const [msg, setMsg] = useState("");
+  const [reciboOpen, setReciboOpen] = useState(false); // modelo do recibo
 
   const load = () => api.get("/services").then((r) => setServices(r.data)).catch(() => {});
   useEffect(() => { load(); }, []);
@@ -92,7 +95,14 @@ export default function Services() {
   return (
     <>
       <PageHeader title="Serviços" subtitle="Seus serviços, a classificação e o modelo de contrato de cada um"
-        action={<Button variant="contained" startIcon={<AddIcon />} onClick={abrirNovo}>Novo serviço</Button>} />
+        action={
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", gap: 1 }}>
+            <Button variant="outlined" startIcon={<ReceiptLongIcon />} onClick={() => setReciboOpen(true)}>
+              Personalizar recibo
+            </Button>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={abrirNovo}>Novo serviço</Button>
+          </Stack>
+        } />
 
       {msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
 
@@ -123,6 +133,21 @@ export default function Services() {
           </Box>
         ))
       )}
+
+      {/* Modelo do recibo: texto, logo, assinatura salva e prévia ao vivo. */}
+      <Dialog open={reciboOpen} onClose={() => setReciboOpen(false)} fullScreen>
+        <AppBar position="sticky" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: "divider" }}>
+          <Toolbar sx={{ gap: 1 }}>
+            <Typography sx={{ flex: 1, fontWeight: 700 }}>Personalizar recibo</Typography>
+            <IconButton onClick={() => setReciboOpen(false)}><CloseIcon /></IconButton>
+          </Toolbar>
+        </AppBar>
+        <DialogContent sx={{ bgcolor: "action.hover" }}>
+          <Box sx={{ maxWidth: 1100, mx: "auto", py: 2 }}>
+            <ReceiptSettings />
+          </Box>
+        </DialogContent>
+      </Dialog>
 
       {/* Editor em TELA CHEIA */}
       <Dialog open={Boolean(draft)} onClose={() => setDraft(null)} fullScreen>
