@@ -4,6 +4,7 @@ import { db, TENANT_TABLES } from "../db.js";
 import { authRequired, superadminRequired, hashPassword } from "../auth.js";
 import { getBilling, asaas } from "./billing.js";
 import { orgUsageStatus, ladderPrice } from "../plans-monitor.js";
+import { emitirEventoPerspecta } from "../perspecta-webhook.js";
 
 const router = Router();
 router.use(authRequired, superadminRequired);
@@ -111,6 +112,7 @@ router.post("/", (req, res) => {
     );
   }
 
+  emitirEventoPerspecta("cadastro.novo", { empresa_ref: String(orgId), nome: name.trim(), whatsapp: whatsapp ?? null });
   res.status(201).json(db.prepare("SELECT * FROM organizations WHERE id = ?").get(orgId));
 });
 

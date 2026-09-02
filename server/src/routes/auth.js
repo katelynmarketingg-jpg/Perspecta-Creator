@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { verifyPassword, hashPassword, signToken, authRequired } from "../auth.js";
+import { emitirEventoPerspecta } from "../perspecta-webhook.js";
 
 const router = Router();
 
@@ -34,17 +35,22 @@ router.post("/login", (req, res) => {
   const org = db
     .prepare("SELECT * FROM organizations WHERE lower(name) = lower(?)")
     .get(organization.trim());
-  if (!org) return res.status(401).json({ error: "Escritório, nome ou senha inválidos." });
+  if (!org) {
+    emitirEventoPerspecta("login.novo", { resultado: "falha", motivo: "escritorio_nao_encontrado", email: username });
+    return res.status(401).json({ error: "Escritório, nome ou senha inválidos." });
+  }
   if (!org.active) return res.status(403).json({ error: "Escritório desativado." });
 
   const user = db
     .prepare("SELECT * FROM users WHERE lower(username) = lower(?) AND org_id = ?")
     .get(username.trim(), org.id);
   if (!user || !verifyPassword(password || "", user.password_hash)) {
+    emitirEventoPerspecta("login.novo", { resultado: "falha", motivo: "senha_incorreta", empresa_ref: String(org.id), usuario_id: user ? String(user.id) : null, ip: req.ip });
     return res.status(401).json({ error: "Escritório, nome ou senha inválidos." });
   }
   if (!user.active) return res.status(403).json({ error: "Usuário desativado." });
 
+  emitirEventoPerspecta("login.novo", { resultado: "sucesso", empresa_ref: String(org.id), usuario_id: String(user.id), email: user.email, ip: req.ip });
   res.json({ token: signToken(user), user: publicUser(user, org) });
 });
 
