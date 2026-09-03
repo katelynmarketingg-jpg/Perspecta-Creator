@@ -105,7 +105,24 @@ router.get("/", (req, res) => {
     )
     .all(params);
 
-  res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled, approved });
+  // Conteúdos já PROGRAMADOS (na etapa de conclusão / "Programados").
+  const pwhere = ["t.org_id = @org_id", "s.is_done = 1"];
+  if (req.query.client_id) pwhere.push("t.client_id = @client_id");
+  const programmed = db
+    .prepare(
+      `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
+              t.approval_status, t.client_id, t.cover_file_id, t.position,
+              c.name AS client_name, c.phone AS client_phone,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+       FROM tasks t
+       JOIN kanban_stages s ON s.id = t.stage_id
+       LEFT JOIN clients c ON c.id = t.client_id
+       WHERE ${pwhere.join(" AND ")}
+       ORDER BY t.scheduled_at DESC, t.id DESC`
+    )
+    .all(params);
+
+  res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled, approved, programmed });
 });
 
 // POST /api/distribution/:id/schedule — programa (manda para "Programados").

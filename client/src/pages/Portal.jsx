@@ -449,7 +449,8 @@ export default function Portal() {
         </Toolbar>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" sx={{ px: 2 }}>
           <Tab value="approvals" label={
-            <Badge color="primary" badgeContent={approvals.length} sx={{ "& .MuiBadge-badge": { right: -12 } }}>
+            <Badge color="primary" badgeContent={approvals.length} max={99}
+              sx={{ "& .MuiBadge-badge": { position: "static", transform: "none", ml: 0.75 } }}>
               Aprovações
             </Badge>
           } />
