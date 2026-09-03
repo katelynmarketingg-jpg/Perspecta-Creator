@@ -722,7 +722,8 @@ export default function Distribution() {
   const [checked, setChecked] = useState(() => new Set()); // ids marcados
   const [sendingBulk, setSendingBulk] = useState(false);
   const [approved, setApproved] = useState([]); // aprovados aguardando programação
-  const [postFilter, setPostFilter] = useState("para_aprovar"); // para_aprovar | aprovados
+  const [programmed, setProgrammed] = useState([]); // já programados
+  const [postFilter, setPostFilter] = useState("para_aprovar"); // para_aprovar | aprovados | programados
 
   const flash = (texto, tipo = "success") => { setMsg({ texto, tipo }); setTimeout(() => setMsg(null), 4000); };
   const fetchFile = useCallback((id) => api.get(`/files/${id}/download`, { responseType: "blob" }).then((r) => r.data), []);
@@ -737,8 +738,8 @@ export default function Distribution() {
     if (!loadedOnce.current && !opts.silent) setLoading(true);
     const params = clientFilter ? { client_id: clientFilter } : {};
     api.get("/distribution", { params })
-      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setStage(r.data.stage); })
-      .catch(() => { setItems([]); setScheduled([]); setApproved([]); })
+      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setProgrammed(r.data.programmed || []); setStage(r.data.stage); })
+      .catch(() => { setItems([]); setScheduled([]); setApproved([]); setProgrammed([]); })
       .finally(() => { setLoading(false); loadedOnce.current = true; });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -849,10 +850,44 @@ export default function Distribution() {
             <ToggleButtonGroup size="small" exclusive value={postFilter} onChange={(_, v) => v && setPostFilter(v)}>
               <ToggleButton value="para_aprovar">Para aprovar{items.length ? ` (${items.length})` : ""}</ToggleButton>
               <ToggleButton value="aprovados">Aprovados{approved.length ? ` (${approved.length})` : ""}</ToggleButton>
+              <ToggleButton value="programados">Programados{programmed.length ? ` (${programmed.length})` : ""}</ToggleButton>
             </ToggleButtonGroup>
           </Stack>
 
-          {postFilter === "aprovados" ? (
+          {postFilter === "programados" ? (
+            programmed.length === 0 ? (
+              <EmptyState message="Nada programado ainda. Quando você programa um conteúdo aprovado, ele aparece aqui." />
+            ) : (
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
+                {programmed.map((p) => {
+                  const ct = CONTENT_TYPES[p.content_type];
+                  return (
+                    <Card key={p.id}>
+                      <CardContent>
+                        <Stack spacing={1}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                            {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
+                            <Chip size="small" color="info" label="Programado 🗓️" />
+                          </Stack>
+                          {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
+                          <Media fileId={p.cover_file_id || p.file_id} height={150} />
+                          <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {p.scheduled_at
+                              ? new Date(p.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              : "Sem data"}
+                          </Typography>
+                          <Stack direction="row" spacing={1}>
+                            <Button size="small" variant="outlined" onClick={() => setSelected(p)}>Abrir</Button>
+                          </Stack>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </Box>
+            )
+          ) : postFilter === "aprovados" ? (
             approved.length === 0 ? (
               <EmptyState message="Nada aprovado aguardando programação. Quando o cliente aprova, o conteúdo aparece aqui para programar." />
             ) : (
