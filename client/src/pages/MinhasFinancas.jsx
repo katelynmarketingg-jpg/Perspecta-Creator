@@ -19,6 +19,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, BarChart
 import { useTheme } from "@mui/material/styles";
 import api from "../api/client.js";
 import { PageHeader, StatCard } from "../components/ui.jsx";
+import DebtsCard from "../components/DebtsCard.jsx";
 import { currency } from "../utils.js";
 
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -308,6 +309,9 @@ export default function MinhasFinancas() {
           ))}
         </Stack>
       )}
+
+      {/* Dívidas — o que eu devo e vou pagando aos poucos (separado das contas do mês) */}
+      <DebtsCard />
 
       {/* Novo / editar gasto */}
       <Dialog open={Boolean(draft)} onClose={() => setDraft(null)} fullWidth maxWidth="xs">
