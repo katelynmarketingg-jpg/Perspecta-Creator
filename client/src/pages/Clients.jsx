@@ -32,7 +32,7 @@ const EMPTY = {
   name: "", company: "", email: "", phone: "", drive_url: "", status: "active", notes: "",
   segment: "", address: "", document: "", legal_name: "", rep_name: "", rep_document: "",
   rep_doc_type: "cpf",
-  work_start: "", work_end: "", payment_day: "",
+  work_start: "", work_end: "", payment_day: "", billing_type: "pagante",
   portal_username: "", portal_email: "", portal_password: "",
   monthly: {},
   services: [], generate_contract: false,
@@ -137,6 +137,7 @@ export default function Clients() {
       ...EMPTY,
       ...row,
       payment_day: row.payment_day || "",
+      billing_type: row.billing_type || "pagante",
       monthly: row.monthly || {},
       services: row.services || [],
       generate_contract: false,
@@ -285,7 +286,15 @@ export default function Clients() {
                               ? `até ${formatDate(c.work_end)}${encerraMesQueVem ? " ⚠ renovar" : ""}`
                               : "prazo indeterminado"}
                           </div>
-                          {c.payment_day && <div style={{ fontSize: 12, color: "#888" }}>Pgto dia {c.payment_day}</div>}
+                          {c.billing_type && c.billing_type !== "pagante" ? (
+                            <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 700 }}>
+                              {c.billing_type === "permuta" ? "Permuta"
+                                : c.billing_type === "trabalho_proprio" ? "Trabalho próprio"
+                                : "Cortesia"} · não pagante
+                            </div>
+                          ) : c.payment_day && (
+                            <div style={{ fontSize: 12, color: "#888" }}>Pgto dia {c.payment_day}</div>
+                          )}
                         </>
                       );
                     })()}
@@ -421,7 +430,33 @@ export default function Clients() {
               <TextField label="Fim (vazio = indeterminado)" type="date" InputLabelProps={{ shrink: true }}
                 value={draft.work_end || ""} onChange={set("work_end")} fullWidth />
               <TextField label="Dia do pagamento" type="number" inputProps={{ min: 1, max: 31 }}
-                value={draft.payment_day} onChange={set("payment_day")} sx={{ minWidth: 140 }} />
+                value={draft.payment_day} onChange={set("payment_day")} sx={{ minWidth: 140 }}
+                disabled={draft.billing_type !== "pagante"} />
+            </Stack>
+            {/* Não pagante: permuta, trabalho próprio ou cortesia — não gera mensalidade no Financeiro. */}
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={draft.billing_type !== "pagante"}
+                    onChange={(e) => setDraft((d) => ({ ...d, billing_type: e.target.checked ? "permuta" : "pagante" }))}
+                  />
+                }
+                label="Cliente não pagante"
+              />
+              {draft.billing_type !== "pagante" && (
+                <TextField select label="Tipo" value={draft.billing_type}
+                  onChange={set("billing_type")} sx={{ minWidth: 220 }}>
+                  <MenuItem value="permuta">Permuta</MenuItem>
+                  <MenuItem value="trabalho_proprio">Trabalho próprio</MenuItem>
+                  <MenuItem value="cortesia">Cortesia</MenuItem>
+                </TextField>
+              )}
+              {draft.billing_type !== "pagante" && (
+                <Typography variant="caption" color="text.secondary">
+                  Não gera cobrança no Financeiro.
+                </Typography>
+              )}
             </Stack>
             <Divider>Serviços prestados</Divider>
             <Autocomplete
