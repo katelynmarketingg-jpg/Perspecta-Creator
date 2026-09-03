@@ -259,6 +259,8 @@ function loadMonthlyPlan(clientId) {
 
 // Mensalidades no financeiro: uma cobrança por mês da vigência do contrato.
 function generateReceivables(client, total, durationMonths) {
+  // Cliente não pagante (permuta / trabalho próprio / cortesia) não gera cobrança.
+  if (client.billing_type && client.billing_type !== "pagante") return 0;
   if (!client.payment_day || !total) return 0;
   const already = db
     .prepare("SELECT COUNT(*) AS n FROM financial_entries WHERE client_id = ? AND description LIKE 'Mensalidade%'")
@@ -324,12 +326,12 @@ router.post("/", (req, res) => {
     .prepare(
       `INSERT INTO clients (name, email, phone, company, drive_url, status, notes,
                             segment, address, document, legal_name, rep_name, rep_document, rep_doc_type,
-                            work_start, work_end, payment_day,
+                            work_start, work_end, payment_day, billing_type,
                             posts_per_month, videos_per_month,
                             portal_username, portal_email, portal_password_hash, org_id)
        VALUES (@name, @email, @phone, @company, @drive_url, @status, @notes,
                @segment, @address, @document, @legal_name, @rep_name, @rep_document, @rep_doc_type,
-               @work_start, @work_end, @payment_day,
+               @work_start, @work_end, @payment_day, @billing_type,
                @posts_per_month, @videos_per_month,
                @portal_username, @portal_email, @portal_password_hash, @org_id)`
     )
@@ -354,6 +356,7 @@ router.post("/", (req, res) => {
       work_start: b.work_start ?? null,
       work_end: b.work_end ?? null,
       payment_day: b.payment_day ? Number(b.payment_day) : null,
+      billing_type: b.billing_type || "pagante",
       portal_username: b.portal_username ? b.portal_username.trim() : null,
       portal_email: b.portal_email ? b.portal_email.toLowerCase() : null,
       portal_password_hash: b.portal_password ? hashPassword(b.portal_password) : null,
@@ -404,7 +407,7 @@ router.put("/:id", (req, res) => {
      segment=@segment, address=@address, document=@document, legal_name=@legal_name,
      rep_name=@rep_name, rep_document=@rep_document, rep_doc_type=@rep_doc_type,
      work_start=@work_start, work_end=@work_end,
-     payment_day=@payment_day, posts_per_month=@posts_per_month,
+     payment_day=@payment_day, billing_type=@billing_type, posts_per_month=@posts_per_month,
      videos_per_month=@videos_per_month, portal_username=@portal_username,
      portal_email=@portal_email,
      portal_password_hash=@portal_password_hash WHERE id=@id AND org_id=@org_id`

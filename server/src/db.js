@@ -408,6 +408,9 @@ ensureColumn("clients", "work_start", "work_start TEXT");      // início do tra
 ensureColumn("clients", "work_end", "work_end TEXT");          // fim (vazio = indeterminado)
 ensureColumn("clients", "payment_day", "payment_day INTEGER"); // dia do pagamento no mês
 ensureColumn("clients", "banner_file_id", "banner_file_id INTEGER"); // imagem/banner do cliente na Central
+// Tipo de cobrança: 'pagante' (padrão) | 'permuta' | 'trabalho_proprio' | 'cortesia'.
+// Não pagante não gera mensalidade no financeiro.
+ensureColumn("clients", "billing_type", "billing_type TEXT DEFAULT 'pagante'");
 // Plano mensal de conteúdo (gera o projeto base automaticamente).
 ensureColumn("clients", "posts_per_month", "posts_per_month INTEGER");
 ensureColumn("clients", "videos_per_month", "videos_per_month INTEGER");
