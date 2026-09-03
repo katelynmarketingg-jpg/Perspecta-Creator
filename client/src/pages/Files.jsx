@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, IconButton, Stack, TextField,
   MenuItem, Breadcrumbs, Link, Dialog, DialogTitle, DialogContent, DialogActions,
-  LinearProgress, Grid, Tooltip, Menu, Alert,
+  Grid, Tooltip, Menu, Alert,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -13,11 +13,12 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import ImageIcon from "@mui/icons-material/Image";
 import MovieIcon from "@mui/icons-material/Movie";
+import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-import EditIcon from "@mui/icons-material/Edit";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
+import { useUploads } from "../upload/UploadContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
 import { fileSize } from "../utils.js";
 
@@ -43,21 +44,18 @@ function authFetchBlob(id) {
   return fetch(`/api/files/${id}/download`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.blob());
 }
 
-// Cartão de um arquivo: miniatura (imagem) ou ícone + ações.
-// O nome fica embaixo e é editável com UM clique (clica fora → salva).
+// Cartão de um arquivo: a prévia sai NA PROPORÇÃO REAL da foto/vídeo (retrato de
+// reel fica em pé, paisagem fica deitado), carregada direto pela media_url
+// (streaming) — vídeo mostra o 1º quadro e abre pra tocar ao clicar.
+// O nome fica embaixo e é editável com CLIQUE DUPLO (clica fora ou Enter → salva).
 function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
-  const [src, setSrc] = useState(null);
   const [moreAnchor, setMoreAnchor] = useState(null);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(f.original_name || "");
+  const [viewing, setViewing] = useState(false);
   const ehImg = f.mime?.startsWith("image/");
+  const ehVideo = f.mime?.startsWith("video/");
   useEffect(() => { setName(f.original_name || ""); }, [f.original_name]);
-  useEffect(() => {
-    if (!ehImg) return undefined;
-    let url; let vivo = true;
-    authFetchBlob(f.id).then((b) => { if (vivo) { url = URL.createObjectURL(b); setSrc(url); } }).catch(() => {});
-    return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
-  }, [f.id, ehImg]);
 
   function salvar() {
     setEditing(false);
@@ -66,11 +64,25 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
     else setName(f.original_name || "");
   }
 
+  const podeAbrir = (ehImg || ehVideo) && f.media_url;
+  const midiaSx = { width: "100%", height: "auto", maxHeight: 280, objectFit: "contain", display: "block", bgcolor: ehVideo ? "#000" : "action.hover" };
+
   return (
     <Card variant="outlined" sx={{ overflow: "hidden" }}>
-      <Box sx={{ position: "relative", height: 110, bgcolor: "action.hover", display: "grid", placeItems: "center" }}>
-        {src ? <Box component="img" src={src} alt={f.original_name} sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          : fileIcon(f.mime)}
+      <Box sx={{ position: "relative", minHeight: 90, bgcolor: "action.hover", display: "grid", placeItems: "center",
+        cursor: podeAbrir ? "zoom-in" : "default" }}
+        onClick={() => podeAbrir && setViewing(true)}>
+        {ehImg && f.media_url ? (
+          <Box component="img" src={f.media_url} alt={f.original_name} loading="lazy" sx={midiaSx} />
+        ) : ehVideo && f.media_url ? (
+          <>
+            <Box component="video" src={`${f.media_url}#t=0.1`} preload="metadata" muted playsInline sx={midiaSx} />
+            <PlayCircleIcon sx={{ position: "absolute", fontSize: 44, color: "rgba(255,255,255,0.92)",
+              filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
+          </>
+        ) : (
+          <Box sx={{ py: 2 }}>{fileIcon(f.mime)}</Box>
+        )}
       </Box>
       <Box sx={{ p: 1 }}>
         {editing ? (
@@ -79,8 +91,8 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
             onKeyDown={(e) => { if (e.key === "Enter") salvar(); if (e.key === "Escape") { setName(f.original_name || ""); setEditing(false); } }}
             inputProps={{ style: { fontSize: 12, fontWeight: 600 } }} />
         ) : (
-          <Tooltip title="Clique para renomear">
-            <Typography noWrap variant="caption" onClick={() => setEditing(true)}
+          <Tooltip title="Clique duas vezes para renomear">
+            <Typography noWrap variant="caption" onDoubleClick={() => setEditing(true)}
               sx={{ display: "block", fontWeight: 600, cursor: "text", "&:hover": { textDecoration: "underline dotted" } }}>
               {f.original_name || "Sem nome"}
             </Typography>
@@ -108,6 +120,26 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
           </MenuItem>
         </Menu>
       )}
+      {/* Abrir em tela cheia: foto amplia, vídeo toca (na proporção real). */}
+      <Dialog open={viewing} onClose={() => setViewing(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ pr: 6 }}>
+          {f.original_name}
+          <IconButton onClick={() => setViewing(false)} sx={{ position: "absolute", right: 8, top: 8 }}>✕</IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ display: "grid", placeItems: "center", bgcolor: "#000", p: 1 }}>
+          {ehVideo ? (
+            <Box component="video" src={f.media_url} controls autoPlay playsInline
+              sx={{ width: "100%", maxHeight: "72vh", objectFit: "contain" }} />
+          ) : (
+            <Box component="img" src={f.media_url} alt={f.original_name}
+              sx={{ width: "100%", maxHeight: "72vh", objectFit: "contain" }} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button startIcon={<DownloadIcon />} onClick={() => onDownload(f)}>Baixar original</Button>
+          <Button onClick={() => setViewing(false)}>Fechar</Button>
+        </DialogActions>
+      </Dialog>
     </Card>
   );
 }
@@ -121,7 +153,8 @@ export default function Files() {
   const [files, setFiles] = useState([]);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [uploadingZip, setUploadingZip] = useState(false);
+  const { enqueue } = useUploads();
   const docInputRef = useRef(null);
   const zipInputRef = useRef(null);
   const [zipMsg, setZipMsg] = useState("");
@@ -181,27 +214,20 @@ export default function Files() {
     if (!confirm("Excluir pasta e todo o conteúdo dela?")) return;
     await api.delete(`/files/folders/${id}`); loadDocs();
   }
-  async function enviarDocs(fileList) {
+  // Envia em SEGUNDO PLANO: solta os arquivos na fila e retorna na hora. A Katelyn
+  // pode sair da galeria e seguir usando o sistema; o painel no canto mostra o
+  // progresso e, ao terminar, o canal ao vivo recarrega esta tela sozinho.
+  function enviarDocs(fileList) {
     if (!fileList?.length) return;
-    setUploading(true);
-    try {
-      const form = new FormData();
-      [...fileList].forEach((f) => form.append("files", f));
-      if (clientId) form.append("client_id", clientId);
-      if (currentFolder) form.append("folder_id", currentFolder);
-      await api.post("/files/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
-      loadDocs();
-    } finally {
-      setUploading(false);
-      if (docInputRef.current) docInputRef.current.value = "";
-    }
+    enqueue(fileList, { clientId: clientId || null, folderId: currentFolder || null });
+    if (docInputRef.current) docInputRef.current.value = "";
   }
 
   // ---- Importar em massa por .ZIP (para a pasta atual) ----
   async function enviarZip(file) {
     if (!file) return;
-    setUploading(true);
-    setZipMsg("");
+    setUploadingZip(true);
+    setZipMsg("Importando o .ZIP… pode continuar usando o sistema.");
     try {
       const form = new FormData();
       form.append("zip", file);
@@ -213,7 +239,7 @@ export default function Files() {
     } catch (e) {
       setZipMsg(e.response?.data?.error || "Não foi possível importar o ZIP.");
     } finally {
-      setUploading(false);
+      setUploadingZip(false);
       if (zipInputRef.current) zipInputRef.current.value = "";
       setTimeout(() => setZipMsg(""), 8000);
     }
@@ -267,8 +293,6 @@ export default function Files() {
         <>
           <Button size="small" onClick={() => selectClient("")} sx={{ mb: 1 }}>← Todos os clientes</Button>
 
-          {uploading && <LinearProgress sx={{ mb: 2, borderRadius: 2 }} />}
-
           <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
             <Button variant="outlined" startIcon={<CreateNewFolderIcon />} onClick={() => setNewFolderOpen(true)}>Nova pasta</Button>
             <Button variant="contained" startIcon={<UploadFileIcon />} onClick={() => docInputRef.current?.click()}>
@@ -276,7 +300,7 @@ export default function Files() {
             </Button>
             <input ref={docInputRef} type="file" multiple hidden onChange={(e) => enviarDocs(e.target.files)} />
             <Tooltip title="Envie um .ZIP com fotos/vídeos — importa tudo de uma vez para aqui">
-              <Button variant="outlined" startIcon={<DriveFileMoveIcon />} onClick={() => zipInputRef.current?.click()}>Importar .ZIP</Button>
+              <Button variant="outlined" startIcon={<DriveFileMoveIcon />} disabled={uploadingZip} onClick={() => zipInputRef.current?.click()}>Importar .ZIP</Button>
             </Tooltip>
             <input ref={zipInputRef} type="file" accept=".zip,application/zip" hidden onChange={(e) => enviarZip(e.target.files?.[0])} />
             <Breadcrumbs>

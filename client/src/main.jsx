@@ -6,6 +6,7 @@ import { getTheme } from "./theme.js";
 import { ColorModeContext } from "./ColorModeContext.jsx";
 import { AuthProvider } from "./auth/AuthContext.jsx";
 import { LiveProvider } from "./live/LiveContext.jsx";
+import { UploadProvider } from "./upload/UploadContext.jsx";
 import App from "./App.jsx";
 
 const MODES = ["light", "sepia", "dark"]; // claro → bege → escuro
@@ -40,7 +41,9 @@ function Root() {
         <BrowserRouter>
           <AuthProvider>
             <LiveProvider>
-              <App />
+              <UploadProvider>
+                <App />
+              </UploadProvider>
             </LiveProvider>
           </AuthProvider>
         </BrowserRouter>
