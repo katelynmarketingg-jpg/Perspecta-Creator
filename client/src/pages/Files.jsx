@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, IconButton, Stack, TextField,
   MenuItem, Breadcrumbs, Link, Dialog, DialogTitle, DialogContent, DialogActions,
-  LinearProgress, Grid, Tooltip, Menu, Alert,
+  LinearProgress, Grid, Tooltip, Menu, Alert, CircularProgress,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -16,6 +16,8 @@ import MovieIcon from "@mui/icons-material/Movie";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import EditIcon from "@mui/icons-material/Edit";
+import PlayCircleIcon from "@mui/icons-material/PlayCircle";
+import CloseIcon from "@mui/icons-material/Close";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
@@ -51,6 +53,13 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(f.original_name || "");
   const ehImg = f.mime?.startsWith("image/");
+  const ehVideo = f.mime?.startsWith("video/");
+  const ehMedia = ehImg || ehVideo;
+  // Visualizador (modal) — o vídeo só é buscado quando você clica (são arquivos
+  // grandes; não faz sentido baixar todos só para a miniatura).
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewUrl, setViewUrl] = useState(null);
+  const [viewLoading, setViewLoading] = useState(false);
   useEffect(() => { setName(f.original_name || ""); }, [f.original_name]);
   useEffect(() => {
     if (!ehImg) return undefined;
@@ -58,6 +67,18 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
     authFetchBlob(f.id).then((b) => { if (vivo) { url = URL.createObjectURL(b); setSrc(url); } }).catch(() => {});
     return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
   }, [f.id, ehImg]);
+  useEffect(() => () => { if (viewUrl) URL.revokeObjectURL(viewUrl); }, [viewUrl]);
+
+  async function abrirViewer() {
+    if (!ehMedia) return;
+    setViewOpen(true);
+    if (ehVideo && !viewUrl) {
+      setViewLoading(true);
+      try { const b = await authFetchBlob(f.id); setViewUrl(URL.createObjectURL(b)); }
+      catch { /* ignora */ }
+      finally { setViewLoading(false); }
+    }
+  }
 
   function salvar() {
     setEditing(false);
@@ -68,10 +89,48 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
 
   return (
     <Card variant="outlined" sx={{ overflow: "hidden" }}>
-      <Box sx={{ position: "relative", height: 110, bgcolor: "action.hover", display: "grid", placeItems: "center" }}>
+      <Box onClick={ehMedia ? abrirViewer : undefined}
+        sx={{ position: "relative", height: 110, bgcolor: "action.hover", display: "grid", placeItems: "center",
+          cursor: ehMedia ? "pointer" : "default", "&:hover .lupa": { opacity: 1 } }}>
         {src ? <Box component="img" src={src} alt={f.original_name} sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
           : fileIcon(f.mime)}
+        {ehVideo && (
+          <PlayCircleIcon sx={{ position: "absolute", color: "#fff", fontSize: 46,
+            filter: "drop-shadow(0 1px 4px rgba(0,0,0,.6))" }} />
+        )}
+        {ehMedia && (
+          <Box className="lupa" sx={{ position: "absolute", inset: 0, bgcolor: "rgba(0,0,0,.28)",
+            opacity: 0, transition: "opacity .15s", display: "grid", placeItems: "end center", pb: 0.5 }}>
+            <Typography sx={{ color: "#fff", fontSize: 10.5, fontWeight: 700 }}>
+              {ehVideo ? "▶ ver vídeo" : "🔍 ampliar"}
+            </Typography>
+          </Box>
+        )}
       </Box>
+
+      <Dialog open={viewOpen} onClose={() => setViewOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, pr: 1 }}>
+          <Typography noWrap sx={{ flex: 1, fontWeight: 600 }}>{f.original_name}</Typography>
+          <IconButton onClick={() => setViewOpen(false)}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ display: "grid", placeItems: "center", bgcolor: "#000", p: 1 }}>
+          {ehVideo ? (
+            viewLoading || !viewUrl
+              ? <Box sx={{ py: 6, display: "grid", placeItems: "center", gap: 1 }}>
+                  <CircularProgress /><Typography variant="caption" sx={{ color: "#fff" }}>Carregando o vídeo…</Typography>
+                </Box>
+              : <Box component="video" src={viewUrl} controls autoPlay
+                  sx={{ width: "100%", maxHeight: "70vh", display: "block" }} />
+          ) : (
+            <Box component="img" src={src} alt={f.original_name}
+              sx={{ maxWidth: "100%", maxHeight: "70vh", objectFit: "contain" }} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button startIcon={<DownloadIcon />} onClick={() => onDownload(f)}>Baixar original</Button>
+          <Button onClick={() => setViewOpen(false)}>Fechar</Button>
+        </DialogActions>
+      </Dialog>
       <Box sx={{ p: 1 }}>
         {editing ? (
           <TextField value={name} onChange={(e) => setName(e.target.value)} autoFocus fullWidth variant="standard"
