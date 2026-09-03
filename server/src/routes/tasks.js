@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { stopTimersForTask } from "./time.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
+import { broadcast } from "../live.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("tarefas"));
@@ -296,6 +297,54 @@ router.delete("/all", (req, res) => {
 router.delete("/:id", (req, res) => {
   db.prepare("DELETE FROM tasks WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
+});
+
+// POST /api/tasks/:id/conclude-captacao — conclui uma captação e ABRE prioridades.
+// Marca a captação como concluída (completed_at + move para a etapa de conclusão,
+// sem exigir data, porque captação não é peça a programar) e cria uma prioridade
+// para cada pessoa escolhida, com aviso mirado (o sininho de cada uma acende).
+router.post("/:id/conclude-captacao", (req, res) => {
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!task) return res.status(404).json({ error: "Tarefa não encontrada." });
+
+  const ids = Array.isArray(req.body?.user_ids) ? req.body.user_ids.filter(Boolean) : [];
+  if (ids.length === 0) return res.status(400).json({ error: "Escolha ao menos uma pessoa para avisar." });
+  const LEVELS = ["alta", "media", "baixa"];
+  const level = LEVELS.includes(req.body?.level) ? req.body.level : "alta";
+  const message = (req.body?.message || "").trim() || `Captação concluída: ${task.title}`;
+  const cli = task.client_id ? db.prepare("SELECT name FROM clients WHERE id = ?").get(task.client_id)?.name : null;
+
+  const insPrio = db.prepare(
+    `INSERT INTO priorities (org_id, client_id, message, level, assignee_id, created_by, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending')`
+  );
+  const insNotif = db.prepare(
+    "INSERT INTO notifications (audience, client_id, task_id, message, org_id, user_id) VALUES ('agency', ?, ?, ?, ?, ?)"
+  );
+  const doneStage = db.prepare(
+    "SELECT id FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1"
+  ).get(req.orgId);
+
+  const tx = db.transaction(() => {
+    for (const uid of ids) {
+      insPrio.run(req.orgId, task.client_id || null, message, level, uid, req.user?.id || null);
+      insNotif.run(task.client_id || null, task.id,
+        `✅ Captação concluída${cli ? ` — ${cli}` : ""}: ${message.slice(0, 80)}`, req.orgId, uid);
+    }
+    if (doneStage) {
+      db.prepare("UPDATE tasks SET completed_at = datetime('now'), stage_id = ? WHERE id = ? AND org_id = ?")
+        .run(doneStage.id, task.id, req.orgId);
+    } else {
+      db.prepare("UPDATE tasks SET completed_at = datetime('now') WHERE id = ? AND org_id = ?")
+        .run(task.id, req.orgId);
+    }
+  });
+  tx();
+
+  broadcast(req.orgId, "notifications");
+  broadcast(req.orgId, "priorities");
+  broadcast(req.orgId, "tasks");
+  res.json({ ok: true, priorities: ids.length });
 });
 
 export default router;

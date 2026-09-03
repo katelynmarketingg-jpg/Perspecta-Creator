@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Card, CardContent, TextField, Stack, Typography, Chip, Box, Divider, Button,
-  MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
+  MenuItem, ListSubheader, Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
   FormControlLabel, Switch, Link, Tooltip, ToggleButtonGroup, ToggleButton,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -25,7 +25,7 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
 
 const EMPTY = {
-  title: "", type_id: "", client_id: "", start_at: "", end_at: "",
+  title: "", type_id: "", client_id: "", prospect_id: "", start_at: "", end_at: "",
   owner_id: "", notes: "", doc_content: "", link_url: "", visible_to_client: true,
 };
 
@@ -38,6 +38,7 @@ export default function Agenda() {
   const [team, setTeam] = useState([]);
   const [types, setTypes] = useState([]);
   const [clients, setClients] = useState([]);
+  const [prospects, setProspects] = useState([]);
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
@@ -47,6 +48,7 @@ export default function Agenda() {
     api.get("/users/team").then((r) => setTeam(r.data)).catch(() => {});
     api.get("/events/types").then((r) => setTypes(r.data)).catch(() => {});
     api.get("/clients").then((r) => setClients(r.data)).catch(() => {});
+    api.get("/prospects").then((r) => setProspects(r.data || [])).catch(() => {});
   }, []);
 
   // Intervalo (from/to) da semana ou do mês que contém a data.
@@ -123,6 +125,7 @@ export default function Agenda() {
       ...ev,
       type_id: ev.type_id || "",
       client_id: ev.client_id || "",
+      prospect_id: ev.prospect_id || "",
       owner_id: ev.owner_id || "",
       start_at: ev.start_at ? ev.start_at.slice(0, 16) : "",
       end_at: ev.end_at ? ev.end_at.slice(0, 16) : "",
@@ -138,6 +141,7 @@ export default function Agenda() {
       ...draft,
       type_id: draft.type_id || null,
       client_id: draft.client_id || null,
+      prospect_id: draft.prospect_id || null,
       owner_id: draft.owner_id || null,
     };
     if (draft.id) await api.put(`/events/${draft.id}`, payload);
@@ -267,6 +271,7 @@ export default function Agenda() {
                     <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: "wrap", gap: 0.5 }}>
                       {e.type_name && <Chip size="small" label={e.type_name} sx={{ bgcolor: e.type_color, color: "#fff" }} />}
                       {e.client_name && <Chip size="small" variant="outlined" color="primary" label={e.client_name} />}
+                      {e.prospect_name && <Chip size="small" variant="outlined" color="secondary" label={`🎯 ${e.prospect_name}`} />}
                       {e.owner_name && <Chip size="small" variant="outlined" label={`👤 ${e.owner_name}`} />}
                       {Boolean(e.visible_to_client) && e.client_id && (
                         <Tooltip title="O cliente vê este compromisso no portal">
@@ -323,10 +328,24 @@ export default function Agenda() {
               <TextField label="Fim" type="datetime-local" InputLabelProps={{ shrink: true }}
                 value={draft.end_at} onChange={set("end_at")} fullWidth />
             </Stack>
-            <TextField select label="Cliente vinculado" value={draft.client_id} onChange={set("client_id")} fullWidth
-              helperText="Se marcado como visível, aparece no portal do cliente.">
-              <MenuItem value="">Sem cliente</MenuItem>
-              {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            <TextField select label="Cliente vinculado" fullWidth
+              value={draft.prospect_id ? `p:${draft.prospect_id}` : draft.client_id ? `c:${draft.client_id}` : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v.startsWith("p:")) setDraft((d) => ({ ...d, prospect_id: Number(v.slice(2)), client_id: "", visible_to_client: false }));
+                else if (v.startsWith("c:")) setDraft((d) => ({ ...d, client_id: Number(v.slice(2)), prospect_id: "" }));
+                else setDraft((d) => ({ ...d, client_id: "", prospect_id: "" }));
+              }}
+              helperText="Cliente: se visível, aparece no portal. Possível cliente vem da Prospecção.">
+              <MenuItem value="">Sem vínculo</MenuItem>
+              {clients.length > 0 && <ListSubheader>Clientes</ListSubheader>}
+              {clients.map((c) => <MenuItem key={`c${c.id}`} value={`c:${c.id}`}>{c.name}</MenuItem>)}
+              {prospects.length > 0 && <ListSubheader>Possíveis clientes (Prospecção)</ListSubheader>}
+              {prospects.map((p) => (
+                <MenuItem key={`p${p.id}`} value={`p:${p.id}`}>
+                  {p.name}{p.company ? ` — ${p.company}` : ""}
+                </MenuItem>
+              ))}
             </TextField>
             {draft.client_id && (
               <FormControlLabel

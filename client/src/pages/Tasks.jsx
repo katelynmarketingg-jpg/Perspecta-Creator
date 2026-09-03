@@ -17,6 +17,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, CardSkeleton } from "../components/ui.jsx";
@@ -82,6 +83,8 @@ export default function Tasks() {
   const [dragOver, setDragOver] = useState(null);
   // Diálogo de programação: aberto quando a tarefa vai para "Concluído" sem data.
   const [schedule, setSchedule] = useState(null); // { taskId, stageId, value }
+  // Diálogo "Concluir captação": escolhe os logins que recebem a prioridade.
+  const [concluirCap, setConcluirCap] = useState(null); // { task, users:[], message, level, saving }
   // Anexos (arte do post): arquivos do cliente selecionados na tarefa.
   const [clientFiles, setClientFiles] = useState([]);
   const [attachments, setAttachments] = useState([]);
@@ -310,6 +313,34 @@ export default function Tasks() {
     const idx = stages.findIndex((s) => s.id === task.stage_id);
     const next = stages[idx + dir];
     if (next) moveToStage(task.id, next.id);
+  }
+
+  // Abre o diálogo de concluir captação, já com um recado padrão.
+  function abrirConcluir(task) {
+    setConcluirCap({
+      task,
+      users: task.assignee_id ? [task.assignee_id] : [],
+      message: `Captação concluída${task.client_name ? ` — ${task.client_name}` : ""}: seguir para a criação/edição.`,
+      level: "alta",
+      saving: false,
+    });
+  }
+  function toggleConcluirUser(id) {
+    setConcluirCap((c) => c && ({ ...c, users: c.users.includes(id) ? c.users.filter((x) => x !== id) : [...c.users, id] }));
+  }
+  async function concluirCaptacao() {
+    if (!concluirCap || concluirCap.users.length === 0) return;
+    setConcluirCap((c) => ({ ...c, saving: true }));
+    try {
+      await api.post(`/tasks/${concluirCap.task.id}/conclude-captacao`, {
+        user_ids: concluirCap.users, message: concluirCap.message, level: concluirCap.level,
+      });
+      setConcluirCap(null);
+      load();
+    } catch (err) {
+      alert(err.response?.data?.error || "Não foi possível concluir a captação.");
+      setConcluirCap((c) => c && ({ ...c, saving: false }));
+    }
   }
 
   function handleDragStart(e, task) {
@@ -602,6 +633,14 @@ export default function Tasks() {
                         </span>
                       </Tooltip>
                     )}
+                    {/* Captação: concluir e abrir prioridade para os logins escolhidos */}
+                    {t.content_type === "captacao" && !t.completed_at && (
+                      <Button fullWidth size="small" variant="contained" color="success"
+                        startIcon={<CheckCircleIcon />} sx={{ mt: 1 }}
+                        onClick={(e) => { e.stopPropagation(); abrirConcluir(t); }}>
+                        Concluir captação
+                      </Button>
+                    )}
                     <Divider sx={{ my: 1 }} />
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
                       <Tooltip title="Etapa anterior">
@@ -788,6 +827,48 @@ export default function Tasks() {
             }}
           >
             Programar e concluir
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Concluir captação → avisa os logins escolhidos criando uma prioridade */}
+      <Dialog open={Boolean(concluirCap)} onClose={() => setConcluirCap(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Concluir captação</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            A captação será marcada como <strong>concluída</strong> e vira uma <strong>prioridade</strong>
+            para quem você escolher — cada pessoa recebe o aviso.
+          </Typography>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Avisar quem</Typography>
+          <Stack sx={{ mb: 2, maxHeight: "34vh", overflowY: "auto", border: 1, borderColor: "divider", borderRadius: 1 }}>
+            {team.length === 0 && (
+              <Typography variant="caption" color="text.secondary" sx={{ p: 1.5 }}>Nenhum usuário cadastrado.</Typography>
+            )}
+            {team.map((u) => (
+              <Stack key={u.id} direction="row" alignItems="center" spacing={1}
+                onClick={() => toggleConcluirUser(u.id)}
+                sx={{ px: 1, py: 0.25, cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}>
+                <Checkbox size="small" checked={concluirCap?.users.includes(u.id) || false} />
+                <Typography variant="body2">{u.name}{u.job_title ? ` · ${u.job_title}` : ""}</Typography>
+              </Stack>
+            ))}
+          </Stack>
+          <TextField label="Recado da prioridade" fullWidth multiline minRows={2} sx={{ mb: 2 }}
+            value={concluirCap?.message || ""}
+            onChange={(e) => setConcluirCap((c) => c && ({ ...c, message: e.target.value }))} />
+          <TextField select label="Nível" fullWidth value={concluirCap?.level || "alta"}
+            onChange={(e) => setConcluirCap((c) => c && ({ ...c, level: e.target.value }))}>
+            <MenuItem value="alta">Alta</MenuItem>
+            <MenuItem value="media">Média</MenuItem>
+            <MenuItem value="baixa">Baixa</MenuItem>
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConcluirCap(null)}>Cancelar</Button>
+          <Button variant="contained" color="success" startIcon={<CheckCircleIcon />}
+            disabled={!concluirCap?.users.length || concluirCap?.saving}
+            onClick={concluirCaptacao}>
+            {concluirCap?.saving ? "Concluindo…" : "Concluir e avisar"}
           </Button>
         </DialogActions>
       </Dialog>
