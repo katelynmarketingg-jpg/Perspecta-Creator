@@ -7,10 +7,11 @@ router.use(authRequired, moduleAllowed("agenda"));
 
 const SELECT = `
   SELECT e.*, et.name AS type_name, et.color AS type_color, c.name AS client_name,
-         u.name AS owner_name
+         pr.name AS prospect_name, u.name AS owner_name
   FROM events e
   LEFT JOIN event_types et ON et.id = e.type_id
   LEFT JOIN clients c ON c.id = e.client_id
+  LEFT JOIN prospects pr ON pr.id = e.prospect_id
   LEFT JOIN users u ON u.id = e.owner_id`;
 
 // ---- Tipos de evento ----------------------------------------------------
@@ -42,15 +43,16 @@ router.post("/", (req, res) => {
   if (!b.title || !b.start_at) return res.status(400).json({ error: "Título e início são obrigatórios." });
   const info = db
     .prepare(
-      `INSERT INTO events (title, type_id, client_id, start_at, end_at, notes,
+      `INSERT INTO events (title, type_id, client_id, prospect_id, start_at, end_at, notes,
                            owner_id, doc_content, link_url, visible_to_client, org_id)
-       VALUES (@title, @type_id, @client_id, @start_at, @end_at, @notes,
+       VALUES (@title, @type_id, @client_id, @prospect_id, @start_at, @end_at, @notes,
                @owner_id, @doc_content, @link_url, @visible_to_client, @org_id)`
     )
     .run({
       title: b.title,
       type_id: b.type_id ?? null,
       client_id: b.client_id ?? null,
+      prospect_id: b.prospect_id ?? null,
       start_at: b.start_at,
       end_at: b.end_at ?? null,
       notes: b.notes ?? null,
@@ -74,7 +76,7 @@ router.put("/:id", (req, res) => {
     org_id: req.orgId,
   };
   db.prepare(
-    `UPDATE events SET title=@title, type_id=@type_id, client_id=@client_id,
+    `UPDATE events SET title=@title, type_id=@type_id, client_id=@client_id, prospect_id=@prospect_id,
      start_at=@start_at, end_at=@end_at, notes=@notes, owner_id=@owner_id,
      doc_content=@doc_content, link_url=@link_url, visible_to_client=@visible_to_client
      WHERE id=@id AND org_id=@org_id`

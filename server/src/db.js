@@ -401,6 +401,7 @@ ensureColumn("events", "link_url", "link_url TEXT");
 ensureColumn("events", "visible_to_client", "visible_to_client INTEGER NOT NULL DEFAULT 1");
 // Evento gerado a partir de uma tarefa de captação/reunião (para não duplicar).
 ensureColumn("events", "task_id", "task_id INTEGER");
+ensureColumn("events", "prospect_id", "prospect_id INTEGER REFERENCES prospects(id) ON DELETE SET NULL");
 // Meios de pagamento (preenchidos manualmente ou por integração futura).
 ensureColumn("financial_entries", "payment_link", "payment_link TEXT");
 ensureColumn("financial_entries", "pix_code", "pix_code TEXT");
