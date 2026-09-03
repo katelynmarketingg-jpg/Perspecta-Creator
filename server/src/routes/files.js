@@ -15,13 +15,19 @@ export const sharedRouter = Router();
 const router = Router();
 
 // Serve um arquivo para o cliente HTTP, esteja ele no R2 ou no disco.
-async function serveFile(res, file, asAttachment) {
+// Quando `asAttachment` é falso, entrega "inline" (o navegador mostra a foto ou
+// toca o vídeo direto na tela) e respeita Range (bytes=…) — é isso que faz o
+// vídeo abrir na hora, mostrar o 1º quadro e deixar arrastar sem baixar tudo.
+async function serveFile(res, file, asAttachment, range) {
   if (isR2Path(file.stored_path)) {
     try {
-      const obj = await getR2Object(r2Key(file.stored_path));
-      if (obj.ContentType) res.setHeader("Content-Type", obj.ContentType);
+      const obj = await getR2Object(r2Key(file.stored_path), asAttachment ? undefined : range);
+      res.setHeader("Content-Type", obj.ContentType || file.mime || "application/octet-stream");
+      if (!asAttachment) res.setHeader("Accept-Ranges", "bytes");
       if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
+      if (!asAttachment && obj.ContentRange) { res.status(206); res.setHeader("Content-Range", obj.ContentRange); }
       if (asAttachment) res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.original_name)}"`);
+      else res.setHeader("Cache-Control", "private, max-age=86400");
       obj.Body.pipe(res);
     } catch {
       res.status(404).json({ error: "Arquivo não encontrado." });
@@ -30,7 +36,17 @@ async function serveFile(res, file, asAttachment) {
   }
   if (!existsSync(file.stored_path)) return res.status(404).json({ error: "Arquivo não encontrado." });
   if (asAttachment) return res.download(file.stored_path, file.original_name);
-  res.sendFile(file.stored_path);
+  // sendFile já trata Range e define Accept-Ranges/Content-Type sozinho.
+  res.setHeader("Cache-Control", "private, max-age=86400");
+  res.sendFile(file.stored_path, { headers: { "Content-Type": file.mime || undefined } });
+}
+
+// Assina uma URL "inline" curta para uma foto/vídeo — o <img>/<video> carrega
+// direto por ela (sem cabeçalho de autenticação), com streaming e cache. Vai
+// junto de cada arquivo na listagem, então a galeria mostra a prévia na hora.
+function mediaUrl(fileId, orgId) {
+  const ticket = jwt.sign({ file_id: fileId, org_id: orgId, inline: true }, JWT_SECRET, { expiresIn: "12h" });
+  return `/api/files/shared/${ticket}`;
 }
 
 // Remove o arquivo físico (R2 ou disco).
@@ -69,7 +85,7 @@ sharedRouter.get("/shared/:ticket", async (req, res) => {
     .prepare("SELECT * FROM files WHERE id = ? AND org_id = ?")
     .get(payload.file_id, payload.org_id);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
-  await serveFile(res, file, false);
+  await serveFile(res, file, false, req.headers.range);
 });
 
 router.use(authRequired, moduleAllowed("arquivos"));
@@ -145,14 +161,16 @@ router.get("/", (req, res) => {
     where.push(folder_id ? "f.folder_id = @folder_id" : "f.folder_id IS NULL");
     if (folder_id) params.folder_id = folder_id;
   }
-  res.json(
-    db.prepare(
-      `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.folder_id, f.client_id,
-              f.expires_at, f.keep_forever, f.stage, c.name AS client_name
-       FROM files f LEFT JOIN clients c ON c.id = f.client_id
-       WHERE ${where.join(" AND ")} ORDER BY f.original_name`
-    ).all(params)
-  );
+  const rows = db.prepare(
+    `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.folder_id, f.client_id,
+            f.expires_at, f.keep_forever, f.stage, c.name AS client_name
+     FROM files f LEFT JOIN clients c ON c.id = f.client_id
+     WHERE ${where.join(" AND ")} ORDER BY f.original_name`
+  ).all(params);
+  // media_url: link inline (streaming) para o <img>/<video> mostrar a prévia na
+  // hora, sem cada tela ter de baixar o arquivo inteiro só para ver a miniatura.
+  for (const f of rows) f.media_url = mediaUrl(f.id, req.orgId);
+  res.json(rows);
 });
 
 // POST /api/files/upload — multipart; aceita vários arquivos de uma vez.

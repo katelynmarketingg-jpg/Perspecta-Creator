@@ -42,8 +42,11 @@ export async function uploadFileToR2(localPath, key, contentType) {
 }
 
 // Retorna o objeto do R2 (Body é um stream; tem ContentType e ContentLength).
-export async function getR2Object(key) {
-  return client.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+// Passe `range` (ex.: "bytes=0-") para pedir só um trecho — usado no streaming
+// de vídeo, que deixa o player mostrar o primeiro quadro e "arrastar" a barra
+// sem baixar o arquivo inteiro.
+export async function getR2Object(key, range) {
+  return client.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key, ...(range ? { Range: range } : {}) }));
 }
 
 export async function deleteR2Object(key) {
