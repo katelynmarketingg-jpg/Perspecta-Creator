@@ -163,6 +163,50 @@ function ensureMonth(org, user, ym) {
   tx();
 }
 
+// Verifica se um mês já tem uma conta com aquele nome (pra não duplicar).
+const nameExistsInMonth = db.prepare(
+  "SELECT 1 FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? AND lower(name)=lower(?) LIMIT 1"
+);
+
+// Propaga uma conta recorrente (recém-criada ou recém-marcada como fixa/parcelada)
+// para os PRÓXIMOS meses QUE JÁ EXISTEM (que já foram abertos). Meses futuros
+// ainda vazios são preenchidos sozinhos pelo ensureMonth quando você entra neles.
+// Sem isso, marcar algo como "fixa"/"8/10" só repetia em mês vazio — se o mês
+// seguinte já tinha lançamentos, a conta nova não aparecia lá. Não duplica: pula
+// meses que já têm uma conta com o mesmo nome.
+function propagateForward(org, user, startYm, row) {
+  if (!row.recurring) return 0;
+  if (isPerspectiva(row.category)) return 0; // Perspectiva vive no Financeiro
+  const total = row.installment_total != null ? Number(row.installment_total) : null;
+  const baseNum = Number(row.installment_num) || 0;
+  let created = 0;
+  const tx = db.transaction(() => {
+    let m = ymNext(startYm);
+    for (let step = 0; step < 240; step++) {      // trava de segurança
+      if (!monthHasRows(org, user, m)) break;      // fim do que já existe
+      let parcela = row.parcela, curNum = null;
+      if (total != null) {
+        curNum = baseNum + (step + 1);
+        if (curNum > total) break;                 // acabaram as parcelas
+        parcela = `${curNum}/${total}`;
+      }
+      if (!nameExistsInMonth.get(org, user, m, row.name)) {
+        insert.run({
+          org_id: org, user_id: user, ym: m, name: row.name,
+          parcela, amount: Number(row.amount) || 0, method: row.method ?? null,
+          category: row.category ?? null, paid: 0, position: Number(row.position) || 0,
+          recurring: 1, installment_num: total != null ? curNum : null,
+          installment_total: total, import_id: null,
+        });
+        created++;
+      }
+      m = ymNext(m);
+    }
+  });
+  tx();
+  return created;
+}
+
 // POST /api/personal-finance  { ym, name, ... }
 router.post("/", (req, res) => {
   const b = req.body || {};
@@ -178,7 +222,11 @@ router.post("/", (req, res) => {
     paid: b.paid ? 1 : 0, position: Number(b.position) || 0,
     recurring, installment_num: b.installment_num ?? pi.num, installment_total: b.installment_total ?? pi.total, import_id: null,
   });
-  res.status(201).json(db.prepare("SELECT * FROM personal_finance WHERE id=?").get(info.lastInsertRowid));
+  const created = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(info.lastInsertRowid);
+  // Se é fixa/parcelada, já leva pros próximos meses que existem (os vazios são
+  // preenchidos sozinhos quando ela entrar neles).
+  if (created.recurring) propagateForward(req.orgId, uid(req), ym, created);
+  res.status(201).json(created);
 });
 
 // POST /api/personal-finance/import { ym, entries:[...], replace, label } — importa o CSV.
@@ -324,7 +372,13 @@ router.put("/:id", (req, res) => {
        category=@category, paid=@paid, recurring=@recurring, installment_num=@installment_num,
        installment_total=@installment_total WHERE id=@id AND user_id=@user_id`
   ).run({ ...m, id: req.params.id, user_id: uid(req) });
-  res.json(db.prepare("SELECT * FROM personal_finance WHERE id=?").get(req.params.id));
+  const updated = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(req.params.id);
+  // Virou fixa/parcelada (ou mudou a parcela)? Repete pros próximos meses que já
+  // existem — sem duplicar os que já têm essa conta.
+  if (updated.recurring && (b.parcela !== undefined || b.recurring !== undefined)) {
+    propagateForward(req.orgId, uid(req), updated.ym, updated);
+  }
+  res.json(updated);
 });
 
 router.delete("/:id", (req, res) => {
