@@ -204,6 +204,30 @@ CREATE TABLE IF NOT EXISTS personal_finance_imports (
   count       INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- Dívidas pessoais: o que EU devo pra alguém (mãe, João do Score...), com um
+-- total e pagamentos parciais que vão abatendo o saldo mês a mês. Fica só na
+-- aba de quem criou (user_id) — não se mistura com as contas do mês.
+CREATE TABLE IF NOT EXISTS personal_debts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  name        TEXT NOT NULL,                 -- pra quem devo (ex.: "Mãe")
+  total       REAL NOT NULL DEFAULT 0,       -- quanto era a dívida
+  note        TEXT,                          -- do que se trata (opcional)
+  archived    INTEGER NOT NULL DEFAULT 0,    -- some da lista quando quitada
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- Cada abatimento de uma dívida (ex.: "paguei 50 em janeiro").
+CREATE TABLE IF NOT EXISTS personal_debt_payments (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  debt_id     INTEGER NOT NULL,
+  org_id      INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  amount      REAL NOT NULL DEFAULT 0,
+  paid_on     TEXT,                          -- data 'AAAA-MM-DD'
+  note        TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Documento de planejamento por cliente e mês (texto rico HTML, escrito no app).
 CREATE TABLE IF NOT EXISTS planning_docs (

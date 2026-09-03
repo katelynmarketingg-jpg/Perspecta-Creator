@@ -386,4 +386,88 @@ router.delete("/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// DÍVIDAS pessoais — "estou devendo X pra fulano e vou pagando aos poucos".
+// Cada dívida tem um total e uma lista de pagamentos; o saldo é total - pago.
+// Tudo privado por usuário (uid), como o resto desta aba.
+// ---------------------------------------------------------------------------
+
+// Monta uma dívida com seus pagamentos e o saldo já calculado.
+function debtWithPayments(debt, uidv, org) {
+  const payments = db.prepare(
+    "SELECT id, amount, paid_on, note, created_at FROM personal_debt_payments WHERE debt_id=? AND user_id=? AND org_id=? ORDER BY COALESCE(paid_on, created_at), id"
+  ).all(debt.id, uidv, org);
+  const pago = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const total = Number(debt.total) || 0;
+  return { ...debt, payments, pago: +pago.toFixed(2), saldo: +Math.max(0, total - pago).toFixed(2), quitada: pago >= total && total > 0 };
+}
+
+// GET /api/personal-finance/debts — lista as dívidas em aberto (com pagamentos).
+router.get("/debts", (req, res) => {
+  const incluirArquivadas = req.query.all === "1";
+  const debts = db.prepare(
+    `SELECT * FROM personal_debts WHERE org_id=? AND user_id=? ${incluirArquivadas ? "" : "AND archived=0"} ORDER BY archived, created_at DESC, id DESC`
+  ).all(req.orgId, uid(req));
+  res.json(debts.map((d) => debtWithPayments(d, uid(req), req.orgId)));
+});
+
+// POST /api/personal-finance/debts { name, total, note }
+router.post("/debts", (req, res) => {
+  const b = req.body || {};
+  if (!b.name?.trim()) return res.status(400).json({ error: "Diga pra quem você deve." });
+  const info = db.prepare(
+    "INSERT INTO personal_debts (org_id, user_id, name, total, note) VALUES (?, ?, ?, ?, ?)"
+  ).run(req.orgId, uid(req), b.name.trim(), Number(b.total) || 0, b.note?.trim() || null);
+  const debt = db.prepare("SELECT * FROM personal_debts WHERE id=?").get(info.lastInsertRowid);
+  res.status(201).json(debtWithPayments(debt, uid(req), req.orgId));
+});
+
+// PUT /api/personal-finance/debts/:id { name, total, note, archived }
+router.put("/debts/:id", (req, res) => {
+  const cur = db.prepare("SELECT * FROM personal_debts WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
+  if (!cur) return res.status(404).json({ error: "Não encontrado." });
+  const b = req.body || {};
+  db.prepare("UPDATE personal_debts SET name=?, total=?, note=?, archived=? WHERE id=? AND user_id=?").run(
+    b.name?.trim() || cur.name,
+    b.total !== undefined ? (Number(b.total) || 0) : cur.total,
+    b.note !== undefined ? (b.note?.trim() || null) : cur.note,
+    b.archived !== undefined ? (b.archived ? 1 : 0) : cur.archived,
+    req.params.id, uid(req)
+  );
+  const debt = db.prepare("SELECT * FROM personal_debts WHERE id=?").get(req.params.id);
+  res.json(debtWithPayments(debt, uid(req), req.orgId));
+});
+
+// DELETE /api/personal-finance/debts/:id — apaga a dívida e seus pagamentos.
+router.delete("/debts/:id", (req, res) => {
+  const cur = db.prepare("SELECT id FROM personal_debts WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
+  if (cur) {
+    db.prepare("DELETE FROM personal_debt_payments WHERE debt_id=? AND user_id=?").run(req.params.id, uid(req));
+    db.prepare("DELETE FROM personal_debts WHERE id=? AND user_id=?").run(req.params.id, uid(req));
+  }
+  res.json({ ok: true });
+});
+
+// POST /api/personal-finance/debts/:id/payments { amount, paid_on, note }
+router.post("/debts/:id/payments", (req, res) => {
+  const debt = db.prepare("SELECT * FROM personal_debts WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
+  if (!debt) return res.status(404).json({ error: "Dívida não encontrada." });
+  const b = req.body || {};
+  const amount = Number(b.amount) || 0;
+  if (amount <= 0) return res.status(400).json({ error: "Informe quanto você pagou." });
+  const paidOn = /^\d{4}-\d{2}-\d{2}$/.test(b.paid_on || "") ? b.paid_on : new Date().toISOString().slice(0, 10);
+  db.prepare(
+    "INSERT INTO personal_debt_payments (debt_id, org_id, user_id, amount, paid_on, note) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(debt.id, req.orgId, uid(req), amount, paidOn, b.note?.trim() || null);
+  res.status(201).json(debtWithPayments(debt, uid(req), req.orgId));
+});
+
+// DELETE /api/personal-finance/debts/:id/payments/:pid — desfaz um pagamento.
+router.delete("/debts/:id/payments/:pid", (req, res) => {
+  const debt = db.prepare("SELECT * FROM personal_debts WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
+  if (!debt) return res.status(404).json({ error: "Dívida não encontrada." });
+  db.prepare("DELETE FROM personal_debt_payments WHERE id=? AND debt_id=? AND user_id=?").run(req.params.pid, debt.id, uid(req));
+  res.json(debtWithPayments(debt, uid(req), req.orgId));
+});
+
 export default router;
