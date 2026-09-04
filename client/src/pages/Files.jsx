@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, IconButton, Stack, TextField,
   MenuItem, Breadcrumbs, Link, Dialog, DialogTitle, DialogContent, DialogActions,
-  Grid, Tooltip, Menu, Alert,
+  Grid, Tooltip, Menu, Alert, CircularProgress,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -18,6 +18,7 @@ import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import api from "../api/client.js";
 import { thumbFromElement } from "../upload/thumbnail.js";
+import { ehHeic, heicParaJpeg } from "../upload/heic.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { useUploads } from "../upload/UploadContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
@@ -68,6 +69,24 @@ async function guardarMiniatura(fileId, el) {
   catch { thumbsEnviadas.delete(fileId); } // deixa tentar de novo depois
 }
 
+// Foto de iPhone (.HEIC) que ainda não tem miniatura: o navegador não desenha
+// esse formato — era o quadrado quebrado da Galeria. Converte aqui uma vez, e a
+// miniatura gerada fica guardada no servidor (o onLoad abaixo cuida disso), de
+// modo que na próxima visita já vem pronta e nem baixa a biblioteca.
+const heicConvertidos = new Map();  // id do arquivo -> Promise<url do JPEG>
+
+function converterHeic(f) {
+  if (!heicConvertidos.has(f.id)) {
+    heicConvertidos.set(f.id, (async () => {
+      const resp = await fetch(f.media_url);
+      if (!resp.ok) return null;
+      const jpeg = await heicParaJpeg(await resp.blob());
+      return jpeg ? URL.createObjectURL(jpeg) : null;
+    })().catch(() => null));
+  }
+  return heicConvertidos.get(f.id);
+}
+
 function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const [moreAnchor, setMoreAnchor] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -75,7 +94,17 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const [viewing, setViewing] = useState(false);
   const ehImg = f.mime?.startsWith("image/");
   const ehVideo = f.mime?.startsWith("video/");
+  const heic = ehHeic(f.original_name, f.mime);
+  const [heicUrl, setHeicUrl] = useState(null);
   useEffect(() => { setName(f.original_name || ""); }, [f.original_name]);
+
+  // Converte só quando é HEIC, ainda não tem miniatura e o arquivo é acessível.
+  useEffect(() => {
+    if (!heic || f.thumb || !f.media_url) return undefined;
+    let vivo = true;
+    converterHeic(f).then((u) => { if (vivo) setHeicUrl(u); });
+    return () => { vivo = false; };   // não revoga: o cache é dono da URL
+  }, [heic, f.thumb, f.media_url, f.id]);
 
   function salvar() {
     setEditing(false);
@@ -86,8 +115,12 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
 
   const podeAbrir = (ehImg || ehVideo) && f.media_url;
   // Miniatura quando existe (arquivos enviados a partir de agora); senão, o
-  // original — assim o que já está lá continua aparecendo.
-  const previa = f.thumb || f.media_url;
+  // original — assim o que já está lá continua aparecendo. No HEIC o original
+  // não serve: usamos a conversão feita no navegador.
+  const previa = f.thumb || (heic ? heicUrl : f.media_url);
+  const convertendo = heic && !f.thumb && !heicUrl;
+  // Em tela cheia vale a mesma regra: o .HEIC precisa da versão convertida.
+  const grandao = heic ? (heicUrl || f.thumb) : f.media_url;
   const midiaSx = { width: "100%", height: "auto", maxHeight: 280, objectFit: "contain", display: "block", bgcolor: ehVideo ? "#000" : "action.hover" };
 
   return (
@@ -98,6 +131,11 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
         {ehImg && previa ? (
           <Box component="img" src={previa} alt={f.original_name} loading="lazy" sx={midiaSx}
             onLoad={(e) => { if (!f.thumb) guardarMiniatura(f.id, e.currentTarget); }} />
+        ) : convertendo ? (
+          <Stack alignItems="center" spacing={1} sx={{ py: 3, color: "text.secondary" }}>
+            <CircularProgress size={20} />
+            <Typography variant="caption">preparando a foto do iPhone…</Typography>
+          </Stack>
         ) : ehVideo && f.thumb ? (
           <>
             <Box component="img" src={f.thumb} alt={f.original_name} loading="lazy" sx={midiaSx} />
@@ -164,7 +202,7 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
             <Box component="video" src={f.media_url} controls autoPlay playsInline
               sx={{ width: "100%", maxHeight: "72vh", objectFit: "contain" }} />
           ) : (
-            <Box component="img" src={f.media_url} alt={f.original_name}
+            <Box component="img" src={grandao} alt={f.original_name}
               sx={{ width: "100%", maxHeight: "72vh", objectFit: "contain" }} />
           )}
         </DialogContent>

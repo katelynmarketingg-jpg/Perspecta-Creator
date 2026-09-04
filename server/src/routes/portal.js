@@ -191,6 +191,7 @@ router.get("/gallery", (req, res) => {
   const rows = db
     .prepare(
       `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.expires_at, f.keep_forever, f.stage,
+              f.thumb,
               t.id AS task_id, t.title AS task_title, t.content_type, t.scheduled_at,
               t.approval_status, s.name AS stage_name, s.is_done AS stage_done
        FROM files f
