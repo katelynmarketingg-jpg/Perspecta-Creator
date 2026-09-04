@@ -307,6 +307,17 @@ router.get("/:id/download", async (req, res) => {
 });
 
 // PUT /api/files/:id — renomear e/ou mover para outra pasta.
+// GET /api/files/:id/thumb — só a miniatura (leve). A Distribuição usa isso
+// para desenhar a grade do perfil sem baixar a arte inteira de cada quadrado —
+// e é o que faz o VÍDEO aparecer ali, já que <img> não toca vídeo.
+router.get("/:id/thumb", (req, res) => {
+  const f = db.prepare("SELECT thumb FROM files WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!f) return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (!f.thumb) return res.status(404).json({ error: "Sem miniatura." });
+  res.json({ thumb: f.thumb });
+});
+
 // PUT /api/files/:id/thumb — guarda a miniatura de um arquivo que ainda não
 // tinha. Quem gera é o navegador, a partir da mídia que já está na tela: assim
 // os arquivos enviados ANTES desta função também ficam leves na grade, sem

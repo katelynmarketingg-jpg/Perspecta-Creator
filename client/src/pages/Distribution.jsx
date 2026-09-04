@@ -26,6 +26,7 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 import PlanningRefDialog from "../components/PlanningRefDialog.jsx";
+import { thumbFromElement } from "../upload/thumbnail.js";
 
 // Cache de mídias por sessão: cada arquivo é baixado UMA vez e reaproveitado
 // entre telas, filtros e re-renderizações. Antes cada componente rebaixava o
@@ -45,6 +46,35 @@ function loadMedia(fileId) {
     })
     .catch((e) => { _mediaInflight.delete(fileId); throw e; });
   _mediaInflight.set(fileId, p);
+  return p;
+}
+
+// Miniatura (leve) do arquivo: é o que desenha a grade do perfil sem baixar a
+// arte inteira de cada quadrado. Vale para foto E vídeo — a miniatura do vídeo
+// é um quadro dele, então a prévia aparece igual à da foto.
+const _thumbCache = new Map();   // fileId -> data URI | null (null = não tem)
+const _thumbInflight = new Map();
+// Guarda a miniatura a partir da mídia já desenhada, para os arquivos enviados
+// antes de a miniatura existir. Uma vez por arquivo por sessão.
+const _thumbsEnviadas = new Set();
+async function guardarMiniatura(fileId, el) {
+  if (!fileId || _thumbsEnviadas.has(fileId)) return;
+  _thumbsEnviadas.add(fileId);
+  const thumb = thumbFromElement(el);
+  if (!thumb) return;
+  try { await api.put(`/files/${fileId}/thumb`, { thumb }); _thumbCache.set(fileId, thumb); }
+  catch { _thumbsEnviadas.delete(fileId); }
+}
+
+function loadThumb(fileId) {
+  if (!fileId) return Promise.resolve(null);
+  if (_thumbCache.has(fileId)) return Promise.resolve(_thumbCache.get(fileId));
+  if (_thumbInflight.has(fileId)) return _thumbInflight.get(fileId);
+  const p = api.get(`/files/${fileId}/thumb`)
+    .then((r) => { const t = r.data?.thumb || null; _thumbCache.set(fileId, t); return t; })
+    .catch(() => { _thumbCache.set(fileId, null); return null; })   // sem miniatura: cai na arte inteira
+    .finally(() => _thumbInflight.delete(fileId));
+  _thumbInflight.set(fileId, p);
   return p;
 }
 
@@ -684,32 +714,48 @@ function MonthGrid({ items, onSelect }) {
   );
 }
 
-// Miniatura da grade — usa o cache de mídia (baixa uma vez por sessão).
+// Miniatura da grade do perfil. Ordem: a miniatura leve (foto ou quadro do
+// vídeo); se o arquivo não tiver miniatura, cai na arte inteira — e aí VÍDEO é
+// desenhado com <video> mostrando o 1º quadro, porque <img> não toca vídeo (era
+// por isso que os vídeos não apareciam aqui).
 function FeedThumb({ fileId }) {
-  const [src, setSrc] = useState(null);
+  const [thumb, setThumb] = useState(null);
+  const [midia, setMidia] = useState(null);   // { url, type } quando não há miniatura
   const [erro, setErro] = useState(false);
+
   useEffect(() => {
-    setErro(false);
-    if (!fileId) { setSrc(null); return; }
+    setThumb(null); setMidia(null); setErro(false);
+    if (!fileId) return;
     let alive = true;
-    loadMedia(fileId)
-      .then((m) => { if (alive && m) setSrc(m.url); })
-      .catch(() => { if (alive) setErro(true); });
+    loadThumb(fileId).then((t) => {
+      if (!alive) return;
+      if (t) { setThumb(t); return; }
+      loadMedia(fileId)
+        .then((m) => { if (alive && m) setMidia(m); })
+        .catch(() => { if (alive) setErro(true); });
+    });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId]);
 
+  const sx = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
   const vazio = (texto, cor = "text.disabled") => (
     <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", textAlign: "center",
                color: cor, fontSize: 10, lineHeight: 1.2, p: 0.5 }}>{texto}</Box>
   );
+
   if (erro) return vazio("arte não carregou", "error.main");
-  if (!src) return vazio("sem arte");
-  // Se o arquivo sumiu do disco, o <img> falha — mostra o aviso em vez do
-  // ícone de imagem quebrada, que não diz nada a quem está usando.
-  return (
-    <Box component="img" src={src} alt="" onError={() => setErro(true)}
-      sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-  );
+  if (thumb) return <Box component="img" src={thumb} alt="" sx={sx} onError={() => setErro(true)} />;
+  if (!midia) return vazio("sem arte");
+  if ((midia.type || "").startsWith("video")) {
+    // preload="metadata" + #t=0.1 = mostra o 1º quadro sem baixar o vídeo todo.
+    // E aproveita esse quadro para guardar a miniatura: da próxima vez esta
+    // grade nem toca no vídeo.
+    return <Box component="video" src={`${midia.url}#t=0.1`} preload="metadata" muted playsInline
+      sx={{ ...sx, bgcolor: "#000" }} onError={() => setErro(true)}
+      onLoadedData={(e) => guardarMiniatura(fileId, e.currentTarget)} />;
+  }
+  return <Box component="img" src={midia.url} alt="" sx={sx} onError={() => setErro(true)}
+    onLoad={(e) => guardarMiniatura(fileId, e.currentTarget)} />;
 }
 
 const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
