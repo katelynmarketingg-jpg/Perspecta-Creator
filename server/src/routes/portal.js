@@ -237,7 +237,7 @@ router.get("/gallery-files", (req, res) => {
   where.push(req.query.folder_id ? "folder_id = @folder_id" : "folder_id IS NULL");
   if (req.query.folder_id) params.folder_id = req.query.folder_id;
   const rows = db.prepare(
-    `SELECT id, original_name, mime, size FROM files WHERE ${where.join(" AND ")} ORDER BY created_at DESC`
+    `SELECT id, original_name, mime, size, thumb FROM files WHERE ${where.join(" AND ")} ORDER BY created_at DESC`
   ).all(params);
   res.json(rows.filter((f) => /^(image|video)\//.test(f.mime || "")));
 });

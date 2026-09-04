@@ -687,14 +687,29 @@ function MonthGrid({ items, onSelect }) {
 // Miniatura da grade — usa o cache de mídia (baixa uma vez por sessão).
 function FeedThumb({ fileId }) {
   const [src, setSrc] = useState(null);
+  const [erro, setErro] = useState(false);
   useEffect(() => {
+    setErro(false);
     if (!fileId) { setSrc(null); return; }
     let alive = true;
-    loadMedia(fileId).then((m) => { if (alive && m) setSrc(m.url); }).catch(() => {});
+    loadMedia(fileId)
+      .then((m) => { if (alive && m) setSrc(m.url); })
+      .catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId]);
-  if (!src) return <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", color: "text.disabled", fontSize: 10 }}>sem arte</Box>;
-  return <Box component="img" src={src} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />;
+
+  const vazio = (texto, cor = "text.disabled") => (
+    <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", textAlign: "center",
+               color: cor, fontSize: 10, lineHeight: 1.2, p: 0.5 }}>{texto}</Box>
+  );
+  if (erro) return vazio("arte não carregou", "error.main");
+  if (!src) return vazio("sem arte");
+  // Se o arquivo sumiu do disco, o <img> falha — mostra o aviso em vez do
+  // ícone de imagem quebrada, que não diz nada a quem está usando.
+  return (
+    <Box component="img" src={src} alt="" onError={() => setErro(true)}
+      sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+  );
 }
 
 const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);

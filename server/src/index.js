@@ -81,6 +81,12 @@ app.use("/api/events", eventsRoutes);
 app.use("/api/agenda", agendaRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/calendar", calendarRoutes);
+// O link assinado vem ANTES: /api/files/shared/:ticket é aberto (sem login),
+// porque quem carrega é a tag <img>/<video> da tela e a Meta na hora de
+// publicar — nenhum dos dois manda cabeçalho de autenticação. Montado depois,
+// ele era engolido pelo authRequired de filesRoutes e respondia 401: era por
+// isso que as prévias da Galeria apareciam quebradas.
+app.use("/api/files", sharedRouter);
 app.use("/api/files", filesRoutes);
 app.use("/api/workspace", workspaceRoutes);
 app.use("/api/portal", portalRoutes);
@@ -89,7 +95,6 @@ app.use("/api/services", servicesRoutes);
 app.use("/api/organizations", organizationsRoutes);
 app.use("/api/plans", plansRoutes);
 app.use("/api/integrations", integrationsRoutes);
-app.use("/api/files", sharedRouter); // link assinado, sem login
 app.use("/api/sign", signRouter);    // assinatura por link público
 app.use("/api/comments", commentsRoutes);
 app.use("/api/time", timeRoutes);

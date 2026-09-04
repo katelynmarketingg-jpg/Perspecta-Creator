@@ -8,6 +8,7 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import { makeThumbnail } from "./thumbnail.js";
 
 // ---------------------------------------------------------------------------
 // Envio em SEGUNDO PLANO. Fica montado no topo do app (fora das páginas), então
@@ -23,10 +24,14 @@ let SEQ = 0;
 
 // Sobe UM arquivo por XHR (pra ter barra de progresso por arquivo). Resolve com
 // a resposta do servidor; rejeita com uma mensagem amigável.
-function uploadOne(file, { clientId, folderId }, onProgress) {
+async function uploadOne(file, { clientId, folderId }, onProgress) {
+  // Miniatura gerada aqui mesmo, antes de subir: é ela que a grade da Galeria
+  // vai mostrar, em vez de baixar o arquivo inteiro de cada item.
+  const thumb = await makeThumbnail(file);
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("files", file);
+    if (thumb) form.append("thumbs", JSON.stringify([thumb]));
     if (clientId) form.append("client_id", clientId);
     if (folderId) form.append("folder_id", folderId);
 
