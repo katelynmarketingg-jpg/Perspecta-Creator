@@ -7,21 +7,62 @@ import { CONTENT_TYPES } from "../utils.js";
 
 // Miniatura da grade. Recebe o fetcher pronto para servir tanto a agência
 // quanto o portal (cada um tem o seu token).
+//
+// Ordem de desenho:
+//  1. a miniatura que veio junto do post (leve, não baixa nada);
+//  2. senão, baixa a arte e desenha — VÍDEO com <video>, porque <img> não toca
+//     vídeo, e FOTO com <img>.
+// O tipo vem do blob (o servidor manda o tipo certo); se o blob vier sem tipo,
+// usamos o mime do post como reserva.
 function Celula({ post, fetchFile, onClick }) {
   const [src, setSrc] = useState(null);
+  const [tipo, setTipo] = useState(post.mime || "");
+  const [erro, setErro] = useState(false);
+
+  const fileId = post.file_id;
+  const thumb = post.thumb || null;
 
   useEffect(() => {
-    if (!post.file_id) return undefined;
+    setSrc(null); setErro(false); setTipo(post.mime || "");
+    if (!fileId || thumb) return undefined;
     let url;
     let vivo = true;
-    fetchFile(post.file_id)
-      .then((blob) => { if (vivo) { url = URL.createObjectURL(blob); setSrc(url); } })
-      .catch(() => {});
+    fetchFile(fileId)
+      .then((blob) => {
+        if (!vivo) return;
+        url = URL.createObjectURL(blob);
+        if (blob.type) setTipo(blob.type);
+        setSrc(url);
+      })
+      .catch(() => { if (vivo) setErro(true); });
     return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
-  }, [post.file_id, fetchFile]);
+  }, [fileId, thumb, post.mime, fetchFile]);
 
-  const ehVideo = ["reel", "stories"].includes(post.content_type);
+  const ehVideo = ["reel", "stories"].includes(post.content_type) || /^video\//.test(tipo);
   const aprovado = post.approval_status === "approved" || post.stage_done;
+  const midiaSx = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
+
+  // A arte em si: miniatura > vídeo > foto > aviso.
+  let arte;
+  if (thumb) {
+    arte = <Box component="img" src={thumb} alt={post.title} sx={midiaSx} />;
+  } else if (src && /^video\//.test(tipo)) {
+    // preload="metadata" + #t=0.1 = mostra o 1º quadro sem tocar o vídeo.
+    arte = <Box component="video" src={`${src}#t=0.1`} preload="metadata" muted playsInline
+      sx={{ ...midiaSx, bgcolor: "#000" }} onError={() => setErro(true)} />;
+  } else if (src) {
+    arte = <Box component="img" src={src} alt={post.title} sx={midiaSx}
+      onError={() => setErro(true)} />;
+  } else {
+    arte = (
+      <Stack alignItems="center" spacing={0.5} sx={{ color: erro ? "error.main" : "text.disabled", p: 1 }}>
+        <ImageNotSupportedIcon fontSize="small" />
+        <Typography variant="caption" align="center" sx={{ fontSize: 10, lineHeight: 1.2 }}>
+          {erro ? "arte não carregou" : "sem arte"}
+        </Typography>
+      </Stack>
+    );
+  }
 
   return (
     <Tooltip title={`${post.title}${post.scheduled_at ? ` · ${new Date(post.scheduled_at).toLocaleDateString("pt-BR")}` : ""}`}>
@@ -33,17 +74,7 @@ function Celula({ post, fetchFile, onClick }) {
           "&:hover .capa": { opacity: 1 },
         }}
       >
-        {src ? (
-          <Box component="img" src={src} alt={post.title}
-            sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        ) : (
-          <Stack alignItems="center" spacing={0.5} sx={{ color: "text.disabled", p: 1 }}>
-            <ImageNotSupportedIcon fontSize="small" />
-            <Typography variant="caption" align="center" sx={{ fontSize: 10, lineHeight: 1.2 }}>
-              sem arte
-            </Typography>
-          </Stack>
-        )}
+        {arte}
 
         {ehVideo && (
           <PlayCircleIcon sx={{ position: "absolute", top: 6, right: 6, color: "#fff",

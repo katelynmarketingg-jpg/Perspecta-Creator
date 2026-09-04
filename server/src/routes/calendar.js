@@ -41,9 +41,17 @@ router.get("/feed", (req, res) => {
 
   const rows = db
     .prepare(
+      // Mesma regra da Distribuição: a arte é a CAPA escolhida; sem capa, o 1º
+      // anexo. Já traz a miniatura e o tipo para a grade sair leve e mostrar
+      // tanto foto quanto vídeo.
       `SELECT t.id, t.title, t.caption, t.client_caption, t.content_type, t.scheduled_at,
               t.approval_status, t.client_id, c.name AS client_name, s.is_done AS stage_done,
-              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+              COALESCE(t.cover_file_id,
+                       (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1)) AS file_id,
+              (SELECT f.thumb FROM files f WHERE f.id = COALESCE(t.cover_file_id,
+                       (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1))) AS thumb,
+              (SELECT f.mime FROM files f WHERE f.id = COALESCE(t.cover_file_id,
+                       (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1))) AS mime
        FROM tasks t
        LEFT JOIN clients c ON c.id = t.client_id
        LEFT JOIN kanban_stages s ON s.id = t.stage_id
