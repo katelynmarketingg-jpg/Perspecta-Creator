@@ -45,7 +45,11 @@ async function graph(path, params = {}, options = {}) {
   return data;
 }
 
-/** Troca o código do login por um token de longa duração e descobre a página/IG. */
+/**
+ * Troca o código do login por um token de longa duração e devolve TODAS as
+ * páginas da conta — quem escolhe qual é a do cliente é a pessoa, na tela.
+ * Pegar a primeira dava a página errada em quem tem mais de um cliente.
+ */
 export async function exchangeCode(code) {
   const short = await graph("/oauth/access_token", {
     client_id: META_APP_ID,
@@ -64,21 +68,60 @@ export async function exchangeCode(code) {
     access_token: long.access_token,
     fields: "id,name,access_token,instagram_business_account{id,username,name,profile_picture_url,followers_count,media_count}",
   });
-  const page = pages.data?.[0];
-  if (!page) throw new Error("Nenhuma página do Facebook foi encontrada nessa conta.");
-  const ig = page.instagram_business_account || null;
+  const lista = (pages.data || []).map((page) => {
+    const ig = page.instagram_business_account || null;
+    return {
+      page_id: page.id,
+      page_name: page.name,
+      page_token: page.access_token,
+      ig_user_id: ig?.id || null,
+      ig_username: ig?.username || null,
+      ig_name: ig?.name || null,
+      ig_picture: ig?.profile_picture_url || null,
+      ig_followers: ig?.followers_count ?? null,
+      ig_media_count: ig?.media_count ?? null,
+      expires_in: long.expires_in || null,
+    };
+  });
+  if (!lista.length) {
+    throw new Error(
+      "Nenhuma Página do Facebook foi encontrada nessa conta. Crie uma Página e vincule o Instagram profissional a ela."
+    );
+  }
+  // Página com Instagram vinculado primeiro: é quase sempre a que se quer.
+  lista.sort((a, b) => (b.ig_user_id ? 1 : 0) - (a.ig_user_id ? 1 : 0));
+  return lista;
+}
 
+// --- Escolha da página (quando a conta tem mais de uma) ----------------------
+// As candidatas ficam guardadas até a pessoa escolher. Guardamos cifrado porque
+// cada página vem com o token dela.
+export function savePendingPages(orgId, clientId, pages) {
+  db.prepare(
+    `INSERT INTO meta_pending (org_id, client_id, pages, created_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(client_id) DO UPDATE SET
+       org_id=excluded.org_id, pages=excluded.pages, created_at=datetime('now')`
+  ).run(orgId, clientId, encrypt(JSON.stringify(pages)));
+}
+
+export function getPendingPages(orgId, clientId) {
+  const row = db.prepare("SELECT * FROM meta_pending WHERE client_id = ? AND org_id = ?")
+    .get(clientId, orgId);
+  if (!row) return null;
+  try { return JSON.parse(decrypt(row.pages)); } catch { return null; }
+}
+
+export function clearPendingPages(orgId, clientId) {
+  db.prepare("DELETE FROM meta_pending WHERE client_id = ? AND org_id = ?").run(clientId, orgId);
+}
+
+/** Sem o token: é o que a tela precisa para montar a lista de escolha. */
+export function publicPage(p) {
   return {
-    page_id: page.id,
-    page_name: page.name,
-    page_token: page.access_token,
-    ig_user_id: ig?.id || null,
-    ig_username: ig?.username || null,
-    ig_name: ig?.name || null,
-    ig_picture: ig?.profile_picture_url || null,
-    ig_followers: ig?.followers_count ?? null,
-    ig_media_count: ig?.media_count ?? null,
-    expires_in: long.expires_in || null,
+    page_id: p.page_id, page_name: p.page_name,
+    ig_username: p.ig_username, ig_name: p.ig_name, ig_picture: p.ig_picture,
+    ig_followers: p.ig_followers, has_instagram: !!p.ig_user_id,
   };
 }
 

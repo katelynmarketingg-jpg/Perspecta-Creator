@@ -3,6 +3,7 @@ import {
   Box, Button, Card, CardContent, Typography, Chip, Stack, Alert, Divider,
   Switch, FormControlLabel, Tooltip, IconButton, Link, MenuItem, TextField,
   Tabs, Tab, Avatar,
+  Dialog, DialogTitle, DialogContent, DialogActions, List, ListItemButton, ListItemText,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -43,6 +44,7 @@ export default function Integrations() {
   const [docs, setDocs] = useState([]);
   const [novoDoc, setNovoDoc] = useState({ title: "", url: "", client_id: "" });
   const [abrindo, setAbrindo] = useState(null); // doc aberto embutido
+  const [escolha, setEscolha] = useState(null); // { client, pages } — qual página é a do cliente
 
   const load = () => {
     api.get("/integrations/meta/status").then((r) => setStatus(r.data)).catch(() => {});
@@ -88,14 +90,46 @@ export default function Integrations() {
   }
 
   const conexaoDe = (clientId) => (status?.connections || []).find((c) => c.client_id === clientId);
+  const esperandoEscolha = (clientId) => (status?.pending || []).includes(clientId);
+
+  // Quando a conta tem mais de uma Página, a Meta volta com todas e quem
+  // escolhe é você — o sistema não adivinha qual é a do cliente.
+  async function abrirEscolha(client) {
+    setErro("");
+    try {
+      const { data } = await api.get(`/integrations/meta/pending/${client.id}`);
+      if (!data.pages?.length) {
+        setErro("Nada para escolher. Conecte a Meta de novo.");
+        return;
+      }
+      setEscolha({ client, pages: data.pages });
+    } catch (e) {
+      setErro(e.response?.data?.error || "Não foi possível carregar as páginas.");
+    }
+  }
+
+  async function escolherPagina(pageId) {
+    try {
+      await api.post("/integrations/meta/choose", { client_id: escolha.client.id, page_id: pageId });
+      setEscolha(null);
+      load();
+    } catch (e) {
+      setErro(e.response?.data?.error || "Não foi possível salvar a escolha.");
+    }
+  }
 
   async function conectar(client) {
     setErro("");
     try {
       const { data } = await api.post("/integrations/meta/connect", { client_id: client.id });
       const janela = window.open(data.url, "meta", "width=620,height=720");
-      const timer = setInterval(() => {
-        if (janela?.closed) { clearInterval(timer); load(); }
+      const timer = setInterval(async () => {
+        if (!janela?.closed) return;
+        clearInterval(timer);
+        load();
+        // Voltou com várias páginas: já abre a escolha, sem a pessoa procurar.
+        const { data: p } = await api.get(`/integrations/meta/pending/${client.id}`).catch(() => ({ data: {} }));
+        if (p?.pages?.length) setEscolha({ client, pages: p.pages });
       }, 1000);
     } catch (e) {
       setErro(e.response?.data?.error || "Não foi possível iniciar a conexão.");
@@ -221,6 +255,11 @@ export default function Integrations() {
                             )}
                             <IconButton color="error" onClick={() => desconectar(c)} title="Desconectar"><LinkOffIcon /></IconButton>
                           </>
+                        ) : esperandoEscolha(c.id) ? (
+                          <Button variant="contained" color="warning" startIcon={<InstagramIcon />}
+                            onClick={() => abrirEscolha(c)}>
+                            Escolher a página
+                          </Button>
                         ) : (
                           <Button variant="contained" startIcon={<InstagramIcon />} disabled={!status?.configured} onClick={() => conectar(c)}>
                             Conectar Meta
@@ -424,6 +463,43 @@ export default function Integrations() {
           </Stack>
         </>
       )}
+
+      {/* Qual das Páginas do Facebook é a deste cliente. */}
+      <Dialog open={!!escolha} onClose={() => setEscolha(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Qual página é a de {escolha?.client?.name}?</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Essa conta do Facebook administra {escolha?.pages?.length} páginas. Escolha a do cliente —
+            é dela que os posts vão sair.
+          </Typography>
+          <List disablePadding>
+            {(escolha?.pages || []).map((p) => (
+              <ListItemButton key={p.page_id} onClick={() => escolherPagina(p.page_id)}
+                sx={{ border: 1, borderColor: "divider", borderRadius: 2, mb: 1, gap: 1.5 }}>
+                <Avatar src={p.ig_picture || undefined} sx={{ width: 42, height: 42 }}>
+                  {(p.page_name || "?")[0]}
+                </Avatar>
+                <ListItemText
+                  primary={p.page_name}
+                  secondary={p.has_instagram
+                    ? `@${p.ig_username}${p.ig_followers != null ? ` · ${p.ig_followers} seguidores` : ""}`
+                    : "Sem Instagram vinculado — só publica no Facebook"}
+                />
+                {p.has_instagram
+                  ? <Chip size="small" color="success" icon={<InstagramIcon />} label="Instagram" />
+                  : <Chip size="small" variant="outlined" icon={<FacebookIcon />} label="Só Facebook" />}
+              </ListItemButton>
+            ))}
+          </List>
+          <Alert severity="info" sx={{ mt: 1 }}>
+            Não achou a página do cliente? Ela precisa ter o Instagram <b>profissional</b> vinculado,
+            e você precisa ser administradora dela.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEscolha(null)}>Cancelar</Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }
