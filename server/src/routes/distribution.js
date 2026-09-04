@@ -95,6 +95,7 @@ router.get("/", (req, res) => {
   const approved = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
+              t.approval_status, t.published_at,
               t.client_id, t.cover_file_id, t.position, c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -111,7 +112,7 @@ router.get("/", (req, res) => {
   const programmed = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_id, t.cover_file_id, t.position,
+              t.approval_status, t.published_at, t.client_id, t.cover_file_id, t.position,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -141,6 +142,25 @@ router.post("/:id/schedule", (req, res) => {
   // A mídia acompanha: vai para a pasta "Programados" da Galeria do cliente.
   syncTaskMediaToStage(req.orgId, req.params.id, "programados");
   res.json({ ok: true });
+});
+
+// POST /api/distribution/:id/mark-posted — marca (ou desmarca) que a peça já foi
+// postada MANUALMENTE no app (ex.: Reels com música do Edits). Não chama a API
+// da Meta; só registra a data e marca a origem como "manual".
+router.post("/:id/mark-posted", (req, res) => {
+  const task = db.prepare("SELECT id FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!task) return res.status(404).json({ error: "Peça não encontrada." });
+  const marcar = req.body?.posted !== false; // default: true
+  if (marcar) {
+    db.prepare(
+      "UPDATE tasks SET published_at = datetime('now'), external_post_id = 'manual', publish_error = NULL WHERE id = ? AND org_id = ?"
+    ).run(req.params.id, req.orgId);
+  } else {
+    db.prepare(
+      "UPDATE tasks SET published_at = NULL, external_post_id = NULL WHERE id = ? AND org_id = ? AND external_post_id = 'manual'"
+    ).run(req.params.id, req.orgId);
+  }
+  res.json({ ok: true, posted: marcar });
 });
 
 // POST /api/distribution/reorder — reordena o feed: recebe a nova data/hora de
