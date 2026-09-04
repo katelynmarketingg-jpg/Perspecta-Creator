@@ -307,6 +307,26 @@ router.get("/:id/download", async (req, res) => {
 });
 
 // PUT /api/files/:id — renomear e/ou mover para outra pasta.
+// PUT /api/files/:id/thumb — guarda a miniatura de um arquivo que ainda não
+// tinha. Quem gera é o navegador, a partir da mídia que já está na tela: assim
+// os arquivos enviados ANTES desta função também ficam leves na grade, sem
+// precisar reenviar nada e sem biblioteca de imagem no servidor.
+router.put("/:id/thumb", (req, res) => {
+  const file = db.prepare("SELECT id, thumb FROM files WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (file.thumb) return res.json({ ok: true, ja_tinha: true });
+
+  const t = req.body?.thumb;
+  if (typeof t !== "string" || !t.startsWith("data:image/")) {
+    return res.status(400).json({ error: "Miniatura inválida." });
+  }
+  if (t.length > 300 * 1024) return res.status(400).json({ error: "Miniatura grande demais." });
+
+  db.prepare("UPDATE files SET thumb = ? WHERE id = ? AND org_id = ?").run(t, file.id, req.orgId);
+  res.json({ ok: true });
+});
+
 router.put("/:id", (req, res) => {
   const file = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });

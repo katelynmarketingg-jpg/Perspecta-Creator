@@ -17,6 +17,7 @@ import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import api from "../api/client.js";
+import { thumbFromElement } from "../upload/thumbnail.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { useUploads } from "../upload/UploadContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
@@ -50,6 +51,23 @@ function authFetchBlob(id) {
 // deixava a tela lenta e vídeo grande nem desenhava. Clicar abre o arquivo de
 // verdade, em tamanho grande e sem baixar.
 // O nome fica embaixo e é editável com UM CLIQUE (clica fora ou Enter → salva).
+// Guarda quais arquivos já tiveram a miniatura enviada nesta sessão, para não
+// repetir a cada rolagem da tela.
+const thumbsEnviadas = new Set();
+
+// Gera a miniatura a partir da mídia JÁ CARREGADA na grade e guarda no servidor.
+// É isso que conserta os arquivos enviados antes da miniatura existir: na
+// primeira vez a grade ainda usa o original (como sempre usou); da segunda em
+// diante, todo mundo pega a versão leve.
+async function guardarMiniatura(fileId, el) {
+  if (!fileId || thumbsEnviadas.has(fileId)) return;
+  thumbsEnviadas.add(fileId);
+  const thumb = thumbFromElement(el);
+  if (!thumb) return;
+  try { await api.put(`/files/${fileId}/thumb`, { thumb }); }
+  catch { thumbsEnviadas.delete(fileId); } // deixa tentar de novo depois
+}
+
 function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const [moreAnchor, setMoreAnchor] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -78,7 +96,8 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
         cursor: podeAbrir ? "zoom-in" : "default" }}
         onClick={() => podeAbrir && setViewing(true)}>
         {ehImg && previa ? (
-          <Box component="img" src={previa} alt={f.original_name} loading="lazy" sx={midiaSx} />
+          <Box component="img" src={previa} alt={f.original_name} loading="lazy" sx={midiaSx}
+            onLoad={(e) => { if (!f.thumb) guardarMiniatura(f.id, e.currentTarget); }} />
         ) : ehVideo && f.thumb ? (
           <>
             <Box component="img" src={f.thumb} alt={f.original_name} loading="lazy" sx={midiaSx} />
@@ -86,9 +105,11 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
               filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
           </>
         ) : ehVideo && f.media_url ? (
-          // Vídeo antigo (sem miniatura): mostra o 1º quadro, como antes.
+          // Vídeo antigo (sem miniatura): mostra o 1º quadro, como antes — e
+          // aproveita esse quadro para guardar a miniatura.
           <>
-            <Box component="video" src={`${f.media_url}#t=0.1`} preload="metadata" muted playsInline sx={midiaSx} />
+            <Box component="video" src={`${f.media_url}#t=0.1`} preload="metadata" muted playsInline sx={midiaSx}
+              onLoadedData={(e) => guardarMiniatura(f.id, e.currentTarget)} />
             <PlayCircleIcon sx={{ position: "absolute", fontSize: 44, color: "rgba(255,255,255,0.92)",
               filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
           </>

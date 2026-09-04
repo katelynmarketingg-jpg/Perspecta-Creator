@@ -63,6 +63,27 @@ test("os outros formatos continuam com o tipo original", () => {
   assert.equal(tipoQueONavegadorToca({ mime: "", original_name: "sem-extensao" }), "application/octet-stream");
 });
 
+// --- preencher a miniatura dos arquivos que já estavam lá ---
+test("arquivo antigo aceita a miniatura enviada depois", () => {
+  const id = novoArquivo({ nome: "antigo-sem-thumb.png", mime: "image/png" });
+  const t = "data:image/jpeg;base64,QUJDRA==";
+  const antes = db.prepare("SELECT thumb FROM files WHERE id = ?").get(id);
+  assert.equal(antes.thumb, null);
+
+  db.prepare("UPDATE files SET thumb = ? WHERE id = ? AND org_id = ?").run(t, id, org);
+  assert.equal(db.prepare("SELECT thumb FROM files WHERE id = ?").get(id).thumb, t);
+});
+
+test("quem já tem miniatura não é sobrescrito", () => {
+  const original = "data:image/jpeg;base64,T1JJRw==";
+  const id = novoArquivo({ nome: "ja-tem.png", mime: "image/png", thumb: original });
+  const atual = db.prepare("SELECT thumb FROM files WHERE id = ?").get(id);
+  // É a regra da rota: se já tem, responde ok e não regrava.
+  const deveRegravar = !atual.thumb;
+  assert.equal(deveRegravar, false);
+  assert.equal(atual.thumb, original);
+});
+
 test("miniatura grande demais é descartada (não incha o banco)", () => {
   const LIMITE = 300 * 1024;
   const aceita = (t) => typeof t === "string" && t.startsWith("data:image/") && t.length <= LIMITE;

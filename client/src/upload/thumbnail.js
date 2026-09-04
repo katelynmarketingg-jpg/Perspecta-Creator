@@ -14,7 +14,7 @@ const LADO_MAX = 640;      // suficiente para a grade em telas retina
 const QUALIDADE = 0.72;    // JPEG: bom o bastante, ~40 KB
 
 // Desenha respeitando a proporção real — nada de esticar nem cortar.
-function desenhar(fonte, larguraNatural, alturaNatural) {
+export function desenhar(fonte, larguraNatural, alturaNatural) {
   if (!larguraNatural || !alturaNatural) return null;
   const escala = Math.min(1, LADO_MAX / Math.max(larguraNatural, alturaNatural));
   const cv = document.createElement("canvas");
@@ -55,6 +55,21 @@ function doVideo(file) {
     setTimeout(() => acabou(null), 8000);
     v.src = url;
   });
+}
+
+/**
+ * Miniatura a partir de um elemento QUE JÁ ESTÁ NA TELA (<img> ou <video> da
+ * grade). É assim que os arquivos antigos ganham miniatura: a mídia já foi
+ * carregada para aparecer, então não custa nenhum download a mais.
+ * Mesma origem do site, então o canvas não fica "contaminado".
+ */
+export function thumbFromElement(el) {
+  try {
+    if (!el) return null;
+    const w = el.naturalWidth || el.videoWidth;
+    const h = el.naturalHeight || el.videoHeight;
+    return desenhar(el, w, h);
+  } catch { return null; }
 }
 
 /** Miniatura em data URI, ou null quando não dá para gerar. Nunca lança erro. */
