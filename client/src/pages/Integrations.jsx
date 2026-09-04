@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, Chip, Stack, Alert, Divider,
   Switch, FormControlLabel, Tooltip, IconButton, Link, MenuItem, TextField,
-  Tabs, Tab,
+  Tabs, Tab, Avatar,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import InstagramIcon from "@mui/icons-material/Instagram";
 import FacebookIcon from "@mui/icons-material/Facebook";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
@@ -112,6 +113,18 @@ export default function Integrations() {
     load();
   }
 
+  async function atualizarPerfil(client) {
+    try { await api.post(`/integrations/meta/${client.id}/refresh`); load(); }
+    catch { /* ignora — mantém o que já tem */ }
+  }
+
+  // Formata o número de seguidores (12.300 -> "12,3 mil").
+  const fmtNum = (n) => {
+    if (n == null) return null;
+    if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(".", ",")} mil`;
+    return String(n);
+  };
+
   async function addDoc() {
     if (!novoDoc.title || !novoDoc.url) return;
     await api.post("/org-docs", { ...novoDoc, client_id: novoDoc.client_id || null });
@@ -159,23 +172,40 @@ export default function Integrations() {
                   <CardContent>
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={2}
                       justifyContent="space-between" alignItems={{ sm: "center" }}>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography sx={{ fontWeight: 700 }}>{c.name}</Typography>
-                        {conn ? (
-                          <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: "wrap", gap: 0.75 }}>
-                            {conn.ig_username && (
-                              <Chip size="small" icon={<InstagramIcon sx={{ fontSize: 15 }} />}
-                                label={`@${conn.ig_username}`} color="primary" />
-                            )}
-                            {conn.page_name && (
-                              <Chip size="small" variant="outlined" icon={<FacebookIcon sx={{ fontSize: 15 }} />}
-                                label={conn.page_name} />
-                            )}
-                          </Stack>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Nenhuma rede conectada.</Typography>
+                      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
+                        {conn && (
+                          <Avatar src={conn.ig_picture || undefined} alt={conn.ig_username || c.name}
+                            sx={{ width: 52, height: 52, border: 2, borderColor: "primary.light" }}>
+                            {(conn.ig_name || c.name || "?").slice(0, 1)}
+                          </Avatar>
                         )}
-                      </Box>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ fontWeight: 700 }}>{c.name}</Typography>
+                          {conn ? (
+                            <>
+                              <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: "wrap", gap: 0.75 }}>
+                                {conn.ig_username && (
+                                  <Chip size="small" icon={<InstagramIcon sx={{ fontSize: 15 }} />}
+                                    label={`@${conn.ig_username}`} color="primary" />
+                                )}
+                                {conn.page_name && (
+                                  <Chip size="small" variant="outlined" icon={<FacebookIcon sx={{ fontSize: 15 }} />}
+                                    label={conn.page_name} />
+                                )}
+                              </Stack>
+                              {(conn.ig_followers != null || conn.ig_media_count != null) && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                                  {conn.ig_followers != null && <><b>{fmtNum(conn.ig_followers)}</b> seguidores</>}
+                                  {conn.ig_followers != null && conn.ig_media_count != null && " · "}
+                                  {conn.ig_media_count != null && <><b>{conn.ig_media_count}</b> posts</>}
+                                </Typography>
+                              )}
+                            </>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Nenhuma rede conectada.</Typography>
+                          )}
+                        </Box>
+                      </Stack>
                       <Stack direction="row" spacing={1} alignItems="center">
                         {conn ? (
                           <>
@@ -184,6 +214,11 @@ export default function Integrations() {
                                 control={<Switch checked={!!conn.auto_publish} onChange={(e) => alternarAuto(c, e.target.checked)} />}
                                 label={<Typography variant="body2">Publicar sozinho</Typography>} />
                             </Tooltip>
+                            {conn.ig_user_id && (
+                              <Tooltip title="Atualizar foto e nº de seguidores do Instagram">
+                                <IconButton onClick={() => atualizarPerfil(c)}><RefreshIcon /></IconButton>
+                              </Tooltip>
+                            )}
                             <IconButton color="error" onClick={() => desconectar(c)} title="Desconectar"><LinkOffIcon /></IconButton>
                           </>
                         ) : (

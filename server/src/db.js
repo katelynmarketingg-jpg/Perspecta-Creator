@@ -712,6 +712,13 @@ CREATE TABLE IF NOT EXISTS integrations (
 CREATE INDEX IF NOT EXISTS idx_integrations_org ON integrations(org_id);
 `);
 
+// Dados do perfil do Instagram puxados na conexão (foto, nome, seguidores,
+// nº de posts) — usados pra mostrar o cliente bonitinho nas Integrações.
+ensureColumn("integrations", "ig_picture", "ig_picture TEXT");
+ensureColumn("integrations", "ig_name", "ig_name TEXT");
+ensureColumn("integrations", "ig_followers", "ig_followers INTEGER");
+ensureColumn("integrations", "ig_media_count", "ig_media_count INTEGER");
+
 // ---------------------------------------------------------------------------
 // Recibos: um por lançamento de receita, criado quando ele vira "pago".
 // O recibo guarda uma CÓPIA dos dados no momento da emissão (emitente, pagador,

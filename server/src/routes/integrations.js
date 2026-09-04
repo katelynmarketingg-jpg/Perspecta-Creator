@@ -5,6 +5,7 @@ import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
   publicConnection, publishToInstagram, publishToFacebook, META_APP_ID,
+  fetchIgProfile, updateIgProfile,
 } from "../meta.js";
 
 const router = Router();
@@ -67,6 +68,21 @@ router.post("/meta/connect", (req, res) => {
   // O state carrega quem está conectando, assinado para não ser forjado.
   const state = jwt.sign({ client_id: client.id, org_id: req.orgId }, JWT_SECRET, { expiresIn: "15m" });
   res.json({ url: authUrl(state) });
+});
+
+// POST /api/integrations/meta/:clientId/refresh — reatualiza foto/nome/seguidores
+// do Instagram (útil quando o cliente mudou a foto ou ganhou seguidores).
+router.post("/meta/:clientId/refresh", async (req, res) => {
+  const conn = getConnection(req.params.clientId, req.orgId);
+  if (!conn) return res.status(404).json({ error: "Cliente não conectado." });
+  if (!conn.ig_user_id) return res.status(400).json({ error: "Este cliente não tem Instagram conectado." });
+  try {
+    const prof = await fetchIgProfile(conn.ig_user_id, conn.access_token);
+    updateIgProfile(req.params.clientId, req.orgId, prof);
+    res.json({ ok: true, ...prof });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 router.delete("/meta/:clientId", (req, res) => {
