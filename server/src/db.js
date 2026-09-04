@@ -813,6 +813,9 @@ ensureColumn("clients", "legal_name", "legal_name TEXT");     // razão social (
 ensureColumn("clients", "rep_name", "rep_name TEXT");         // representante legal
 ensureColumn("clients", "rep_document", "rep_document TEXT"); // documento do representante
 // Advogado assina pela OAB, não pelo CPF: guarda qual dos dois é.
+// Miniatura leve (data URI ~50 KB) gerada no navegador ao enviar: é ela que a
+// Galeria mostra na grade, em vez de baixar o arquivo original inteiro.
+ensureColumn("files", "thumb", "thumb TEXT");
 ensureColumn("clients", "rep_doc_type", "rep_doc_type TEXT NOT NULL DEFAULT 'cpf'"); // 'cpf' | 'oab' 
 
 // Toda tabela de dados carrega o escritório dona da linha.

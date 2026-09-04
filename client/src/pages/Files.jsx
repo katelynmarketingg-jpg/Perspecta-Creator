@@ -45,9 +45,11 @@ function authFetchBlob(id) {
 }
 
 // Cartão de um arquivo: a prévia sai NA PROPORÇÃO REAL da foto/vídeo (retrato de
-// reel fica em pé, paisagem fica deitado), carregada direto pela media_url
-// (streaming) — vídeo mostra o 1º quadro e abre pra tocar ao clicar.
-// O nome fica embaixo e é editável com CLIQUE DUPLO (clica fora ou Enter → salva).
+// reel fica em pé, paisagem fica deitado). A grade usa a MINIATURA leve gerada
+// no envio — antes cada quadradinho baixava o arquivo original inteiro, o que
+// deixava a tela lenta e vídeo grande nem desenhava. Clicar abre o arquivo de
+// verdade, em tamanho grande e sem baixar.
+// O nome fica embaixo e é editável com UM CLIQUE (clica fora ou Enter → salva).
 function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const [moreAnchor, setMoreAnchor] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -65,6 +67,9 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   }
 
   const podeAbrir = (ehImg || ehVideo) && f.media_url;
+  // Miniatura quando existe (arquivos enviados a partir de agora); senão, o
+  // original — assim o que já está lá continua aparecendo.
+  const previa = f.thumb || f.media_url;
   const midiaSx = { width: "100%", height: "auto", maxHeight: 280, objectFit: "contain", display: "block", bgcolor: ehVideo ? "#000" : "action.hover" };
 
   return (
@@ -72,9 +77,16 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
       <Box sx={{ position: "relative", minHeight: 90, bgcolor: "action.hover", display: "grid", placeItems: "center",
         cursor: podeAbrir ? "zoom-in" : "default" }}
         onClick={() => podeAbrir && setViewing(true)}>
-        {ehImg && f.media_url ? (
-          <Box component="img" src={f.media_url} alt={f.original_name} loading="lazy" sx={midiaSx} />
+        {ehImg && previa ? (
+          <Box component="img" src={previa} alt={f.original_name} loading="lazy" sx={midiaSx} />
+        ) : ehVideo && f.thumb ? (
+          <>
+            <Box component="img" src={f.thumb} alt={f.original_name} loading="lazy" sx={midiaSx} />
+            <PlayCircleIcon sx={{ position: "absolute", fontSize: 44, color: "rgba(255,255,255,0.92)",
+              filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
+          </>
         ) : ehVideo && f.media_url ? (
+          // Vídeo antigo (sem miniatura): mostra o 1º quadro, como antes.
           <>
             <Box component="video" src={`${f.media_url}#t=0.1`} preload="metadata" muted playsInline sx={midiaSx} />
             <PlayCircleIcon sx={{ position: "absolute", fontSize: 44, color: "rgba(255,255,255,0.92)",
@@ -91,8 +103,8 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
             onKeyDown={(e) => { if (e.key === "Enter") salvar(); if (e.key === "Escape") { setName(f.original_name || ""); setEditing(false); } }}
             inputProps={{ style: { fontSize: 12, fontWeight: 600 } }} />
         ) : (
-          <Tooltip title="Clique duas vezes para renomear">
-            <Typography noWrap variant="caption" onDoubleClick={() => setEditing(true)}
+          <Tooltip title="Clique no nome para renomear">
+            <Typography noWrap variant="caption" onClick={(e) => { e.stopPropagation(); setEditing(true); }}
               sx={{ display: "block", fontWeight: 600, cursor: "text", "&:hover": { textDecoration: "underline dotted" } }}>
               {f.original_name || "Sem nome"}
             </Typography>

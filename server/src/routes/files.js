@@ -19,11 +19,24 @@ const router = Router();
 // Quando `asAttachment` é falso, entrega "inline" (o navegador mostra a foto ou
 // toca o vídeo direto na tela) e respeita Range (bytes=…) — é isso que faz o
 // vídeo abrir na hora, mostrar o 1º quadro e deixar arrastar sem baixar tudo.
+// O Chrome se recusa a tocar "video/quicktime" no <video>, mesmo quando o .mov
+// é H.264 por dentro — que é o caso dos vídeos de iPhone. Rotulando como mp4,
+// ele toca normalmente. O arquivo não é convertido: só o rótulo muda.
+function tipoQueONavegadorToca(file) {
+  const mime = file.mime || "";
+  const ehMov = /quicktime/i.test(mime) || /\.mov$/i.test(file.original_name || "");
+  if (ehMov) return "video/mp4";
+  return mime || "application/octet-stream";
+}
+
 async function serveFile(res, file, asAttachment, range) {
   if (isR2Path(file.stored_path)) {
     try {
       const obj = await getR2Object(r2Key(file.stored_path), asAttachment ? undefined : range);
-      res.setHeader("Content-Type", obj.ContentType || file.mime || "application/octet-stream");
+      // Baixando: o tipo real. Vendo na tela: o tipo que o navegador toca.
+      res.setHeader("Content-Type", asAttachment
+        ? (obj.ContentType || file.mime || "application/octet-stream")
+        : tipoQueONavegadorToca(file));
       if (!asAttachment) res.setHeader("Accept-Ranges", "bytes");
       if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
       if (!asAttachment && obj.ContentRange) { res.status(206); res.setHeader("Content-Range", obj.ContentRange); }
@@ -46,10 +59,15 @@ async function serveFile(res, file, asAttachment, range) {
     return;
   }
   if (!existsSync(file.stored_path)) return res.status(404).json({ error: "Arquivo não encontrado." });
-  if (asAttachment) return res.download(file.stored_path, file.original_name);
+  if (asAttachment) {
+    // O arquivo é gravado com nome sem extensão, então o Express não adivinha o
+    // tipo e mandava "application/octet-stream". Dizemos o tipo real.
+    if (file.mime) res.type(file.mime);
+    return res.download(file.stored_path, file.original_name);
+  }
   // sendFile já trata Range e define Accept-Ranges/Content-Type sozinho.
   res.setHeader("Cache-Control", "private, max-age=86400");
-  res.sendFile(file.stored_path, { headers: { "Content-Type": file.mime || undefined } });
+  res.sendFile(file.stored_path, { headers: { "Content-Type": tipoQueONavegadorToca(file) } });
 }
 
 // Assina uma URL "inline" curta para uma foto/vídeo — o <img>/<video> carrega
@@ -174,7 +192,7 @@ router.get("/", (req, res) => {
   }
   const rows = db.prepare(
     `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.folder_id, f.client_id,
-            f.expires_at, f.keep_forever, f.stage, c.name AS client_name
+            f.expires_at, f.keep_forever, f.stage, f.thumb, c.name AS client_name
      FROM files f LEFT JOIN clients c ON c.id = f.client_id
      WHERE ${where.join(" AND ")} ORDER BY f.original_name`
   ).all(params);
@@ -191,11 +209,19 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
   const { client_id, folder_id } = req.body || {};
   const stage = STAGES.includes(req.body?.stage) ? req.body.stage : "originais";
   const stmt = db.prepare(
-    `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, org_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, thumb, org_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
+  // O navegador manda uma miniatura por arquivo, na mesma ordem. Limite
+  // defensivo: miniatura é pequena; qualquer coisa maior é ignorada.
+  const LIMITE_THUMB = 300 * 1024;
+  let thumbs = [];
+  try {
+    const bruto = req.body?.thumbs;
+    thumbs = bruto ? JSON.parse(Array.isArray(bruto) ? bruto[0] : bruto) : [];
+  } catch { thumbs = []; }
   const created = [];
-  for (const f of (req.files || [])) {
+  for (const [i, f] of (req.files || []).entries()) {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const name = Buffer.from(f.originalname, "latin1").toString("utf8");
     let storedPath = f.path; // por padrão fica no disco
@@ -208,8 +234,10 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
         storedPath = f.path; // se o R2 falhar, não perde: mantém no disco
       }
     }
-    const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, storedPath, stage, req.orgId);
-    created.push(db.prepare("SELECT id, original_name, mime, size, created_at FROM files WHERE id = ?").get(info.lastInsertRowid));
+    const t = thumbs[i];
+    const thumb = typeof t === "string" && t.startsWith("data:image/") && t.length <= LIMITE_THUMB ? t : null;
+    const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, storedPath, stage, thumb, req.orgId);
+    created.push(db.prepare("SELECT id, original_name, mime, size, created_at, thumb FROM files WHERE id = ?").get(info.lastInsertRowid));
   }
   res.status(201).json(created);
 });
