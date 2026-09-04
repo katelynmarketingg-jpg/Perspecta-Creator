@@ -10,6 +10,8 @@
 // arquivo original, intacto.
 // ---------------------------------------------------------------------------
 
+import { ehHeic, heicParaJpeg } from "./heic.js";
+
 const LADO_MAX = 640;      // suficiente para a grade em telas retina
 const QUALIDADE = 0.72;    // JPEG: bom o bastante, ~40 KB
 
@@ -75,6 +77,12 @@ export function thumbFromElement(el) {
 /** Miniatura em data URI, ou null quando não dá para gerar. Nunca lança erro. */
 export async function makeThumbnail(file) {
   try {
+    // Foto de iPhone: o navegador não desenha .HEIC, então converte antes.
+    // Sem isso a miniatura saía nula e a grade mostrava o quadrado quebrado.
+    if (ehHeic(file?.name, file?.type)) {
+      const jpeg = await heicParaJpeg(file, 0.9);
+      return jpeg ? await daImagem(jpeg) : null;
+    }
     if (file?.type?.startsWith("image/")) return await daImagem(file);
     if (file?.type?.startsWith("video/")) return await doVideo(file);
   } catch { /* sem miniatura é aceitável */ }

@@ -8,6 +8,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import MovieIcon from "@mui/icons-material/Movie";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import { fileSize } from "../utils.js";
+import { ehHeic, heicParaJpeg } from "../upload/heic.js";
 
 const ABAS = [
   { key: "todos", label: "Todos" },
@@ -30,17 +31,27 @@ function Item({ arquivo, fetchFile }) {
   const [baixando, setBaixando] = useState(false);
   const ehImagem = arquivo.mime?.startsWith("image/");
   const ehVideo = arquivo.mime?.startsWith("video/");
+  const heic = ehHeic(arquivo.original_name, arquivo.mime);
   const dias = diasRestantes(arquivo.expires_at);
   const urgente = dias !== null && dias <= 3 && !arquivo.keep_forever;
 
+  // A miniatura, quando existe, evita baixar a arte inteira. Sem ela, baixa —
+  // e no caso do .HEIC (foto de iPhone) converte antes, porque nenhum navegador
+  // desenha esse formato. Baixar continua entregando o arquivo original.
   useEffect(() => {
+    if (arquivo.thumb) { setSrc(arquivo.thumb); return undefined; }
     if (!ehImagem) return undefined;
     let url; let vivo = true;
     fetchFile(arquivo.id)
-      .then((blob) => { if (vivo) { url = URL.createObjectURL(blob); setSrc(url); } })
+      .then(async (blob) => {
+        const pronto = heic ? await heicParaJpeg(blob) : blob;
+        if (!vivo || !pronto) return;
+        url = URL.createObjectURL(pronto);
+        setSrc(url);
+      })
       .catch(() => {});
     return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
-  }, [arquivo.id, ehImagem, fetchFile]);
+  }, [arquivo.id, arquivo.thumb, ehImagem, heic, fetchFile]);
 
   async function baixar() {
     setBaixando(true);
