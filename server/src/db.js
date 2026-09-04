@@ -710,6 +710,15 @@ CREATE TABLE IF NOT EXISTS integrations (
   UNIQUE (client_id, provider)
 );
 CREATE INDEX IF NOT EXISTS idx_integrations_org ON integrations(org_id);
+
+-- Páginas do Facebook aguardando escolha: quando a conta tem mais de uma, a
+-- pessoa decide qual é a do cliente em vez de o sistema chutar a primeira.
+CREATE TABLE IF NOT EXISTS meta_pending (
+  client_id   INTEGER PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE,
+  org_id      INTEGER NOT NULL,
+  pages       TEXT NOT NULL,              -- JSON cifrado (traz o token de cada página)
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
 
 // Dados do perfil do Instagram puxados na conexão (foto, nome, seguidores,

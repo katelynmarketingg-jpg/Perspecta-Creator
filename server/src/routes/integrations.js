@@ -6,6 +6,7 @@ import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
   publicConnection, publishToInstagram, publishToFacebook, META_APP_ID,
   fetchIgProfile, updateIgProfile,
+  savePendingPages, getPendingPages, clearPendingPages, publicPage,
 } from "../meta.js";
 
 const router = Router();
@@ -27,9 +28,20 @@ router.get("/meta/callback", async (req, res) => {
 
   try {
     const payload = jwt.verify(String(state), JWT_SECRET);
-    const conn = await exchangeCode(String(code));
-    saveConnection(payload.org_id, payload.client_id, conn);
-    fecha(`Conectado a ${conn.ig_username ? "@" + conn.ig_username : conn.page_name}`, true);
+    const pages = await exchangeCode(String(code));
+
+    // Uma página só: conecta direto, como sempre foi. Mais de uma: guarda as
+    // candidatas e deixa a pessoa escolher na tela — antes o sistema pegava a
+    // primeira e ligava o cliente errado.
+    if (pages.length === 1) {
+      clearPendingPages(payload.org_id, payload.client_id);
+      saveConnection(payload.org_id, payload.client_id, pages[0]);
+      const p = pages[0];
+      return fecha(`Conectado a ${p.ig_username ? "@" + p.ig_username : p.page_name}`, true);
+    }
+
+    savePendingPages(payload.org_id, payload.client_id, pages);
+    fecha(`${pages.length} páginas encontradas — escolha a certa em Integrações.`, true);
   } catch (e) {
     fecha(`Não foi possível conectar: ${e.message}`);
   }
@@ -46,10 +58,15 @@ router.get("/meta/status", (req, res) => {
        WHERE i.org_id = ? AND i.provider = 'meta'`
     )
     .all(req.orgId);
+  // Clientes que voltaram do login da Meta com várias páginas e ainda esperam
+  // a escolha — é o que acende o aviso na tela.
+  const pendentes = db.prepare("SELECT client_id FROM meta_pending WHERE org_id = ?")
+    .all(req.orgId).map((r) => r.client_id);
   res.json({
     configured: metaConfigured(),
     app_id: META_APP_ID ? `${META_APP_ID.slice(0, 6)}…` : null,
     connections: rows.map(publicConnection),
+    pending: pendentes,
   });
 });
 
@@ -70,6 +87,30 @@ router.post("/meta/connect", (req, res) => {
   res.json({ url: authUrl(state) });
 });
 
+// GET /api/integrations/meta/pending/:clientId — páginas aguardando escolha.
+router.get("/meta/pending/:clientId", (req, res) => {
+  const pages = getPendingPages(req.orgId, req.params.clientId);
+  res.json({ pages: (pages || []).map(publicPage) });
+});
+
+// POST /api/integrations/meta/choose — grava a página escolhida para o cliente.
+router.post("/meta/choose", (req, res) => {
+  const { client_id, page_id } = req.body || {};
+  const client = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(client_id, req.orgId);
+  if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
+
+  const pages = getPendingPages(req.orgId, client_id);
+  if (!pages?.length) {
+    return res.status(400).json({ error: "Nenhuma escolha pendente. Conecte a Meta de novo." });
+  }
+  const escolhida = pages.find((p) => String(p.page_id) === String(page_id));
+  if (!escolhida) return res.status(404).json({ error: "Essa página não está entre as encontradas." });
+
+  saveConnection(req.orgId, client.id, escolhida);
+  clearPendingPages(req.orgId, client.id);
+  res.json({ ok: true, page_name: escolhida.page_name, ig_username: escolhida.ig_username });
+});
+
 // POST /api/integrations/meta/:clientId/refresh — reatualiza foto/nome/seguidores
 // do Instagram (útil quando o cliente mudou a foto ou ganhou seguidores).
 router.post("/meta/:clientId/refresh", async (req, res) => {
@@ -86,6 +127,7 @@ router.post("/meta/:clientId/refresh", async (req, res) => {
 });
 
 router.delete("/meta/:clientId", (req, res) => {
+  clearPendingPages(req.orgId, req.params.clientId);
   db.prepare("DELETE FROM integrations WHERE client_id = ? AND org_id = ? AND provider = 'meta'")
     .run(req.params.clientId, req.orgId);
   res.json({ ok: true });
