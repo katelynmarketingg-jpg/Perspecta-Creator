@@ -103,3 +103,10 @@ test("arquivo de outro cliente continua barrado", async () => {
   const r = await fetch(`${base}/files/${outro}/download`, { headers: auth });
   assert.equal(r.status, 404);
 });
+
+test("a galeria do cliente traz a miniatura junto (não baixa a arte inteira)", async () => {
+  const g = await (await fetch(`${base}/gallery`, { headers: auth })).json();
+  const todos = Object.values(g).flat();            // vem agrupado por etapa
+  const item = todos.find((x) => x.id === foto);
+  assert.equal(item.thumb, "data:image/jpeg;base64,QUJD");
+});
