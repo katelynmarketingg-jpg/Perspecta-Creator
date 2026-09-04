@@ -18,6 +18,9 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import StarIcon from "@mui/icons-material/Star";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import DescriptionIcon from "@mui/icons-material/Description";
+import DownloadIcon from "@mui/icons-material/Download";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -292,8 +295,44 @@ function PieceCard({ item, onChanged, flash }) {
   const [slides, setSlides] = useState(item.media_ids || []); // carrossel
   const [slidePicker, setSlidePicker] = useState(false);
   const [slideUploading, setSlideUploading] = useState(false);
+  const [posted, setPosted] = useState(!!item.published_at);
+  const [baixando, setBaixando] = useState(false);
   const ct = CONTENT_TYPES[item.content_type];
   const isCarousel = item.content_type === "carrossel";
+
+  // ---- Postar manual (Reels com música do Edits) ----
+  // Baixa/compartilha o vídeo (no celular abre a folha de compartilhamento →
+  // Edits), copia a legenda e marca como postado — sem passar pela API da Meta.
+  async function baixarOuCompartilhar() {
+    const id = fileId || coverId || slides[0];
+    if (!id) { flash("Sem arquivo pra baixar. Anexe a arte primeiro.", "error"); return; }
+    setBaixando(true);
+    try {
+      const blob = (await api.get(`/files/${id}/download`, { responseType: "blob" })).data;
+      const ext = (blob.type.split("/")[1] || "mp4").split("+")[0];
+      const nome = `${(item.title || "conteudo").replace(/[^\w.-]+/g, "_")}.${ext}`;
+      const file = new File([blob], nome, { type: blob.type || "application/octet-stream" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], text: caption || "" }); return; }
+        catch { /* usuário cancelou o compartilhamento */ }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = nome; a.click();
+      URL.revokeObjectURL(url);
+    } catch { flash("Não consegui baixar o arquivo.", "error"); }
+    finally { setBaixando(false); }
+  }
+  async function copiarLegenda() {
+    try { await navigator.clipboard.writeText(caption || ""); flash("Legenda copiada!", "success"); }
+    catch { flash("Não consegui copiar — selecione o texto e copie manualmente.", "error"); }
+  }
+  async function marcarPostado(v = true) {
+    try {
+      await api.post(`/distribution/${item.id}/mark-posted`, { posted: v });
+      setPosted(v);
+      flash(v ? "Marcado como postado ✓" : "Voltou para pendente.", "success");
+    } catch (err) { flash(err.response?.data?.error || "Não foi possível marcar.", "error"); }
+  }
 
   async function saveSlides(next) {
     setSlides(next);
@@ -473,6 +512,36 @@ function PieceCard({ item, onChanged, flash }) {
                 `Oi! Preparei um conteúdo novo pra você aprovar. É só entrar na sua área do cliente 🙂`), "_blank")}>
               Avisar no WhatsApp
             </Button>
+          )}
+
+          {/* Postar manual — aparece quando o cliente já aprovou. Ideal pros
+              Reels com música do Edits, que precisam ser postados no app. */}
+          {item.approval_status === "approved" && (
+            <>
+              <Divider sx={{ my: 0.5 }}>Publicar no Instagram</Divider>
+              {posted ? (
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Chip color="success" icon={<CheckCircleIcon sx={{ fontSize: 16 }} />} label="Postado ✓" />
+                  <Button size="small" color="inherit" onClick={() => marcarPostado(false)}>desfazer</Button>
+                </Stack>
+              ) : (
+                <>
+                  <Typography variant="caption" color="text.secondary">
+                    Reels com música do Edits: baixe/abra o vídeo, monte a música no Edits e poste. Depois marque como postado aqui.
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+                    <Button size="small" variant="outlined" startIcon={<DownloadIcon />}
+                      disabled={baixando} onClick={baixarOuCompartilhar}>
+                      {baixando ? "Preparando…" : "Baixar / abrir vídeo"}
+                    </Button>
+                    <Button size="small" variant="outlined" startIcon={<ContentCopyIcon />}
+                      disabled={!caption} onClick={copiarLegenda}>Copiar legenda</Button>
+                    <Button size="small" variant="contained" startIcon={<CheckCircleIcon />}
+                      onClick={() => marcarPostado(true)}>Marquei como postado</Button>
+                  </Stack>
+                </>
+              )}
+            </>
           )}
 
           <GalleryPicker clientId={item.client_id} open={picker} onClose={() => setPicker(false)} onPick={pickFromGallery} />
