@@ -84,6 +84,22 @@ test("quem já tem miniatura não é sobrescrito", () => {
   assert.equal(atual.thumb, original);
 });
 
+test("a grade do perfil pega a miniatura de foto E de vídeo pelo mesmo caminho", () => {
+  const t = "data:image/jpeg;base64,UVVBRFJP";
+  const foto = novoArquivo({ nome: "post.png", mime: "image/png", thumb: t });
+  const video = novoArquivo({ nome: "reel.mp4", mime: "video/mp4", thumb: t });
+  for (const id of [foto, video]) {
+    const f = db.prepare("SELECT thumb FROM files WHERE id = ? AND org_id = ?").get(id, org);
+    assert.equal(f.thumb, t, "vídeo tem miniatura igual à da foto — é o que faz a prévia aparecer");
+  }
+});
+
+test("vídeo sem miniatura não finge ter uma", () => {
+  const id = novoArquivo({ nome: "antigo.mp4", mime: "video/mp4" });
+  const f = db.prepare("SELECT thumb FROM files WHERE id = ?").get(id);
+  assert.equal(f.thumb, null, "a grade cai na arte e gera a miniatura depois");
+});
+
 test("miniatura grande demais é descartada (não incha o banco)", () => {
   const LIMITE = 300 * 1024;
   const aceita = (t) => typeof t === "string" && t.startsWith("data:image/") && t.length <= LIMITE;
