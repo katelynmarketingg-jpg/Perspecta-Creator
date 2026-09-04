@@ -81,6 +81,10 @@ app.use("/api/events", eventsRoutes);
 app.use("/api/agenda", agendaRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/calendar", calendarRoutes);
+// A rota pública (link assinado, sem login) tem de vir ANTES da rota de arquivos
+// autenticada — senão o authRequired dela intercepta /files/shared/:ticket e
+// devolve 401, e as prévias de foto/vídeo (que carregam por esse link) não abrem.
+app.use("/api/files", sharedRouter);
 app.use("/api/files", filesRoutes);
 app.use("/api/workspace", workspaceRoutes);
 app.use("/api/portal", portalRoutes);
@@ -89,7 +93,6 @@ app.use("/api/services", servicesRoutes);
 app.use("/api/organizations", organizationsRoutes);
 app.use("/api/plans", plansRoutes);
 app.use("/api/integrations", integrationsRoutes);
-app.use("/api/files", sharedRouter); // link assinado, sem login
 app.use("/api/sign", signRouter);    // assinatura por link público
 app.use("/api/comments", commentsRoutes);
 app.use("/api/time", timeRoutes);

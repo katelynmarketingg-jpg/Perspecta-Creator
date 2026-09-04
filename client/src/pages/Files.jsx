@@ -91,8 +91,8 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
             onKeyDown={(e) => { if (e.key === "Enter") salvar(); if (e.key === "Escape") { setName(f.original_name || ""); setEditing(false); } }}
             inputProps={{ style: { fontSize: 12, fontWeight: 600 } }} />
         ) : (
-          <Tooltip title="Clique duas vezes para renomear">
-            <Typography noWrap variant="caption" onDoubleClick={() => setEditing(true)}
+          <Tooltip title="Clique no nome para renomear">
+            <Typography noWrap variant="caption" onClick={() => setEditing(true)}
               sx={{ display: "block", fontWeight: 600, cursor: "text", "&:hover": { textDecoration: "underline dotted" } }}>
               {f.original_name || "Sem nome"}
             </Typography>
