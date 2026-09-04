@@ -175,6 +175,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Erro interno do servidor." });
 });
 
+// Rede de segurança: no Node, uma promessa rejeitada sem dono ou uma exceção
+// solta ENCERRAM o processo — e aí o site inteiro responde 502 até o Render
+// reiniciar. Registrar aqui não conserta o erro, mas evita que um pedido
+// ruim derrube todo mundo. O erro fica no log para ser corrigido.
+process.on("unhandledRejection", (motivo) => {
+  console.error("[servidor] promessa rejeitada sem tratamento:", motivo);
+});
+process.on("uncaughtException", (erro) => {
+  console.error("[servidor] exceção não tratada:", erro);
+});
+
 app.listen(PORT, () => {
   console.log(`API rodando em http://localhost:${PORT}`);
   startReminders();  // cobra aprovações paradas

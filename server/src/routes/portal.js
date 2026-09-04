@@ -2,6 +2,7 @@ import { Router } from "express";
 import jwt from "jsonwebtoken";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { db } from "../db.js";
 import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
@@ -445,7 +446,15 @@ router.get("/files/:id/download", async (req, res) => {
       const obj = await getR2Object(r2Key(file.stored_path));
       if (obj.ContentType) res.setHeader("Content-Type", obj.ContentType);
       if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
-      return obj.Body.pipe(res);
+      // Idem: sem tratar o erro do stream, uma foto cancelada pelo navegador
+      // derruba o servidor e a área do cliente inteira responde 502.
+      return await pipeline(obj.Body, res).catch((e) => {
+        if (!res.headersSent) res.status(404).end();
+        else res.destroy();
+        if (e?.code !== "ERR_STREAM_PREMATURE_CLOSE") {
+          console.error("[portal] envio de arquivo interrompido:", e?.message);
+        }
+      });
     } catch { return res.status(404).json({ error: "Arquivo não encontrado." }); }
   }
   if (!existsSync(file.stored_path)) return res.status(404).json({ error: "Arquivo não encontrado." });

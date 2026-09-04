@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { pipeline } from "node:stream/promises";
 import multer from "multer";
 import AdmZip from "adm-zip";
 import { mkdirSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
@@ -28,7 +29,17 @@ async function serveFile(res, file, asAttachment, range) {
       if (!asAttachment && obj.ContentRange) { res.status(206); res.setHeader("Content-Range", obj.ContentRange); }
       if (asAttachment) res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.original_name)}"`);
       else res.setHeader("Cache-Control", "private, max-age=86400");
-      obj.Body.pipe(res);
+      // Um erro no meio do envio (R2 caiu, ou o navegador cancelou a imagem)
+      // emite 'error' no stream. Sem tratar, o Node derruba o processo inteiro
+      // e TODO MUNDO vê 502 — e uma tela cheia de fotos cancela requisições o
+      // tempo todo. `pipeline` fecha os dois lados e devolve o erro aqui.
+      await pipeline(obj.Body, res).catch((e) => {
+        if (!res.headersSent) res.status(404).end();
+        else res.destroy();
+        if (e?.code !== "ERR_STREAM_PREMATURE_CLOSE") {
+          console.error("[arquivo] envio interrompido:", e?.message);
+        }
+      });
     } catch {
       res.status(404).json({ error: "Arquivo não encontrado." });
     }
