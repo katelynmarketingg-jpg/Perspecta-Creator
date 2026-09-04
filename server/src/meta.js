@@ -62,18 +62,38 @@ export async function exchangeCode(code) {
 
   const pages = await graph("/me/accounts", {
     access_token: long.access_token,
-    fields: "id,name,access_token,instagram_business_account{id,username}",
+    fields: "id,name,access_token,instagram_business_account{id,username,name,profile_picture_url,followers_count,media_count}",
   });
   const page = pages.data?.[0];
   if (!page) throw new Error("Nenhuma página do Facebook foi encontrada nessa conta.");
+  const ig = page.instagram_business_account || null;
 
   return {
     page_id: page.id,
     page_name: page.name,
     page_token: page.access_token,
-    ig_user_id: page.instagram_business_account?.id || null,
-    ig_username: page.instagram_business_account?.username || null,
+    ig_user_id: ig?.id || null,
+    ig_username: ig?.username || null,
+    ig_name: ig?.name || null,
+    ig_picture: ig?.profile_picture_url || null,
+    ig_followers: ig?.followers_count ?? null,
+    ig_media_count: ig?.media_count ?? null,
     expires_in: long.expires_in || null,
+  };
+}
+
+/** Relê o perfil do Instagram (foto, nome, seguidores, posts) com o token salvo. */
+export async function fetchIgProfile(igUserId, accessToken) {
+  const p = await graph(`/${igUserId}`, {
+    fields: "username,name,profile_picture_url,followers_count,media_count",
+    access_token: accessToken,
+  });
+  return {
+    ig_username: p.username || null,
+    ig_name: p.name || null,
+    ig_picture: p.profile_picture_url || null,
+    ig_followers: p.followers_count ?? null,
+    ig_media_count: p.media_count ?? null,
   };
 }
 
@@ -83,15 +103,29 @@ export function saveConnection(orgId, clientId, conn) {
     : null;
   db.prepare(
     `INSERT INTO integrations (org_id, client_id, provider, page_id, page_name,
-                               ig_user_id, ig_username, access_token, token_expires)
-     VALUES (?, ?, 'meta', ?, ?, ?, ?, ?, ?)
+                               ig_user_id, ig_username, ig_name, ig_picture,
+                               ig_followers, ig_media_count, access_token, token_expires)
+     VALUES (?, ?, 'meta', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(client_id, provider) DO UPDATE SET
        page_id=excluded.page_id, page_name=excluded.page_name,
        ig_user_id=excluded.ig_user_id, ig_username=excluded.ig_username,
+       ig_name=excluded.ig_name, ig_picture=excluded.ig_picture,
+       ig_followers=excluded.ig_followers, ig_media_count=excluded.ig_media_count,
        access_token=excluded.access_token, token_expires=excluded.token_expires,
        connected_at=datetime('now')`
   ).run(orgId, clientId, conn.page_id, conn.page_name, conn.ig_user_id,
-        conn.ig_username, encrypt(conn.page_token), expires);
+        conn.ig_username, conn.ig_name ?? null, conn.ig_picture ?? null,
+        conn.ig_followers ?? null, conn.ig_media_count ?? null,
+        encrypt(conn.page_token), expires);
+}
+
+/** Atualiza só os dados do perfil do IG de uma conexão já existente. */
+export function updateIgProfile(clientId, orgId, prof) {
+  db.prepare(
+    `UPDATE integrations SET ig_username=COALESCE(?, ig_username), ig_name=?, ig_picture=?,
+       ig_followers=?, ig_media_count=? WHERE client_id=? AND org_id=? AND provider='meta'`
+  ).run(prof.ig_username, prof.ig_name, prof.ig_picture, prof.ig_followers,
+        prof.ig_media_count, clientId, orgId);
 }
 
 export function getConnection(clientId, orgId) {
