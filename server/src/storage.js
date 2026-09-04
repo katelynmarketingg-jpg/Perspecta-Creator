@@ -60,3 +60,16 @@ export async function listR2Objects(prefix) {
     .map((o) => ({ key: o.Key, lastModified: o.LastModified, size: o.Size }))
     .sort((a, b) => (b.lastModified?.getTime() || 0) - (a.lastModified?.getTime() || 0));
 }
+
+// ---------------------------------------------------------------------------
+// O tipo que o navegador realmente TOCA. Os arquivos são gravados sem extensão,
+// então quem serve precisa dizer o tipo — senão sai "application/octet-stream"
+// e o navegador se recusa a desenhar a imagem (ou tocar o vídeo). O .mov é
+// remarcado como mp4: o conteúdo costuma ser H.264, que o navegador toca.
+// ---------------------------------------------------------------------------
+export function tipoQueONavegadorToca(file) {
+  const mime = file.mime || "";
+  const ehMov = /quicktime/i.test(mime) || /\.mov$/i.test(file.original_name || "");
+  if (ehMov) return "video/mp4";
+  return mime || "application/octet-stream";
+}

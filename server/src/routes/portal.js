@@ -7,7 +7,7 @@ import { db } from "../db.js";
 import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
-import { isR2Path, r2Key, getR2Object } from "../storage.js";
+import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca } from "../storage.js";
 import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 
 const router = Router();
@@ -409,9 +409,17 @@ router.post("/tasks/:id/comments", (req, res) => {
 router.get("/feed", (req, res) => {
   const rows = db
     .prepare(
+      // A arte da grade é a CAPA escolhida na Distribuição; sem capa, o 1º anexo.
+      // Vem com a miniatura pronta (leve) e o tipo, para o perfil desenhar foto
+      // e vídeo sem baixar a arte inteira de cada quadradinho.
       `SELECT t.id, t.title, t.caption, t.client_caption, t.content_type, t.scheduled_at,
               t.approval_status, s.is_done AS stage_done,
-              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+              COALESCE(t.cover_file_id,
+                       (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1)) AS file_id,
+              (SELECT f.thumb FROM files f WHERE f.id = COALESCE(t.cover_file_id,
+                       (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1))) AS thumb,
+              (SELECT f.mime FROM files f WHERE f.id = COALESCE(t.cover_file_id,
+                       (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1))) AS mime
        FROM tasks t LEFT JOIN kanban_stages s ON s.id = t.stage_id
        WHERE t.client_id = ? AND t.scheduled_at IS NOT NULL
        ORDER BY t.scheduled_at DESC`
@@ -444,7 +452,9 @@ router.get("/files/:id/download", async (req, res) => {
   if (isR2Path(file.stored_path)) {
     try {
       const obj = await getR2Object(r2Key(file.stored_path));
-      if (obj.ContentType) res.setHeader("Content-Type", obj.ContentType);
+      res.setHeader("Content-Type", obj.ContentType && obj.ContentType !== "application/octet-stream"
+        ? obj.ContentType
+        : tipoQueONavegadorToca(file));
       if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
       // Idem: sem tratar o erro do stream, uma foto cancelada pelo navegador
       // derruba o servidor e a área do cliente inteira responde 502.
@@ -458,7 +468,14 @@ router.get("/files/:id/download", async (req, res) => {
     } catch { return res.status(404).json({ error: "Arquivo não encontrado." }); }
   }
   if (!existsSync(file.stored_path)) return res.status(404).json({ error: "Arquivo não encontrado." });
-  return res.sendFile(file.stored_path);
+  // O arquivo é gravado com nome SEM extensão, então o Express não adivinha o
+  // tipo e mandava "application/octet-stream". O navegador, por sua vez, se
+  // recusa a desenhar um blob desse tipo dentro de <img> — era exatamente por
+  // isso que as fotos não apareciam na prévia do feed da área do cliente.
+  res.setHeader("Cache-Control", "private, max-age=86400");
+  return res.sendFile(file.stored_path, {
+    headers: { "Content-Type": tipoQueONavegadorToca(file) },
+  });
 });
 
 export default router;

@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
-import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object } from "../storage.js";
+import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca } from "../storage.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -22,12 +22,6 @@ const router = Router();
 // O Chrome se recusa a tocar "video/quicktime" no <video>, mesmo quando o .mov
 // é H.264 por dentro — que é o caso dos vídeos de iPhone. Rotulando como mp4,
 // ele toca normalmente. O arquivo não é convertido: só o rótulo muda.
-function tipoQueONavegadorToca(file) {
-  const mime = file.mime || "";
-  const ehMov = /quicktime/i.test(mime) || /\.mov$/i.test(file.original_name || "");
-  if (ehMov) return "video/mp4";
-  return mime || "application/octet-stream";
-}
 
 async function serveFile(res, file, asAttachment, range) {
   if (isR2Path(file.stored_path)) {
