@@ -182,8 +182,13 @@ function PostDialog({ post, onClose }) {
 
 // Mídia da aprovação: igual à Distribuição — vídeo TOCA por streaming (sem
 // baixar) e tem um botão "Baixar" para a arte original.
+// Reconhece vídeo pelo tipo OU pela extensão do nome — alguns uploads (.mov do
+// iPhone) chegam sem o "video/" no tipo, e sem isso o card mostrava só a capa.
+const EXT_VIDEO = /\.(mp4|mov|webm|m4v|mkv|avi|quicktime)$/i;
+const ehArquivoVideo = (f) => (f?.mime || "").startsWith("video/") || EXT_VIDEO.test(f?.original_name || "");
+
 function ApprovalMedia({ file }) {
-  const ehVideo = (file.mime || "").startsWith("video/");
+  const ehVideo = ehArquivoVideo(file);
   const [baixando, setBaixando] = useState(false);
   async function baixar() {
     setBaixando(true);
@@ -243,7 +248,7 @@ function ApprovalCard({ post, onDone }) {
 
   // Mostra fotos E vídeos (o Reel é vídeo — antes ficava de fora e o cliente
   // via só a capa, sem conseguir assistir).
-  const midias = attachments.filter((a) => /^(image|video)\//.test(a.mime || ""));
+  const midias = attachments.filter((a) => /^(image|video)\//.test(a.mime || "") || ehArquivoVideo(a));
 
   return (
     <Card>
