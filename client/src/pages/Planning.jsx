@@ -90,7 +90,7 @@ function MonthBlock({ year, month, byDay, seasonalByDay, onDay, full }) {
                   {/* Datas comemorativas (fundo) — cor por categoria, texto discreto. */}
                   {full && saz.slice(0, has ? 1 : 2).map((s, k) => (
                     <Box key={`s${k}`} sx={{ display: "flex", alignItems: "center", gap: 0.4, minWidth: 0 }}>
-                      <Box sx={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, bgcolor: CATEGORY_HEX[s.category] || "#999" }} />
+                      <Box component="span" sx={{ fontSize: 10, flexShrink: 0 }}>{s.emoji}</Box>
                       <Typography sx={{ fontSize: 9.5, lineHeight: 1.2, color: "text.secondary", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</Typography>
                     </Box>
                   ))}
@@ -266,9 +266,9 @@ export default function Planning() {
               {(seasonalByDay[dayOpen] || []).map((s, k) => (
                 <Stack key={`sz${k}`} direction="row" spacing={1} alignItems="center"
                   sx={{ p: 0.75, borderRadius: 1, bgcolor: "action.hover" }}>
-                  <Box sx={{ width: 9, height: 9, borderRadius: "50%", flexShrink: 0, bgcolor: CATEGORY_HEX[s.category] || "#999" }} />
+                  <Box component="span" sx={{ fontSize: 16, flexShrink: 0 }}>{s.emoji}</Box>
                   <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }}>{s.name}</Typography>
-                  <Button size="small" onClick={() => setDraft({ date: s.date, title: s.name, notes: "", client_id: clientFilter || "" })}>
+                  <Button size="small" onClick={() => setDraft({ date: s.date, title: `${s.emoji} ${s.name}`, notes: "", client_id: clientFilter || "" })}>
                     Adicionar
                   </Button>
                 </Stack>
