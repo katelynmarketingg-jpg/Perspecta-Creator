@@ -445,11 +445,12 @@ router.get("/tasks/:id/attachments", (req, res) => {
   if (!task) return;
   const rows = db
     .prepare(
-      `SELECT f.id, f.original_name, f.mime, f.size
+      `SELECT f.id, f.original_name, f.mime, f.size, f.thumb
        FROM task_attachments ta JOIN files f ON f.id = ta.file_id
        WHERE ta.task_id = ?`
     )
     .all(task.id);
+  for (const f of rows) f.media_url = mediaUrl(f.id, req.client.org_id);
   res.json(rows);
 });
 
