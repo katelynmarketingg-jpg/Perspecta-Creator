@@ -208,7 +208,9 @@ function ApprovalCard({ post, onDone }) {
     } finally { setBusy(false); }
   }
 
-  const images = attachments.filter((a) => a.mime?.startsWith("image/"));
+  // Mostra fotos E vídeos (o Reel é vídeo — antes ficava de fora e o cliente
+  // via só a capa, sem conseguir assistir).
+  const midias = attachments.filter((a) => /^(image|video)\//.test(a.mime || ""));
 
   return (
     <Card>
@@ -226,9 +228,9 @@ function ApprovalCard({ post, onDone }) {
 
         <Typography variant="h6" sx={{ mb: 1 }}>{post.title}</Typography>
 
-        {images.length > 0 && (
+        {midias.length > 0 && (
           <Stack spacing={1} sx={{ mb: 2 }}>
-            {images.map((img) => <AuthImg key={img.id} fileId={img.id} alt={img.original_name} mime={img.mime} />)}
+            {midias.map((m) => <AuthImg key={m.id} fileId={m.id} alt={m.original_name} mime={m.mime} mediaUrl={m.media_url} maxHeight={520} />)}
           </Stack>
         )}
 
