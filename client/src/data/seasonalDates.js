@@ -320,9 +320,40 @@ function moveis(year) {
 }
 
 // Todas as datas do ano, ordenadas (mantendo cada item separado).
+// Emoji para cada data: primeiro por palavra-chave no nome (mais específico),
+// senão um por categoria. Deixa o calendário sazonal mais fácil de ler num relance.
+const EMOJI_KEYWORDS = [
+  [/natal|papai noel|ceia/, "🎄"], [/ano novo|réveillon|reveillon|confraterniz/, "🎆"],
+  [/das mães|da mãe/, "💐"], [/dos pais|do pai/, "👔"], [/noivos|namorados|do beijo/, "❤️"],
+  [/da mulher|feminin/, "💜"], [/da criança|infantil/, "🧸"], [/professor|educação|estudante|do livro|leitura|escola/, "📚"],
+  [/trabalh/, "🛠️"], [/consumidor/, "🛍️"], [/black friday|cyber/, "🛒"], [/páscoa|pascoa|coelho/, "🐰"],
+  [/carnaval/, "🎭"], [/festa junina|são joão|sao joao|são pedro/, "🎉"], [/independência|independencia|da bandeira|da pátria|patria|proclamação/, "🇧🇷"],
+  [/câncer|cancer|saúde|saude|médic|medic|enfermeir|farmacêut|farmaceut|dentista|hospital|doação de sangue|combate/, "🩺"],
+  [/café|cafe/, "☕"], [/pizza/, "🍕"], [/hambúrg|hamburg/, "🍔"], [/chocolate/, "🍫"], [/sorvete/, "🍦"],
+  [/cerveja|chopp/, "🍺"], [/vinho/, "🍷"], [/animal|pet|cão|cães|gato|veterinár|adestrador|aquári/, "🐾"],
+  [/meio ambiente|árvore|arvore|da água|agua|reciclag|natureza|floresta/, "🌱"], [/amizade|amigo/, "🤝"],
+  [/beleza|cabelo|cabeleire|maquiag|estética|estetica|manicure/, "💅"], [/moda|estilista|costure|da roupa/, "👗"],
+  [/fotógraf|fotograf|do cinema|do vídeo|video/, "📸"], [/música|musica|cantor|violão|rock|samba|do rádio|radio/, "🎵"],
+  [/viagem|turismo|do turista|aviação|aviacao/, "✈️"], [/futebol|do esporte|atleta|olímp|olimp/, "⚽"],
+  [/empreend|do MEI|negócio|negocio/, "🚀"], [/dinheiro|finanç|financ|economia|do banco|contador|contabil/, "💰"],
+  [/tecnologia|internet|programad|dados|inteligência artificial|digital|do computador/, "💻"],
+  [/verão|verao|praia|do sol/, "☀️"], [/inverno/, "❄️"], [/primavera|da flor|floricultura/, "🌸"], [/outono/, "🍂"],
+  [/oração|oracao|igreja|santo|santa|nossa senhora|iemanjá|iemanja|padre|evangélic|evangelic|católic|catolic|cristão|cristao|bíblia|biblia|de reis|espírita|espirita/, "🙏"],
+  [/paz|direitos humanos|solidaried|voluntári|voluntari/, "🕊️"], [/mágico|magico|circo|do palhaço/, "🎪"],
+  [/do beijo|do abraço|abraco/, "🤗"], [/gratidão|gratidao|saudade|felicidade|do sorriso/, "🥰"],
+];
+const EMOJI_CATEGORIA = { feriado: "🇧🇷", comercial: "🛍️", comemorativa: "🎉", sazonal: "🍂", saude: "🩺" };
+
+export function emojiForSeasonal(name, category) {
+  const s = String(name || "").toLowerCase();
+  for (const [re, e] of EMOJI_KEYWORDS) if (re.test(s)) return e;
+  return EMOJI_CATEGORIA[category] || "📅";
+}
+
 export function seasonalFor(year) {
-  const fixas = FIXAS.map(([m, d, name, category]) => ({ date: iso(year, m, d), name, category }));
-  return [...fixas, ...moveis(year)].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const fixas = FIXAS.map(([m, d, name, category]) => ({ date: iso(year, m, d), name, category, emoji: emojiForSeasonal(name, category) }));
+  const mv = moveis(year).map((x) => ({ ...x, emoji: emojiForSeasonal(x.name, x.category) }));
+  return [...fixas, ...mv].sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
 export const CATEGORY_COLOR = {
