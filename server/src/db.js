@@ -519,6 +519,27 @@ CREATE TABLE IF NOT EXISTS ai_usage_month (
   PRIMARY KEY (org_id, ym)
 );
 
+-- Registro DETALHADO de cada chamada à IA (monitoramento de custo por cliente,
+-- usuário, funcionalidade e modelo). Alimenta os relatórios da aba IA.
+CREATE TABLE IF NOT EXISTS ai_calls (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id        INTEGER NOT NULL,
+  user_id       INTEGER,
+  client_id     INTEGER,
+  feature       TEXT,                          -- caption | ideas | plan | ...
+  model         TEXT,
+  tier          TEXT,                          -- fast | standard | advanced
+  tokens_in     INTEGER NOT NULL DEFAULT 0,
+  tokens_cached INTEGER NOT NULL DEFAULT 0,
+  tokens_out    INTEGER NOT NULL DEFAULT 0,
+  cost_brl      REAL NOT NULL DEFAULT 0,
+  ms            INTEGER,
+  ok            INTEGER NOT NULL DEFAULT 1,
+  error         TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ai_calls_org ON ai_calls(org_id, created_at);
+
 -- Gateway de cobrança (Asaas) por escritório. O cartão NUNCA fica aqui —
 -- fica no cofre do Asaas; guardamos só a chave da API e os ids da assinatura.
 CREATE TABLE IF NOT EXISTS org_billing (

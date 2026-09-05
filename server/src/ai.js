@@ -7,18 +7,59 @@ const DEFAULT_MODEL = {
   anthropic: "claude-haiku-4-5-20251001",
 };
 
-// Preço estimado por 1 milhão de tokens (USD) — entrada/saída. É estimativa
-// para o controle de gasto; a cobrança real é do provedor.
+// ---------------------------------------------------------------------------
+// ROTEAMENTO DE MODELOS (Model Router). Centralizado aqui para trocar o modelo
+// de cada nível sem mexer no resto do código. Tarefa simples (legenda, título,
+// ideia) usa o modelo BARATO; tarefa que exige raciocínio (estratégia) usa um
+// mais forte. Dá para sobrescrever por ambiente (AI_MODEL_FAST etc.).
+// ---------------------------------------------------------------------------
+export const AI_MODELS = {
+  openai: {
+    fast: process.env.AI_MODEL_FAST || "gpt-4o-mini",
+    standard: process.env.AI_MODEL_STD || "gpt-4o-mini",
+    advanced: process.env.AI_MODEL_ADV || "gpt-4o",
+  },
+  anthropic: {
+    fast: "claude-haiku-4-5-20251001",
+    standard: "claude-haiku-4-5-20251001",
+    advanced: "claude-haiku-4-5-20251001",
+  },
+};
+
+// Que nível cada funcionalidade usa. Só entra no "advanced" quem precisa mesmo.
+export const FEATURE_TIER = {
+  caption: "fast", ideas: "fast", hooks: "fast", cta: "fast", rewrite: "fast",
+  title: "fast", summary: "fast", variations: "fast",
+  plan: "standard", strategy: "advanced", positioning: "advanced",
+};
+// Teto de tokens de SAÍDA por funcionalidade (não paga token à toa).
+export const FEATURE_MAX_OUT = {
+  caption: 320, hooks: 200, cta: 120, title: 200, rewrite: 400, summary: 300,
+  variations: 400, ideas: 700, plan: 1400, strategy: 1600, positioning: 1600,
+};
+
+function pickModel(cfg, tier) {
+  const prov = AI_MODELS[cfg.provider] ? cfg.provider : "openai";
+  // O modelo que o escritório configurou vale como "standard" (respeita a escolha);
+  // fast/advanced usam os do roteador para economizar/reforçar conforme a tarefa.
+  if (tier === "standard" && cfg.model) return cfg.model;
+  return AI_MODELS[prov][tier] || AI_MODELS[prov].standard;
+}
+
+// Preço estimado por 1 milhão de tokens (USD) — entrada/cache/saída. Estimativa
+// para controle de custo; a cobrança real é do provedor. Cache custa ~50% da entrada.
 const PRICE_USD = {
   "gpt-4o-mini": { in: 0.15, out: 0.60 },
+  "gpt-4o": { in: 2.5, out: 10.0 },
   "claude-haiku-4-5-20251001": { in: 1.0, out: 5.0 },
 };
 const USD_BRL = Number(process.env.AI_USD_BRL) || 5.5; // câmbio p/ estimar em R$
 const ym = () => new Date().toISOString().slice(0, 7);
 
-function custoBRL(model, tokensIn, tokensOut) {
+function custoBRL(model, tokensIn, tokensOut, cached = 0) {
   const p = PRICE_USD[model] || PRICE_USD["gpt-4o-mini"];
-  const usd = (Number(tokensIn) || 0) / 1e6 * p.in + (Number(tokensOut) || 0) / 1e6 * p.out;
+  const ti = Number(tokensIn) || 0, to = Number(tokensOut) || 0, tc = Number(cached) || 0;
+  const usd = ((ti - tc) * p.in + tc * p.in * 0.5 + to * p.out) / 1e6;
   return usd * USD_BRL;
 }
 
@@ -75,10 +116,17 @@ export function getAiConfig(orgId) {
 }
 
 // Soma o consumo de tokens de uma chamada ao total do escritório (histórico) e
-// ao mês corrente (com custo estimado), e dispara os avisos de gasto.
-function recordUsage(orgId, tokensIn, tokensOut, model) {
-  const ti = Number(tokensIn) || 0, to = Number(tokensOut) || 0;
+// ao mês corrente (com custo estimado), grava o registro DETALHADO por chamada
+// e dispara os avisos de gasto.
+function recordUsage(orgId, { tokensIn, tokensOut, cached = 0, model, tier, feature, clientId, userId, ms, ok = true, error = null }) {
+  const ti = Number(tokensIn) || 0, to = Number(tokensOut) || 0, tc = Number(cached) || 0;
+  const custo = custoBRL(model, ti, to, tc);
   try {
+    db.prepare(
+      `INSERT INTO ai_calls (org_id, user_id, client_id, feature, model, tier, tokens_in, tokens_cached, tokens_out, cost_brl, ms, ok, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(orgId, userId ?? null, clientId ?? null, feature ?? null, model ?? null, tier ?? null, ti, tc, to, custo, ms ?? null, ok ? 1 : 0, error);
+    if (!ok) return; // chamada que falhou não conta no orçamento nem no total
     db.prepare(
       `INSERT INTO ai_usage (org_id, calls, tokens_in, tokens_out, updated_at)
        VALUES (?, 1, ?, ?, datetime('now'))
@@ -86,7 +134,6 @@ function recordUsage(orgId, tokensIn, tokensOut, model) {
          calls = calls + 1, tokens_in = tokens_in + excluded.tokens_in,
          tokens_out = tokens_out + excluded.tokens_out, updated_at = datetime('now')`
     ).run(orgId, ti, to);
-    const custo = custoBRL(model, ti, to);
     db.prepare(
       `INSERT INTO ai_usage_month (org_id, ym, calls, tokens_in, tokens_out, cost_brl, updated_at)
        VALUES (?, ?, 1, ?, ?, ?, datetime('now'))
@@ -98,6 +145,29 @@ function recordUsage(orgId, tokensIn, tokensOut, model) {
     const mo = db.prepare("SELECT * FROM ai_usage_month WHERE org_id = ? AND ym = ?").get(orgId, ym());
     alertaOrcamento(orgId, getBudget(orgId), mo);
   } catch { /* medição não deve derrubar a resposta */ }
+}
+
+// Relatório de custo: hoje, mês, e quebras por cliente/usuário/funcionalidade/modelo.
+export function usageBreakdown(orgId) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const gasto = (whereExtra, params = []) => db.prepare(
+    `SELECT COUNT(*) n, COALESCE(SUM(cost_brl),0) brl, COALESCE(SUM(tokens_in+tokens_out),0) tok
+     FROM ai_calls WHERE org_id=? AND ok=1 ${whereExtra}`
+  ).get(orgId, ...params);
+  const porGrupo = (col) => db.prepare(
+    `SELECT ${col} k, COUNT(*) n, COALESCE(SUM(cost_brl),0) brl FROM ai_calls
+     WHERE org_id=? AND ok=1 AND strftime('%Y-%m', created_at)=? GROUP BY ${col} ORDER BY brl DESC LIMIT 20`
+  ).all(orgId, ym());
+  const dia = gasto("AND date(created_at)=?", [hoje]);
+  const mes = gasto("AND strftime('%Y-%m', created_at)=?", [ym()]);
+  return {
+    hoje: +dia.brl.toFixed(2), mes: +mes.brl.toFixed(2),
+    geracoes_mes: mes.n, media_por_geracao: mes.n ? +(mes.brl / mes.n).toFixed(3) : 0,
+    por_funcionalidade: porGrupo("feature"),
+    por_modelo: porGrupo("model"),
+    por_cliente: porGrupo("client_id"),
+    por_usuario: porGrupo("user_id"),
+  };
 }
 
 export function saveAiConfig(orgId, { provider, api_key, model }) {
@@ -116,7 +186,7 @@ export function saveAiConfig(orgId, { provider, api_key, model }) {
  * Chama o modelo com uma instrução de sistema + o pedido do usuário.
  * Abstrai OpenAI e Anthropic para o resto do sistema não se importar com qual é.
  */
-export async function askAi(orgId, { system, user, image }) {
+export async function askAi(orgId, { system, user, image, feature, tier, maxTokens, clientId, userId }) {
   const cfg = getAiConfig(orgId);
   if (!cfg.configured) {
     const err = new Error("A chave de IA ainda não foi configurada.");
@@ -130,69 +200,79 @@ export async function askAi(orgId, { system, user, image }) {
     err.code = "BUDGET";
     throw err;
   }
-  // `image` (opcional) é um data URL "data:image/jpeg;base64,....". Com ele a IA
-  // OLHA a arte para escrever a legenda. Os dois modelos padrão têm visão.
-  const img = /^data:(image\/[a-z.+-]+);base64,(.+)$/i.exec(image || "");
-
-  if (cfg.provider === "anthropic") {
-    const content = [];
-    if (img) content.push({ type: "image", source: { type: "base64", media_type: img[1], data: img[2] } });
-    content.push({ type: "text", text: user });
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": cfg._key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: 1500,
-        system,
-        messages: [{ role: "user", content }],
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || "A IA recusou o pedido.");
-    recordUsage(orgId, data.usage?.input_tokens, data.usage?.output_tokens, cfg.model);
-    return data.content?.map((c) => c.text).join("") || "";
+  // Guarda de tamanho: prompt gigante nunca deve ir pra API (proteção de custo).
+  if ((String(system).length + String(user).length) > 24000) {
+    const err = new Error("O contexto ficou grande demais para uma geração.");
+    err.code = "TOO_BIG";
+    throw err;
   }
 
-  // OpenAI (padrão)
-  const userContent = img
-    ? [{ type: "text", text: user }, { type: "image_url", image_url: { url: image } }]
-    : user;
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${cfg._key}` },
-    body: JSON.stringify({
-      model: cfg.model,
-      messages: [
+  const nivel = tier || FEATURE_TIER[feature] || "standard";
+  const model = pickModel(cfg, nivel);
+  const max_out = maxTokens || FEATURE_MAX_OUT[feature] || 700;
+  // `image` (opcional) é um data URL. Com ele a IA OLHA a arte (visão).
+  const img = /^data:(image\/[a-z.+-]+);base64,(.+)$/i.exec(image || "");
+
+  // Timeout: nunca fica pendurado gastando o pedido (proteção contra travas).
+  const ac = new AbortController();
+  const to = setTimeout(() => ac.abort(), Number(process.env.AI_TIMEOUT_MS) || 60000);
+  const t0 = Date.now();
+  const anthropic = cfg.provider === "anthropic";
+  const url = anthropic ? "https://api.anthropic.com/v1/messages" : "https://api.openai.com/v1/chat/completions";
+  const headers = anthropic
+    ? { "content-type": "application/json", "x-api-key": cfg._key, "anthropic-version": "2023-06-01" }
+    : { "content-type": "application/json", authorization: `Bearer ${cfg._key}` };
+  const body = anthropic
+    ? { model, max_tokens: max_out, system, messages: [{ role: "user", content: [...(img ? [{ type: "image", source: { type: "base64", media_type: img[1], data: img[2] } }] : []), { type: "text", text: user }] }] }
+    : { model, max_tokens: max_out, temperature: 0.7, messages: [
         { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
-      temperature: 0.8,
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || "A IA recusou o pedido.");
-  recordUsage(orgId, data.usage?.prompt_tokens, data.usage?.completion_tokens, cfg.model);
-  return data.choices?.[0]?.message?.content || "";
+        { role: "user", content: img ? [{ type: "text", text: user }, { type: "image_url", image_url: { url: image } }] : user },
+      ] };
+
+  try {
+    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: ac.signal });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || "A IA recusou o pedido.");
+    const u = data.usage || {};
+    const tokensIn = anthropic ? u.input_tokens : u.prompt_tokens;
+    const tokensOut = anthropic ? u.output_tokens : u.completion_tokens;
+    const cached = anthropic ? (u.cache_read_input_tokens || 0) : (u.prompt_tokens_details?.cached_tokens || 0);
+    recordUsage(orgId, { tokensIn, tokensOut, cached, model, tier: nivel, feature, clientId, userId, ms: Date.now() - t0, ok: true });
+    return anthropic ? (data.content?.map((c) => c.text).join("") || "") : (data.choices?.[0]?.message?.content || "");
+  } catch (e) {
+    recordUsage(orgId, { tokensIn: 0, tokensOut: 0, model, tier: nivel, feature, clientId, userId, ms: Date.now() - t0, ok: false, error: e.name === "AbortError" ? "timeout" : e.message });
+    if (e.name === "AbortError") throw new Error("A IA demorou demais para responder. Tente de novo.");
+    throw e;
+  } finally {
+    clearTimeout(to);
+  }
 }
 
-// Monta a instrução de sistema com a persona do cliente.
-export function personaSystem(client, persona) {
+// Instrução FIXA da plataforma (curta e estável — primeira parte do system,
+// para aproveitar cache de prompt do provedor). Não repita regras aqui.
+const PLATAFORMA = "Você é uma assistente de social media de uma agência brasileira. "
+  + "Escreva em português do Brasil, natural, sem clichês de marketing. É um rascunho para revisão.";
+
+// Quais campos da persona importam em cada tipo de tarefa — CONTEXT BUILDER:
+// manda só o necessário, não a persona inteira, para gastar menos tokens.
+const CAMPOS_POR_TAREFA = {
+  caption: ["tone", "audience", "avoid", "extra"],
+  hooks: ["tone", "audience"],
+  cta: ["tone", "audience"],
+  title: ["tone", "audience"],
+  ideas: ["audience", "pillars", "avoid"],
+  plan: ["audience", "pillars", "tone", "avoid", "extra"],
+  strategy: ["tone", "audience", "pillars", "avoid", "extra"],
+};
+const ROTULO = { tone: "Tom", audience: "Público", pillars: "Pilares", avoid: "Evitar", extra: "Notas" };
+
+// Monta a instrução de sistema com SÓ o pedaço relevante da persona do cliente.
+export function personaSystem(client, persona, feature = "caption") {
   const p = persona || {};
-  return [
-    "Você é uma assistente de social media de uma agência de marketing brasileira.",
-    "Escreva em português do Brasil, natural e humano, sem clichês de marketing.",
-    `Cliente: ${client.name}${client.company ? ` (${client.company})` : ""}.`,
-    client.segment ? `Segmento: ${client.segment}.` : "",
-    p.tone ? `Tom de voz: ${p.tone}.` : "",
-    p.audience ? `Público: ${p.audience}.` : "",
-    p.pillars ? `Pilares de conteúdo: ${p.pillars}.` : "",
-    p.avoid ? `Evite: ${p.avoid}.` : "",
-    p.extra ? `Observações: ${p.extra}.` : "",
-    "As sugestões são um rascunho — alguém da equipe vai revisar antes de publicar.",
-  ].filter(Boolean).join("\n");
+  const campos = CAMPOS_POR_TAREFA[feature] || CAMPOS_POR_TAREFA.caption;
+  const marca = [
+    `Cliente: ${client.name}${client.company ? ` (${client.company})` : ""}${client.segment ? ` — ${client.segment}` : ""}.`,
+    ...campos.filter((k) => p[k]).map((k) => `${ROTULO[k]}: ${p[k]}.`),
+  ].join("\n");
+  return `${PLATAFORMA}\n${marca}`;
 }
