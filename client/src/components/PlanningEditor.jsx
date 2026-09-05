@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   Box, Stack, IconButton, Tooltip, Button, Divider, Select, MenuItem, Typography, Chip,
+  Collapse, TextField, Alert,
 } from "@mui/material";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import PsychologyIcon from "@mui/icons-material/Psychology";
 import FormatBoldIcon from "@mui/icons-material/FormatBold";
 import FormatItalicIcon from "@mui/icons-material/FormatItalic";
 import FormatUnderlinedIcon from "@mui/icons-material/FormatUnderlined";
@@ -25,6 +28,16 @@ const SIZES = [["2", "Pequeno"], ["3", "Normal"], ["4", "Médio"], ["5", "Grande
 const SPACINGS = [["1", "Simples"], ["1.4", "1,5"], ["1.8", "Duplo"]];
 const MARGINS = [["10mm", "Estreita"], ["20mm", "Normal"], ["30mm", "Larga"]];
 const WD = ["D", "S", "T", "Q", "Q", "S", "S"];
+
+// Campos da "inteligência" do cliente (a persona que a IA usa nas legendas e no
+// planejamento). Ficam salvos por cliente e valem também no botão da Distribuição.
+const PERSONA_FIELDS = [
+  ["tone", "Tom de voz", "Ex.: próximo, acolhedor, direto…"],
+  ["audience", "Público", "Ex.: mulheres 30-45, mães, empreendedoras…"],
+  ["pillars", "Pilares de conteúdo", "Ex.: dicas, bastidores, depoimentos, ofertas…"],
+  ["avoid", "Evitar", "Ex.: gírias, promessas exageradas…"],
+  ["extra", "Prompt / observações", "Escreva instruções livres pra IA sobre este cliente."],
+];
 
 const pad = (n) => String(n).padStart(2, "0");
 const brDate = (isoStr) => { const [y, m, d] = isoStr.split("-").map(Number); return `${pad(d)}/${pad(m)}/${y}`; };
@@ -106,8 +119,52 @@ export default function PlanningEditor({
   const [savedAt, setSavedAt] = useState(null);
   const dirty = useRef(false);
   const drag = useRef(null);
+  // IA do cliente (persona) + geração do planejamento
+  const [iaOpen, setIaOpen] = useState(false);
+  const [persona, setPersona] = useState({});
+  const [personaSaved, setPersonaSaved] = useState(false);
+  const [gerando, setGerando] = useState(false);
+  const [iaMsg, setIaMsg] = useState(null);
 
   useEffect(() => { api.get("/branding").then((r) => setLogo(r.data?.logo || null)).catch(() => {}); }, []);
+
+  // Carrega a persona do cliente (a "inteligência" que a IA usa).
+  useEffect(() => {
+    setPersonaSaved(false); setIaMsg(null);
+    if (!clientId) { setPersona({}); return; }
+    api.get(`/ai/persona/${clientId}`).then((r) => setPersona(r.data || {})).catch(() => setPersona({}));
+  }, [clientId]);
+
+  async function salvarPersona() {
+    if (!clientId) return;
+    try { await api.put(`/ai/persona/${clientId}`, persona); setPersonaSaved(true); setTimeout(() => setPersonaSaved(false), 3000); }
+    catch { setIaMsg({ t: "error", m: "Não consegui salvar a inteligência do cliente." }); }
+  }
+
+  // Gera um rascunho de planejamento do mês com a IA e insere no documento.
+  async function gerarPlanejamento() {
+    if (!clientId) return;
+    setGerando(true); setIaMsg(null);
+    try {
+      const datas = monthDates.map((d) => `${brDate(d.date)} — ${d.title}`).join("; ");
+      const { data } = await api.post("/ai/generate", {
+        client_id: clientId, kind: "plan",
+        topic: `mês de ${monthLabel}${datas ? `. Datas importantes: ${datas}` : ""}`,
+      });
+      const txt = (data.text || "").trim();
+      if (!txt) { setIaMsg({ t: "error", m: "A IA não retornou nada. Tente de novo." }); return; }
+      const html = `<h3>Sugestão da IA — ${esc(monthLabel)}</h3>`
+        + esc(txt).split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`).join("")
+        + "<p><br/></p>";
+      ref.current?.focus();
+      document.execCommand("insertHTML", false, html);
+      dirty.current = true; salvar();
+      setIaMsg({ t: "success", m: "Planejamento sugerido pela IA — ajuste como quiser. ✨" });
+    } catch (err) {
+      const d = err.response?.data;
+      setIaMsg({ t: "error", m: d?.needs_key ? "Configure a chave de IA na aba IA primeiro." : (d?.error || "Não foi possível gerar.") });
+    } finally { setGerando(false); }
+  }
 
   // Carrega o documento do cliente/mês (e semeia com as datas se estiver vazio).
   useEffect(() => {
@@ -296,8 +353,40 @@ export default function PlanningEditor({
         <Tooltip title="Abre a impressão — em Destino escolha 'Salvar como PDF'">
           <Button size="small" variant="outlined" startIcon={<PictureAsPdfIcon />} onClick={abrirImpressao}>Baixar PDF</Button>
         </Tooltip>
+        <Divider orientation="vertical" flexItem />
+        <Button size="small" variant={iaOpen ? "contained" : "outlined"} color="secondary"
+          startIcon={<PsychologyIcon />} onClick={() => setIaOpen((v) => !v)}>
+          IA deste cliente
+        </Button>
+        <Tooltip title="A IA olha as datas do mês + a inteligência do cliente e sugere o planejamento">
+          <Button size="small" variant="outlined" color="secondary" startIcon={<AutoAwesomeIcon />}
+            onClick={gerarPlanejamento} disabled={gerando}>
+            {gerando ? "Gerando…" : "Gerar com IA"}
+          </Button>
+        </Tooltip>
         {savedAt && <Typography variant="caption" color="text.secondary">Salvo</Typography>}
       </Stack>
+
+      {/* Inteligência do cliente (persona): vale aqui e nas legendas da Distribuição */}
+      <Collapse in={iaOpen}>
+        <Box sx={{ mb: 1.5, p: 1.5, border: 1, borderColor: "divider", borderRadius: 2, bgcolor: "action.hover" }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Inteligência deste cliente</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+            A IA usa isto pra escrever no jeito do cliente — nas <b>legendas</b> (botão na Distribuição) e no <b>planejamento</b> (botão “Gerar com IA” acima).
+          </Typography>
+          {iaMsg && <Alert severity={iaMsg.t} sx={{ mb: 1.5 }} onClose={() => setIaMsg(null)}>{iaMsg.m}</Alert>}
+          <Stack spacing={1.5}>
+            {PERSONA_FIELDS.map(([k, label, ph]) => (
+              <TextField key={k} label={label} placeholder={ph} value={persona[k] || ""}
+                onChange={(e) => setPersona((p) => ({ ...p, [k]: e.target.value }))}
+                fullWidth size="small" multiline={k === "extra"} minRows={k === "extra" ? 2 : 1} />
+            ))}
+            <Button variant="contained" size="small" onClick={salvarPersona} sx={{ alignSelf: "flex-start" }}>
+              {personaSaved ? "Salvo ✓" : "Salvar inteligência"}
+            </Button>
+          </Stack>
+        </Box>
+      </Collapse>
 
       {/* Calendário do mês em cima (opcional) — clicar num dia adiciona a data */}
       {showCal && year != null && (

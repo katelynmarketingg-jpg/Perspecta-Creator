@@ -36,7 +36,7 @@ router.put("/persona/:clientId", (req, res) => {
 // ---- Geração ----
 // kind: caption (legendas) | ideas (ideias de post) | plan (planejamento do mês)
 router.post("/generate", async (req, res) => {
-  const { client_id, kind, topic, count } = req.body || {};
+  const { client_id, kind, topic, count, image } = req.body || {};
   const client = db.prepare("SELECT * FROM clients WHERE id = ? AND org_id = ?").get(client_id, req.orgId);
   if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
 
@@ -46,9 +46,12 @@ router.post("/generate", async (req, res) => {
   const n = Math.min(Math.max(Number(count) || 3, 1), 10);
   let user;
   if (kind === "caption") {
-    user = `Escreva ${n} opções de legenda para um post${topic ? ` sobre: ${topic}` : ""}. `
+    user = (image
+      ? `Olhe a arte do post em anexo e escreva ${n} ${n === 1 ? "legenda" : "opções de legenda"} que combine com o que aparece nela`
+      : `Escreva ${n} ${n === 1 ? "legenda" : "opções de legenda"} para um post`)
+      + `${topic ? ` (contexto: ${topic})` : ""}. `
       + `Cada uma com no máximo 4 linhas, com uma chamada para ação e hashtags no fim. `
-      + `Separe as opções com "---".`;
+      + (n === 1 ? "Responda só com a legenda, sem numerar." : `Separe as opções com "---".`);
   } else if (kind === "ideas") {
     user = `Sugira ${n} ideias de post${topic ? ` no tema: ${topic}` : ""}. `
       + `Para cada uma: um título curto e uma frase explicando o que mostrar. Numere.`;
@@ -60,7 +63,7 @@ router.post("/generate", async (req, res) => {
   }
 
   try {
-    const text = await askAi(req.orgId, { system, user });
+    const text = await askAi(req.orgId, { system, user, image });
     res.json({ text });
   } catch (e) {
     if (e.code === "NO_KEY") return res.status(400).json({ error: e.message, needs_key: true });
