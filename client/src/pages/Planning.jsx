@@ -16,9 +16,11 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EventIcon from "@mui/icons-material/Event";
 import CelebrationIcon from "@mui/icons-material/Celebration";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
+import PlanningAI from "../components/PlanningAI.jsx";
 import { seasonalFor, CATEGORY_COLOR, CATEGORY_HEX } from "../data/seasonalDates.js";
 import PlanningEditor from "../components/PlanningEditor.jsx";
 
@@ -116,6 +118,7 @@ export default function Planning() {
   const [dayOpen, setDayOpen] = useState(null); // iso do dia aberto
   const [draft, setDraft] = useState(null);      // { id?, date, title, notes, client_id }
   const [seasonalOpen, setSeasonalOpen] = useState(false);
+  const [iaOpen, setIaOpen] = useState(false);
 
   // Datas comemorativas do ano em foco + quais já foram adicionadas.
   const catalogo = useMemo(() => seasonalFor(cursor.getFullYear()), [cursor]);
@@ -212,6 +215,14 @@ export default function Planning() {
             <Button size="small" variant="outlined" startIcon={<CelebrationIcon />} onClick={() => setSeasonalOpen(true)}>
               Datas comemorativas
             </Button>
+            <Tooltip title={clientFilter ? "" : "Escolha uma empresa primeiro"}>
+              <span>
+                <Button size="small" variant="outlined" color="primary" startIcon={<AutoAwesomeIcon />}
+                  disabled={!clientFilter} onClick={() => setIaOpen(true)}>
+                  IA
+                </Button>
+              </span>
+            </Tooltip>
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
               <ToggleButton value="mes" aria-label="Mês"><Tooltip title="Mês"><CalendarViewMonthIcon fontSize="small" /></Tooltip></ToggleButton>
               <ToggleButton value="trimestre" aria-label="Trimestre"><Tooltip title="Trimestre"><CalendarViewWeekIcon fontSize="small" /></Tooltip></ToggleButton>
@@ -394,6 +405,10 @@ export default function Planning() {
         </DialogContent>
         <DialogActions><Button onClick={() => setSeasonalOpen(false)}>Fechar</Button></DialogActions>
       </Dialog>
+
+      <PlanningAI open={iaOpen} onClose={() => setIaOpen(false)}
+        clientId={clientFilter} clientName={clientName(clientFilter)}
+        monthLabel={`${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`} />
     </>
   );
 }
