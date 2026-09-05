@@ -21,6 +21,7 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import PixIcon from "@mui/icons-material/Pix";
 import LinkIcon from "@mui/icons-material/Link";
 import DescriptionIcon from "@mui/icons-material/Description";
+import DownloadIcon from "@mui/icons-material/Download";
 import portalApi from "../api/portal.js";
 import { currency, formatDate, formatTime, CONTENT_TYPES } from "../utils.js";
 import { printReceipt } from "../receipt.js";
@@ -179,6 +180,38 @@ function PostDialog({ post, onClose }) {
   );
 }
 
+// Mídia da aprovação: igual à Distribuição — vídeo TOCA por streaming (sem
+// baixar) e tem um botão "Baixar" para a arte original.
+function ApprovalMedia({ file }) {
+  const ehVideo = (file.mime || "").startsWith("video/");
+  const [baixando, setBaixando] = useState(false);
+  async function baixar() {
+    setBaixando(true);
+    try {
+      const blob = (await portalApi.get(`/files/${file.id}/download`, { responseType: "blob" })).data;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = file.original_name || "arquivo"; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setBaixando(false); }
+  }
+  return (
+    <Box>
+      {ehVideo ? (
+        <Box component="video" src={file.media_url} poster={file.thumb || undefined}
+          controls playsInline preload="metadata"
+          sx={{ width: "100%", maxHeight: 520, borderRadius: 2, bgcolor: "#000", display: "block" }} />
+      ) : (
+        <Box component="img" src={file.media_url} alt={file.original_name}
+          sx={{ width: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover", display: "block" }} />
+      )}
+      <Button size="small" startIcon={<DownloadIcon />} disabled={baixando} onClick={baixar} sx={{ mt: 0.5 }}>
+        {baixando ? "Baixando…" : "Baixar na qualidade original"}
+      </Button>
+    </Box>
+  );
+}
+
 function ApprovalCard({ post, onDone }) {
   const [attachments, setAttachments] = useState([]);
   const [ajuste, setAjuste] = useState(null); // { caption, note, refFile }
@@ -229,8 +262,8 @@ function ApprovalCard({ post, onDone }) {
         <Typography variant="h6" sx={{ mb: 1 }}>{post.title}</Typography>
 
         {midias.length > 0 && (
-          <Stack spacing={1} sx={{ mb: 2 }}>
-            {midias.map((m) => <AuthImg key={m.id} fileId={m.id} alt={m.original_name} mime={m.mime} mediaUrl={m.media_url} maxHeight={520} />)}
+          <Stack spacing={1.5} sx={{ mb: 2 }}>
+            {midias.map((m) => <ApprovalMedia key={m.id} file={m} />)}
           </Stack>
         )}
 
