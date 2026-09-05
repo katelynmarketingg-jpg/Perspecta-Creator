@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, adminRequired } from "../auth.js";
-import { getAiConfig, saveAiConfig, askAi, personaSystem } from "../ai.js";
+import { getAiConfig, saveAiConfig, askAi, personaSystem, getBudget, saveBudget } from "../ai.js";
 
 const router = Router();
 router.use(authRequired);
@@ -17,6 +17,16 @@ router.put("/config", adminRequired, (req, res) => {
   saveAiConfig(req.orgId, { provider, api_key, model });
   const cfg = getAiConfig(req.orgId);
   res.json({ configured: cfg.configured, provider: cfg.provider, model: cfg.model });
+});
+
+// ---- Uso e limite de gasto (R$/mês) ----
+router.get("/usage", (req, res) => {
+  res.json(getBudget(req.orgId));
+});
+
+router.put("/budget", adminRequired, (req, res) => {
+  const { warn1, warn2, limit } = req.body || {};
+  res.json(saveBudget(req.orgId, { warn1, warn2, limit }));
 });
 
 // ---- Persona por cliente ----
@@ -67,6 +77,7 @@ router.post("/generate", async (req, res) => {
     res.json({ text });
   } catch (e) {
     if (e.code === "NO_KEY") return res.status(400).json({ error: e.message, needs_key: true });
+    if (e.code === "BUDGET") return res.status(400).json({ error: e.message, budget_blocked: true });
     res.status(502).json({ error: e.message });
   }
 });

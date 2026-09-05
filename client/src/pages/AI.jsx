@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, Stack, TextField, MenuItem,
-  Alert, Divider, IconButton, Tooltip, CircularProgress, Chip,
+  Alert, Divider, IconButton, Tooltip, CircularProgress, Chip, LinearProgress,
 } from "@mui/material";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -44,10 +44,27 @@ export default function AI() {
   const [provider, setProvider] = useState("openai");
   const [salvandoChave, setSalvandoChave] = useState(false);
 
+  // Uso e limite de gasto (R$/mês)
+  const [uso, setUso] = useState(null);
+  const [limite, setLimite] = useState({ warn1: "", warn2: "", limit: "" });
+  const [salvandoLimite, setSalvandoLimite] = useState(false);
+
+  const carregarUso = () => api.get("/ai/usage").then((r) => {
+    setUso(r.data);
+    setLimite({ warn1: r.data.warn1, warn2: r.data.warn2, limit: r.data.limit });
+  }).catch(() => {});
+
   useEffect(() => {
     api.get("/ai/config").then((r) => { setConfig(r.data); setProvider(r.data.provider); }).catch(() => {});
     api.get("/clients").then((r) => setClients(r.data.filter((c) => c.status === "active"))).catch(() => {});
+    carregarUso();
   }, []);
+
+  async function salvarLimite() {
+    setSalvandoLimite(true);
+    try { await api.put("/ai/budget", limite); await carregarUso(); }
+    finally { setSalvandoLimite(false); }
+  }
 
   useEffect(() => {
     if (!clientId) return;
@@ -118,6 +135,52 @@ export default function AI() {
           </CardContent>
         </Card>
       )}
+
+      {/* Uso e limite de gasto no mês */}
+      {uso && (() => {
+        const pct = uso.limit > 0 ? Math.min(100, Math.round((uso.spent / uso.limit) * 100)) : 0;
+        const cor = uso.spent >= uso.limit ? "error" : uso.spent >= uso.warn2 ? "warning" : "success";
+        const [y, m] = (uso.ym || "").split("-");
+        const MES = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+        return (
+          <Card sx={{ mb: 2.5 }}>
+            <CardContent>
+              <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ flexWrap: "wrap" }}>
+                <Typography variant="subtitle2">Uso da IA — {MES[Number(m)] || ""} {y}</Typography>
+                <Typography variant="h6" color={`${cor}.main`} sx={{ fontWeight: 700 }}>
+                  R$ {uso.spent.toFixed(2)} <Typography component="span" variant="caption" color="text.secondary">/ R$ {uso.limit.toFixed(2)}</Typography>
+                </Typography>
+              </Stack>
+              <LinearProgress variant="determinate" value={pct} color={cor} sx={{ height: 8, borderRadius: 4, my: 1 }} />
+              <Typography variant="caption" color="text.secondary">
+                {uso.calls} gerações este mês · valor é uma <b>estimativa</b> (o provedor cobra o real).
+                {uso.spent >= uso.limit && <b style={{ color: "#DC2626" }}> Limite atingido — geração pausada até virar o mês ou aumentar o limite.</b>}
+              </Typography>
+
+              {isAdmin && (
+                <>
+                  <Divider sx={{ my: 1.5 }} />
+                  <Typography variant="caption" color="text.secondary">Avisos e limite do mês (R$)</Typography>
+                  <Stack direction="row" spacing={1.5} sx={{ mt: 1, flexWrap: "wrap", gap: 1 }} alignItems="center">
+                    <TextField size="small" type="number" label="1º aviso" value={limite.warn1}
+                      onChange={(e) => setLimite((l) => ({ ...l, warn1: e.target.value }))} sx={{ width: 110 }} />
+                    <TextField size="small" type="number" label="2º aviso" value={limite.warn2}
+                      onChange={(e) => setLimite((l) => ({ ...l, warn2: e.target.value }))} sx={{ width: 110 }} />
+                    <TextField size="small" type="number" label="Limite (bloqueia)" value={limite.limit}
+                      onChange={(e) => setLimite((l) => ({ ...l, limit: e.target.value }))} sx={{ width: 140 }} />
+                    <Button variant="outlined" size="small" onClick={salvarLimite} disabled={salvandoLimite}>
+                      {salvandoLimite ? "Salvando…" : "Salvar limites"}
+                    </Button>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                    Ao passar do 1º e 2º valor você recebe um aviso; ao bater o limite, a IA pausa até o mês seguinte.
+                  </Typography>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Escolha do cliente */}
       <TextField select fullWidth label="Cliente" value={clientId}

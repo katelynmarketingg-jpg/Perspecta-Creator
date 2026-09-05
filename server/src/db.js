@@ -504,6 +504,20 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   tokens_out INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- Uso da IA por MÊS (para o limite de gasto e a aba de acompanhamento).
+-- cost_brl é uma estimativa (tokens × preço do modelo × câmbio). alerts guarda
+-- quantos avisos (1=50, 2=75, 3=limite) já foram enviados no mês, pra não repetir.
+CREATE TABLE IF NOT EXISTS ai_usage_month (
+  org_id     INTEGER NOT NULL,
+  ym         TEXT NOT NULL,                 -- 'AAAA-MM'
+  calls      INTEGER NOT NULL DEFAULT 0,
+  tokens_in  INTEGER NOT NULL DEFAULT 0,
+  tokens_out INTEGER NOT NULL DEFAULT 0,
+  cost_brl   REAL NOT NULL DEFAULT 0,
+  alerts     INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (org_id, ym)
+);
 
 -- Gateway de cobrança (Asaas) por escritório. O cartão NUNCA fica aqui —
 -- fica no cofre do Asaas; guardamos só a chave da API e os ids da assinatura.
@@ -727,6 +741,10 @@ ensureColumn("integrations", "ig_picture", "ig_picture TEXT");
 ensureColumn("integrations", "ig_name", "ig_name TEXT");
 ensureColumn("integrations", "ig_followers", "ig_followers INTEGER");
 ensureColumn("integrations", "ig_media_count", "ig_media_count INTEGER");
+// Limite de gasto da IA por mês (R$): 2 avisos + o limite que bloqueia.
+ensureColumn("org_ai", "budget_warn1", "budget_warn1 REAL NOT NULL DEFAULT 50");
+ensureColumn("org_ai", "budget_warn2", "budget_warn2 REAL NOT NULL DEFAULT 75");
+ensureColumn("org_ai", "budget_limit", "budget_limit REAL NOT NULL DEFAULT 100");
 
 // ---------------------------------------------------------------------------
 // Recibos: um por lançamento de receita, criado quando ele vira "pago".
