@@ -315,11 +315,27 @@ export default function Tasks() {
     if (next) moveToStage(task.id, next.id);
   }
 
-  // Abre o diálogo de concluir captação, já com um recado padrão.
+  // Mês de referência de uma tarefa (ref_month, senão data programada/prazo).
+  const mesDe = (t) => (t.ref_month && /^\d{4}-\d{2}$/.test(t.ref_month))
+    ? t.ref_month
+    : String(t.scheduled_at || t.due_date || "").slice(0, 7);
+
+  // Abre o diálogo de concluir captação. Já vem com QUEM FAZ o conteúdo pré-
+  // marcado: os responsáveis dos reels do mesmo cliente e mês (os reels vão
+  // para a etapa "Criação" ao concluir). Se não houver, cai no responsável da
+  // captação. É só revisar e confirmar.
   function abrirConcluir(task) {
+    const alvoMes = mesDe(task);
+    const reels = tasks.filter((t) =>
+      t.content_type === "reel" && !t.completed_at &&
+      (task.client_id ? t.client_id === task.client_id : true) &&
+      (!alvoMes || mesDe(t) === alvoMes));
+    let users = [...new Set(reels.map((t) => t.assignee_id).filter(Boolean))];
+    if (users.length === 0 && task.assignee_id) users = [task.assignee_id];
     setConcluirCap({
       task,
-      users: task.assignee_id ? [task.assignee_id] : [],
+      users,
+      reelsCount: reels.length,
       message: `Captação concluída${task.client_name ? ` — ${task.client_name}` : ""}: seguir para a criação/edição.`,
       level: "alta",
       saving: false,
@@ -836,10 +852,12 @@ export default function Tasks() {
         <DialogTitle>Concluir captação</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            A captação será marcada como <strong>concluída</strong> e vira uma <strong>prioridade</strong>
-            para quem você escolher — cada pessoa recebe o aviso.
+            A captação será marcada como <strong>concluída</strong>. Os{" "}
+            <strong>{concluirCap?.reelsCount || 0} reel(s)</strong> deste cliente e mês vão automaticamente
+            para a etapa <strong>Criação</strong>, e vira uma <strong>prioridade</strong> para quem faz
+            esse conteúdo (já pré-marcado abaixo — dá para ajustar).
           </Typography>
-          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Avisar quem</Typography>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Avisar quem faz o conteúdo</Typography>
           <Stack sx={{ mb: 2, maxHeight: "34vh", overflowY: "auto", border: 1, borderColor: "divider", borderRadius: 1 }}>
             {team.length === 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ p: 1.5 }}>Nenhum usuário cadastrado.</Typography>

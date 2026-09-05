@@ -307,12 +307,42 @@ router.post("/:id/conclude-captacao", (req, res) => {
   const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!task) return res.status(404).json({ error: "Tarefa não encontrada." });
 
-  const ids = Array.isArray(req.body?.user_ids) ? req.body.user_ids.filter(Boolean) : [];
-  if (ids.length === 0) return res.status(400).json({ error: "Escolha ao menos uma pessoa para avisar." });
   const LEVELS = ["alta", "media", "baixa"];
   const level = LEVELS.includes(req.body?.level) ? req.body.level : "alta";
   const message = (req.body?.message || "").trim() || `Captação concluída: ${task.title}`;
   const cli = task.client_id ? db.prepare("SELECT name FROM clients WHERE id = ?").get(task.client_id)?.name : null;
+
+  // Mês de referência da captação (ref_month, senão a data programada/prazo).
+  const mesDe = (t) => (t.ref_month && /^\d{4}-\d{2}$/.test(t.ref_month))
+    ? t.ref_month
+    : String(t.scheduled_at || t.due_date || "").slice(0, 7);
+  const alvoMes = mesDe(task);
+
+  // Os REELS do mesmo cliente e mês são o que sai desta captação. Ao concluir,
+  // eles vão para a etapa "Criação" (o material foi captado, agora é editar) e
+  // o aviso de prioridade vai para QUEM FAZ esse conteúdo (os responsáveis dos
+  // reels) — não para o cliente.
+  const criacao = db.prepare(
+    "SELECT id FROM kanban_stages WHERE org_id = ? AND lower(name) = lower('Criação') ORDER BY position LIMIT 1"
+  ).get(req.orgId);
+  const reels = db.prepare(
+    "SELECT * FROM tasks WHERE org_id = ? AND content_type = 'reel' AND completed_at IS NULL"
+  ).all(req.orgId).filter((t) =>
+    (task.client_id ? t.client_id === task.client_id : true) &&
+    (!alvoMes || mesDe(t) === alvoMes)
+  );
+
+  // Quem avisar: se o pedido trouxe uma lista (ajuste manual no diálogo), usa
+  // ela; senão, deriva automaticamente dos responsáveis dos reels; e por fim
+  // cai no responsável da própria captação.
+  const manual = Array.isArray(req.body?.user_ids) ? req.body.user_ids.filter(Boolean) : [];
+  const autoDosReels = [...new Set(reels.map((t) => t.assignee_id).filter(Boolean))];
+  let ids = manual.length ? manual : autoDosReels;
+  if (ids.length === 0 && task.assignee_id) ids = [task.assignee_id];
+  ids = [...new Set(ids)];
+  if (ids.length === 0) {
+    return res.status(400).json({ error: "Ninguém para avisar — atribua um responsável aos reels do mês ou escolha alguém." });
+  }
 
   const insPrio = db.prepare(
     `INSERT INTO priorities (org_id, client_id, message, level, assignee_id, created_by, status)
@@ -324,12 +354,25 @@ router.post("/:id/conclude-captacao", (req, res) => {
   const doneStage = db.prepare(
     "SELECT id FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1"
   ).get(req.orgId);
+  const moverReel = criacao
+    ? db.prepare("UPDATE tasks SET stage_id = ? WHERE id = ? AND org_id = ?")
+    : null;
 
   const tx = db.transaction(() => {
     for (const uid of ids) {
       insPrio.run(req.orgId, task.client_id || null, message, level, uid, req.user?.id || null);
       insNotif.run(task.client_id || null, task.id,
         `✅ Captação concluída${cli ? ` — ${cli}` : ""}: ${message.slice(0, 80)}`, req.orgId, uid);
+    }
+    // Move os reels do mês para "Criação" e acende o sino de cada responsável.
+    if (moverReel) {
+      for (const r of reels) {
+        moverReel.run(criacao.id, r.id, req.orgId);
+        if (r.assignee_id) {
+          insNotif.run(r.client_id || null, r.id,
+            `🎬 Reel liberado para criação${cli ? ` — ${cli}` : ""}: ${r.title}`, req.orgId, r.assignee_id);
+        }
+      }
     }
     if (doneStage) {
       db.prepare("UPDATE tasks SET completed_at = datetime('now'), stage_id = ? WHERE id = ? AND org_id = ?")
@@ -344,7 +387,7 @@ router.post("/:id/conclude-captacao", (req, res) => {
   broadcast(req.orgId, "notifications");
   broadcast(req.orgId, "priorities");
   broadcast(req.orgId, "tasks");
-  res.json({ ok: true, priorities: ids.length });
+  res.json({ ok: true, priorities: ids.length, reels_movidos: criacao ? reels.length : 0 });
 });
 
 export default router;

@@ -124,7 +124,10 @@ const toInput = (v) => (v ? v.replace(" ", "T").slice(0, 16) : "");
 const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 
 // Mostra a arte (foto ou vídeo), carregada em alta qualidade.
-function Media({ fileId, height = 200 }) {
+// fit="cover" (padrão) preenche o quadrado (para grades/miniaturas);
+// fit="contain" mostra a IMAGEM INTEIRA na proporção real (para a prévia do
+// post), sem cortar nada — sobra uma faixa neutra ao redor quando não é quadrada.
+function Media({ fileId, height = 200, fit = "cover" }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [erro, setErro] = useState(false);
@@ -137,7 +140,8 @@ function Media({ fileId, height = 200 }) {
       .catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId]);
-  const sx = { width: "100%", height, objectFit: "cover", borderRadius: 2, bgcolor: "action.hover", display: "block" };
+  const contain = fit === "contain";
+  const sx = { width: "100%", height, objectFit: fit, borderRadius: 2, bgcolor: contain ? "#000" : "action.hover", display: "block" };
   if (!fileId) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "text.secondary", fontSize: height <= 90 ? 9 : 13, lineHeight: 1.1, p: 0.25 }}>Sem mídia</Box>;
   if (erro) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "error.main", fontSize: height <= 90 ? 9 : 12, lineHeight: 1.15, p: 0.5 }}>Imagem não carregou<br/>(reenvie)</Box>;
   if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
@@ -203,7 +207,8 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
             {files.map((f) => (
               <Box key={`f${f.id}`} onClick={() => { onPick(f.id); onClose(); }}
                 sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
-                <Media fileId={f.id} height={110} />
+                {/* Miniatura leve (não baixa a arte inteira) → galeria abre rápido. */}
+                <Box sx={{ height: 110, bgcolor: "action.hover" }}><FeedThumb fileId={f.id} /></Box>
                 <Typography variant="caption" noWrap sx={{ display: "block", px: 0.5, py: 0.25 }}>{f.original_name}</Typography>
               </Box>
             ))}
@@ -488,7 +493,7 @@ function PieceCard({ item, onChanged, flash }) {
             </Alert>
           )}
 
-          <Media fileId={fileId} />
+          <Media fileId={fileId} height={280} fit="contain" />
 
           {isCarousel ? (
             <Box>
@@ -1016,7 +1021,7 @@ export default function Distribution() {
           {/* Filtro: para aprovar (preparar/enviar) x aprovados (programar) */}
           <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
             <ToggleButtonGroup size="small" exclusive value={postFilter} onChange={(_, v) => v && setPostFilter(v)}>
-              <ToggleButton value="para_aprovar">Para aprovar{items.length ? ` (${items.length})` : ""}</ToggleButton>
+              <ToggleButton value="para_aprovar">Distribuição{items.length ? ` (${items.length})` : ""}</ToggleButton>
               <ToggleButton value="aprovados">Aprovados{approved.length ? ` (${approved.length})` : ""}</ToggleButton>
               <ToggleButton value="programados">Programados{programmed.length ? ` (${programmed.length})` : ""}</ToggleButton>
             </ToggleButtonGroup>
@@ -1038,7 +1043,7 @@ export default function Distribution() {
                             <Chip size="small" color="info" label="Programado 🗓️" />
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
-                          <Media fileId={p.cover_file_id || p.file_id} height={150} />
+                          <Media fileId={p.cover_file_id || p.file_id} height={200} fit="contain" />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {p.scheduled_at
@@ -1071,7 +1076,7 @@ export default function Distribution() {
                             <Chip size="small" color="success" label="Aprovado ✓" />
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
-                          <Media fileId={a.cover_file_id || a.file_id} height={150} />
+                          <Media fileId={a.cover_file_id || a.file_id} height={200} fit="contain" />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
                             {a.scheduled_at
