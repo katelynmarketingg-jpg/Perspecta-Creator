@@ -21,7 +21,9 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "../api/client.js";
+import { makeThumbnail } from "../upload/thumbnail.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
@@ -327,8 +329,38 @@ function PieceCard({ item, onChanged, flash }) {
   const [slideUploading, setSlideUploading] = useState(false);
   const [posted, setPosted] = useState(!!item.published_at);
   const [baixando, setBaixando] = useState(false);
+  const [iaLegenda, setIaLegenda] = useState(false);
   const ct = CONTENT_TYPES[item.content_type];
   const isCarousel = item.content_type === "carrossel";
+
+  // Gera a legenda com IA OLHANDO a arte (foto ou 1º quadro do vídeo) + a persona
+  // e o planejamento do cliente. O resultado entra no campo pra você ajustar.
+  async function gerarLegendaIA() {
+    if (!item.client_id) { flash("Escolha o cliente primeiro.", "error"); return; }
+    setIaLegenda(true);
+    try {
+      let image = null;
+      const midiaId = coverId || fileId || slides[0];
+      if (midiaId) {
+        try {
+          const blob = (await api.get(`/files/${midiaId}/download`, { responseType: "blob" })).data;
+          image = await makeThumbnail(blob); // reduz p/ ~640px antes de enviar
+        } catch { /* sem imagem: gera pelo contexto/planejamento */ }
+      }
+      const { data } = await api.post("/ai/generate", {
+        client_id: item.client_id, kind: "caption", count: 1, image,
+        topic: item.title || CONTENT_TYPES[item.content_type]?.label || "",
+      });
+      const txt = (data.text || "").trim();
+      if (txt) { setCaption(txt); flash("Legenda gerada pela IA — revise e salve. ✨", "success"); }
+      else flash("A IA não retornou legenda. Tente de novo.", "error");
+    } catch (err) {
+      const d = err.response?.data;
+      if (d?.needs_key) flash("Configure a chave de IA na aba IA (menu lateral) primeiro.", "error");
+      else flash(d?.error || "Não foi possível gerar a legenda.", "error");
+    }
+    setIaLegenda(false);
+  }
 
   // ---- Postar manual (Reels com música do Edits) ----
   // Baixa/compartilha o vídeo (no celular abre a folha de compartilhamento →
@@ -520,9 +552,15 @@ function PieceCard({ item, onChanged, flash }) {
           <Box>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
               <Typography variant="caption" color="text.secondary">Legenda</Typography>
-              <Button size="small" startIcon={<DescriptionIcon />} onClick={() => setPlanRef(true)} disabled={!item.client_id}>
-                Do planejamento
-              </Button>
+              <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>
+                <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={gerarLegendaIA}
+                  disabled={!item.client_id || iaLegenda}>
+                  {iaLegenda ? "Gerando…" : "Gerar com IA"}
+                </Button>
+                <Button size="small" startIcon={<DescriptionIcon />} onClick={() => setPlanRef(true)} disabled={!item.client_id}>
+                  Do planejamento
+                </Button>
+              </Stack>
             </Stack>
             <TextField label="Legenda" multiline minRows={2} value={caption} onChange={(e) => setCaption(e.target.value)} fullWidth />
           </Box>

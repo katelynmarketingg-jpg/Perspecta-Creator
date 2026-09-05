@@ -49,15 +49,21 @@ export function saveAiConfig(orgId, { provider, api_key, model }) {
  * Chama o modelo com uma instrução de sistema + o pedido do usuário.
  * Abstrai OpenAI e Anthropic para o resto do sistema não se importar com qual é.
  */
-export async function askAi(orgId, { system, user }) {
+export async function askAi(orgId, { system, user, image }) {
   const cfg = getAiConfig(orgId);
   if (!cfg.configured) {
     const err = new Error("A chave de IA ainda não foi configurada.");
     err.code = "NO_KEY";
     throw err;
   }
+  // `image` (opcional) é um data URL "data:image/jpeg;base64,....". Com ele a IA
+  // OLHA a arte para escrever a legenda. Os dois modelos padrão têm visão.
+  const img = /^data:(image\/[a-z.+-]+);base64,(.+)$/i.exec(image || "");
 
   if (cfg.provider === "anthropic") {
+    const content = [];
+    if (img) content.push({ type: "image", source: { type: "base64", media_type: img[1], data: img[2] } });
+    content.push({ type: "text", text: user });
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -69,7 +75,7 @@ export async function askAi(orgId, { system, user }) {
         model: cfg.model,
         max_tokens: 1500,
         system,
-        messages: [{ role: "user", content: user }],
+        messages: [{ role: "user", content }],
       }),
     });
     const data = await res.json();
@@ -79,6 +85,9 @@ export async function askAi(orgId, { system, user }) {
   }
 
   // OpenAI (padrão)
+  const userContent = img
+    ? [{ type: "text", text: user }, { type: "image_url", image_url: { url: image } }]
+    : user;
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${cfg._key}` },
@@ -86,7 +95,7 @@ export async function askAi(orgId, { system, user }) {
       model: cfg.model,
       messages: [
         { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "user", content: userContent },
       ],
       temperature: 0.8,
     }),
