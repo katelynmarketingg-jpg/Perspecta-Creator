@@ -46,13 +46,17 @@ export default function AI() {
 
   // Uso e limite de gasto (R$/mês)
   const [uso, setUso] = useState(null);
+  const [detalhe, setDetalhe] = useState(null);
   const [limite, setLimite] = useState({ warn1: "", warn2: "", limit: "" });
   const [salvandoLimite, setSalvandoLimite] = useState(false);
 
-  const carregarUso = () => api.get("/ai/usage").then((r) => {
-    setUso(r.data);
-    setLimite({ warn1: r.data.warn1, warn2: r.data.warn2, limit: r.data.limit });
-  }).catch(() => {});
+  const carregarUso = () => {
+    api.get("/ai/usage").then((r) => {
+      setUso(r.data);
+      setLimite({ warn1: r.data.warn1, warn2: r.data.warn2, limit: r.data.limit });
+    }).catch(() => {});
+    api.get("/ai/usage/breakdown").then((r) => setDetalhe(r.data)).catch(() => {});
+  };
 
   useEffect(() => {
     api.get("/ai/config").then((r) => { setConfig(r.data); setProvider(r.data.provider); }).catch(() => {});
@@ -156,6 +160,29 @@ export default function AI() {
                 {uso.calls} gerações este mês · valor é uma <b>estimativa</b> (o provedor cobra o real).
                 {uso.spent >= uso.limit && <b style={{ color: "#DC2626" }}> Limite atingido — geração pausada até virar o mês ou aumentar o limite.</b>}
               </Typography>
+
+              {detalhe && (
+                <Stack direction="row" spacing={3} sx={{ mt: 1, flexWrap: "wrap" }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Hoje</Typography>
+                    <Typography sx={{ fontWeight: 700 }}>R$ {detalhe.hoje.toFixed(2)}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Média por geração</Typography>
+                    <Typography sx={{ fontWeight: 700 }}>R$ {detalhe.media_por_geracao.toFixed(3)}</Typography>
+                  </Box>
+                  {detalhe.por_funcionalidade?.length > 0 && (
+                    <Box sx={{ minWidth: 180 }}>
+                      <Typography variant="caption" color="text.secondary">Por funcionalidade (mês)</Typography>
+                      {detalhe.por_funcionalidade.slice(0, 4).map((f) => (
+                        <Typography key={f.k} variant="caption" sx={{ display: "block" }}>
+                          {f.k || "—"}: <b>R$ {f.brl.toFixed(2)}</b> ({f.n})
+                        </Typography>
+                      ))}
+                    </Box>
+                  )}
+                </Stack>
+              )}
 
               {isAdmin && (
                 <>
