@@ -12,6 +12,13 @@ import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 
 const router = Router();
 
+// Link inline (streaming, sem login) para o <img>/<video> mostrar/tocar a mídia
+// direto na Área do Cliente — o mesmo mecanismo da Galeria da equipe.
+function mediaUrl(fileId, orgId) {
+  const ticket = jwt.sign({ file_id: fileId, org_id: orgId, inline: true }, JWT_SECRET, { expiresIn: "12h" });
+  return `/api/files/shared/${ticket}`;
+}
+
 // userId opcional: mira o aviso numa pessoa (ex.: quem programa). NULL = equipe.
 function notifyAgency(clientId, taskId, message, orgId, userId = null) {
   db.prepare(
@@ -217,7 +224,7 @@ router.get("/gallery", (req, res) => {
     return VALIDAS.includes(f.stage) ? f.stage : "originais";
   };
   const out = { originais: [], editados: [], aprovacao: [], aprovados: [], programados: [] };
-  rows.forEach((f) => out[grupo(f)].push(f));
+  rows.forEach((f) => { f.media_url = mediaUrl(f.id, req.client.org_id); out[grupo(f)].push(f); });
   res.json(out);
 });
 
@@ -240,7 +247,10 @@ router.get("/gallery-files", (req, res) => {
   const rows = db.prepare(
     `SELECT id, original_name, mime, size, thumb FROM files WHERE ${where.join(" AND ")} ORDER BY created_at DESC`
   ).all(params);
-  res.json(rows.filter((f) => /^(image|video)\//.test(f.mime || "")));
+  res.json(
+    rows.filter((f) => /^(image|video)\//.test(f.mime || ""))
+      .map((f) => ({ ...f, media_url: mediaUrl(f.id, req.client.org_id) }))
+  );
 });
 
 // ---- Calendário (só os posts do cliente) ------------------------------------

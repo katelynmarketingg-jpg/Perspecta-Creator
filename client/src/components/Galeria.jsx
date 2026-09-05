@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Chip, Stack, Button, Tabs, Tab, Alert,
-  IconButton, Tooltip,
+  IconButton, Tooltip, Dialog, DialogContent,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import DownloadIcon from "@mui/icons-material/Download";
 import MovieIcon from "@mui/icons-material/Movie";
+import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import { fileSize } from "../utils.js";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
@@ -29,6 +30,7 @@ function diasRestantes(expiresAt) {
 function Item({ arquivo, fetchFile }) {
   const [src, setSrc] = useState(null);
   const [baixando, setBaixando] = useState(false);
+  const [vendo, setVendo] = useState(false);
   const ehImagem = arquivo.mime?.startsWith("image/");
   const ehVideo = arquivo.mime?.startsWith("video/");
   const heic = ehHeic(arquivo.original_name, arquivo.mime);
@@ -64,14 +66,31 @@ function Item({ arquivo, fetchFile }) {
     } finally { setBaixando(false); }
   }
 
+  // Pode ver em tela cheia? Vídeo com link, ou imagem já carregada/com link.
+  const podeVer = (ehVideo && arquivo.media_url) || (ehImagem && (src || arquivo.media_url));
+
   return (
     <Card sx={{ overflow: "hidden" }}>
-      <Box sx={{ position: "relative", aspectRatio: "1", bgcolor: "action.hover", display: "grid", placeItems: "center" }}>
-        {src ? (
+      <Box onClick={() => podeVer && setVendo(true)}
+        sx={{ position: "relative", aspectRatio: "1", bgcolor: ehVideo ? "#000" : "action.hover",
+          display: "grid", placeItems: "center", cursor: podeVer ? "pointer" : "default" }}>
+        {ehVideo ? (
+          <>
+            {arquivo.thumb ? (
+              <Box component="img" src={arquivo.thumb} alt={arquivo.original_name}
+                sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ) : arquivo.media_url ? (
+              <Box component="video" src={`${arquivo.media_url}#t=0.1`} preload="metadata" muted playsInline
+                sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ) : (
+              <MovieIcon sx={{ fontSize: 40, color: "primary.main" }} />
+            )}
+            <PlayCircleIcon sx={{ position: "absolute", fontSize: 44, color: "rgba(255,255,255,0.92)",
+              filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
+          </>
+        ) : src ? (
           <Box component="img" src={src} alt={arquivo.original_name}
             sx={{ width: "100%", height: "100%", objectFit: "cover" }} />
-        ) : ehVideo ? (
-          <MovieIcon sx={{ fontSize: 40, color: "primary.main" }} />
         ) : (
           <InsertDriveFileIcon sx={{ fontSize: 36, color: "text.disabled" }} />
         )}
@@ -102,6 +121,19 @@ function Item({ arquivo, fetchFile }) {
             sx={{ mt: 0.5, height: 19, fontSize: 10 }} />
         )}
       </CardContent>
+
+      {/* Ver em tela cheia: vídeo toca (na proporção real), foto amplia. */}
+      <Dialog open={vendo} onClose={() => setVendo(false)} maxWidth="md" fullWidth>
+        <DialogContent sx={{ p: 1, bgcolor: "#000", display: "grid", placeItems: "center" }}>
+          {ehVideo ? (
+            <Box component="video" src={arquivo.media_url} controls autoPlay playsInline
+              sx={{ width: "100%", maxHeight: "78vh", objectFit: "contain" }} />
+          ) : (
+            <Box component="img" src={src || arquivo.media_url} alt={arquivo.original_name}
+              sx={{ width: "100%", maxHeight: "78vh", objectFit: "contain" }} />
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
