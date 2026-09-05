@@ -30,16 +30,19 @@ const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 // Imagem/vídeo anexado, carregado com o token do portal.
-function AuthImg({ fileId, alt, mime, maxHeight = 360 }) {
-  const [src, setSrc] = useState(null);
+function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl }) {
+  const [src, setSrc] = useState(mediaUrl || null);
   useEffect(() => {
+    // Com media_url (link inline), toca/mostra direto por streaming — sem baixar
+    // o arquivo inteiro (essencial para vídeo grande, que travava antes).
+    if (mediaUrl) { setSrc(mediaUrl); return undefined; }
     let url;
     portalApi
       .get(`/files/${fileId}/download`, { responseType: "blob" })
       .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); })
       .catch(() => {});
     return () => url && URL.revokeObjectURL(url);
-  }, [fileId]);
+  }, [fileId, mediaUrl]);
   if (!src) return null;
   if (mime?.startsWith("video/")) {
     return <Box component="video" src={src} controls sx={{ width: "100%", maxHeight, borderRadius: 2, bgcolor: "#000" }} />;
@@ -51,22 +54,27 @@ function AuthImg({ fileId, alt, mime, maxHeight = 360 }) {
 }
 
 // Miniatura pequena da arte (foto ou 1º quadro do vídeo) para as listas.
-function PortalThumb({ fileId, size = 56 }) {
+function PortalThumb({ fileId, size = 56, mime, thumb, mediaUrl }) {
   const [src, setSrc] = useState(null);
   const [isVideo, setIsVideo] = useState(false);
   useEffect(() => {
-    if (!fileId) return;
+    if (thumb) { setSrc(thumb); setIsVideo(false); return undefined; }
+    // Vídeo com link inline: NÃO baixa (usa media_url no <video>); evita puxar
+    // um arquivo gigante só para a miniatura, que antes deixava o tile em branco.
+    if ((mime || "").startsWith("video/") && mediaUrl) { setIsVideo(true); setSrc(null); return undefined; }
+    if (!fileId) return undefined;
     let url;
     portalApi.get(`/files/${fileId}/download`, { responseType: "blob" })
       .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setIsVideo((r.data.type || "").startsWith("video")); })
       .catch(() => {});
     return () => url && URL.revokeObjectURL(url);
-  }, [fileId]);
-  const sx = { width: size, height: size, borderRadius: 1.5, objectFit: "cover", flexShrink: 0, bgcolor: "action.hover" };
-  if (!src) return <Box sx={sx} />;
-  return isVideo
+  }, [fileId, thumb, mediaUrl, mime]);
+  const sx = { width: size, height: size, borderRadius: 1.5, objectFit: "cover", flexShrink: 0, bgcolor: isVideo ? "#000" : "action.hover" };
+  if (src) return isVideo
     ? <Box component="video" src={src} muted sx={sx} />
     : <Box component="img" src={src} alt="" sx={sx} />;
+  if ((mime || "").startsWith("video/") && mediaUrl) return <Box component="video" src={`${mediaUrl}#t=0.1`} preload="metadata" muted sx={sx} />;
+  return <Box sx={sx} />;
 }
 
 // Navegador da galeria do cliente POR PASTAS (mesma estrutura da equipe).
@@ -115,7 +123,7 @@ function GalleryBrowser({ onPick }) {
           {files.map((f) => (
             <Box key={`f${f.id}`} onClick={() => (onPick ? onPick(f) : setView(f))}
               sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
-              <PortalThumb fileId={f.id} size={110} />
+              <PortalThumb fileId={f.id} size={110} mime={f.mime} thumb={f.thumb} mediaUrl={f.media_url} />
               <Typography variant="caption" noWrap sx={{ display: "block", px: 0.5, py: 0.25 }}>{f.original_name}</Typography>
             </Box>
           ))}
@@ -123,7 +131,7 @@ function GalleryBrowser({ onPick }) {
       )}
       <Dialog open={Boolean(view)} onClose={() => setView(null)} fullWidth maxWidth="md">
         <DialogTitle>{view?.original_name}</DialogTitle>
-        <DialogContent>{view && <AuthImg fileId={view.id} alt={view.original_name} mime={view.mime} maxHeight={520} />}</DialogContent>
+        <DialogContent>{view && <AuthImg fileId={view.id} alt={view.original_name} mime={view.mime} maxHeight={520} mediaUrl={view.media_url} />}</DialogContent>
         <DialogActions><Button onClick={() => setView(null)}>Fechar</Button></DialogActions>
       </Dialog>
     </Box>
