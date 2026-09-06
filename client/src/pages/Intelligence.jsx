@@ -7,6 +7,8 @@ import {
 } from "@mui/material";
 import PsychologyIcon from "@mui/icons-material/Psychology";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DeleteIcon from "@mui/icons-material/Delete";
 import api from "../api/client.js";
@@ -37,6 +39,7 @@ export default function Intelligence() {
   const [msg, setMsg] = useState(null);
   const [vendo, setVendo] = useState(null);       // briefing aberto para leitura
   const [copiado, setCopiado] = useState(null);
+  const [link, setLink] = useState(null);       // { url, client_name } — o link à vista
   const [sobrescrever, setSobrescrever] = useState(false);
 
   const carregarBriefings = () =>
@@ -67,18 +70,39 @@ export default function Intelligence() {
     try {
       const { data } = await api.post("/briefings", { client_id: c.id });
       await carregarBriefings();
-      copiar(data.url);
-      setMsg({ t: "success", m: `Link do briefing de ${c.name} copiado. É só mandar no WhatsApp.` });
+      setLink({ url: data.url, client_name: c.name });
     } catch (e) {
       setMsg({ t: "error", m: e.response?.data?.error || "Não consegui criar o link." });
     }
   }
 
-  function copiar(url) {
-    navigator.clipboard.writeText(url).then(() => {
+  // Copiar de um jeito que nunca falha calado: a API moderna do navegador só
+  // funciona em contexto seguro e com a aba em foco — quando ela recusa, o
+  // pedido antigo (execCommand) resolve, e se nem esse funcionar a pessoa é
+  // avisada em vez de sair colando o que estava na área de transferência antes.
+  async function copiar(url) {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+      else throw new Error("sem clipboard");
       setCopiado(url);
       setTimeout(() => setCopiado(null), 2000);
-    }).catch(() => {});
+      return;
+    } catch { /* tenta o jeito antigo abaixo */ }
+    try {
+      const campo = document.createElement("textarea");
+      campo.value = url;
+      campo.style.position = "fixed";
+      campo.style.opacity = "0";
+      document.body.appendChild(campo);
+      campo.select();
+      const deu = document.execCommand("copy");
+      document.body.removeChild(campo);
+      if (!deu) throw new Error("recusado");
+      setCopiado(url);
+      setTimeout(() => setCopiado(null), 2000);
+    } catch {
+      setMsg({ t: "warning", m: "Seu navegador não deixou copiar. Selecione o link na tela e copie à mão." });
+    }
   }
 
   async function abrir(b) {
@@ -200,9 +224,9 @@ export default function Intelligence() {
                       <TableCell align="right">
                         {b ? (
                           <>
-                            <Tooltip title={copiado === b.url ? "Copiado!" : "Copiar o link do cliente"}>
-                              <IconButton size="small" onClick={() => copiar(b.url)}>
-                                <ContentCopyIcon fontSize="small" color={copiado === b.url ? "success" : "inherit"} />
+                            <Tooltip title="Ver e copiar o link do cliente">
+                              <IconButton size="small" onClick={() => setLink({ url: b.url, client_name: c.name })}>
+                                <LinkRoundedIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                             <Tooltip title="Ver as respostas">
@@ -224,6 +248,45 @@ export default function Intelligence() {
           </CardContent>
         </Card>
       )}
+
+      {/* O LINK À VISTA. Mostrar em vez de só copiar: se a cópia falhar (o
+          navegador recusa fora de contexto seguro, ou com a aba sem foco), a
+          pessoa colava o que já estava na área de transferência e abria outra
+          coisa — parecia que o briefing "não abria". */}
+      <Dialog open={Boolean(link)} onClose={() => setLink(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Link do briefing — {link?.client_name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Mande este endereço para o cliente. Ele abre no celular, sem senha, e responde
+            em oito etapas curtas — podendo parar no meio e voltar depois.
+          </Typography>
+          <TextField value={link?.url || ""} fullWidth size="small" multiline
+            InputProps={{ readOnly: true, sx: { fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13 } }}
+            onFocus={(e) => e.target.select()} />
+          <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}>
+            <Button variant="contained" startIcon={<ContentCopyIcon />} onClick={() => copiar(link.url)}>
+              {copiado === link?.url ? "Copiado!" : "Copiar link"}
+            </Button>
+            <Button variant="outlined" startIcon={<OpenInNewIcon />}
+              component="a" href={link?.url || "#"} target="_blank" rel="noreferrer">
+              Abrir para conferir
+            </Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2 }}>
+            Abra você mesma uma vez antes de mandar — assim tem certeza de que o link está de pé.
+            Se não abrir,{" "}
+            <Box component="a" href={link ? link.url.replace("/briefing/", "/api/briefing/") : "#"}
+              target="_blank" rel="noreferrer" sx={{ color: "primary.main" }}>
+              clique aqui
+            </Box>
+            : se aparecer um texto começando com <code>{"{\"secoes\""}</code>, o servidor está bem e o
+            problema é a página; se aparecer um erro, é o link.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLink(null)}>Fechar</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Respostas do cliente + aplicar na inteligência */}
       <Dialog open={Boolean(vendo)} onClose={() => setVendo(null)} fullWidth maxWidth="md">
