@@ -10,12 +10,48 @@ import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
 
-const PERSONA_CAMPOS = [
-  { key: "tone", label: "Tom de voz", ph: "Ex: próximo, bem-humorado, sem gírias" },
-  { key: "audience", label: "Público", ph: "Ex: mulheres 25-45, classe B, região sul" },
-  { key: "pillars", label: "Pilares de conteúdo", ph: "Ex: bastidores, dicas, prova social, promoções" },
-  { key: "avoid", label: "O que evitar", ph: "Ex: falar de preço, tom formal, vermelho" },
-  { key: "extra", label: "Observações", ph: "Qualquer coisa que a IA deva saber" },
+// O perfil do cliente. Nem tudo vai para a IA em toda geração: o sistema
+// escolhe, por tarefa, só os campos que mudam a resposta daquela tarefa —
+// por isso preencher bastante NÃO deixa a geração mais cara.
+const PERSONA_GRUPOS = [
+  {
+    titulo: "O essencial (usado em quase tudo)",
+    campos: [
+      { key: "tone", label: "Tom de voz", ph: "Ex: próximo, bem-humorado, sem gírias" },
+      { key: "audience", label: "Público", ph: "Ex: mulheres 25-45, classe B, região sul" },
+      { key: "pillars", label: "Pilares de conteúdo", ph: "Ex: bastidores, dicas, prova social, promoções" },
+      { key: "avoid", label: "O que evitar", ph: "Ex: falar de preço, tom formal" },
+    ],
+  },
+  {
+    titulo: "A marca",
+    campos: [
+      { key: "segment", label: "Segmento", ph: "Ex: advocacia, pastelaria, estética" },
+      { key: "services", label: "Serviços / o que vende", ph: "Ex: direito penal empresarial, consultoria preventiva" },
+      { key: "positioning", label: "Posicionamento", ph: "Ex: técnico, sofisticado e preventivo" },
+      { key: "personality", label: "Personalidade da marca", ph: "Ex: firme, acolhedora, direta" },
+      { key: "differentials", label: "Diferenciais", ph: "Ex: atendimento 24h, 20 anos de casa" },
+      { key: "location", label: "Onde atua", ph: "Ex: Porto Alegre e região metropolitana" },
+    ],
+  },
+  {
+    titulo: "Como falar",
+    campos: [
+      { key: "expressions", label: "Expressões da marca", ph: "Palavras e bordões que a marca usa" },
+      { key: "avoid_words", label: "Palavras proibidas", ph: "Ex: barato, promoção, imperdível" },
+      { key: "cta", label: "CTA preferido", ph: "Ex: chame no direct, link na bio" },
+      { key: "rules", label: "Regras de comunicação", ph: "Ex: nunca prometer resultado, sempre citar o bairro" },
+      { key: "restrictions", label: "Restrições", ph: "Ex: não falar de concorrente, nada de política" },
+      { key: "goals", label: "Objetivo", ph: "Ex: autoridade + geração de oportunidades" },
+    ],
+  },
+  {
+    titulo: "Referências",
+    campos: [
+      { key: "examples", label: "Exemplo de conteúdo aprovado", ph: "Cole uma legenda que ficou do jeito certo", multi: true },
+      { key: "extra", label: "Observações", ph: "Qualquer coisa que a IA deva saber", multi: true },
+    ],
+  },
 ];
 
 const GERADORES = [
@@ -43,6 +79,10 @@ export default function AI() {
   const [chave, setChave] = useState("");
   const [provider, setProvider] = useState("openai");
   const [salvandoChave, setSalvandoChave] = useState(false);
+  const [teste, setTeste] = useState(null);        // resultado do "Testar chave"
+  const [testando, setTestando] = useState(false);
+  const [memoria, setMemoria] = useState("");
+  const [memoriaSalva, setMemoriaSalva] = useState(false);
 
   // Uso e limite de gasto (R$/mês)
   const [uso, setUso] = useState(null);
@@ -73,16 +113,42 @@ export default function AI() {
   useEffect(() => {
     if (!clientId) return;
     setResultado(""); setErro("");
-    api.get(`/ai/persona/${clientId}`).then((r) => setPersona(r.data || {})).catch(() => setPersona({}));
+    api.get(`/ai/persona/${clientId}`).then((r) => {
+      const { _memory, _fields, ...perfil } = r.data || {};
+      setPersona(perfil);
+      setMemoria(_memory || "");
+    }).catch(() => { setPersona({}); setMemoria(""); });
   }, [clientId]);
 
   async function salvarChave() {
     setSalvandoChave(true);
+    setTeste(null);
     try {
       const { data } = await api.put("/ai/config", { provider, api_key: chave || undefined });
       setConfig(data);
       setChave("");
+      await testarChave();   // já diz na hora se a chave funciona de verdade
     } finally { setSalvandoChave(false); }
+  }
+
+  // Faz a chamada mais barata possível ao provedor e mostra, em português, o
+  // que está acontecendo. É por aqui que se descobre por que "gerar" não gera:
+  // chave errada, conta sem crédito, modelo sem acesso...
+  async function testarChave() {
+    setTestando(true);
+    try {
+      const { data } = await api.post("/ai/test");
+      setTeste(data);
+      if (data.ok) setConfig((c) => ({ ...c, configured: true, key_unreadable: false }));
+    } catch (e) {
+      setTeste({ ok: false, message: e.response?.data?.error || "Não consegui testar agora." });
+    } finally { setTestando(false); }
+  }
+
+  async function salvarMemoria() {
+    await api.put(`/ai/memory/${clientId}`, { memory: memoria });
+    setMemoriaSalva(true);
+    setTimeout(() => setMemoriaSalva(false), 2500);
   }
 
   async function salvarPersona() {
@@ -133,9 +199,35 @@ export default function AI() {
                 value={chave} onChange={(e) => setChave(e.target.value)} sx={{ flex: 1 }}
                 placeholder="sk-..." />
               <Button variant="contained" onClick={salvarChave} disabled={salvandoChave || (!chave && !config?.configured)}>
-                Salvar
+                {salvandoChave ? "Salvando…" : "Salvar"}
+              </Button>
+              <Button variant="outlined" onClick={testarChave} disabled={testando || !config?.configured}>
+                {testando ? "Testando…" : "Testar chave"}
               </Button>
             </Stack>
+
+            {config?.key_unreadable && (
+              <Alert severity="warning" sx={{ mt: 1.5 }}>
+                A chave guardada não pôde ser lida (o segredo do servidor mudou). Cole a chave de novo.
+              </Alert>
+            )}
+
+            {teste && (
+              <Alert severity={teste.ok ? "success" : "error"} sx={{ mt: 1.5 }}>
+                {teste.message}
+                {teste.code === "SEM_CREDITO" && (
+                  <Typography variant="caption" sx={{ display: "block", mt: 0.75 }}>
+                    A API da OpenAI é cobrada à parte e por uso. Uma legenda custa menos de um centavo —
+                    US$ 5 de crédito dão para milhares de gerações.
+                  </Typography>
+                )}
+              </Alert>
+            )}
+
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+              Depois de salvar, clique em <b>Testar chave</b>: o teste custa praticamente nada e diz na hora
+              se está tudo certo — ou exatamente o que falta.
+            </Typography>
           </CardContent>
         </Card>
       )}
@@ -228,15 +320,38 @@ export default function AI() {
                 </Button>
               </Stack>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Quanto mais completa, melhor a IA acerta o jeito do cliente.
+                Quanto mais completa, melhor a IA acerta o jeito do cliente. Preencher tudo <b>não</b> deixa
+                a geração mais cara: cada tipo de geração leva só os campos que fazem diferença nela.
               </Typography>
-              <Stack spacing={2}>
-                {PERSONA_CAMPOS.map((f) => (
-                  <TextField key={f.key} label={f.label} placeholder={f.ph} fullWidth
-                    multiline={f.key === "extra"} minRows={f.key === "extra" ? 2 : 1}
-                    value={persona[f.key] || ""}
-                    onChange={(e) => setPersona((p) => ({ ...p, [f.key]: e.target.value }))} />
+              <Stack spacing={2.5}>
+                {PERSONA_GRUPOS.map((g) => (
+                  <Box key={g.titulo}>
+                    <Divider textAlign="left" sx={{ mb: 1.5 }}>
+                      <Typography variant="caption" color="text.secondary">{g.titulo}</Typography>
+                    </Divider>
+                    <Stack spacing={2}>
+                      {g.campos.map((f) => (
+                        <TextField key={f.key} label={f.label} placeholder={f.ph} fullWidth size="small"
+                          multiline={f.multi} minRows={f.multi ? 2 : 1}
+                          value={persona[f.key] || ""}
+                          onChange={(e) => setPersona((p) => ({ ...p, [f.key]: e.target.value }))} />
+                      ))}
+                    </Stack>
+                  </Box>
                 ))}
+
+                <Box>
+                  <Divider textAlign="left" sx={{ mb: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary">Memória (o que já foi combinado)</Typography>
+                  </Divider>
+                  <TextField fullWidth size="small" multiline minRows={3} value={memoria}
+                    onChange={(e) => setMemoria(e.target.value)}
+                    placeholder={"Ex: prefere legendas curtas; poucos emojis; nada de clichê; CTA discreto; carrossel com gancho forte."}
+                    helperText="Anote aqui as preferências que foram aparecendo. Isso substitui reenviar conversas antigas para a IA — e entra só nas gerações de texto." />
+                  <Button size="small" variant="outlined" sx={{ mt: 1 }} onClick={salvarMemoria}>
+                    {memoriaSalva ? "Salvo ✓" : "Salvar memória"}
+                  </Button>
+                </Box>
               </Stack>
             </CardContent>
           </Card>

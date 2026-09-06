@@ -51,13 +51,19 @@ function pickModel(cfg, tier) {
 const PRICE_USD = {
   "gpt-4o-mini": { in: 0.15, out: 0.60 },
   "gpt-4o": { in: 2.5, out: 10.0 },
+  "gpt-4.1-mini": { in: 0.40, out: 1.60 },
+  "gpt-4.1": { in: 2.0, out: 8.0 },
   "claude-haiku-4-5-20251001": { in: 1.0, out: 5.0 },
 };
+// Modelo fora da tabela: em vez de fingir que custa o mais barato (o que
+// esconderia gasto no painel), estima pelo mais CARO conhecido. Assim o número
+// erra para o lado seguro e o limite do mês protege de verdade.
+const PRICE_DESCONHECIDO = { in: 2.5, out: 10.0 };
 const USD_BRL = Number(process.env.AI_USD_BRL) || 5.5; // câmbio p/ estimar em R$
 const ym = () => new Date().toISOString().slice(0, 7);
 
 function custoBRL(model, tokensIn, tokensOut, cached = 0) {
-  const p = PRICE_USD[model] || PRICE_USD["gpt-4o-mini"];
+  const p = PRICE_USD[model] || PRICE_DESCONHECIDO;
   const ti = Number(tokensIn) || 0, to = Number(tokensOut) || 0, tc = Number(cached) || 0;
   const usd = ((ti - tc) * p.in + tc * p.in * 0.5 + to * p.out) / 1e6;
   return usd * USD_BRL;
@@ -107,11 +113,17 @@ function alertaOrcamento(orgId, b, mo) {
 export function getAiConfig(orgId) {
   const row = db.prepare("SELECT * FROM org_ai WHERE org_id = ?").get(orgId);
   if (!row) return { configured: false, provider: "openai", model: DEFAULT_MODEL.openai };
+  // A chave fica cifrada. Se o segredo do servidor mudou, decrypt() devolve
+  // null — e antes isso ia para a API como "Bearer null", que a OpenAI recusa
+  // com uma mensagem sem sentido para quem está usando. Agora dizemos a
+  // verdade: a chave existe, mas não é mais legível; é preciso colar de novo.
+  const chave = decrypt(row.api_key);
   return {
-    configured: Boolean(row.api_key),
+    configured: Boolean(chave),
+    key_unreadable: Boolean(row.api_key) && !chave,
     provider: row.provider,
     model: row.model || DEFAULT_MODEL[row.provider],
-    _key: decrypt(row.api_key),
+    _key: chave,
   };
 }
 
@@ -170,8 +182,19 @@ export function usageBreakdown(orgId) {
   };
 }
 
+/**
+ * Limpa a chave colada. O site do provedor costuma trazer junto espaço, quebra
+ * de linha ou aspas — e um "\n" no meio faz o pedido nem sair do servidor
+ * (o Node recusa o cabeçalho). Some com tudo o que não é caractere de chave.
+ */
+export function limpaChave(bruta) {
+  const k = String(bruta ?? "").replace(/[\s"'`]+/g, "");
+  return k || null;
+}
+
 export function saveAiConfig(orgId, { provider, api_key, model }) {
   const prov = provider === "anthropic" ? "anthropic" : "openai";
+  api_key = limpaChave(api_key);
   db.prepare(
     `INSERT INTO org_ai (org_id, provider, api_key, model, updated_at)
      VALUES (?, ?, ?, ?, datetime('now'))
@@ -182,12 +205,122 @@ export function saveAiConfig(orgId, { provider, api_key, model }) {
   ).run(orgId, prov, api_key ? encrypt(api_key) : null, model || DEFAULT_MODEL[prov]);
 }
 
+// ---------------------------------------------------------------------------
+// O QUE O PROVEDOR RESPONDEU, EM PORTUGUÊS.
+//
+// Antes a mensagem da OpenAI ia crua para a tela ("You exceeded your current
+// quota…") — em inglês e sem dizer o que fazer. Aqui viram frases que apontam
+// o conserto. `code` deixa o front tratar cada caso.
+// ---------------------------------------------------------------------------
+export function traduzErroProvedor(status, data, provider = "openai") {
+  const bruto = data?.error?.message || data?.message || "";
+  const tipo = data?.error?.type || data?.error?.code || "";
+  const t = `${tipo} ${bruto}`.toLowerCase();
+  const M = (code, msg) => ({ code, message: msg, raw: bruto });
+
+  if (/insufficient_quota|exceeded your current quota|credit balance is too low|billing/.test(t)) {
+    return M("SEM_CREDITO", provider === "anthropic"
+      ? "A conta da Anthropic está sem créditos. Adicione créditos em console.anthropic.com → Billing."
+      : "A conta da OpenAI está sem créditos. Atenção: a API é pré-paga e é SEPARADA do ChatGPT Plus — "
+        + "ter o Plus não libera a API. Adicione créditos em platform.openai.com → Billing → Add to credit balance.");
+  }
+  if (status === 401 || /invalid_api_key|incorrect api key|authentication/.test(t)) {
+    return M("CHAVE_INVALIDA", "A chave não foi aceita pelo provedor. Gere uma nova e cole de novo — "
+      + "copie inteira, sem espaços, e confira se o provedor selecionado é o mesmo da chave.");
+  }
+  if (status === 403 && /country|region|territory|unsupported/.test(t)) {
+    return M("REGIAO", "O provedor recusou o acesso a partir deste país/região.");
+  }
+  if (status === 403 || /permission|does not have access|model_not_found|do not have access/.test(t)) {
+    return M("SEM_ACESSO_MODELO", "Sua conta não tem acesso a este modelo. "
+      + "Em contas novas da OpenAI o acesso costuma liberar depois do primeiro crédito comprado.");
+  }
+  if (status === 404) return M("MODELO_INEXISTENTE", "O modelo configurado não existe nesta conta.");
+  if (status === 429) {
+    return M("MUITOS_PEDIDOS", "O provedor pediu para esperar (muitos pedidos seguidos). Tente de novo em alguns segundos.");
+  }
+  if (status >= 500) return M("PROVEDOR_FORA", "O provedor está instável agora. Tente de novo em instantes.");
+  // Erro que não sabemos classificar: explica em português e mostra o que o
+  // provedor disse — sem isso, sobra um "não funcionou" que não ajuda ninguém.
+  return M("RECUSADO", bruto
+    ? `O provedor recusou o pedido. Ele respondeu: "${bruto}"`
+    : "O provedor recusou o pedido, sem dizer o motivo.");
+}
+
+// Alguns modelos mais novos da OpenAI recusam `max_tokens` (querem
+// `max_completion_tokens`) ou só aceitam a temperatura padrão. Em vez de manter
+// uma lista de nomes de modelo que envelhece, lemos a reclamação e refazemos o
+// pedido UMA vez sem o parâmetro reclamado.
+function ajustaParametroRecusado(body, mensagem) {
+  const m = String(mensagem || "");
+  if (/max_tokens/.test(m) && /max_completion_tokens/.test(m) && body.max_tokens != null) {
+    const b = { ...body, max_completion_tokens: body.max_tokens };
+    delete b.max_tokens;
+    return b;
+  }
+  if (/temperature/.test(m) && body.temperature != null) {
+    const b = { ...body };
+    delete b.temperature;
+    return b;
+  }
+  return null;
+}
+
+/**
+ * Testa a chave com a chamada mais barata possível (1 token de saída).
+ * Devolve o que está acontecendo, em português.
+ */
+export async function testKey(orgId) {
+  const cfg = getAiConfig(orgId);
+  if (cfg.key_unreadable) {
+    return { ok: false, code: "CHAVE_ILEGIVEL",
+      message: "A chave guardada não pôde ser lida (o segredo do servidor mudou). Cole a chave de novo." };
+  }
+  if (!cfg.configured) return { ok: false, code: "NO_KEY", message: "Nenhuma chave configurada ainda." };
+
+  const anthropic = cfg.provider === "anthropic";
+  const model = AI_MODELS[anthropic ? "anthropic" : "openai"].fast;
+  const ac = new AbortController();
+  const to = setTimeout(() => ac.abort(), 20000);
+  try {
+    const res = await fetch(
+      anthropic ? "https://api.anthropic.com/v1/messages" : "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: anthropic
+          ? { "content-type": "application/json", "x-api-key": cfg._key, "anthropic-version": "2023-06-01" }
+          : { "content-type": "application/json", authorization: `Bearer ${cfg._key}` },
+        body: JSON.stringify(anthropic
+          ? { model, max_tokens: 1, messages: [{ role: "user", content: "ok" }] }
+          : { model, max_tokens: 1, messages: [{ role: "user", content: "ok" }] }),
+        signal: ac.signal,
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) return { ok: true, model, message: `Chave funcionando (${model}).` };
+    return { ok: false, ...traduzErroProvedor(res.status, data, cfg.provider) };
+  } catch (e) {
+    return { ok: false, code: "REDE",
+      message: e.name === "AbortError"
+        ? "O provedor não respondeu a tempo."
+        : `Não consegui falar com o provedor: ${e.message}` };
+  } finally {
+    clearTimeout(to);
+  }
+}
+
 /**
  * Chama o modelo com uma instrução de sistema + o pedido do usuário.
  * Abstrai OpenAI e Anthropic para o resto do sistema não se importar com qual é.
  */
 export async function askAi(orgId, { system, user, image, feature, tier, maxTokens, clientId, userId }) {
   const cfg = getAiConfig(orgId);
+  if (cfg.key_unreadable) {
+    const err = new Error("A chave de IA guardada não pôde ser lida (o segredo do servidor mudou). "
+      + "Abra a aba IA e cole a chave de novo.");
+    err.code = "NO_KEY";
+    throw err;
+  }
   if (!cfg.configured) {
     const err = new Error("A chave de IA ainda não foi configurada.");
     err.code = "NO_KEY";
@@ -230,9 +363,25 @@ export async function askAi(orgId, { system, user, image, feature, tier, maxToke
       ] };
 
   try {
-    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: ac.signal });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error?.message || "A IA recusou o pedido.");
+    let corpo = body;
+    let res = await fetch(url, { method: "POST", headers, body: JSON.stringify(corpo), signal: ac.signal });
+    let data = await res.json();
+    // Parâmetro recusado por um modelo mais novo: refaz UMA vez sem ele.
+    if (!res.ok && res.status === 400) {
+      const ajustado = ajustaParametroRecusado(corpo, data.error?.message);
+      if (ajustado) {
+        corpo = ajustado;
+        res = await fetch(url, { method: "POST", headers, body: JSON.stringify(corpo), signal: ac.signal });
+        data = await res.json();
+      }
+    }
+    if (!res.ok) {
+      const t = traduzErroProvedor(res.status, data, cfg.provider);
+      const err = new Error(t.message);
+      err.code = t.code;
+      err.provider_raw = t.raw;
+      throw err;
+    }
     const u = data.usage || {};
     const tokensIn = anthropic ? u.input_tokens : u.prompt_tokens;
     const tokensOut = anthropic ? u.output_tokens : u.completion_tokens;
@@ -248,31 +397,129 @@ export async function askAi(orgId, { system, user, image, feature, tier, maxToke
   }
 }
 
-// Instrução FIXA da plataforma (curta e estável — primeira parte do system,
-// para aproveitar cache de prompt do provedor). Não repita regras aqui.
+// ---------------------------------------------------------------------------
+// CAMADA 1 — instrução FIXA da plataforma. Curta, estável e sempre no começo do
+// system: é a parte que o provedor pode reaproveitar em cache. Não repita
+// regras aqui; regra de marca vive na camada 2.
+// ---------------------------------------------------------------------------
 const PLATAFORMA = "Você é uma assistente de social media de uma agência brasileira. "
   + "Escreva em português do Brasil, natural, sem clichês de marketing. É um rascunho para revisão.";
 
-// Quais campos da persona importam em cada tipo de tarefa — CONTEXT BUILDER:
-// manda só o necessário, não a persona inteira, para gastar menos tokens.
-const CAMPOS_POR_TAREFA = {
-  caption: ["tone", "audience", "avoid", "extra"],
-  hooks: ["tone", "audience"],
-  cta: ["tone", "audience"],
-  title: ["tone", "audience"],
-  ideas: ["audience", "pillars", "avoid"],
-  plan: ["audience", "pillars", "tone", "avoid", "extra"],
-  strategy: ["tone", "audience", "pillars", "avoid", "extra"],
-};
-const ROTULO = { tone: "Tom", audience: "Público", pillars: "Pilares", avoid: "Evitar", extra: "Notas" };
+// ---------------------------------------------------------------------------
+// PERFIL ESTRUTURADO DO CLIENTE (camada 2).
+//
+// Os campos ficam guardados por cliente e NÃO viram um prompt gigante: cada
+// tarefa leva só os que mudam a resposta dela. As cinco primeiras chaves são as
+// antigas — o que já estava preenchido continua valendo.
+// `max` é o teto de caracteres do campo dentro do prompt: um campo escrito à
+// vontade não estoura o orçamento da geração.
+// ---------------------------------------------------------------------------
+export const PERSONA_FIELDS = [
+  { key: "tone", label: "Tom", max: 200 },
+  { key: "audience", label: "Público", max: 200 },
+  { key: "pillars", label: "Pilares", max: 260 },
+  { key: "avoid", label: "Evitar", max: 200 },
+  { key: "extra", label: "Notas", max: 400 },
+  { key: "segment", label: "Segmento", max: 120 },
+  { key: "services", label: "Serviços", max: 260 },
+  { key: "positioning", label: "Posicionamento", max: 200 },
+  { key: "personality", label: "Personalidade", max: 160 },
+  { key: "expressions", label: "Expressões da marca", max: 200 },
+  { key: "avoid_words", label: "Palavras proibidas", max: 200 },
+  { key: "differentials", label: "Diferenciais", max: 240 },
+  { key: "goals", label: "Objetivo", max: 160 },
+  { key: "location", label: "Onde atua", max: 120 },
+  { key: "cta", label: "CTA preferido", max: 160 },
+  { key: "rules", label: "Regras", max: 300 },
+  { key: "restrictions", label: "Restrições", max: 240 },
+  { key: "examples", label: "Exemplo aprovado", max: 500 },
+];
+const CAMPO = Object.fromEntries(PERSONA_FIELDS.map((f) => [f.key, f]));
 
-// Monta a instrução de sistema com SÓ o pedaço relevante da persona do cliente.
-export function personaSystem(client, persona, feature = "caption") {
+// CONTEXT BUILDER: quais campos cada tarefa realmente usa, em ordem de
+// importância. Se o contexto estourar o orçamento, o corte começa pelo fim.
+const CAMPOS_POR_TAREFA = {
+  caption: ["tone", "audience", "cta", "avoid_words", "avoid", "expressions", "restrictions", "rules", "location", "extra"],
+  hooks: ["tone", "audience", "expressions", "avoid_words"],
+  cta: ["tone", "audience", "cta", "goals"],
+  title: ["tone", "audience", "avoid_words"],
+  rewrite: ["tone", "avoid_words", "avoid", "expressions"],
+  variations: ["tone", "audience", "avoid_words"],
+  summary: [],
+  ideas: ["segment", "audience", "pillars", "services", "goals", "differentials", "avoid", "location"],
+  plan: ["segment", "audience", "pillars", "services", "tone", "goals", "avoid", "location", "extra"],
+  strategy: ["segment", "positioning", "audience", "services", "differentials", "goals", "pillars", "tone", "personality", "restrictions", "location", "extra"],
+  positioning: ["segment", "positioning", "audience", "services", "differentials", "goals", "personality", "location", "extra"],
+};
+
+// ---------------------------------------------------------------------------
+// ORÇAMENTO DE CONTEXTO por tamanho de tarefa (em caracteres — ~4 por token).
+// Legenda precisa de pouco; planejamento precisa de mais; estratégia, mais
+// ainda. O que passar do teto é cortado do fim, campo a campo.
+// ---------------------------------------------------------------------------
+// (O orçamento vale para a parte do CLIENTE — perfil + memória. A instrução
+// fixa da plataforma e a linha "Cliente: ..." ficam sempre, e são curtas.)
+export const CONTEXT_BUDGET = { fast: 900, standard: 1800, advanced: 3200 };
+
+/** Corta no limite sem picar palavra no meio. */
+function apara(texto, max) {
+  const t = String(texto || "").replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max).replace(/\s+\S*$/, "") + "…";
+}
+
+/**
+ * Monta a instrução de sistema com SÓ o pedaço relevante do perfil do cliente,
+ * dentro do orçamento da tarefa. Devolve texto pronto.
+ *
+ * `memoria` é o resumo curto de preferências aprendidas (camada 4) — entra
+ * quando existe, e é o primeiro a sair se o orçamento apertar.
+ */
+export function personaSystem(client, persona, feature = "caption", memoria = null) {
   const p = persona || {};
-  const campos = CAMPOS_POR_TAREFA[feature] || CAMPOS_POR_TAREFA.caption;
-  const marca = [
-    `Cliente: ${client.name}${client.company ? ` (${client.company})` : ""}${client.segment ? ` — ${client.segment}` : ""}.`,
-    ...campos.filter((k) => p[k]).map((k) => `${ROTULO[k]}: ${p[k]}.`),
-  ].join("\n");
-  return `${PLATAFORMA}\n${marca}`;
+  const tier = FEATURE_TIER[feature] || "standard";
+  const orcamento = CONTEXT_BUDGET[tier] || CONTEXT_BUDGET.standard;
+
+  const cabecalho = `Cliente: ${client.name}${client.company ? ` (${client.company})` : ""}`
+    + `${client.segment ? ` — ${client.segment}` : ""}.`;
+
+  const chaves = CAMPOS_POR_TAREFA[feature] || CAMPOS_POR_TAREFA.caption;
+  const linhas = chaves
+    .filter((k) => p[k] && String(p[k]).trim())
+    .map((k) => `${CAMPO[k]?.label || k}: ${apara(p[k], CAMPO[k]?.max || 200)}`);
+
+  const mem = memoria ? `Preferências já combinadas: ${apara(memoria, 400)}` : null;
+
+  // Corta do fim até caber. O cabeçalho (quem é o cliente) nunca sai.
+  const partes = [...linhas, ...(mem ? [mem] : [])];
+  while (partes.length && partes.join("\n").length + cabecalho.length > orcamento) partes.pop();
+
+  return [PLATAFORMA, cabecalho, ...partes].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// RECUPERAÇÃO SELETIVA (camada 3). Para "não repetir assunto" a IA precisa
+// saber o que JÁ foi feito — mas só os TÍTULOS, nunca os textos inteiros.
+// Alguns títulos custam dezenas de tokens; os posts completos custariam
+// milhares e não melhorariam a resposta.
+// ---------------------------------------------------------------------------
+export function temasRecentes(orgId, clientId, { dias = 60, max = 20 } = {}) {
+  if (!clientId) return [];
+  const linhas = db.prepare(
+    `SELECT DISTINCT title FROM tasks
+      WHERE org_id = ? AND client_id = ? AND title IS NOT NULL AND title <> ''
+        AND COALESCE(scheduled_at, created_at) >= date('now', ?)
+      ORDER BY COALESCE(scheduled_at, created_at) DESC LIMIT ?`
+  ).all(orgId, clientId, `-${Number(dias) || 60} days`, Math.min(Number(max) || 20, 40));
+  // Teto do bloco inteiro: um cliente com títulos muito longos não pode fazer
+  // a lista de "não repita" custar mais do que a própria resposta.
+  const out = [];
+  let usado = 0;
+  for (const l of linhas) {
+    const t = apara(l.title, 60);
+    if (!t) continue;
+    if (usado + t.length > 900) break;
+    out.push(t); usado += t.length + 2;
+  }
+  return out;
 }
