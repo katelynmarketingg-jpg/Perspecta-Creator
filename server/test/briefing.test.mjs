@@ -61,12 +61,15 @@ test("gerar o link duas vezes devolve o MESMO link", async () => {
   assert.match(criado.url, /\/briefing\//);
 });
 
-test("o cliente abre sem login e vê o nome da agência e o dele", async () => {
+test("o cliente abre sem login e vê a marca da agência e o nome dele", async () => {
   const r = await req("GET", `/briefing/${criado.token}`);
   assert.equal(r.st, 200);
   assert.equal(r.client_name, "Silva");
   assert.equal(r.agency_name, "Agência");
   assert.equal(r.secoes.length, BRIEFING.length);
+  // A logo vai junto: a página é aberta por quem não tem conta e não pode
+  // buscar a marca pelas rotas da equipe.
+  assert.ok("agency_logo" in r, "a logo precisa vir na resposta pública");
 });
 
 test("o que o cliente escreve fica salvo — ele pode fechar e voltar", async () => {
