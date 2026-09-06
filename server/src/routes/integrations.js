@@ -1,7 +1,7 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
-import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
+import { authRequired, moduleAllowed, JWT_SECRET, hostServeParaLink } from "../auth.js";
 import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
   publicConnection, publishToInstagram, publishToFacebook, META_APP_ID,
@@ -174,7 +174,11 @@ export async function publishTask(task, orgId, host, protocol = "https") {
   // A Meta busca a imagem por URL, então ela precisa estar acessível sem login.
   // Em vez de abrir os arquivos, geramos um link assinado que vale 1 hora.
   // PUBLIC_URL é obrigatório aqui (a Meta não alcança localhost).
-  let base = process.env.PUBLIC_URL || (host ? `${protocol}://${host}` : "");
+  // Mesma regra dos outros links: PUBLIC_URL só vale se for endereço completo
+  // (no Render ela pode guardar só o nome do serviço, sem o domínio).
+  let base = (process.env.PUBLIC_URL && hostServeParaLink(process.env.PUBLIC_URL))
+    ? process.env.PUBLIC_URL
+    : (host ? `${protocol}://${host}` : "");
   if (base && !base.startsWith("http")) base = `https://${base}`;
   const ticket = jwt.sign({ file_id: anexo.id, org_id: orgId }, JWT_SECRET, { expiresIn: "2h" });
   const mediaUrl = `${base}/api/files/shared/${ticket}`;

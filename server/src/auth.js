@@ -107,16 +107,47 @@ export function portalAuthRequired(req, res, next) {
 export { JWT_SECRET };
 
 /**
- * Endereço público do sistema, para montar links (assinatura, Meta, Asaas).
- * Usa PUBLIC_URL se definido (prefixando https:// se faltar), senão deduz da
- * requisição — forçando https fora do localhost.
+ * Um endereço serve para montar link? Precisa ter domínio de verdade (um ponto)
+ * ou ser a máquina local. "saas-agency-k9ft" sozinho NÃO serve: o navegador não
+ * acha esse nome no DNS.
+ */
+export function hostServeParaLink(valor) {
+  const host = String(valor || "").replace(/^https?:\/\//, "").split("/")[0];
+  if (!host) return false;
+  const semPorta = host.split(":")[0];
+  return semPorta.includes(".") || semPorta === "localhost";
+}
+
+let avisouPublicUrl = false;
+
+/**
+ * Endereço público do sistema, para montar links (assinatura, briefing, Meta,
+ * Asaas).
+ *
+ * PUBLIC_URL manda quando é um endereço completo. Só que no Render essa
+ * variável pode acabar guardando apenas o NOME do serviço ("saas-agency-k9ft",
+ * sem o .onrender.com) — e aí todo link gerado apontava para um domínio que não
+ * existe: o navegador respondia "não é possível acessar esse site". Nesse caso
+ * usamos o endereço pelo qual a pessoa realmente chegou até aqui, que é sempre
+ * o certo, e deixamos um aviso no log para arrumar a variável.
  */
 export function publicBaseUrl(req) {
-  let base = process.env.PUBLIC_URL;
-  if (base) return base.startsWith("http") ? base : `https://${base}`;
-  const host = req.headers.host || "localhost:8080";
-  const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
-  return `${proto}://${host}`;
+  const doAmbiente = process.env.PUBLIC_URL;
+  if (doAmbiente && hostServeParaLink(doAmbiente)) {
+    if (doAmbiente.startsWith("http")) return doAmbiente;
+    // Na máquina local não existe https — só fora dela.
+    const local = /^(localhost|127\.)/.test(doAmbiente);
+    return `${local ? "http" : "https"}://${doAmbiente}`;
+  }
+  if (doAmbiente && !avisouPublicUrl) {
+    avisouPublicUrl = true;
+    console.warn(`[links] PUBLIC_URL="${doAmbiente}" não é um endereço completo `
+      + "(falta o domínio). Usando o endereço do próprio pedido para montar os links.");
+  }
+  const host = req?.headers?.["x-forwarded-host"] || req?.headers?.host || "localhost:8080";
+  const primeiro = String(host).split(",")[0].trim();   // pode vir uma lista
+  const proto = primeiro.startsWith("localhost") || primeiro.startsWith("127.") ? "http" : "https";
+  return `${proto}://${primeiro}`;
 }
 
 /** Middleware: exige papel admin (o master também é admin em toda parte). */
