@@ -485,6 +485,11 @@ ensureColumn("client_services", "config", "config TEXT");       // JSON: {label:
 
 // Persona de IA por cliente: tom de voz, público, pilares, o que evitar.
 ensureColumn("clients", "ai_persona", "ai_persona TEXT");       // JSON
+// MEMÓRIA da IA: resumo curto das preferências já combinadas com o cliente
+// ("legendas curtas", "poucos emojis", "CTA discreto"). Substitui reenviar
+// dezenas de conversas antigas a cada geração — o texto que originou a
+// conclusão fica no sistema, só o resumo vai para a IA.
+ensureColumn("clients", "ai_memory", "ai_memory TEXT");
 
 // Configuração de IA por escritório (chave paga pelo próprio escritório).
 db.exec(`
