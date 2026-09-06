@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 import { db } from "./db.js";
 import { asaas } from "./routes/billing.js";
+import { emitirEventoPerspecta } from "./perspecta-webhook.js";
 
 const GB = 1024 * 1024 * 1024;
 const GRACE_DAYS = 7;
@@ -126,6 +127,21 @@ export function runPlanCheck() {
   orgs.forEach((org) => {
     const jaAvisouHoje = org.usage_notified_at && org.usage_notified_at.slice(0, 10) === hoje;
     const st = orgUsageStatus(org);
+
+    // Avisa o Perspecta Central quanto esta agência está usando do plano —
+    // reaproveita a medição de cima (computeUsage/orgUsageStatus já são
+    // reais), não calcula nada a mais. Passa junto os limites que existirem
+    // (plano ilimitado numa métrica não manda limite pra ela).
+    const limites = {};
+    if (st.limits.storage_gb != null) limites.storage_gb = st.limits.storage_gb;
+    if (st.limits.clients != null) limites.clientes = st.limits.clients;
+    if (st.limits.users != null) limites.usuarios = st.limits.users;
+    emitirEventoPerspecta("uso.medido", {
+      empresa_ref: String(org.id),
+      plano: st.plan_name,
+      metricas: { storage_gb: st.usage.storage_gb, clientes: st.usage.clients, usuarios: st.usage.users },
+      limites,
+    });
 
     // 1) Estouro de limite → inicia tolerância e avisa (uma vez).
     if (st.situacao === "estourado" && !org.limit_grace_until) {
