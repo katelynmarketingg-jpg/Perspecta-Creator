@@ -4,25 +4,15 @@ import {
   TextField, Typography, Box, Alert, CircularProgress, IconButton, Tooltip,
 } from "@mui/material";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import ClientBrain from "./ClientBrain.jsx";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import api from "../api/client.js";
 
-// Campos da "inteligência" do cliente — a mesma persona usada nas legendas.
-const CAMPOS = [
-  { key: "tone", label: "Tom de voz", ph: "próximo, bem-humorado, sem gírias" },
-  { key: "audience", label: "Público", ph: "mulheres 25-45, classe B, sul do país" },
-  { key: "pillars", label: "Pilares de conteúdo", ph: "bastidores, dicas, prova social, promoções" },
-  { key: "avoid", label: "O que evitar", ph: "falar de preço, tom formal" },
-  { key: "extra", label: "Observações (prompt livre)", ph: "tudo que a IA deve saber sobre este cliente" },
-];
 
 // IA do Planejamento: por cliente. Configura a "inteligência" (persona/prompt) e
 // pede à IA um rascunho de planejamento do mês — usando essa mesma inteligência.
 export default function PlanningAI({ clientId, clientName, monthLabel, open, onClose }) {
   const [tab, setTab] = useState("brief");
-  const [persona, setPersona] = useState({});
-  const [salvando, setSalvando] = useState(false);
-  const [salvou, setSalvou] = useState(false);
   const [foco, setFoco] = useState("");
   const [tipo, setTipo] = useState("plan"); // plan | ideas
   const [gerando, setGerando] = useState(false);
@@ -33,14 +23,7 @@ export default function PlanningAI({ clientId, clientName, monthLabel, open, onC
   useEffect(() => {
     if (!open || !clientId) return;
     setErro(""); setTexto("");
-    api.get(`/ai/persona/${clientId}`).then((r) => setPersona(r.data || {})).catch(() => setPersona({}));
   }, [open, clientId]);
-
-  async function salvarBrief() {
-    setSalvando(true);
-    try { await api.put(`/ai/persona/${clientId}`, persona); setSalvou(true); setTimeout(() => setSalvou(false), 2500); }
-    finally { setSalvando(false); }
-  }
 
   async function gerar() {
     setErro(""); setTexto(""); setGerando(true);
@@ -69,20 +52,8 @@ export default function PlanningAI({ clientId, clientName, monthLabel, open, onC
       </Tabs>
       <DialogContent dividers>
         {tab === "brief" ? (
-          <Stack spacing={2}>
-            <Typography variant="body2" color="text.secondary">
-              O que a IA deve saber sobre <b>{clientName}</b>. Vale para as legendas e para o planejamento deste cliente.
-            </Typography>
-            {salvou && <Alert severity="success">Salvo! A IA já usa isso.</Alert>}
-            {CAMPOS.map((c) => (
-              <TextField key={c.key} label={c.label} placeholder={c.ph} value={persona[c.key] || ""}
-                onChange={(e) => setPersona((p) => ({ ...p, [c.key]: e.target.value }))}
-                fullWidth multiline={c.key === "extra"} minRows={c.key === "extra" ? 3 : 1} size="small" />
-            ))}
-            <Button variant="contained" onClick={salvarBrief} disabled={salvando} sx={{ alignSelf: "flex-start" }}>
-              {salvando ? "Salvando…" : "Salvar inteligência"}
-            </Button>
-          </Stack>
+          // O MESMO editor da aba IA e da ficha do cliente — um cadastro só.
+          <ClientBrain clientId={clientId} clientName={clientName} />
         ) : (
           <Stack spacing={2}>
             <Typography variant="body2" color="text.secondary">

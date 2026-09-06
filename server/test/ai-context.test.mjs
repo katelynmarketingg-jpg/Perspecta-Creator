@@ -127,3 +127,20 @@ test("os erros do provedor viram frases que apontam o conserto", () => {
     assert.equal(t.raw, cru, "o texto original fica guardado para diagnóstico");
   }
 });
+
+test("editar a inteligência numa tela não apaga o que outra tela preencheu", () => {
+  // As telas carregam o perfil inteiro e devolvem o perfil inteiro; o servidor
+  // só descarta chave que não é campo de perfil. Aqui garantimos que a lista de
+  // campos aceitos cobre tudo o que o editor mostra.
+  const doEditor = [
+    "tone", "audience", "pillars", "avoid",
+    "segment", "services", "positioning", "personality", "differentials", "location",
+    "expressions", "avoid_words", "cta", "rules", "restrictions", "goals",
+    "examples", "extra",
+  ];
+  const aceitos = PERSONA_FIELDS.map((f) => f.key);
+  for (const k of doEditor) {
+    assert.ok(aceitos.includes(k), `o servidor descartaria o campo "${k}" do editor`);
+  }
+  assert.equal(aceitos.length, doEditor.length, "editor e servidor têm que ter os mesmos campos");
+});
