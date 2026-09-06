@@ -491,6 +491,27 @@ ensureColumn("clients", "ai_persona", "ai_persona TEXT");       // JSON
 // conclusão fica no sistema, só o resumo vai para a IA.
 ensureColumn("clients", "ai_memory", "ai_memory TEXT");
 
+// ---------------------------------------------------------------------------
+// BRIEFING: o formulário que o cliente responde por um link, sem ter conta. As
+// respostas viram a inteligência da IA daquele cliente. O link tem um segredo
+// próprio (token) que pode ser revogado sem mexer no resto.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS briefings (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  client_id   INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  token       TEXT NOT NULL UNIQUE,
+  answers     TEXT NOT NULL DEFAULT '{}',   -- JSON: { id_da_pergunta: resposta }
+  status      TEXT NOT NULL DEFAULT 'aberto', -- aberto | respondido | aplicado
+  opened_at   TEXT,                          -- 1ª vez que o cliente abriu
+  answered_at TEXT,
+  applied_at  TEXT,                          -- quando virou inteligência da IA
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_briefings_client ON briefings(org_id, client_id);
+`);
+
 // Configuração de IA por escritório (chave paga pelo próprio escritório).
 db.exec(`
 CREATE TABLE IF NOT EXISTS org_ai (

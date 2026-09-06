@@ -27,6 +27,8 @@ import plansRoutes from "./routes/plans.js";
 import integrationsRoutes from "./routes/integrations.js";
 import { sharedRouter } from "./routes/files.js";
 import { signRouter } from "./routes/sign.js";
+import briefingsRoutes from "./routes/briefings.js";
+import { briefingPublicRouter } from "./routes/briefing-public.js";
 import commentsRoutes from "./routes/comments.js";
 import timeRoutes from "./routes/time.js";
 import prospectsRoutes from "./routes/prospects.js";
@@ -96,6 +98,8 @@ app.use("/api/organizations", organizationsRoutes);
 app.use("/api/plans", plansRoutes);
 app.use("/api/integrations", integrationsRoutes);
 app.use("/api/sign", signRouter);    // assinatura por link público
+app.use("/api/briefing", briefingPublicRouter); // briefing do cliente, por link público
+app.use("/api/briefings", briefingsRoutes);     // briefing do lado da equipe
 app.use("/api/comments", commentsRoutes);
 app.use("/api/time", timeRoutes);
 app.use("/api/prospects", prospectsRoutes);
