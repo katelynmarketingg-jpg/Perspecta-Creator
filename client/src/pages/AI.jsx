@@ -9,50 +9,7 @@ import CheckIcon from "@mui/icons-material/Check";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
-
-// O perfil do cliente. Nem tudo vai para a IA em toda geração: o sistema
-// escolhe, por tarefa, só os campos que mudam a resposta daquela tarefa —
-// por isso preencher bastante NÃO deixa a geração mais cara.
-const PERSONA_GRUPOS = [
-  {
-    titulo: "O essencial (usado em quase tudo)",
-    campos: [
-      { key: "tone", label: "Tom de voz", ph: "Ex: próximo, bem-humorado, sem gírias" },
-      { key: "audience", label: "Público", ph: "Ex: mulheres 25-45, classe B, região sul" },
-      { key: "pillars", label: "Pilares de conteúdo", ph: "Ex: bastidores, dicas, prova social, promoções" },
-      { key: "avoid", label: "O que evitar", ph: "Ex: falar de preço, tom formal" },
-    ],
-  },
-  {
-    titulo: "A marca",
-    campos: [
-      { key: "segment", label: "Segmento", ph: "Ex: advocacia, pastelaria, estética" },
-      { key: "services", label: "Serviços / o que vende", ph: "Ex: direito penal empresarial, consultoria preventiva" },
-      { key: "positioning", label: "Posicionamento", ph: "Ex: técnico, sofisticado e preventivo" },
-      { key: "personality", label: "Personalidade da marca", ph: "Ex: firme, acolhedora, direta" },
-      { key: "differentials", label: "Diferenciais", ph: "Ex: atendimento 24h, 20 anos de casa" },
-      { key: "location", label: "Onde atua", ph: "Ex: Porto Alegre e região metropolitana" },
-    ],
-  },
-  {
-    titulo: "Como falar",
-    campos: [
-      { key: "expressions", label: "Expressões da marca", ph: "Palavras e bordões que a marca usa" },
-      { key: "avoid_words", label: "Palavras proibidas", ph: "Ex: barato, promoção, imperdível" },
-      { key: "cta", label: "CTA preferido", ph: "Ex: chame no direct, link na bio" },
-      { key: "rules", label: "Regras de comunicação", ph: "Ex: nunca prometer resultado, sempre citar o bairro" },
-      { key: "restrictions", label: "Restrições", ph: "Ex: não falar de concorrente, nada de política" },
-      { key: "goals", label: "Objetivo", ph: "Ex: autoridade + geração de oportunidades" },
-    ],
-  },
-  {
-    titulo: "Referências",
-    campos: [
-      { key: "examples", label: "Exemplo de conteúdo aprovado", ph: "Cole uma legenda que ficou do jeito certo", multi: true },
-      { key: "extra", label: "Observações", ph: "Qualquer coisa que a IA deva saber", multi: true },
-    ],
-  },
-];
+import ClientBrain from "../components/ClientBrain.jsx";
 
 const GERADORES = [
   { kind: "caption", label: "Legendas", desc: "Opções de legenda prontas para copiar" },
@@ -65,8 +22,6 @@ export default function AI() {
   const [config, setConfig] = useState(null);
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState("");
-  const [persona, setPersona] = useState({});
-  const [personaSalva, setPersonaSalva] = useState(false);
   const [kind, setKind] = useState("caption");
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(3);
@@ -81,8 +36,6 @@ export default function AI() {
   const [salvandoChave, setSalvandoChave] = useState(false);
   const [teste, setTeste] = useState(null);        // resultado do "Testar chave"
   const [testando, setTestando] = useState(false);
-  const [memoria, setMemoria] = useState("");
-  const [memoriaSalva, setMemoriaSalva] = useState(false);
 
   // Uso e limite de gasto (R$/mês)
   const [uso, setUso] = useState(null);
@@ -113,11 +66,6 @@ export default function AI() {
   useEffect(() => {
     if (!clientId) return;
     setResultado(""); setErro("");
-    api.get(`/ai/persona/${clientId}`).then((r) => {
-      const { _memory, _fields, ...perfil } = r.data || {};
-      setPersona(perfil);
-      setMemoria(_memory || "");
-    }).catch(() => { setPersona({}); setMemoria(""); });
   }, [clientId]);
 
   async function salvarChave() {
@@ -143,18 +91,6 @@ export default function AI() {
     } catch (e) {
       setTeste({ ok: false, message: e.response?.data?.error || "Não consegui testar agora." });
     } finally { setTestando(false); }
-  }
-
-  async function salvarMemoria() {
-    await api.put(`/ai/memory/${clientId}`, { memory: memoria });
-    setMemoriaSalva(true);
-    setTimeout(() => setMemoriaSalva(false), 2500);
-  }
-
-  async function salvarPersona() {
-    await api.put(`/ai/persona/${clientId}`, persona);
-    setPersonaSalva(true);
-    setTimeout(() => setPersonaSalva(false), 2500);
   }
 
   async function gerar() {
@@ -310,49 +246,11 @@ export default function AI() {
 
       {clientId && (
         <Stack spacing={2.5}>
-          {/* Persona */}
+          {/* Inteligência do cliente — o MESMO editor da ficha do cliente e do
+              planejamento. Editar aqui vale em todo lugar. */}
           <Card>
             <CardContent>
-              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-                <Typography variant="h6">Persona do cliente</Typography>
-                <Button variant="outlined" size="small" onClick={salvarPersona}>
-                  {personaSalva ? "Salvo ✓" : "Salvar persona"}
-                </Button>
-              </Stack>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Quanto mais completa, melhor a IA acerta o jeito do cliente. Preencher tudo <b>não</b> deixa
-                a geração mais cara: cada tipo de geração leva só os campos que fazem diferença nela.
-              </Typography>
-              <Stack spacing={2.5}>
-                {PERSONA_GRUPOS.map((g) => (
-                  <Box key={g.titulo}>
-                    <Divider textAlign="left" sx={{ mb: 1.5 }}>
-                      <Typography variant="caption" color="text.secondary">{g.titulo}</Typography>
-                    </Divider>
-                    <Stack spacing={2}>
-                      {g.campos.map((f) => (
-                        <TextField key={f.key} label={f.label} placeholder={f.ph} fullWidth size="small"
-                          multiline={f.multi} minRows={f.multi ? 2 : 1}
-                          value={persona[f.key] || ""}
-                          onChange={(e) => setPersona((p) => ({ ...p, [f.key]: e.target.value }))} />
-                      ))}
-                    </Stack>
-                  </Box>
-                ))}
-
-                <Box>
-                  <Divider textAlign="left" sx={{ mb: 1.5 }}>
-                    <Typography variant="caption" color="text.secondary">Memória (o que já foi combinado)</Typography>
-                  </Divider>
-                  <TextField fullWidth size="small" multiline minRows={3} value={memoria}
-                    onChange={(e) => setMemoria(e.target.value)}
-                    placeholder={"Ex: prefere legendas curtas; poucos emojis; nada de clichê; CTA discreto; carrossel com gancho forte."}
-                    helperText="Anote aqui as preferências que foram aparecendo. Isso substitui reenviar conversas antigas para a IA — e entra só nas gerações de texto." />
-                  <Button size="small" variant="outlined" sx={{ mt: 1 }} onClick={salvarMemoria}>
-                    {memoriaSalva ? "Salvo ✓" : "Salvar memória"}
-                  </Button>
-                </Box>
-              </Stack>
+              <ClientBrain clientId={clientId} clientName={clients.find((c) => c.id === clientId)?.name} />
             </CardContent>
           </Card>
 

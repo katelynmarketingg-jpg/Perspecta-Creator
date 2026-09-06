@@ -22,6 +22,7 @@ import EventNoteIcon from "@mui/icons-material/EventNote";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import api from "../api/client.js";
 import { CATEGORY_HEX } from "../data/seasonalDates.js";
+import ClientBrain from "./ClientBrain.jsx";
 
 const FONTS = ["Arial", "Georgia", "Times New Roman", "Courier New", "Verdana", "Tahoma", "Trebuchet MS"];
 const SIZES = [["2", "Pequeno"], ["3", "Normal"], ["4", "Médio"], ["5", "Grande"], ["6", "Enorme"], ["7", "Gigante"]];
@@ -29,15 +30,6 @@ const SPACINGS = [["1", "Simples"], ["1.4", "1,5"], ["1.8", "Duplo"]];
 const MARGINS = [["10mm", "Estreita"], ["20mm", "Normal"], ["30mm", "Larga"]];
 const WD = ["D", "S", "T", "Q", "Q", "S", "S"];
 
-// Campos da "inteligência" do cliente (a persona que a IA usa nas legendas e no
-// planejamento). Ficam salvos por cliente e valem também no botão da Distribuição.
-const PERSONA_FIELDS = [
-  ["tone", "Tom de voz", "Ex.: próximo, acolhedor, direto…"],
-  ["audience", "Público", "Ex.: mulheres 30-45, mães, empreendedoras…"],
-  ["pillars", "Pilares de conteúdo", "Ex.: dicas, bastidores, depoimentos, ofertas…"],
-  ["avoid", "Evitar", "Ex.: gírias, promessas exageradas…"],
-  ["extra", "Prompt / observações", "Escreva instruções livres pra IA sobre este cliente."],
-];
 
 const pad = (n) => String(n).padStart(2, "0");
 const brDate = (isoStr) => { const [y, m, d] = isoStr.split("-").map(Number); return `${pad(d)}/${pad(m)}/${y}`; };
@@ -121,25 +113,14 @@ export default function PlanningEditor({
   const drag = useRef(null);
   // IA do cliente (persona) + geração do planejamento
   const [iaOpen, setIaOpen] = useState(false);
-  const [persona, setPersona] = useState({});
-  const [personaSaved, setPersonaSaved] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [iaMsg, setIaMsg] = useState(null);
 
   useEffect(() => { api.get("/branding").then((r) => setLogo(r.data?.logo || null)).catch(() => {}); }, []);
 
-  // Carrega a persona do cliente (a "inteligência" que a IA usa).
-  useEffect(() => {
-    setPersonaSaved(false); setIaMsg(null);
-    if (!clientId) { setPersona({}); return; }
-    api.get(`/ai/persona/${clientId}`).then((r) => setPersona(r.data || {})).catch(() => setPersona({}));
-  }, [clientId]);
-
-  async function salvarPersona() {
-    if (!clientId) return;
-    try { await api.put(`/ai/persona/${clientId}`, persona); setPersonaSaved(true); setTimeout(() => setPersonaSaved(false), 3000); }
-    catch { setIaMsg({ t: "error", m: "Não consegui salvar a inteligência do cliente." }); }
-  }
+  // A inteligência do cliente é carregada e salva pelo ClientBrain (mesmo
+  // editor da aba IA e da ficha do cliente); aqui só limpamos o aviso.
+  useEffect(() => { setIaMsg(null); }, [clientId]);
 
   // Gera um rascunho de planejamento do mês com a IA e insere no documento.
   async function gerarPlanejamento() {
@@ -367,24 +348,12 @@ export default function PlanningEditor({
         {savedAt && <Typography variant="caption" color="text.secondary">Salvo</Typography>}
       </Stack>
 
-      {/* Inteligência do cliente (persona): vale aqui e nas legendas da Distribuição */}
-      <Collapse in={iaOpen}>
+      {/* Inteligência do cliente: o MESMO editor da aba IA e da ficha do cliente.
+          Vale aqui e nas legendas da Distribuição. */}
+      <Collapse in={iaOpen} mountOnEnter>
         <Box sx={{ mb: 1.5, p: 1.5, border: 1, borderColor: "divider", borderRadius: 2, bgcolor: "action.hover" }}>
-          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Inteligência deste cliente</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-            A IA usa isto pra escrever no jeito do cliente — nas <b>legendas</b> (botão na Distribuição) e no <b>planejamento</b> (botão “Gerar com IA” acima).
-          </Typography>
           {iaMsg && <Alert severity={iaMsg.t} sx={{ mb: 1.5 }} onClose={() => setIaMsg(null)}>{iaMsg.m}</Alert>}
-          <Stack spacing={1.5}>
-            {PERSONA_FIELDS.map(([k, label, ph]) => (
-              <TextField key={k} label={label} placeholder={ph} value={persona[k] || ""}
-                onChange={(e) => setPersona((p) => ({ ...p, [k]: e.target.value }))}
-                fullWidth size="small" multiline={k === "extra"} minRows={k === "extra" ? 2 : 1} />
-            ))}
-            <Button variant="contained" size="small" onClick={salvarPersona} sx={{ alignSelf: "flex-start" }}>
-              {personaSaved ? "Salvo ✓" : "Salvar inteligência"}
-            </Button>
-          </Stack>
+          <ClientBrain clientId={clientId} denso />
         </Box>
       </Collapse>
 
