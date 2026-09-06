@@ -27,7 +27,10 @@ briefingPublicRouter.get("/:token", (req, res) => {
     db.prepare("UPDATE briefings SET opened_at = datetime('now') WHERE id = ?").run(b.id);
   }
   const cliente = db.prepare("SELECT name FROM clients WHERE id = ?").get(b.client_id);
-  const org = db.prepare("SELECT name FROM organizations WHERE id = ?").get(b.org_id);
+  // A logo vem junto: a página é aberta por quem não tem conta, então não pode
+  // buscar a marca pelas rotas da equipe — e chegar sem marca nenhuma faria o
+  // convite parecer um formulário qualquer.
+  const org = db.prepare("SELECT name, logo FROM organizations WHERE id = ?").get(b.org_id);
   const respostas = JSON.parse(b.answers || "{}");
 
   res.json({
@@ -35,6 +38,7 @@ briefingPublicRouter.get("/:token", (req, res) => {
     respostas,
     client_name: cliente?.name || "",
     agency_name: org?.name || "",
+    agency_logo: org?.logo || null,
     status: b.status,
     progresso: progresso(respostas),
     answered_at: b.answered_at,
