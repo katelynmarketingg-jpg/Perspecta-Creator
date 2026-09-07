@@ -110,3 +110,18 @@ test("a galeria do cliente traz a miniatura junto (não baixa a arte inteira)", 
   const item = todos.find((x) => x.id === foto);
   assert.equal(item.thumb, "data:image/jpeg;base64,QUJD");
 });
+
+test("os anexos do post levam a miniatura da CAPA, para o vídeo ter quadro parado", async () => {
+  const capa = arquivo("capa.jpg", "image/jpeg", PNG, "data:image/jpeg;base64,Q0FQQQ==");
+  const filme = arquivo("reel.mov", "video/quicktime", Buffer.from("00", "hex"));
+  const t = db.prepare(
+    `INSERT INTO tasks (title, client_id, stage_id, content_type, scheduled_at, cover_file_id, org_id)
+     VALUES ('Reel', ?, ?, 'reel', '2026-09-11 10:00', ?, ?)`
+  ).run(cliente, etapa, capa, org).lastInsertRowid;
+  db.prepare("INSERT INTO task_attachments (task_id, file_id) VALUES (?, ?)").run(t, filme);
+
+  const anexos = await (await fetch(`${base}/tasks/${t}/attachments`, { headers: auth })).json();
+  const doVideo = anexos.find((a) => a.id === filme);
+  assert.equal(doVideo.thumb, null, "o vídeo antigo não tem miniatura própria");
+  assert.equal(doVideo.cover_thumb, "data:image/jpeg;base64,Q0FQQQ==", "então usa a da capa");
+});

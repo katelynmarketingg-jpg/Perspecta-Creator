@@ -445,11 +445,15 @@ router.get("/tasks/:id/attachments", (req, res) => {
   if (!task) return;
   const rows = db
     .prepare(
-      `SELECT f.id, f.original_name, f.mime, f.size, f.thumb
+      // `cover_thumb` é a miniatura da CAPA escolhida na Distribuição: é ela que
+      // vira o quadro parado do vídeo, quando o próprio vídeo ainda não tem
+      // miniatura própria.
+      `SELECT f.id, f.original_name, f.mime, f.size, f.thumb,
+              (SELECT c.thumb FROM files c WHERE c.id = ?) AS cover_thumb
        FROM task_attachments ta JOIN files f ON f.id = ta.file_id
        WHERE ta.task_id = ?`
     )
-    .all(task.id);
+    .all(task.cover_file_id || null, task.id);
   for (const f of rows) f.media_url = mediaUrl(f.id, req.client.org_id);
   res.json(rows);
 });
