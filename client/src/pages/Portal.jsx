@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AppBar, Toolbar, Box, Container, Tabs, Tab, Badge, Card, CardContent,
@@ -25,32 +25,67 @@ import DownloadIcon from "@mui/icons-material/Download";
 import portalApi from "../api/portal.js";
 import { currency, formatDate, formatTime, CONTENT_TYPES } from "../utils.js";
 import { printReceipt } from "../receipt.js";
+import { carregarArte } from "../media.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 // Imagem/vídeo anexado, carregado com o token do portal.
-function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl }) {
+// `capa` (a miniatura escolhida) vira o quadro parado do vídeo: o post aparece
+// com a arte certa e continua dando para dar play.
+function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
   const [src, setSrc] = useState(mediaUrl || null);
+  const [erro, setErro] = useState(false);
+  const ehVideoAqui = (mime || "").startsWith("video/");
   useEffect(() => {
+    setErro(false);
     // Com media_url (link inline), toca/mostra direto por streaming — sem baixar
     // o arquivo inteiro (essencial para vídeo grande, que travava antes).
     if (mediaUrl) { setSrc(mediaUrl); return undefined; }
-    let url;
-    portalApi
-      .get(`/files/${fileId}/download`, { responseType: "blob" })
-      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); })
-      .catch(() => {});
-    return () => url && URL.revokeObjectURL(url);
-  }, [fileId, mediaUrl]);
+    if (!fileId) return undefined;
+    let vivo = true;
+    // Pelo carregador compartilhado: é ele que converte a foto de iPhone
+    // (.HEIC), que nenhum navegador desenha.
+    carregarArte(`portal:${fileId}`,
+      () => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+      { mime })
+      .then((m) => { if (vivo) setSrc(m.url); })
+      .catch(() => { if (vivo) setErro(true); });
+    return () => { vivo = false; };   // não revoga: o cache é dono da URL
+  }, [fileId, mediaUrl, mime]);
+
+  // Com link inline, o <img>/<video> pode falhar (formato que o navegador não
+  // desenha). Aí baixamos e convertemos — uma vez só.
+  const tentouConverter = useRef(false);
+  async function naoDesenhou() {
+    if (tentouConverter.current || !fileId) { setErro(true); return; }
+    tentouConverter.current = true;
+    try {
+      const m = await carregarArte(`portal:${fileId}`,
+        () => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+        { alt, mime });
+      setSrc(m.url);
+    } catch { setErro(true); }
+  }
+
+  const moldura = { width: "100%", maxHeight, borderRadius: 2 };
+  if (erro) {
+    return (
+      <Box sx={{ ...moldura, height: 140, bgcolor: "action.hover", display: "grid", placeItems: "center",
+                 color: "text.secondary", fontSize: 13, textAlign: "center", p: 1 }}>
+        A arte não carregou. Avise a equipe.
+      </Box>
+    );
+  }
   if (!src) return null;
-  if (mime?.startsWith("video/")) {
-    return <Box component="video" src={src} controls sx={{ width: "100%", maxHeight, borderRadius: 2, bgcolor: "#000" }} />;
+  if (ehVideoAqui) {
+    return <Box component="video" src={src} poster={capa || undefined} controls playsInline preload="metadata"
+      sx={{ ...moldura, bgcolor: "#000" }} onError={naoDesenhou} />;
   }
   return (
     <Box component="img" src={src} alt={alt}
-      sx={{ width: "100%", maxHeight, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover" }} />
+      sx={{ ...moldura, objectFit: "contain", bgcolor: "action.hover" }} onError={naoDesenhou} />
   );
 }
 
@@ -64,11 +99,13 @@ function PortalThumb({ fileId, size = 56, mime, thumb, mediaUrl }) {
     // um arquivo gigante só para a miniatura, que antes deixava o tile em branco.
     if ((mime || "").startsWith("video/") && mediaUrl) { setIsVideo(true); setSrc(null); return undefined; }
     if (!fileId) return undefined;
-    let url;
-    portalApi.get(`/files/${fileId}/download`, { responseType: "blob" })
-      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setIsVideo((r.data.type || "").startsWith("video")); })
+    let vivo = true;
+    carregarArte(`portal:${fileId}`,
+      () => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+      { mime })
+      .then((m) => { if (!vivo) return; setSrc(m.url); setIsVideo((m.tipo || "").startsWith("video")); })
       .catch(() => {});
-    return () => url && URL.revokeObjectURL(url);
+    return () => { vivo = false; };   // não revoga: o cache é dono da URL
   }, [fileId, thumb, mediaUrl, mime]);
   const sx = { width: size, height: size, borderRadius: 1.5, objectFit: "cover", flexShrink: 0, bgcolor: isVideo ? "#000" : "action.hover" };
   if (src) return isVideo
@@ -164,7 +201,8 @@ function PostDialog({ post, onClose }) {
             )}
           </Stack>
           {attachments.map((f) => (
-            <AuthImg key={f.id} fileId={f.id} alt={f.original_name} mime={f.mime} maxHeight={460} />
+            <AuthImg key={f.id} fileId={f.id} alt={f.original_name} mime={f.mime} maxHeight={460}
+              mediaUrl={f.media_url} capa={f.thumb || f.cover_thumb} />
           ))}
           <Divider />
           <Typography variant="subtitle2" color="text.secondary">Legenda</Typography>
@@ -187,6 +225,40 @@ function PostDialog({ post, onClose }) {
 const EXT_VIDEO = /\.(mp4|mov|webm|m4v|mkv|avi|quicktime)$/i;
 const ehArquivoVideo = (f) => (f?.mime || "").startsWith("video/") || EXT_VIDEO.test(f?.original_name || "");
 
+// A foto do post. Vai direto pelo link (rápido, sem baixar o arquivo inteiro);
+// se o navegador NÃO conseguir desenhar — é o caso do .HEIC, foto de iPhone —
+// cai no carregador compartilhado, que converte. Assim a foto aparece sem
+// deixar todas as outras mais lentas.
+function Foto({ file }) {
+  const [src, setSrc] = useState(file.media_url || null);
+  const [erro, setErro] = useState(false);
+  const tentouConverter = useRef(false);
+
+  async function naoDesenhou() {
+    if (tentouConverter.current) { setErro(true); return; }
+    tentouConverter.current = true;
+    try {
+      const m = await carregarArte(`portal:${file.id}`,
+        () => portalApi.get(`/files/${file.id}/download`, { responseType: "blob" }).then((r) => r.data),
+        { nome: file.original_name, mime: file.mime });
+      setSrc(m.url);
+    } catch { setErro(true); }
+  }
+
+  if (erro) {
+    return (
+      <Box sx={{ width: "100%", height: 160, borderRadius: 2, bgcolor: "action.hover", display: "grid",
+                 placeItems: "center", color: "text.secondary", fontSize: 13, textAlign: "center", p: 1 }}>
+        A arte não carregou. Avise a equipe.
+      </Box>
+    );
+  }
+  return (
+    <Box component="img" src={src} alt={file.original_name} onError={naoDesenhou}
+      sx={{ width: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover", display: "block" }} />
+  );
+}
+
 function ApprovalMedia({ file }) {
   const ehVideo = ehArquivoVideo(file);
   const [baixando, setBaixando] = useState(false);
@@ -203,12 +275,13 @@ function ApprovalMedia({ file }) {
   return (
     <Box>
       {ehVideo ? (
-        <Box component="video" src={file.media_url} poster={file.thumb || undefined}
+        // A CAPA escolhida na Distribuição é o quadro parado do vídeo — o post
+        // aparece com a arte certa e o cliente ainda assiste.
+        <Box component="video" src={file.media_url} poster={file.thumb || file.cover_thumb || undefined}
           controls playsInline preload="metadata"
           sx={{ width: "100%", maxHeight: 520, borderRadius: 2, bgcolor: "#000", display: "block" }} />
       ) : (
-        <Box component="img" src={file.media_url} alt={file.original_name}
-          sx={{ width: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover", display: "block" }} />
+        <Foto file={file} />
       )}
       <Button size="small" startIcon={<DownloadIcon />} disabled={baixando} onClick={baixar} sx={{ mt: 0.5 }}>
         {baixando ? "Baixando…" : "Baixar na qualidade original"}

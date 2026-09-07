@@ -29,26 +29,22 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 import PlanningRefDialog from "../components/PlanningRefDialog.jsx";
 import { thumbFromElement } from "../upload/thumbnail.js";
+import { carregarArte } from "../media.js";
 
 // Cache de mídias por sessão: cada arquivo é baixado UMA vez e reaproveitado
 // entre telas, filtros e re-renderizações. Antes cada componente rebaixava o
 // blob e o revogava ao desmontar — trocar de visão/rolar recarregava tudo, o
 // que deixava a Distribuição lenta. Aqui a URL do objeto vive enquanto a página
 // estiver aberta (o cache é o dono; ninguém revoga).
-const _mediaCache = new Map();    // fileId -> { url, type }
-const _mediaInflight = new Map(); // fileId -> Promise<{url,type}>
 function loadMedia(fileId) {
   if (!fileId) return Promise.resolve(null);
-  if (_mediaCache.has(fileId)) return Promise.resolve(_mediaCache.get(fileId));
-  if (_mediaInflight.has(fileId)) return _mediaInflight.get(fileId);
-  const p = api.get(`/files/${fileId}/download`, { responseType: "blob" })
-    .then((r) => {
-      const v = { url: URL.createObjectURL(r.data), type: r.data.type || "" };
-      _mediaCache.set(fileId, v); _mediaInflight.delete(fileId); return v;
-    })
-    .catch((e) => { _mediaInflight.delete(fileId); throw e; });
-  _mediaInflight.set(fileId, p);
-  return p;
+  // Passa pelo carregador compartilhado: é ele que converte a foto de iPhone
+  // (.HEIC), que nenhum navegador desenha — era por isso que as fotos ficavam
+  // em branco aqui, mesmo já aparecendo na Galeria.
+  return carregarArte(
+    `agencia:${fileId}`,
+    () => api.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data)
+  ).then((m) => ({ url: m.url, type: m.tipo }));
 }
 
 // Miniatura (leve) do arquivo: é o que desenha a grade do perfil sem baixar a
@@ -127,12 +123,13 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 // fit="cover" (padrão) preenche o quadrado (para grades/miniaturas);
 // fit="contain" mostra a IMAGEM INTEIRA na proporção real (para a prévia do
 // post), sem cortar nada — sobra uma faixa neutra ao redor quando não é quadrada.
-function Media({ fileId, height = 200, fit = "cover" }) {
+function Media({ fileId, capaId, height = 200, fit = "cover" }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
+  const [capa, setCapa] = useState(null);
   const [erro, setErro] = useState(false);
   useEffect(() => {
-    setSrc(null); setErro(false);
+    setSrc(null); setErro(false); setCapa(null);
     if (!fileId) return;
     let alive = true;
     loadMedia(fileId)
@@ -140,14 +137,33 @@ function Media({ fileId, height = 200, fit = "cover" }) {
       .catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId]);
+
+  // A CAPA escolhida vira o quadro parado do vídeo: o post aparece com a arte
+  // certa e continua dando para dar play — antes era um ou outro.
+  useEffect(() => {
+    if (!capaId || capaId === fileId) return undefined;
+    let alive = true;
+    loadThumb(capaId)
+      .then((t) => (t ? { url: t } : loadMedia(capaId)))
+      .then((m) => { if (alive && m) setCapa(m.url); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [capaId, fileId]);
+
   const contain = fit === "contain";
   const sx = { width: "100%", height, objectFit: fit, borderRadius: 2, bgcolor: contain ? "#000" : "action.hover", display: "block" };
-  if (!fileId) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "text.secondary", fontSize: height <= 90 ? 9 : 13, lineHeight: 1.1, p: 0.25 }}>Sem mídia</Box>;
-  if (erro) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "error.main", fontSize: height <= 90 ? 9 : 12, lineHeight: 1.15, p: 0.5 }}>Imagem não carregou<br/>(reenvie)</Box>;
+  const aviso = (texto, cor) => (
+    <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: cor,
+               fontSize: height <= 90 ? 9 : 12, lineHeight: 1.15, p: 0.5 }}>{texto}</Box>
+  );
+  if (!fileId) return aviso("Sem mídia", "text.secondary");
+  if (erro) return aviso(<>Arte não carregou<br />(reenvie)</>, "error.main");
   if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   return video
-    ? <Box component="video" src={src} controls={height > 120} muted sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }} />
-    : <Box component="img" src={src} alt="" sx={sx} />;
+    ? <Box component="video" src={src} poster={capa || undefined} controls={height > 120} muted playsInline
+        preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
+        onError={() => setErro(true)} />
+    : <Box component="img" src={src} alt="" sx={sx} onError={() => setErro(true)} />;
 }
 
 // Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
@@ -493,7 +509,7 @@ function PieceCard({ item, onChanged, flash }) {
             </Alert>
           )}
 
-          <Media fileId={fileId} height={280} fit="contain" />
+          <Media fileId={fileId} capaId={coverId} height={280} fit="contain" />
 
           {isCarousel ? (
             <Box>
@@ -1043,7 +1059,7 @@ export default function Distribution() {
                             <Chip size="small" color="info" label="Programado 🗓️" />
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
-                          <Media fileId={p.cover_file_id || p.file_id} height={200} fit="contain" />
+                          <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} height={200} fit="contain" />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {p.scheduled_at
@@ -1076,7 +1092,7 @@ export default function Distribution() {
                             <Chip size="small" color="success" label="Aprovado ✓" />
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
-                          <Media fileId={a.cover_file_id || a.file_id} height={200} fit="contain" />
+                          <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} height={200} fit="contain" />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
                             {a.scheduled_at
