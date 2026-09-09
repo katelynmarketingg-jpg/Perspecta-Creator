@@ -152,11 +152,23 @@ function Media({ fileId, capaId, height = 200, fit = "cover" }) {
 
   const contain = fit === "contain";
   const sx = { width: "100%", height, objectFit: fit, borderRadius: 2, bgcolor: contain ? "#000" : "action.hover", display: "block" };
-  const aviso = (texto, cor) => (
-    <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: cor,
-               fontSize: height <= 90 ? 9 : 12, lineHeight: 1.15, p: 0.5 }}>{texto}</Box>
+  const pequeno = height <= 90;
+  const aviso = (texto, cor, tracejado = false) => (
+    <Box sx={{
+      width: "100%", height, borderRadius: 2, display: "grid", placeItems: "center", textAlign: "center",
+      color: cor, fontSize: pequeno ? 9 : 13, lineHeight: 1.3, p: 1,
+      // Falta de arte NÃO é erro: fundo claro e borda tracejada, como um espaço
+      // esperando ser preenchido. Antes era um retângulo preto com "Sem mídia",
+      // que parecia exatamente uma imagem quebrada.
+      bgcolor: tracejado ? "action.hover" : (contain ? "#000" : "action.hover"),
+      border: tracejado ? "2px dashed" : 0, borderColor: "divider",
+    }}>{texto}</Box>
   );
-  if (!fileId) return aviso("Sem mídia", "text.secondary");
+  if (!fileId) {
+    return aviso(
+      pequeno ? "sem arte" : <>Nenhuma arte ainda<br /><Box component="span" sx={{ fontSize: 12, opacity: 0.75 }}>use “Subir” ou “Da galeria”</Box></>,
+      "text.secondary", true);
+  }
   if (erro) return aviso(<>Arte não carregou<br />(reenvie)</>, "error.main");
   if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   return video
@@ -509,7 +521,9 @@ function PieceCard({ item, onChanged, flash }) {
             </Alert>
           )}
 
-          <Media fileId={fileId} capaId={coverId} height={280} fit="contain" />
+          {/* Arte da peça; se ela ainda não foi escolhida, mostra a capa ou a
+              primeira slide — o que existir. Só fica vazio quando não há nada. */}
+          <Media fileId={fileId || coverId || slides[0]} capaId={coverId} height={280} fit="contain" />
 
           {isCarousel ? (
             <Box>
