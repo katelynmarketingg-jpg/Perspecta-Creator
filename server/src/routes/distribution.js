@@ -225,7 +225,9 @@ router.put("/:id", (req, res) => {
   }
 
   // Mídia: substitui o anexo (a arte do post). file_id null = remove.
-  if (file_id !== undefined) {
+  // Quando o pedido traz media_ids (carrossel), o anexo JÁ foi definido acima —
+  // reescrever aqui apagaria a slide inicial e a peça ficaria "sem mídia".
+  if (file_id !== undefined && media_ids === undefined) {
     const tx = db.transaction(() => {
       db.prepare("DELETE FROM task_attachments WHERE task_id = ?").run(req.params.id);
       if (file_id) {

@@ -125,3 +125,36 @@ test("os anexos do post levam a miniatura da CAPA, para o vídeo ter quadro para
   assert.equal(doVideo.thumb, null, "o vídeo antigo não tem miniatura própria");
   assert.equal(doVideo.cover_thumb, "data:image/jpeg;base64,Q0FQQQ==", "então usa a da capa");
 });
+
+test("salvar as slides do carrossel não apaga a arte da peça", async () => {
+  // O pedido do carrossel manda media_ids; o bloco do file_id vinha depois e
+  // apagava o anexo que o carrossel acabara de criar — a peça ficava sem arte.
+  const distribution = (await import("../src/routes/distribution.js")).default;
+  const app2 = express();
+  app2.use(express.json());
+  app2.use("/api/distribution", distribution);
+  const s2 = app2.listen(0);
+  await new Promise((r) => s2.once("listening", r));
+  const jwt = (await import("jsonwebtoken")).default;
+  const { hashPassword } = await import("../src/auth.js");
+  const u = db.prepare(
+    "INSERT INTO users (name,username,email,password_hash,role,active,org_id) VALUES ('E','E','e@e.com',?,'admin',1,?)"
+  ).run(hashPassword("x"), org).lastInsertRowid;
+  const h = { "content-type": "application/json",
+    authorization: `Bearer ${jwt.sign({ id: u, org_id: org, role: "admin" }, process.env.JWT_SECRET)}` };
+
+  const a = arquivo("s1.png", "image/png", PNG);
+  const b2 = arquivo("s2.png", "image/png", PNG);
+  const t = db.prepare(
+    "INSERT INTO tasks (title, client_id, stage_id, content_type, org_id) VALUES ('Carrossel', ?, ?, 'carrossel', ?)"
+  ).run(cliente, etapa, org).lastInsertRowid;
+
+  const r = await fetch(`http://127.0.0.1:${s2.address().port}/api/distribution/${t}`, {
+    method: "PUT", headers: h, body: JSON.stringify({ media_ids: [a, b2], file_id: null }),
+  });
+  assert.equal(r.status, 200);
+  const anexo = db.prepare("SELECT file_id FROM task_attachments WHERE task_id = ?").get(t);
+  assert.ok(anexo, "a peça ficou sem anexo nenhum");
+  assert.equal(anexo.file_id, a, "o anexo tem que ser a slide inicial");
+  s2.close();
+});
