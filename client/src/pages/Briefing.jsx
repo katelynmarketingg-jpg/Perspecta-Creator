@@ -410,7 +410,11 @@ function PerguntaCnpj({ p, valor, onChange, faltando, base, preencher }) {
 // Dia do mês, para a cobrança. Botões em vez de digitação: é mais rápido no
 // celular e não deixa entrar "dia 45".
 function PerguntaDia({ p, valor, onChange, faltando }) {
-  const dias = Array.from({ length: 28 }, (_, i) => i + 1);   // 29-31 não existe em todo mês
+  // Só os dias que o escritório oferece (ex.: do 10 ao 15).
+  const min = Number(p.dia_min) || 1;
+  const max = Number(p.dia_max) || 28;
+  const dias = Array.from({ length: Math.max(1, max - min + 1) }, (_, i) => min + i);
+  const umSo = dias.length === 1;
   return (
     <Box>
       <Rotulo p={p} faltando={faltando} />
@@ -423,7 +427,9 @@ function PerguntaDia({ p, valor, onChange, faltando }) {
         ))}
       </Box>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-        Escolhemos até o dia 28 porque todo mês tem — assim a cobrança nunca pula.
+        {umSo
+          ? `O pagamento fica no dia ${min} de cada mês.`
+          : `Escolha entre o dia ${min} e o dia ${max} — é a data que vale todo mês.`}
       </Typography>
     </Box>
   );

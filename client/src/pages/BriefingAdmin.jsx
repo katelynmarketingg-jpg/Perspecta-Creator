@@ -318,6 +318,20 @@ export default function BriefingAdmin() {
                             {camposCliente.map((c) => <MenuItem key={c.key} value={c.key}>{c.rotulo}</MenuItem>)}
                           </TextField>
                         </Stack>
+                        {p.tipo === "dia" && (
+                          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+                            <TextField label="Do dia" type="number" size="small" sx={{ width: 110 }}
+                              value={p.dia_min ?? 1} inputProps={{ min: 1, max: 31 }}
+                              onChange={(e) => mudaPergunta(i, j, "dia_min", Number(e.target.value))} />
+                            <TextField label="Até o dia" type="number" size="small" sx={{ width: 110 }}
+                              value={p.dia_max ?? 28} inputProps={{ min: 1, max: 31 }}
+                              onChange={(e) => mudaPergunta(i, j, "dia_max", Number(e.target.value))} />
+                            <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 220 }}>
+                              O cliente só vê esses dias. Acima do 28, cuidado: fevereiro não tem —
+                              a cobrança acaba caindo no último dia do mês.
+                            </Typography>
+                          </Stack>
+                        )}
                         {p.tipo === "escolhas" && (
                           <>
                             <TextField label="Opções (uma por linha)" size="small" fullWidth multiline minRows={2}
