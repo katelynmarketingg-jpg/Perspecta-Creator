@@ -10,6 +10,17 @@
 // leem esta mesma lista, então mudar uma pergunta muda os dois lados.
 // ---------------------------------------------------------------------------
 
+// O texto de boas-vindas de fábrica. Editável por escritório.
+export const BEM_VINDO = {
+  titulo: "Seja bem-vindo à {agencia}.",
+  paragrafos: [
+    "Se você recebeu este link, é porque deu um passo importante: decidiu que a comunicação de {cliente} merece ser feita com intenção, e não no improviso.",
+    "O que vem a seguir é uma conversa. Queremos entender o seu negócio de verdade — o que você vende, para quem, o que te diferencia e, principalmente, como você fala. É isso que faz um conteúdo parecer seu, e não de qualquer empresa do seu ramo.",
+    "Não existe resposta errada aqui. Escreva do seu jeito, como se estivesse explicando para um amigo. Quanto mais você contar, menos a gente vai precisar adivinhar.",
+  ],
+  botao: "Vamos começar",
+};
+
 export const BRIEFING = [
   {
     id: "empresa",
@@ -93,6 +104,26 @@ export const BRIEFING = [
     ],
   },
   {
+    id: "contrato",
+    titulo: "Dados para o contrato",
+    intro: "A parte burocrática, de uma vez só — assim o contrato já sai pronto e a cobrança nasce certa.",
+    perguntas: [
+      { id: "cnpj", tipo: "cnpj", label: "CNPJ da empresa",
+        ajuda: "Digite e o sistema busca o resto sozinho, na Receita Federal.", campo_cliente: "document" },
+      { id: "razao_social", tipo: "texto", label: "Razão social", campo_cliente: "legal_name" },
+      { id: "endereco", tipo: "longo", label: "Endereço completo", campo_cliente: "address" },
+      { id: "rep_nome", tipo: "texto", label: "Quem assina pela empresa", campo_cliente: "rep_name" },
+      { id: "rep_tipo_doc", tipo: "escolhas", label: "Documento de quem assina",
+        opcoes: ["CPF", "OAB"], campo_cliente: "rep_doc_type" },
+      { id: "rep_documento", tipo: "texto", label: "Número do documento", campo_cliente: "rep_document" },
+      { id: "email_nota", tipo: "texto", label: "E-mail para nota fiscal e cobrança", campo_cliente: "email" },
+      { id: "dia_pagamento", tipo: "dia", label: "Melhor dia do mês para o pagamento",
+        ajuda: "É a data que vai valer no contrato e nas cobranças.", campo_cliente: "payment_day" },
+      { id: "forma_pagamento", tipo: "escolhas", label: "Como prefere pagar",
+        opcoes: ["Pix", "Boleto", "Cartão de crédito", "Transferência"] },
+    ],
+  },
+  {
     id: "final",
     titulo: "Para fechar",
     intro: "Quase lá.",
@@ -104,18 +135,25 @@ export const BRIEFING = [
   },
 ];
 
-/** Todas as perguntas em lista, para validar e mapear sem repetir laço. */
-export const PERGUNTAS = BRIEFING.flatMap((s) => s.perguntas.map((p) => ({ ...p, secao: s.id })));
+/** Todas as perguntas de um conjunto de seções, em lista. */
+export function perguntasDe(secoes = BRIEFING) {
+  return (secoes || []).flatMap((s) => (s.perguntas || []).map((p) => ({ ...p, secao: s.id })));
+}
+
+/** As perguntas do briefing PADRÃO (o de fábrica). */
+export const PERGUNTAS = perguntasDe(BRIEFING);
 
 /** Quantas perguntas obrigatórias ainda estão em branco. */
-export function faltando(respostas = {}) {
-  return PERGUNTAS.filter((p) => p.obrigatoria && !String(respostas[p.id] ?? "").trim()).map((p) => p.id);
+export function faltando(secoes, respostas = {}) {
+  return perguntasDe(secoes).filter((p) => p.obrigatoria && !String(respostas[p.id] ?? "").trim()).map((p) => p.id);
 }
 
 /** Progresso 0-100 (todas as perguntas, não só as obrigatórias). */
-export function progresso(respostas = {}) {
-  const feitas = PERGUNTAS.filter((p) => String(respostas[p.id] ?? "").trim()).length;
-  return Math.round((feitas / PERGUNTAS.length) * 100);
+export function progresso(secoes, respostas = {}) {
+  const todas = perguntasDe(secoes);
+  if (!todas.length) return 0;
+  const feitas = todas.filter((p) => String(respostas[p.id] ?? "").trim()).length;
+  return Math.round((feitas / todas.length) * 100);
 }
 
 /**
@@ -123,13 +161,135 @@ export function progresso(respostas = {}) {
  * Quando duas perguntas caem no mesmo campo (ex.: "o que fazem" e "serviços"),
  * as respostas são juntadas em vez de uma apagar a outra.
  */
-export function respostasParaPersona(respostas = {}) {
+export function respostasParaPersona(secoes, respostas = {}) {
   const persona = {};
-  for (const p of PERGUNTAS) {
+  for (const p of perguntasDe(secoes)) {
     if (!p.campo) continue;
     const v = String(respostas[p.id] ?? "").trim();
     if (!v) continue;
     persona[p.campo] = persona[p.campo] ? `${persona[p.campo]}. ${v}` : v;
   }
   return persona;
+}
+
+// ---------------------------------------------------------------------------
+// Os dados do CADASTRO que o briefing preenche (razão social, CNPJ, endereço,
+// quem assina, dia do pagamento). São eles que fazem o contrato sair pronto,
+// então só estas colunas podem ser gravadas — nada de o briefing escrever em
+// qualquer campo do cliente.
+// ---------------------------------------------------------------------------
+export const CAMPOS_CLIENTE = {
+  document: { rotulo: "CNPJ/CPF" },
+  legal_name: { rotulo: "Razão social" },
+  address: { rotulo: "Endereço" },
+  rep_name: { rotulo: "Quem assina" },
+  rep_document: { rotulo: "Documento de quem assina" },
+  // A coluna nasce com 'cpf' por padrão. Sem esta marca, o valor de fábrica
+  // passaria por "já preenchido" e uma resposta OAB seria ignorada — o contrato
+  // sairia dizendo CPF no lugar de OAB.
+  rep_doc_type: {
+    rotulo: "Tipo do documento",
+    trata: (v) => (/oab/i.test(v) ? "oab" : "cpf"),
+    contaComoVazio: (atual) => !atual || atual === "cpf",
+  },
+  email: { rotulo: "E-mail" },
+  phone: { rotulo: "Telefone" },
+  payment_day: { rotulo: "Dia do pagamento", trata: (v) => {
+    const n = Number(String(v).replace(/\D/g, ""));
+    return Number.isFinite(n) && n >= 1 && n <= 31 ? n : null;
+  } },
+  segment: { rotulo: "Segmento" },
+};
+
+/** As respostas viradas para os campos do CADASTRO do cliente. */
+export function respostasParaCliente(secoes, respostas = {}) {
+  const saida = {};
+  for (const p of perguntasDe(secoes)) {
+    const col = p.campo_cliente;
+    if (!col || !CAMPOS_CLIENTE[col]) continue;
+    const bruto = String(respostas[p.id] ?? "").trim();
+    if (!bruto) continue;
+    const v = CAMPOS_CLIENTE[col].trata ? CAMPOS_CLIENTE[col].trata(bruto) : bruto;
+    if (v !== null && v !== "") saida[col] = v;
+  }
+  return saida;
+}
+
+// ---------------------------------------------------------------------------
+// O modelo do escritório: o de fábrica até alguém editar.
+// ---------------------------------------------------------------------------
+import { db } from "./db.js";
+
+function leJson(txt, padrao) {
+  try { const v = JSON.parse(txt); return v ?? padrao; } catch { return padrao; }
+}
+
+export function getTemplate(orgId) {
+  const linha = db.prepare("SELECT welcome, sections, updated_at FROM briefing_templates WHERE org_id = ?").get(orgId);
+  const secoes = linha ? leJson(linha.sections, BRIEFING) : BRIEFING;
+  return {
+    welcome: linha ? leJson(linha.welcome, BEM_VINDO) : BEM_VINDO,
+    secoes: Array.isArray(secoes) && secoes.length ? secoes : BRIEFING,
+    personalizado: Boolean(linha),
+    updated_at: linha?.updated_at || null,
+  };
+}
+
+/** Deixa as seções em forma segura: sem pergunta sem id, sem id repetido. */
+export function saneiaSecoes(entrada) {
+  const vistos = new Set();
+  const limpaId = (v, reserva) => {
+    const base = String(v || reserva).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || reserva;
+    let id = base, n = 2;
+    while (vistos.has(id)) id = `${base}_${n++}`;   // id repetido apagaria a outra resposta
+    vistos.add(id);
+    return id;
+  };
+  return (Array.isArray(entrada) ? entrada : []).map((s, i) => ({
+    id: limpaId(s.id, `secao_${i + 1}`),
+    titulo: String(s.titulo || `Etapa ${i + 1}`).slice(0, 120),
+    intro: String(s.intro || "").slice(0, 400),
+    perguntas: (Array.isArray(s.perguntas) ? s.perguntas : []).map((p, j) => {
+      const tipo = ["texto", "longo", "escolhas", "cnpj", "dia"].includes(p.tipo) ? p.tipo : "texto";
+      const q = {
+        id: limpaId(p.id, `p_${i + 1}_${j + 1}`),
+        tipo,
+        label: String(p.label || "Pergunta").slice(0, 200),
+        ajuda: String(p.ajuda || "").slice(0, 300),
+        obrigatoria: Boolean(p.obrigatoria),
+      };
+      if (tipo === "escolhas") {
+        q.opcoes = (Array.isArray(p.opcoes) ? p.opcoes : []).map((o) => String(o).slice(0, 80)).filter(Boolean).slice(0, 12);
+        if (p.multipla) q.multipla = true;
+      }
+      if (p.campo) q.campo = String(p.campo);
+      if (p.campo_cliente && CAMPOS_CLIENTE[p.campo_cliente]) q.campo_cliente = p.campo_cliente;
+      return q;
+    }).filter((p) => p.label),
+  })).filter((s) => s.perguntas.length);
+}
+
+export function saveTemplate(orgId, { welcome, secoes }) {
+  const limpo = saneiaSecoes(secoes);
+  if (!limpo.length) { const e = new Error("O briefing precisa de pelo menos uma pergunta."); e.code = "VAZIO"; throw e; }
+  const bv = {
+    titulo: String(welcome?.titulo || BEM_VINDO.titulo).slice(0, 200),
+    paragrafos: (Array.isArray(welcome?.paragrafos) ? welcome.paragrafos : BEM_VINDO.paragrafos)
+      .map((t) => String(t).slice(0, 1200)).filter(Boolean).slice(0, 6),
+    botao: String(welcome?.botao || BEM_VINDO.botao).slice(0, 60),
+  };
+  db.prepare(
+    `INSERT INTO briefing_templates (org_id, welcome, sections, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(org_id) DO UPDATE SET
+       welcome = excluded.welcome, sections = excluded.sections, updated_at = datetime('now')`
+  ).run(orgId, JSON.stringify(bv), JSON.stringify(limpo));
+  return getTemplate(orgId);
+}
+
+/** Volta ao modelo de fábrica. */
+export function resetTemplate(orgId) {
+  db.prepare("DELETE FROM briefing_templates WHERE org_id = ?").run(orgId);
+  return getTemplate(orgId);
 }

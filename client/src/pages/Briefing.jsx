@@ -144,35 +144,25 @@ export default function Briefing() {
   // ---- boas-vindas --------------------------------------------------------
   if (passo === -1) {
     const jaComecou = Object.values(respostas).some((v) => String(v || "").trim());
+    const bv = dados.welcome || {};
     return (
       <Tela logo={dados.agency_logo}>
         <Fade in>
           <Box>
+            {/* O texto é o que o escritório escreveu na aba Briefing. */}
             <Typography sx={{
               fontSize: { xs: 30, sm: 40 }, fontWeight: 800, lineHeight: 1.12,
               letterSpacing: "-0.03em", mb: 2.5,
             }}>
-              Seja bem-vindo à{" "}
-              <Box component="span" sx={{ color: "primary.main" }}>{dados.agency_name}</Box>.
+              {troca(bv.titulo, dados)}
             </Typography>
 
             <Stack spacing={2} sx={{ fontSize: 17, lineHeight: 1.75, color: "text.secondary", mb: 4 }}>
-              <Typography sx={{ fontSize: "inherit", lineHeight: "inherit" }}>
-                Se você recebeu este link, é porque deu um passo importante: decidiu que a
-                comunicação de <b style={{ color: "inherit" }}>{dados.client_name}</b> merece
-                ser feita com intenção, e não no improviso.
-              </Typography>
-              <Typography sx={{ fontSize: "inherit", lineHeight: "inherit" }}>
-                O que vem a seguir é uma conversa. Queremos entender o seu negócio de verdade —
-                o que você vende, para quem, o que te diferencia e, principalmente,{" "}
-                <b style={{ color: "inherit" }}>como você fala</b>. É isso que faz um conteúdo
-                parecer seu, e não de qualquer empresa do seu ramo.
-              </Typography>
-              <Typography sx={{ fontSize: "inherit", lineHeight: "inherit" }}>
-                Não existe resposta errada aqui. Escreva do seu jeito, como se estivesse
-                explicando para um amigo. Quanto mais você contar, menos a gente vai precisar
-                adivinhar.
-              </Typography>
+              {bv.paragrafos.map((t, i) => (
+                <Typography key={i} sx={{ fontSize: "inherit", lineHeight: "inherit" }}>
+                  {troca(t, dados)}
+                </Typography>
+              ))}
             </Stack>
 
             <Stack spacing={1.5} sx={{ mb: 4 }}>
@@ -187,7 +177,7 @@ export default function Briefing() {
             <Button variant="contained" size="large" onClick={() => irPara(0)}
               endIcon={<ArrowForwardRoundedIcon />}
               sx={{ px: 4, py: 1.5, fontSize: 16.5, fontWeight: 700, borderRadius: 2.5 }}>
-              {jaComecou ? "Continuar de onde parei" : "Vamos começar"}
+              {jaComecou ? "Continuar de onde parei" : bv.botao}
             </Button>
             {jaComecou && (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
@@ -251,7 +241,16 @@ export default function Briefing() {
           <Stack spacing={3.5}>
             {secao.perguntas.map((p) => (
               <Pergunta key={p.id} p={p} valor={respostas[p.id]} onChange={(v) => setResp(p.id, v)}
-                faltando={faltando.includes(p.id)} />
+                faltando={faltando.includes(p.id)} base={base}
+                preencher={(campos) => setRespostas((r) => {
+                  // Só preenche o que ainda está em branco: nada do que a pessoa
+                  // já escreveu é sobrescrito pela consulta.
+                  const novo = { ...r };
+                  for (const [id, v] of Object.entries(campos)) {
+                    if (v && !String(novo[id] || "").trim()) novo[id] = v;
+                  }
+                  return novo;
+                })} />
             ))}
           </Stack>
         </Box>
@@ -300,7 +299,9 @@ function Aviso({ icone, titulo, texto }) {
   );
 }
 
-function Pergunta({ p, valor, onChange, faltando }) {
+function Pergunta({ p, valor, onChange, faltando, base, preencher }) {
+  if (p.tipo === "cnpj") return <PerguntaCnpj p={p} valor={valor} onChange={onChange} faltando={faltando} base={base} preencher={preencher} />;
+  if (p.tipo === "dia") return <PerguntaDia p={p} valor={valor} onChange={onChange} faltando={faltando} />;
   if (p.tipo === "escolhas") {
     const marcadas = String(valor || "").split(",").map((s) => s.trim()).filter(Boolean);
     const alterna = (o) => {
@@ -336,6 +337,94 @@ function Pergunta({ p, valor, onChange, faltando }) {
         multiline={p.tipo === "longo"} minRows={p.tipo === "longo" ? 3 : 1}
         error={faltando} sx={{ mt: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 2, fontSize: 16 } }}
         placeholder={p.tipo === "longo" ? "Escreva do seu jeito…" : ""} />
+    </Box>
+  );
+}
+
+// {agencia} e {cliente} no texto de boas-vindas.
+function troca(texto, dados) {
+  return String(texto || "")
+    .replaceAll("{agencia}", dados.agency_name || "")
+    .replaceAll("{cliente}", dados.client_name || "");
+}
+
+// CNPJ: a pessoa digita e o resto vem sozinho da Receita Federal. Se a consulta
+// falhar, ela segue preenchendo à mão — nada trava.
+function PerguntaCnpj({ p, valor, onChange, faltando, base, preencher }) {
+  const [buscando, setBuscando] = useState(false);
+  const [achou, setAchou] = useState(null);
+  const [erro, setErro] = useState("");
+
+  const digitos = String(valor || "").replace(/\D/g, "");
+  const formata = (v) => {
+    const d = String(v).replace(/\D/g, "").slice(0, 14);
+    return d.replace(/^(\d{2})(\d)/, "$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/\.(\d{3})(\d)/, ".$1/$2").replace(/(\d{4})(\d)/, "$1-$2");
+  };
+
+  async function buscar() {
+    setBuscando(true); setErro(""); setAchou(null);
+    try {
+      const r = await fetch(`${base}/cnpj/${digitos}`);
+      const d = await r.json();
+      if (!d.ok) { setErro(d.message || "Não consegui buscar."); return; }
+      setAchou(d);
+      preencher({
+        razao_social: d.razao_social,
+        endereco: d.endereco,
+        rep_nome: d.representante,
+        email_nota: d.email,
+      });
+    } catch { setErro("Não consegui falar com a Receita agora. Pode preencher à mão."); }
+    finally { setBuscando(false); }
+  }
+
+  return (
+    <Box>
+      <Rotulo p={p} faltando={faltando} />
+      <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} alignItems="flex-start">
+        <TextField fullWidth value={formata(valor || "")} error={faltando}
+          onChange={(e) => onChange(formata(e.target.value))}
+          placeholder="00.000.000/0000-00"
+          inputProps={{ inputMode: "numeric" }}
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, fontSize: 16 } }} />
+        <Button variant="contained" onClick={buscar} disabled={digitos.length !== 14 || buscando}
+          sx={{ height: 56, px: 2.5, borderRadius: 2, flexShrink: 0 }}>
+          {buscando ? "Buscando…" : "Buscar"}
+        </Button>
+      </Stack>
+      {achou && (
+        <Alert severity="success" sx={{ mt: 1.5, borderRadius: 2 }}>
+          <b>{achou.razao_social}</b>
+          {achou.situacao ? ` · ${achou.situacao}` : ""}
+          <Typography variant="caption" sx={{ display: "block", mt: 0.5 }}>
+            Preenchi o que consegui abaixo — confira e ajuste se precisar.
+          </Typography>
+        </Alert>
+      )}
+      {erro && <Alert severity="warning" sx={{ mt: 1.5, borderRadius: 2 }}>{erro}</Alert>}
+    </Box>
+  );
+}
+
+// Dia do mês, para a cobrança. Botões em vez de digitação: é mais rápido no
+// celular e não deixa entrar "dia 45".
+function PerguntaDia({ p, valor, onChange, faltando }) {
+  const dias = Array.from({ length: 28 }, (_, i) => i + 1);   // 29-31 não existe em todo mês
+  return (
+    <Box>
+      <Rotulo p={p} faltando={faltando} />
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 1.5 }}>
+        {dias.map((d) => (
+          <Chip key={d} label={d} clickable onClick={() => onChange(String(d) === String(valor) ? "" : String(d))}
+            color={String(d) === String(valor) ? "primary" : "default"}
+            variant={String(d) === String(valor) ? "filled" : "outlined"}
+            sx={{ width: 44, height: 40, borderRadius: 2, fontSize: 14.5 }} />
+        ))}
+      </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+        Escolhemos até o dia 28 porque todo mês tem — assim a cobrança nunca pula.
+      </Typography>
     </Box>
   );
 }

@@ -66,6 +66,10 @@ router.post("/:id/generate", (req, res) => {
 
   const valor = Number(b.value) || 0;
   const duration = b.duration_months ? Number(b.duration_months) : null;
+  // Os marcadores que o modelo pode usar. Os de identificação e cobrança vêm do
+  // cadastro do cliente — que o briefing preenche sozinho quando o cliente
+  // responde. Assim o contrato sai pronto, sem redigitar nada.
+  const diaPgto = client.payment_day ? Number(client.payment_day) : null;
   const map = {
     cliente: client.name || "",
     empresa: client.company || "",
@@ -77,6 +81,17 @@ router.post("/:id/generate", (req, res) => {
     duracao: duration ? `${duration} meses` : "prazo indeterminado",
     data: hoje(),
     servico: b.servico || tpl.name || "",
+    // --- identificação da empresa contratante ---
+    razao_social: client.legal_name || client.company || client.name || "",
+    cnpj: client.document || "",
+    documento: client.document || "",
+    // --- quem assina pela empresa ---
+    representante: client.rep_name || "",
+    documento_representante: client.rep_document || "",
+    tipo_documento_representante: (client.rep_doc_type || "cpf").toUpperCase(),
+    // --- cobrança ---
+    dia_pagamento: diaPgto ? String(diaPgto) : "",
+    vencimento: diaPgto ? `todo dia ${diaPgto} de cada mês` : "conforme combinado",
   };
   const corpo = preencher(tpl.body, map);
   const titulo = b.title || `${tpl.name} — ${client.name}`;
