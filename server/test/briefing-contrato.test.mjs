@@ -178,3 +178,31 @@ test("do briefing ao contrato: sai preenchido, sem marcador sobrando", async () 
 
   srv.close(); receita.close();
 });
+
+test("a faixa de dias do pagamento é configurável (ex.: do 10 ao 15)", async () => {
+  const t = getTemplate(org);
+  const comFaixa = (min, max) => t.secoes.map((s) => ({
+    ...s, perguntas: s.perguntas.map((p) => (p.id === "dia_pagamento" ? { ...p, dia_min: min, dia_max: max } : p)),
+  }));
+  const diaDe = (secoes) => perguntasDe(secoes).find((p) => p.id === "dia_pagamento");
+
+  const salvo = saveTemplate(org, { welcome: t.welcome, secoes: comFaixa(10, 15) });
+  assert.equal(diaDe(salvo.secoes).dia_min, 10);
+  assert.equal(diaDe(salvo.secoes).dia_max, 15);
+
+  // Invertida desinverte; fora do calendário volta ao padrão.
+  assert.deepEqual(
+    (({ dia_min, dia_max }) => ({ dia_min, dia_max }))(diaDe(saveTemplate(org, { welcome: t.welcome, secoes: comFaixa(15, 10) }).secoes)),
+    { dia_min: 10, dia_max: 15 });
+  assert.deepEqual(
+    (({ dia_min, dia_max }) => ({ dia_min, dia_max }))(diaDe(saveTemplate(org, { welcome: t.welcome, secoes: comFaixa(0, 99) }).secoes)),
+    { dia_min: 1, dia_max: 28 });
+
+  // Com a faixa 10–15, uma resposta fora dela não vira cobrança.
+  const dez15 = saveTemplate(org, { welcome: t.welcome, secoes: comFaixa(10, 15) }).secoes;
+  assert.equal(respostasParaCliente(dez15, { dia_pagamento: "12" }).payment_day, 12);
+  assert.equal(respostasParaCliente(dez15, { dia_pagamento: "20" }).payment_day, undefined,
+    "dia fora do que foi oferecido não pode virar data de cobrança");
+
+  resetTemplate(org);
+});

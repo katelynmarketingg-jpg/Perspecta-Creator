@@ -118,7 +118,8 @@ export const BRIEFING = [
       { id: "rep_documento", tipo: "texto", label: "Número do documento", campo_cliente: "rep_document" },
       { id: "email_nota", tipo: "texto", label: "E-mail para nota fiscal e cobrança", campo_cliente: "email" },
       { id: "dia_pagamento", tipo: "dia", label: "Melhor dia do mês para o pagamento",
-        ajuda: "É a data que vai valer no contrato e nas cobranças.", campo_cliente: "payment_day" },
+        ajuda: "É a data que vai valer no contrato e nas cobranças.", campo_cliente: "payment_day",
+        dia_min: 1, dia_max: 28 },
       { id: "forma_pagamento", tipo: "escolhas", label: "Como prefere pagar",
         opcoes: ["Pix", "Boleto", "Cartão de crédito", "Transferência"] },
     ],
@@ -209,7 +210,13 @@ export function respostasParaCliente(secoes, respostas = {}) {
     if (!col || !CAMPOS_CLIENTE[col]) continue;
     const bruto = String(respostas[p.id] ?? "").trim();
     if (!bruto) continue;
-    const v = CAMPOS_CLIENTE[col].trata ? CAMPOS_CLIENTE[col].trata(bruto) : bruto;
+    let v = CAMPOS_CLIENTE[col].trata ? CAMPOS_CLIENTE[col].trata(bruto) : bruto;
+    // Dia de pagamento fora da faixa oferecida não vira cobrança (só chegaria
+    // aqui por resposta adulterada, mas cobrança errada é caro).
+    if (p.tipo === "dia" && v !== null) {
+      const min = p.dia_min || 1, max = p.dia_max || 31;
+      if (v < min || v > max) v = null;
+    }
     if (v !== null && v !== "") saida[col] = v;
   }
   return saida;
@@ -259,6 +266,20 @@ export function saneiaSecoes(entrada) {
         ajuda: String(p.ajuda || "").slice(0, 300),
         obrigatoria: Boolean(p.obrigatoria),
       };
+      if (tipo === "dia") {
+        // A faixa de dias que o escritório oferece (ex.: do 10 ao 15). Fora de
+        // 1–31 não existe; invertida, desinverte. O padrão vai até 28 porque é
+        // o único dia que TODO mês tem — acima disso fevereiro fica de fora.
+        const limite = (v, reserva) => {
+          const n = Math.round(Number(v));
+          return Number.isFinite(n) && n >= 1 && n <= 31 ? n : reserva;
+        };
+        let min = limite(p.dia_min, 1);
+        let max = limite(p.dia_max, 28);
+        if (min > max) [min, max] = [max, min];
+        q.dia_min = min;
+        q.dia_max = max;
+      }
       if (tipo === "escolhas") {
         q.opcoes = (Array.isArray(p.opcoes) ? p.opcoes : []).map((o) => String(o).slice(0, 80)).filter(Boolean).slice(0, 12);
         if (p.multipla) q.multipla = true;
