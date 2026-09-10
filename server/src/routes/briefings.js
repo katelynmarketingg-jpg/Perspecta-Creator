@@ -5,8 +5,10 @@ import { authRequired, adminRequired, publicBaseUrl } from "../auth.js";
 import {
   BRIEFING, BEM_VINDO, perguntasDe, progresso, faltando,
   respostasParaPersona, respostasParaCliente, CAMPOS_CLIENTE,
+  respostasParaCentral, DESTINOS_CENTRAL,
   getTemplate, saveTemplate, resetTemplate,
 } from "../briefing.js";
+import { guardaNaCentral } from "../central.js";
 import { buscaCnpj } from "../cnpj.js";
 import { PERSONA_FIELDS } from "../ai.js";
 
@@ -52,6 +54,7 @@ router.get("/template", (req, res) => {
     ...t,
     padrao: { welcome: BEM_VINDO, secoes: BRIEFING },
     campos_cliente: Object.entries(CAMPOS_CLIENTE).map(([k, v]) => ({ key: k, rotulo: v.rotulo })),
+    destinos_central: Object.entries(DESTINOS_CENTRAL).map(([k, v]) => ({ key: k, rotulo: v.rotulo })),
   });
 });
 
@@ -145,8 +148,26 @@ router.post("/:id/aplicar", (req, res) => {
     cadastroMudou.push(col);
   }
 
+  // E a CENTRAL: acessos e senhas. A resposta sai do texto do briefing e passa
+  // a viver lá, criptografada — senha não pode ficar em texto puro no
+  // formulário nem à vista de quem abrir as respostas.
+  const paraCentral = respostasParaCentral(secoes, respostas);
+  const central = [];
+  let mexeuNasRespostas = false;
+  for (const item of paraCentral) {
+    guardaNaCentral(req.orgId, cliente.id, item);
+    central.push(item.title);
+    if (item.kind === "credential") {
+      respostas[item.pergunta] = "(guardado na Central)";
+      mexeuNasRespostas = true;
+    }
+  }
+  if (mexeuNasRespostas) {
+    db.prepare("UPDATE briefings SET answers = ? WHERE id = ?").run(JSON.stringify(respostas), b.id);
+  }
+
   db.prepare("UPDATE briefings SET status = 'aplicado', applied_at = datetime('now') WHERE id = ?").run(b.id);
-  res.json({ ok: true, campos: mudou, cadastro: cadastroMudou, persona: novo });
+  res.json({ ok: true, campos: mudou, cadastro: cadastroMudou, central, persona: novo });
 });
 
 // DELETE /api/briefings/:id — apaga o briefing e invalida o link.
