@@ -370,6 +370,7 @@ function PerguntaCnpj({ p, valor, onChange, faltando, base, preencher }) {
       if (!d.ok) { setErro(d.message || "Não consegui buscar."); return; }
       setAchou(d);
       preencher({
+        nome: d.nome_fantasia || d.razao_social,
         razao_social: d.razao_social,
         endereco: d.endereco,
         rep_nome: d.representante,

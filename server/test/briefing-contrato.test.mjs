@@ -175,8 +175,6 @@ test("do briefing ao contrato: sai preenchido, sem marcador sobrando", async () 
   assert.match(contrato.notes, /OAB RS 123\.456/);
   assert.match(contrato.notes, /todo dia 10 de cada mês/);
   assert.ok(!/\{\{/.test(contrato.notes), `sobrou marcador: ${contrato.notes}`);
-
-  srv.close(); receita.close();
 });
 
 test("a faixa de dias do pagamento é configurável (ex.: do 10 ao 15)", async () => {
@@ -205,4 +203,29 @@ test("a faixa de dias do pagamento é configurável (ex.: do 10 ao 15)", async (
     "dia fora do que foi oferecido não pode virar data de cobrança");
 
   resetTemplate(org);
+});
+
+test("o briefing pode preencher o nome do cliente e o nome fantasia", async () => {
+  const secoes = [{
+    id: "id", titulo: "Identificação",
+    perguntas: [
+      { id: "nome_cli", tipo: "texto", label: "Nome", campo_cliente: "name" },
+      { id: "fantasia", tipo: "texto", label: "Nome fantasia", campo_cliente: "company" },
+    ],
+  }];
+  const c = respostasParaCliente(secoes, { nome_cli: "KN Advocacia", fantasia: "KN" });
+  assert.equal(c.name, "KN Advocacia");
+  assert.equal(c.company, "KN");
+
+  // Resposta em branco não pode apagar o nome do cliente — é o rótulo dele em
+  // todas as telas.
+  assert.equal(respostasParaCliente(secoes, { nome_cli: "   " }).name, undefined);
+
+  // E o campo aparece na lista que a tela oferece.
+  const t = await req("GET", "/briefings/template", null, H);
+  const chaves = t.campos_cliente.map((x) => x.key);
+  assert.ok(chaves.includes("name"), "faltou 'Nome do cliente' na lista");
+  assert.ok(chaves.includes("company"), "faltou 'Nome fantasia' na lista");
+
+  srv.close(); receita.close();
 });

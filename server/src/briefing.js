@@ -27,7 +27,8 @@ export const BRIEFING = [
     titulo: "A empresa",
     intro: "Vamos começar pelo básico — quem é vocês.",
     perguntas: [
-      { id: "nome", tipo: "texto", label: "Nome do negócio, do jeito que deve aparecer", obrigatoria: true },
+      { id: "nome", tipo: "texto", label: "Nome do negócio, do jeito que deve aparecer",
+        obrigatoria: true, campo_cliente: "company" },
       { id: "resumo", tipo: "longo", label: "Em uma frase, o que vocês fazem?", ajuda: "Como você explicaria para alguém que nunca ouviu falar.", obrigatoria: true, campo: "services" },
       { id: "segmento", tipo: "texto", label: "Qual é o segmento?", ajuda: "Ex.: advocacia, pastelaria, estética, arquitetura", campo: "segment" },
       { id: "tempo", tipo: "texto", label: "Há quanto tempo estão no mercado?" },
@@ -180,6 +181,10 @@ export function respostasParaPersona(secoes, respostas = {}) {
 // qualquer campo do cliente.
 // ---------------------------------------------------------------------------
 export const CAMPOS_CLIENTE = {
+  // O nome pelo qual você chama o cliente no sistema. Trocar isso muda o rótulo
+  // dele em todas as telas, então nunca aceita vazio.
+  name: { rotulo: "Nome do cliente", exigeValor: true },
+  company: { rotulo: "Nome fantasia / empresa" },
   document: { rotulo: "CNPJ/CPF" },
   legal_name: { rotulo: "Razão social" },
   address: { rotulo: "Endereço" },
@@ -210,7 +215,10 @@ export function respostasParaCliente(secoes, respostas = {}) {
     if (!col || !CAMPOS_CLIENTE[col]) continue;
     const bruto = String(respostas[p.id] ?? "").trim();
     if (!bruto) continue;
-    let v = CAMPOS_CLIENTE[col].trata ? CAMPOS_CLIENTE[col].trata(bruto) : bruto;
+    const regra = CAMPOS_CLIENTE[col];
+    let v = regra.trata ? regra.trata(bruto) : bruto;
+    // Campo que identifica o cliente não pode virar vazio.
+    if (regra.exigeValor && !String(v).trim()) continue;
     // Dia de pagamento fora da faixa oferecida não vira cobrança (só chegaria
     // aqui por resposta adulterada, mas cobrança errada é caro).
     if (p.tipo === "dia" && v !== null) {
