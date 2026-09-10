@@ -27,6 +27,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import HubIcon from "@mui/icons-material/Hub";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import PsychologyIcon from "@mui/icons-material/Psychology";
+import AssignmentIcon from "@mui/icons-material/Assignment";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import FlagIcon from "@mui/icons-material/Flag";
 import DesignServicesIcon from "@mui/icons-material/DesignServices";
@@ -67,6 +68,7 @@ const NAV = [
   { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
   { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },
   { to: "/intelligence", label: "Inteligência", icon: <PsychologyIcon /> },
+  { to: "/briefing-admin", label: "Briefing", icon: <AssignmentIcon /> },
   { to: "/ai", label: "IA", icon: <AutoAwesomeIcon /> },
   { to: "/integrations", label: "Integrações", icon: <HubIcon /> },
   { to: "/users", label: "Usuários", icon: <GroupIcon />, adminOnly: true },

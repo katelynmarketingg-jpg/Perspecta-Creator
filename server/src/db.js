@@ -512,6 +512,18 @@ CREATE TABLE IF NOT EXISTS briefings (
 CREATE INDEX IF NOT EXISTS idx_briefings_client ON briefings(org_id, client_id);
 `);
 
+// O briefing é EDITÁVEL: cada escritório tem o seu texto de boas-vindas e as
+// suas perguntas. Enquanto não mexer em nada, vale o modelo de fábrica
+// (server/src/briefing.js) — a linha só nasce quando alguém salva uma mudança.
+db.exec(`
+CREATE TABLE IF NOT EXISTS briefing_templates (
+  org_id     INTEGER PRIMARY KEY,
+  welcome    TEXT,          -- JSON: { titulo, paragrafos[], botao }
+  sections   TEXT,          -- JSON: as seções e perguntas
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
+
 // Configuração de IA por escritório (chave paga pelo próprio escritório).
 db.exec(`
 CREATE TABLE IF NOT EXISTS org_ai (

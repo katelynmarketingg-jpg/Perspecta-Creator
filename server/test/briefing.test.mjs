@@ -102,8 +102,8 @@ test("enviado o briefing, a equipe é avisada", async () => {
   for (const p of PERGUNTAS) tudo[p.id] = p.tipo === "escolhas" ? p.opcoes[0] : `resposta de ${p.id}`;
   tudo.cliente_ideal = "empresários donos de indústria";
   await req("PUT", `/briefing/${criado.token}`, { respostas: tudo });
-  assert.deepEqual(faltando(tudo), []);
-  assert.equal(progresso(tudo), 100);
+  assert.deepEqual(faltando(BRIEFING, tudo), []);
+  assert.equal(progresso(BRIEFING, tudo), 100);
 
   const env = await req("POST", `/briefing/${criado.token}/enviar`);
   assert.equal(env.st, 200);
@@ -127,7 +127,7 @@ test("com 'sobrescrever', o briefing manda", async () => {
 });
 
 test("duas perguntas no mesmo campo se somam, não se apagam", () => {
-  const p = respostasParaPersona({ resumo: "fazemos A", servicos: "vendemos B" });
+  const p = respostasParaPersona(BRIEFING, { resumo: "fazemos A", servicos: "vendemos B" });
   assert.match(p.services, /fazemos A/);
   assert.match(p.services, /vendemos B/);
 });

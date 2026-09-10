@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { BRIEFING, PERGUNTAS, progresso, faltando } from "../briefing.js";
+import { getTemplate, perguntasDe, progresso, faltando } from "../briefing.js";
+import { buscaCnpj } from "../cnpj.js";
 
 // ---------------------------------------------------------------------------
 // Briefing — lado do CLIENTE. Sem login: quem tem o link responde.
@@ -12,10 +13,15 @@ import { BRIEFING, PERGUNTAS, progresso, faltando } from "../briefing.js";
 export const briefingPublicRouter = Router();
 
 const TAMANHO_MAX = 4000;   // por resposta: um texto colado enorme não entra
-const IDS = new Set(PERGUNTAS.map((p) => p.id));
 
 function carrega(token) {
   return db.prepare("SELECT * FROM briefings WHERE token = ?").get(String(token || ""));
+}
+
+// As perguntas são as DO ESCRITÓRIO (ele pode ter editado o briefing), não uma
+// lista fixa no código.
+function idsValidos(orgId) {
+  return new Set(perguntasDe(getTemplate(orgId).secoes).map((p) => p.id));
 }
 
 // GET /api/briefing/:token — as perguntas e o que já foi respondido.
@@ -26,6 +32,7 @@ briefingPublicRouter.get("/:token", (req, res) => {
   if (!b.opened_at) {
     db.prepare("UPDATE briefings SET opened_at = datetime('now') WHERE id = ?").run(b.id);
   }
+  const modelo = getTemplate(b.org_id);   // o briefing DESTE escritório
   const cliente = db.prepare("SELECT name FROM clients WHERE id = ?").get(b.client_id);
   // A logo vem junto: a página é aberta por quem não tem conta, então não pode
   // buscar a marca pelas rotas da equipe — e chegar sem marca nenhuma faria o
@@ -34,13 +41,14 @@ briefingPublicRouter.get("/:token", (req, res) => {
   const respostas = JSON.parse(b.answers || "{}");
 
   res.json({
-    secoes: BRIEFING,
+    secoes: modelo.secoes,
+    welcome: modelo.welcome,
     respostas,
     client_name: cliente?.name || "",
     agency_name: org?.name || "",
     agency_logo: org?.logo || null,
     status: b.status,
-    progresso: progresso(respostas),
+    progresso: progresso(modelo.secoes, respostas),
     answered_at: b.answered_at,
   });
 });
@@ -53,13 +61,23 @@ briefingPublicRouter.put("/:token", (req, res) => {
   const entrada = req.body?.respostas || {};
   const atual = JSON.parse(b.answers || "{}");
   // Só perguntas que existem, e cada resposta com teto de tamanho.
+  const ids = idsValidos(b.org_id);
   for (const [k, v] of Object.entries(entrada)) {
-    if (!IDS.has(k)) continue;
+    if (!ids.has(k)) continue;
     const texto = Array.isArray(v) ? v.join(", ") : String(v ?? "");
     atual[k] = texto.slice(0, TAMANHO_MAX);
   }
   db.prepare("UPDATE briefings SET answers = ? WHERE id = ?").run(JSON.stringify(atual), b.id);
-  res.json({ ok: true, progresso: progresso(atual) });
+  res.json({ ok: true, progresso: progresso(getTemplate(b.org_id).secoes, atual) });
+});
+
+// GET /api/briefing/:token/cnpj/:cnpj — a pessoa digita o CNPJ e o resto vem
+// sozinho. Exige um briefing válido: o link é a credencial, então a consulta
+// não fica aberta para qualquer um usar de graça.
+briefingPublicRouter.get("/:token/cnpj/:cnpj", async (req, res) => {
+  const b = carrega(req.params.token);
+  if (!b) return res.status(404).json({ ok: false, message: "Este link não existe mais." });
+  res.json(await buscaCnpj(req.params.cnpj));
 });
 
 // POST /api/briefing/:token/enviar — o cliente diz que terminou.
@@ -68,7 +86,7 @@ briefingPublicRouter.post("/:token/enviar", (req, res) => {
   if (!b) return res.status(404).json({ error: "Este link não existe mais." });
 
   const respostas = JSON.parse(b.answers || "{}");
-  const faltam = faltando(respostas);
+  const faltam = faltando(getTemplate(b.org_id).secoes, respostas);
   if (faltam.length) {
     return res.status(400).json({ error: "Ainda faltam perguntas obrigatórias.", faltando: faltam });
   }
