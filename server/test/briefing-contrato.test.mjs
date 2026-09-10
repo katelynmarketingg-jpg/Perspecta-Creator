@@ -226,6 +226,48 @@ test("o briefing pode preencher o nome do cliente e o nome fantasia", async () =
   const chaves = t.campos_cliente.map((x) => x.key);
   assert.ok(chaves.includes("name"), "faltou 'Nome do cliente' na lista");
   assert.ok(chaves.includes("company"), "faltou 'Nome fantasia' na lista");
+});
 
+test("a senha do cliente vai para a Central, criptografada, e sai do briefing", async () => {
+  const { decrypt } = await import("../src/central.js");
+  const secoes = [{
+    id: "acessos", titulo: "Acessos",
+    perguntas: [
+      { id: "insta", tipo: "longo", label: "Acesso do Instagram", destino_central: "credential" },
+      { id: "obs", tipo: "longo", label: "Observações", destino_central: "note" },
+    ],
+  }];
+  saveTemplate(org, { welcome: getTemplate(org).welcome, secoes });
+
+  const b2 = db.prepare("INSERT INTO briefings (org_id, client_id, token, answers) VALUES (?, ?, 'tk-central', ?)")
+    .run(org, cliente, JSON.stringify({ insta: "usuario kn / senha S3nh@Forte", obs: "atende de manhã" })).lastInsertRowid;
+
+  const r = await req("POST", `/briefings/${b2}/aplicar`, {}, H);
+  assert.equal(r.st, 200);
+  assert.deepEqual(r.central, ["Acesso do Instagram", "Observações"]);
+
+  const cred = db.prepare("SELECT * FROM workspace_items WHERE client_id = ? AND title = 'Acesso do Instagram'").get(cliente);
+  assert.ok(cred, "não criou o item na Central");
+  assert.equal(cred.kind, "credential");
+  assert.equal(decrypt(cred.secret), "usuario kn / senha S3nh@Forte", "a senha tem que voltar ao ser decifrada");
+  assert.ok(!cred.secret.includes("S3nh@Forte"), "a senha não pode ficar legível no banco");
+
+  // A anotação é guardada em texto, que é o certo — não é segredo.
+  const nota = db.prepare("SELECT * FROM workspace_items WHERE client_id = ? AND title = 'Observações'").get(cliente);
+  assert.equal(nota.kind, "note");
+  assert.equal(nota.content, "atende de manhã");
+  assert.equal(nota.secret, null);
+
+  // E a senha some das respostas do briefing.
+  const depois = JSON.parse(db.prepare("SELECT answers FROM briefings WHERE id = ?").get(b2).answers);
+  assert.equal(depois.insta, "(guardado na Central)");
+  assert.equal(depois.obs, "atende de manhã", "anotação não precisa sumir");
+
+  // Aplicar de novo não duplica no quadro.
+  await req("POST", `/briefings/${b2}/aplicar`, {}, H);
+  const quantos = db.prepare("SELECT COUNT(*) n FROM workspace_items WHERE client_id = ? AND title = 'Acesso do Instagram'").get(cliente).n;
+  assert.equal(quantos, 1);
+
+  resetTemplate(org);
   srv.close(); receita.close();
 });

@@ -49,6 +49,7 @@ export default function BriefingAdmin() {
   const [briefings, setBriefings] = useState([]);
   const [modelo, setModelo] = useState(null);
   const [camposCliente, setCamposCliente] = useState([]);
+  const [destinosCentral, setDestinosCentral] = useState([]);
   const [msg, setMsg] = useState(null);
   const [link, setLink] = useState(null);
   const [copiado, setCopiado] = useState(null);
@@ -61,6 +62,7 @@ export default function BriefingAdmin() {
     api.get("/briefings/template").then((r) => {
       setModelo({ welcome: r.data.welcome, secoes: r.data.secoes });
       setCamposCliente(r.data.campos_cliente || []);
+      setDestinosCentral(r.data.destinos_central || []);
     }).catch(() => {});
   };
 
@@ -102,6 +104,7 @@ export default function BriefingAdmin() {
       const partes = [];
       if (data.campos?.length) partes.push(`${data.campos.length} campo(s) da inteligência`);
       if (data.cadastro?.length) partes.push(`${data.cadastro.length} do cadastro (contrato e cobrança)`);
+      if (data.central?.length) partes.push(`${data.central.length} guardado(s) na Central`);
       setMsg({ t: "success", m: partes.length
         ? `Preenchido: ${partes.join(" e ")}.`
         : "Nada a preencher — já estava tudo lá (marque 'deixar o briefing mandar' para trocar)." });
@@ -316,6 +319,14 @@ export default function BriefingAdmin() {
                             onChange={(e) => mudaPergunta(i, j, "campo_cliente", e.target.value || undefined)}>
                             <MenuItem value="">— nada —</MenuItem>
                             {camposCliente.map((c) => <MenuItem key={c.key} value={c.key}>{c.rotulo}</MenuItem>)}
+                          </TextField>
+                          <TextField select label="Vai para a Central" size="small" fullWidth value={p.destino_central || ""}
+                            onChange={(e) => mudaPergunta(i, j, "destino_central", e.target.value || undefined)}
+                            helperText={p.destino_central === "credential"
+                              ? "A resposta sai do briefing e fica criptografada na Central"
+                              : " "}>
+                            <MenuItem value="">— nada —</MenuItem>
+                            {destinosCentral.map((c) => <MenuItem key={c.key} value={c.key}>{c.rotulo}</MenuItem>)}
                           </TextField>
                         </Stack>
                         {p.tipo === "dia" && (

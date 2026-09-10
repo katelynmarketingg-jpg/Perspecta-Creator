@@ -207,6 +207,29 @@ export const CAMPOS_CLIENTE = {
   segment: { rotulo: "Segmento" },
 };
 
+// ---------------------------------------------------------------------------
+// Respostas que vão para a CENTRAL (o quadro de informações do cliente).
+// Senha de rede social não pode ficar solta no texto do briefing: vai para lá
+// como credencial, onde é guardada criptografada.
+// ---------------------------------------------------------------------------
+export const DESTINOS_CENTRAL = {
+  credential: { rotulo: "Central — acesso/senha (guardado criptografado)", kind: "credential" },
+  note: { rotulo: "Central — anotação", kind: "note" },
+};
+
+/** O que vai para a Central: [{ kind, title, valor }]. */
+export function respostasParaCentral(secoes, respostas = {}) {
+  const itens = [];
+  for (const p of perguntasDe(secoes)) {
+    const destino = DESTINOS_CENTRAL[p.destino_central];
+    if (!destino) continue;
+    const v = String(respostas[p.id] ?? "").trim();
+    if (!v) continue;
+    itens.push({ pergunta: p.id, kind: destino.kind, title: p.label, valor: v });
+  }
+  return itens;
+}
+
 /** As respostas viradas para os campos do CADASTRO do cliente. */
 export function respostasParaCliente(secoes, respostas = {}) {
   const saida = {};
@@ -294,6 +317,7 @@ export function saneiaSecoes(entrada) {
       }
       if (p.campo) q.campo = String(p.campo);
       if (p.campo_cliente && CAMPOS_CLIENTE[p.campo_cliente]) q.campo_cliente = p.campo_cliente;
+      if (DESTINOS_CENTRAL[p.destino_central]) q.destino_central = p.destino_central;
       return q;
     }).filter((p) => p.label),
   })).filter((s) => s.perguntas.length);

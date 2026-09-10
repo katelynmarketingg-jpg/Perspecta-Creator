@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { valorPorExtenso, formataDocumento, dataExtenso, dataCurta } from "../receipts.js";
+import { MODELO_REDES } from "../contract-model.js";
 
 // Modelos de contrato: a equipe cadastra um texto-base com marcadores e, ao
 // gerar, o sistema preenche com os dados do cliente e cria um contrato pronto
@@ -16,7 +18,9 @@ function hoje() {
   return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 function brl(v) {
-  return `R$ ${(Number(v) || 0).toFixed(2).replace(".", ",")}`;
+  // Com separador de milhar: num contrato, "R$ 1500,00" fica amador ao lado de
+  // "R$ 1.500,00" — e valores maiores ficam difíceis de ler.
+  return `R$ ${(Number(v) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // Troca {{marcador}} pelos valores. Marcador desconhecido fica como está.
@@ -29,6 +33,15 @@ function preencher(body, map) {
 
 router.get("/", (req, res) => {
   res.json(db.prepare("SELECT * FROM contract_templates WHERE org_id = ? ORDER BY name").all(req.orgId));
+});
+
+// POST /api/contract-templates/pronto — cria o modelo de gestão de redes
+// sociais já escrito, com os marcadores e as cláusulas de proteção. É um ponto
+// de partida para a equipe ajustar, não um parecer jurídico.
+router.post("/pronto", (req, res) => {
+  const info = db.prepare("INSERT INTO contract_templates (org_id, name, body) VALUES (?, ?, ?)")
+    .run(req.orgId, MODELO_REDES.name, MODELO_REDES.body);
+  res.status(201).json(db.prepare("SELECT * FROM contract_templates WHERE id = ?").get(info.lastInsertRowid));
 });
 
 router.post("/", (req, res) => {
@@ -66,6 +79,9 @@ router.post("/:id/generate", (req, res) => {
 
   const valor = Number(b.value) || 0;
   const duration = b.duration_months ? Number(b.duration_months) : null;
+  // Os dados da AGÊNCIA (a contratada). Já existiam para o recibo — o contrato
+  // passa a usar os mesmos, então basta preencher uma vez, em Configurações.
+  const org = db.prepare("SELECT * FROM organizations WHERE id = ?").get(req.orgId) || {};
   // Os marcadores que o modelo pode usar. Os de identificação e cobrança vêm do
   // cadastro do cliente — que o briefing preenche sozinho quando o cliente
   // responde. Assim o contrato sai pronto, sem redigitar nada.
@@ -92,6 +108,21 @@ router.post("/:id/generate", (req, res) => {
     // --- cobrança ---
     dia_pagamento: diaPgto ? String(diaPgto) : "",
     vencimento: diaPgto ? `todo dia ${diaPgto} de cada mês` : "conforme combinado",
+    valor_extenso: valorPorExtenso(valor),
+    cnpj_formatado: formataDocumento(client.document || ""),
+    // --- a agência (contratada) ---
+    agencia: org.name || "",
+    cnpj_agencia: formataDocumento(org.document || ""),
+    endereco_agencia: org.address || "",
+    representante_agencia: org.signer_name || "",
+    documento_representante_agencia: org.signer_document || "",
+    cargo_representante_agencia: org.signer_role || "",
+    // --- lugar e prazos ---
+    cidade: org.city || "",
+    foro: org.city ? `foro da comarca de ${org.city}` : "foro da comarca da sede da CONTRATADA",
+    inicio: b.start_date ? dataExtenso(b.start_date) : hoje(),
+    inicio_curto: b.start_date ? dataCurta(b.start_date) : "",
+    prazo: duration ? `${duration} (${valorPorExtenso(duration).replace(/ reais.*/, "")}) meses` : "prazo indeterminado",
   };
   const corpo = preencher(tpl.body, map);
   const titulo = b.title || `${tpl.name} — ${client.name}`;
