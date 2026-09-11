@@ -11,7 +11,7 @@ import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import ReceiptSettings from "../components/ReceiptSettings.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
-import { currency } from "../utils.js";
+import { currency, fileSize } from "../utils.js";
 
 // Lê um arquivo de imagem como data URI (para guardar a marca no banco).
 function fileToDataUrl(file) {
@@ -21,6 +21,52 @@ function fileToDataUrl(file) {
     r.onerror = reject;
     r.readAsDataURL(file);
   });
+}
+
+// ---------------------------------------------------------------------------
+// ONDE OS ARQUIVOS ESTÃO. Responde, sem abrir o painel do Render, se o R2 está
+// ligado e se está sendo usado — e lembra que arquivo antigo continua no disco:
+// o R2 só vale do dia em que foi ligado para frente.
+// ---------------------------------------------------------------------------
+function Armazenamento() {
+  const [d, setD] = useState(null);
+  const [erro, setErro] = useState(false);
+  useEffect(() => {
+    api.get("/files/armazenamento").then((r) => setD(r.data)).catch(() => setErro(true));
+  }, []);
+  if (erro) return null;
+
+  return (
+    <Card>
+      <CardContent>
+        <Typography variant="h6" sx={{ mb: 0.5 }}>Onde os arquivos ficam guardados</Typography>
+        {!d ? (
+          <Typography variant="body2" color="text.secondary">Conferindo…</Typography>
+        ) : (
+          <>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", gap: 1 }}>
+              <Chip size="small" color={d.r2_ligado ? "success" : "warning"}
+                label={d.r2_ligado ? "Nuvem (R2) ligada ✓" : "Nuvem (R2) desligada"} />
+              <Chip size="small" variant="outlined" label={`${d.no_r2} na nuvem`} />
+              <Chip size="small" variant="outlined" label={`${d.no_disco} no disco do servidor`} />
+            </Stack>
+            <Typography variant="body2" color="text.secondary">
+              {d.r2_ligado
+                ? "Os arquivos novos vão para a nuvem e o navegador busca direto lá — é o que faz vídeo grande abrir rápido."
+                : "Sem a nuvem, tudo fica no disco do servidor: mais lento para vídeo e com risco de encher. As chaves do R2 ficam nas variáveis do Render."}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Vídeos: <b>{d.videos_no_r2} de {d.videos_total}</b> na nuvem.
+              {d.videos_total > d.videos_no_r2 && " Os que faltam são anteriores à nuvem ter sido ligada — eles continuam funcionando, só não têm a velocidade dela."}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+              Nuvem: {fileSize(d.bytes_r2)} · Disco: {fileSize(d.bytes_disco)}
+            </Typography>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function Settings() {
@@ -176,6 +222,7 @@ export default function Settings() {
       <PageHeader title="Configurações" subtitle="Preferências do sistema" />
 
       <Stack spacing={2.5} sx={{ maxWidth: 620 }}>
+        {isAdmin && <Armazenamento />}
         {isAdmin && (
           <Card>
             <CardContent>

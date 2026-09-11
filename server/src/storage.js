@@ -1,4 +1,5 @@
 import { S3Client, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
 import { createReadStream } from "node:fs";
 
@@ -47,6 +48,41 @@ export async function uploadFileToR2(localPath, key, contentType) {
 // sem baixar o arquivo inteiro.
 export async function getR2Object(key, range) {
   return client.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key, ...(range ? { Range: range } : {}) }));
+}
+
+// ---------------------------------------------------------------------------
+// ENDEREÇO DIRETO NO R2, assinado e temporário.
+//
+// Até aqui cada byte fazia o caminho R2 -> servidor -> navegador: o vídeo saía
+// da Cloudflare, atravessava a máquina do Render (que é pequena e fica num
+// lugar só) e só então chegava na pessoa. Pagar pelo R2 e continuar servindo
+// pelo servidor é o pior dos dois mundos.
+//
+// Com o endereço assinado, o navegador busca DIRETO na Cloudflare, que tem
+// servidor perto de quem assiste e entende Range nativamente — o vídeo começa
+// a tocar quase na hora, e o servidor para de carregar arquivo no lombo.
+//
+// O endereço expira (1 hora por padrão) e ninguém consegue adivinhar: quem não
+// passou pela checagem de permissão do sistema não chega nele.
+// ---------------------------------------------------------------------------
+export async function enderecoAssinado(key, { segundos = 3600, tipo, baixarComoNome } = {}) {
+  if (!configured) return null;
+  const comando = new GetObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+    // O .mov de iPhone é H.264 por dentro, mas o Chrome se recusa a tocar
+    // "video/quicktime". Aqui o rótulo é trocado na resposta do próprio R2 —
+    // o arquivo continua intacto.
+    ...(tipo ? { ResponseContentType: tipo } : {}),
+    ...(baixarComoNome
+      ? { ResponseContentDisposition: `attachment; filename="${encodeURIComponent(baixarComoNome)}"` }
+      : {}),
+  });
+  try {
+    return await getSignedUrl(client, comando, { expiresIn: segundos });
+  } catch {
+    return null;   // não deu para assinar: quem chamou serve pelo caminho antigo
+  }
 }
 
 export async function deleteR2Object(key) {

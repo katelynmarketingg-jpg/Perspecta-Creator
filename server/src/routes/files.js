@@ -25,6 +25,19 @@ const router = Router();
 
 async function serveFile(res, file, asAttachment, range) {
   if (isR2Path(file.stored_path)) {
+    // CAMINHO RÁPIDO: manda o navegador buscar direto na Cloudflare. O arquivo
+    // deixa de atravessar esta máquina — é o que faz vídeo grande abrir rápido,
+    // porque a Cloudflare tem servidor perto de quem está assistindo.
+    const direto = await enderecoAssinado(r2Key(file.stored_path), {
+      tipo: asAttachment ? undefined : tipoQueONavegadorToca(file),
+      baixarComoNome: asAttachment ? file.original_name : undefined,
+    });
+    if (direto) {
+      // 302: o navegador refaz o pedido no R2, levando o Range junto.
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      return res.redirect(302, direto);
+    }
+    // Não deu para assinar: segue repassando pelo servidor, como antes.
     try {
       const obj = await getR2Object(r2Key(file.stored_path), asAttachment ? undefined : range);
       // Baixando: o tipo real. Vendo na tela: o tipo que o navegador toca.
@@ -304,6 +317,36 @@ router.get("/:id/download", async (req, res) => {
 // GET /api/files/:id/thumb — só a miniatura (leve). A Distribuição usa isso
 // para desenhar a grade do perfil sem baixar a arte inteira de cada quadrado —
 // e é o que faz o VÍDEO aparecer ali, já que <img> não toca vídeo.
+// GET /api/files/armazenamento — onde os arquivos estão de verdade.
+//
+// Existe para responder uma pergunta simples sem ter que abrir o Render: o R2
+// está ligado? Está sendo usado? Arquivo antigo continua no disco (o R2 só vale
+// do momento em que foi ligado), e é isso que esta tela mostra.
+router.get("/armazenamento", (req, res) => {
+  const conta = db.prepare(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(CASE WHEN stored_path LIKE 'r2:%' THEN 1 ELSE 0 END) AS no_r2,
+       SUM(CASE WHEN stored_path LIKE 'r2:%' THEN 0 ELSE 1 END) AS no_disco,
+       COALESCE(SUM(CASE WHEN stored_path LIKE 'r2:%' THEN size ELSE 0 END), 0) AS bytes_r2,
+       COALESCE(SUM(CASE WHEN stored_path LIKE 'r2:%' THEN 0 ELSE size END), 0) AS bytes_disco
+     FROM files WHERE org_id = ?`
+  ).get(req.orgId);
+
+  const videos = db.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN stored_path LIKE 'r2:%' THEN 1 ELSE 0 END) AS no_r2
+       FROM files WHERE org_id = ? AND mime LIKE 'video/%'`
+  ).get(req.orgId);
+
+  res.json({
+    r2_ligado: storageConfigured(),
+    ...conta,
+    videos_total: videos.total || 0,
+    videos_no_r2: videos.no_r2 || 0,
+  });
+});
+
 router.get("/:id/thumb", (req, res) => {
   const f = db.prepare("SELECT thumb FROM files WHERE id = ? AND org_id = ?")
     .get(req.params.id, req.orgId);
