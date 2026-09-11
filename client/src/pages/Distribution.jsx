@@ -878,7 +878,7 @@ function MonthGrid({ items, onSelect }) {
 // vídeo); se o arquivo não tiver miniatura, cai na arte inteira — e aí VÍDEO é
 // desenhado com <video> mostrando o 1º quadro, porque <img> não toca vídeo (era
 // por isso que os vídeos não apareciam aqui).
-function FeedThumb({ fileId }) {
+function FeedThumb({ fileId, comecoDaTira = false }) {
   const [thumb, setThumb] = useState(null);
   const [midia, setMidia] = useState(null);   // { url, type } quando não há miniatura
   const [erro, setErro] = useState(false);
@@ -897,7 +897,12 @@ function FeedThumb({ fileId }) {
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId]);
 
-  const sx = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
+  // Carrossel salvo como UMA imagem larga: a capa é o começo da tira (os
+  // primeiros 1080px da esquerda), nunca o meio. Ver FeedPreview.jsx.
+  const sx = {
+    width: "100%", height: "100%", objectFit: "cover", display: "block",
+    objectPosition: comecoDaTira ? "left center" : "center",
+  };
   const vazio = (texto, cor = "text.disabled") => (
     <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", textAlign: "center",
                color: cor, fontSize: 10, lineHeight: 1.2, p: 0.5 }}>{texto}</Box>
@@ -982,7 +987,8 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
                 opacity: dragId === p.id ? 0.35 : 1, transition: "opacity .12s ease",
                 outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
               }}>
-              <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile} />
+              <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
+                comecoDaTira={p.content_type === "carrossel"} />
               <Box sx={{
                 position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
                 bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,

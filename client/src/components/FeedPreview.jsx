@@ -44,7 +44,17 @@ function Celula({ post, fetchFile, onClick }) {
   }, [fileId, thumb, post.mime, post.media_url, ehVideo, fetchFile]);
 
   const aprovado = post.approval_status === "approved" || post.stage_done;
-  const midiaSx = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
+
+  // CARROSSEL exportado como UMA imagem larga (as partes lado a lado): a capa
+  // é o COMEÇO do carrossel, os primeiros 1080px da esquerda — nunca o meio da
+  // tira. Ancorando à esquerda, a conta fecha sozinha: num quadro 1080x1440
+  // (3:4), o recorte visível tem 0,75 x a altura da arte de largura — ou seja,
+  // exatamente 1080px numa tira de 1440 de altura.
+  const comecoDaTira = post.content_type === "carrossel";
+  const midiaSx = {
+    width: "100%", height: "100%", objectFit: "cover", display: "block",
+    objectPosition: comecoDaTira ? "left center" : "center",
+  };
   const porCima = { ...midiaSx, position: "absolute", inset: 0 };
 
   // A arte em si. A miniatura entra primeiro (instantânea) e a arte cheia
@@ -92,14 +102,18 @@ function Celula({ post, fetchFile, onClick }) {
             filter: "drop-shadow(0 1px 3px rgba(0,0,0,.6))", fontSize: 20 }} />
         )}
 
-        {/* Marca o que ainda não passou pelo cliente */}
+        {/* Marca o que ainda não passou pelo cliente. É um selo no canto, não
+            uma tarja no quadro inteiro: a prévia existe para a pessoa ver o
+            PERFIL dela, e uma faixa laranja em cima de cada arte tapava
+            justamente o que ela veio olhar. */}
         {!aprovado && (
           <Box sx={{
-            position: "absolute", bottom: 0, left: 0, right: 0, py: 0.25,
-            bgcolor: (t) => alpha(t.palette.warning.main, 0.9),
-            color: "#1C1917", fontSize: 9.5, fontWeight: 700, textAlign: "center",
+            position: "absolute", top: 5, left: 5, px: 0.6, py: 0.15, borderRadius: 0.75,
+            bgcolor: (t) => alpha(t.palette.warning.main, 0.95),
+            color: "#1C1917", fontSize: 8.5, fontWeight: 800, letterSpacing: .2,
+            boxShadow: "0 1px 3px rgba(0,0,0,.25)",
           }}>
-            AGUARDA APROVAÇÃO
+            AGUARDA
           </Box>
         )}
 
