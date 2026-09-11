@@ -272,11 +272,10 @@ function CarrosselLargo({ fileId }) {
   if (erro) return <Box sx={{ ...box, display: "grid", placeItems: "center", color: "error.main", fontSize: 13 }}>Arte não carregou</Box>;
   return (
     <Box sx={box}>
-      {/* rascunho leve enquanto a arte cheia não chega (mostra o começo da tira) */}
-      {ph && !full && <Box component="img" src={ph} alt="" aria-hidden
-        sx={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "left center" }} />}
-      {full && <Box component="img" src={full} alt="" onLoad={medir} onError={() => setErro(true)} sx={imgSx} />}
-      {!full && !ph && <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}
+      {/* Só a arte em qualidade real; enquanto baixa, o carregando. */}
+      {full
+        ? <Box component="img" src={full} alt="" onLoad={medir} onError={() => setErro(true)} sx={imgSx} />
+        : <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}
       {n > 1 && (
         <>
           <IconButton size="small" onClick={() => setIdx((i) => (Math.min(i, n - 1) - 1 + n) % n)}
