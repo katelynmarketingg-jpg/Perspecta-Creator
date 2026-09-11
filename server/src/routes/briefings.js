@@ -9,6 +9,7 @@ import {
   getTemplate, saveTemplate, resetTemplate,
 } from "../briefing.js";
 import { guardaNaCentral } from "../central.js";
+import { modelosDisponiveis, mesesDeVigencia } from "../contract-gen.js";
 import { PERSONA_FIELDS } from "../ai.js";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +20,38 @@ const router = Router();
 router.use(authRequired);
 
 const CAMPOS_VALIDOS = new Set(PERSONA_FIELDS.map((f) => f.key));
+
+/** Os termos comerciais guardados (o que a AGÊNCIA preencheu ao abrir o onboarding). */
+function leTermos(b) {
+  try { return b.terms ? JSON.parse(b.terms) : null; } catch { return null; }
+}
+
+/**
+ * Só o que faz sentido guardar — e nada de lixo vindo do formulário. Datas em
+ * AAAA-MM-DD, números como números, o resto texto curto.
+ */
+function saneiaTermos(entrada = {}) {
+  const data = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null);
+  const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v) || 0);
+  const itens = Array.isArray(entrada.itens)
+    ? entrada.itens
+        .map((i) => ({ label: String(i.label || "").trim().slice(0, 80), unit: String(i.unit || "").trim().slice(0, 40), quantidade: num(i.quantidade) }))
+        .filter((i) => i.label)
+        .slice(0, 20)
+    : [];
+  return {
+    service_id: entrada.service_id ? Number(entrada.service_id) : null,
+    template_id: entrada.template_id ? Number(entrada.template_id) : null,
+    servico: String(entrada.servico || "").trim().slice(0, 160),
+    value: num(entrada.value),
+    itens,
+    start_date: data(entrada.start_date),
+    end_date: data(entrada.end_date),
+    contract_date: data(entrada.contract_date),
+    duration_months: mesesDeVigencia(data(entrada.start_date), data(entrada.end_date)),
+    observacoes: String(entrada.observacoes || "").trim().slice(0, 1000),
+  };
+}
 
 function resumo(b, req) {
   const respostas = JSON.parse(b.answers || "{}");
@@ -31,6 +64,7 @@ function resumo(b, req) {
     progresso: progresso(secoes, respostas),
     respondidas: perguntasDe(secoes).filter((p) => String(respostas[p.id] ?? "").trim()).length,
     total: perguntasDe(secoes).length,
+    termos: leTermos(b),
   };
 }
 
@@ -79,12 +113,36 @@ router.post("/", (req, res) => {
   const existente = db.prepare(
     "SELECT * FROM briefings WHERE org_id = ? AND client_id = ? AND status <> 'aplicado' ORDER BY created_at DESC LIMIT 1"
   ).get(req.orgId, clientId);
-  if (existente) return res.json(resumo(existente, req));
+  if (existente) {
+    if (req.body?.termos) {
+      db.prepare("UPDATE briefings SET terms = ? WHERE id = ?")
+        .run(JSON.stringify(saneiaTermos(req.body.termos)), existente.id);
+      return res.json(resumo(db.prepare("SELECT * FROM briefings WHERE id = ?").get(existente.id), req));
+    }
+    return res.json(resumo(existente, req));
+  }
 
   const token = randomBytes(24).toString("base64url");
-  const id = db.prepare("INSERT INTO briefings (org_id, client_id, token) VALUES (?, ?, ?)")
-    .run(req.orgId, clientId, token).lastInsertRowid;
+  // Os termos que só a agência sabe (serviço, quantidades, valor, vigência e a
+  // data do contrato) viajam junto: é com eles que o contrato nasce pronto
+  // assim que o cliente termina de responder.
+  const termos = req.body?.termos ? JSON.stringify(saneiaTermos(req.body.termos)) : null;
+  const id = db.prepare("INSERT INTO briefings (org_id, client_id, token, terms) VALUES (?, ?, ?, ?)")
+    .run(req.orgId, clientId, token, termos).lastInsertRowid;
   res.status(201).json(resumo(db.prepare("SELECT * FROM briefings WHERE id = ?").get(id), req));
+});
+
+// GET /api/briefings/modelos — os contratos que a casa pode usar, dos dois
+// lugares onde ela escreve: Serviços e Modelos de contrato.
+router.get("/modelos", (req, res) => res.json(modelosDisponiveis(req.orgId)));
+
+// PUT /api/briefings/:id/termos — corrigir o que ela preencheu, sem refazer o link.
+router.put("/:id/termos", (req, res) => {
+  const b = db.prepare("SELECT * FROM briefings WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!b) return res.status(404).json({ error: "Onboarding não encontrado." });
+  db.prepare("UPDATE briefings SET terms = ? WHERE id = ?")
+    .run(JSON.stringify(saneiaTermos(req.body?.termos || {})), b.id);
+  res.json(resumo(db.prepare("SELECT * FROM briefings WHERE id = ?").get(b.id), req));
 });
 
 // GET /api/briefings/:id — as respostas, com as perguntas junto para exibir.

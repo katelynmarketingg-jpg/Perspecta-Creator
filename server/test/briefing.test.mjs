@@ -108,7 +108,7 @@ test("enviado o briefing, a equipe é avisada", async () => {
   const env = await req("POST", `/briefing/${criado.token}/enviar`);
   assert.equal(env.st, 200);
   const aviso = db.prepare("SELECT message FROM notifications WHERE org_id = ? ORDER BY id DESC LIMIT 1").get(org);
-  assert.match(aviso.message, /respondeu o briefing/);
+  assert.match(aviso.message, /respondeu o onboarding/);
 });
 
 test("aplicar preenche a inteligência SEM apagar o que a equipe escreveu", async () => {

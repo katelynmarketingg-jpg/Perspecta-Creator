@@ -5,6 +5,10 @@
 // partes trocados por marcadores (vêm do cadastro do cliente, que o briefing
 // preenche, e de Configurações → Recibos, que guarda os dados da agência).
 //
+// As quantidades (captações, vídeos e posts por mês) e as datas de vigência
+// também são marcadores: quem define é a agência, ao abrir o onboarding do
+// cliente — o mesmo modelo serve para pacotes diferentes.
+//
 // Foram acrescentadas as cláusulas de proteção: resultado não garantido,
 // aprovação tácita, material do cliente, plataformas de terceiros, limite de
 // responsabilidade, acessos e senhas, confidencialidade/LGPD e não-vínculo.
@@ -29,9 +33,9 @@ O presente contrato tem por objeto a prestação de serviços de planejamento es
 
 I – Estudo Estratégico: realização de briefing por meio de formulário para levantamento das informações da empresa, serviços, público-alvo, diferenciais, objetivos, tom de voz e posicionamento da marca, bem como desenvolvimento interno de estratégia personalizada, branding, definição de identidade visual base de acordo com a atual, paleta de cores, análise estratégica do perfil do CONTRATANTE e de seus principais concorrentes. Todo o estudo estratégico constitui metodologia própria da CONTRATADA, sendo realizado exclusivamente para embasar os serviços contratados, não havendo obrigação de entrega dos documentos internos elaborados.
 
-II – Captação de Conteúdo: será realizada 01 (uma) captação presencial ao mês, em data previamente ajustada entre as partes. O planejamento da gravação será encaminhado ao CONTRATANTE com antecedência mínima de 02 (dois) dias úteis, podendo este solicitar alterações, exclusões ou inclusão de novos temas até 01 (um) dia útil antes da data agendada.
+II – Captação de Conteúdo: será realizada {{captacoes_mes}} captação presencial ao mês, em data previamente ajustada entre as partes. O planejamento da gravação será encaminhado ao CONTRATANTE com antecedência mínima de 02 (dois) dias úteis, podendo este solicitar alterações, exclusões ou inclusão de novos temas até 01 (um) dia útil antes da data agendada.
 
-III – Criação dos Conteúdos: produção mensal de 04 (quatro) vídeos no formato Reels, bem como 04 (quatro) posts estáticos e/ou carrosséis estratégicos, elaborados de acordo com o planejamento definido, juntamente com as respectivas legendas.
+III – Criação dos Conteúdos: produção mensal de {{videos_mes}} vídeos no formato Reels, bem como {{posts_mes}} posts estáticos e/ou carrosséis estratégicos, elaborados de acordo com o planejamento definido, juntamente com as respectivas legendas.
 
 IV – Aprovação: após a edição dos conteúdos, esses serão disponibilizados em plataforma online para análise do CONTRATANTE, que poderá solicitar até 02 (duas) rodadas de alterações nas artes, vídeos e legendas, bem como realizar ajustes diretamente nas legendas, caso entenda necessário, devendo aprovar os conteúdos no prazo de 07 (sete) dias úteis, contado da disponibilização na plataforma. Alterações que impliquem nova gravação poderão ser consideradas serviço adicional.
 
@@ -105,7 +109,7 @@ Em caso de atraso no pagamento, incidirá multa moratória de 2% (dois por cento
 Permanecendo a inadimplência por período superior a 30 (trinta) dias, a CONTRATADA poderá suspender a execução dos serviços até a regularização dos valores pendentes, sem que tal suspensão configure inadimplemento contratual, gere direito a compensação ou prorrogue o prazo de vigência.
 
 CLÁUSULA DÉCIMA PRIMEIRA – DA VIGÊNCIA E DO INÍCIO DOS SERVIÇOS
-O presente contrato terá vigência de {{prazo}}, iniciando-se em {{inicio}}, podendo ser renovado mediante acordo expresso entre as partes.
+O presente contrato terá vigência de {{prazo}}, iniciando-se em {{inicio}} e encerrando-se em {{fim}}, podendo ser renovado mediante acordo expresso entre as partes.
 
 A execução das etapas iniciais do projeto — briefing, estudo estratégico da marca, planejamento dos conteúdos, captação de imagens e vídeos, bem como a criação e edição dos materiais que integrarão o cronograma — terá início no mês anterior ao da primeira publicação.
 

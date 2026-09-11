@@ -59,7 +59,11 @@ const PORT = Number(process.env.PORT || 8080);
 const app = express();
 app.set("trust proxy", 1); // atrás do proxy do Render: HTTPS e IP reais
 app.use(cors());
-app.use(express.json({ limit: "5mb" }));
+// 15 MB: um contrato com a logo e alguma imagem colada dentro do texto passa
+// dos 5 MB antigos com facilidade — e o salvamento falhava com "413" sem que
+// ninguém entendesse por quê. Arquivo de verdade (foto, vídeo) não passa por
+// aqui: sobe pelo multer, em outra rota.
+app.use(express.json({ limit: "15mb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
 

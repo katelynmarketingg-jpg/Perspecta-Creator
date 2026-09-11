@@ -11,6 +11,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import SaveIcon from "@mui/icons-material/Save";
 import PrintIcon from "@mui/icons-material/Print";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import DescriptionIcon from "@mui/icons-material/Description";
 import api from "../api/client.js";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { currency } from "../utils.js";
@@ -23,10 +24,35 @@ import LogoBanner, { BAND_H } from "../components/LogoBanner.jsx";
 const VAZIO = { name: "", category: "", default_price: "", contract_template: "", items_schema: [], contract_style: {} };
 const parseStyle = (s) => { try { return typeof s === "string" ? JSON.parse(s) : (s || {}); } catch { return {}; } };
 
+/** Quanto o documento pesa, em texto legível ("1,2 MB"). */
+function tamanhoDe(payload) {
+  const bytes = new Blob([JSON.stringify(payload)]).size;
+  return bytes > 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`
+    : `${Math.round(bytes / 1024)} KB`;
+}
+
+/** Traduz a falha do salvamento para algo acionável. */
+function mensagemDeErro(e, payload) {
+  const st = e?.response?.status;
+  if (st === 413) {
+    return `O contrato ficou grande demais para salvar (${tamanhoDe(payload)}). `
+      + "Isso costuma acontecer quando uma imagem é colada dentro do texto — "
+      + "tire as imagens do corpo do contrato (a logo já entra sozinha no topo) e salve de novo.";
+  }
+  if (st === 401) return "Sua sessão expirou. Atualize a página e entre de novo.";
+  if (st === 404) return "Este serviço não existe mais — talvez tenha sido excluído em outra aba.";
+  if (e?.response?.data?.error) return e.response.data.error;
+  if (!e?.response) return "Não deu para falar com o servidor. Confira a internet e tente de novo.";
+  return `Não foi possível salvar (erro ${st}). Tente de novo em instantes.`;
+}
+
 export default function Services() {
   const [services, setServices] = useState([]);
   const [draft, setDraft] = useState(null);
   const [msg, setMsg] = useState("");
+  const [erro, setErro] = useState("");        // o porquê de não ter salvo
+  const [salvando, setSalvando] = useState(false);
   const [reciboOpen, setReciboOpen] = useState(false); // editor do modelo do recibo
   const [aba, setAba] = useState("servicos");          // servicos | modelos
   const [previaRecibo, setPrevia] = useState(null);    // como o recibo está hoje
@@ -55,14 +81,25 @@ export default function Services() {
       default_price: Number(draft.default_price) || 0,
       contract_style: JSON.stringify(draft.contract_style || {}),
     };
-    let saved;
-    if (draft.id) saved = (await api.put(`/services/${draft.id}`, payload)).data;
-    else saved = (await api.post("/services", payload)).data;
-    setMsg("Serviço salvo. ✅");
-    setTimeout(() => setMsg(""), 3000);
-    await load();
-    // Continua no editor com o serviço salvo (para poder imprimir etc.).
-    if (saved) abrirEditar(saved);
+    setErro("");
+    setSalvando(true);
+    try {
+      const saved = draft.id
+        ? (await api.put(`/services/${draft.id}`, payload)).data
+        : (await api.post("/services", payload)).data;
+      setMsg("Serviço salvo. ✅");
+      setTimeout(() => setMsg(""), 3000);
+      await load();
+      // Continua no editor com o serviço salvo (para poder imprimir etc.).
+      if (saved) abrirEditar(saved);
+    } catch (e) {
+      // Antes o erro sumia: o botão era clicado e nada acontecia, sem dizer o
+      // porquê. Agora ele aparece — e o caso mais comum (documento grande
+      // demais) vem com o tamanho e o que fazer.
+      setErro(mensagemDeErro(e, payload));
+    } finally {
+      setSalvando(false);
+    }
   }
   async function excluir(id) {
     if (!confirm("Excluir este serviço? (não afeta clientes que já o têm)")) return;
@@ -230,17 +267,18 @@ export default function Services() {
       </Dialog>
 
       {/* Editor em TELA CHEIA */}
-      <Dialog open={Boolean(draft)} onClose={() => setDraft(null)} fullScreen>
+      <Dialog open={Boolean(draft)} onClose={() => { setDraft(null); setErro(""); }} fullScreen>
         <AppBar position="sticky" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: "divider" }}>
           <Toolbar sx={{ gap: 1, flexWrap: "wrap" }}>
-            <IconButton edge="start" onClick={() => setDraft(null)}><CloseIcon /></IconButton>
+            <IconButton edge="start" onClick={() => { setDraft(null); setErro(""); }}><CloseIcon /></IconButton>
             <Typography variant="h6" sx={{ mr: 2 }}>{draft?.id ? "Editar serviço" : "Novo serviço"}</Typography>
             <Box sx={{ flex: 1 }} />
             <Button variant="outlined" startIcon={<PrintIcon />} onClick={imprimir} disabled={!draft?.contract_template}>Imprimir</Button>
             <Tooltip title="Abre a impressão — escolha 'Salvar como PDF'">
               <Button variant="outlined" startIcon={<PictureAsPdfIcon />} onClick={imprimir} disabled={!draft?.contract_template}>PDF</Button>
             </Tooltip>
-            <Button variant="contained" startIcon={<SaveIcon />} onClick={salvar} disabled={!draft?.name?.trim()}>Salvar</Button>
+            <Button variant="contained" startIcon={<SaveIcon />} onClick={salvar}
+              disabled={!draft?.name?.trim() || salvando}>{salvando ? "Salvando…" : "Salvar"}</Button>
           </Toolbar>
           {/* Modelos já salvos — clique para abrir/editar */}
           {services.length > 0 && (
@@ -259,6 +297,8 @@ export default function Services() {
         <DialogContent sx={{ bgcolor: "background.default" }}>
           {draft && (
             <Box sx={{ maxWidth: 900, mx: "auto", py: 2 }}>
+              {erro && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErro("")}>{erro}</Alert>}
+              {msg && <Alert severity="success" sx={{ mb: 2 }}>{msg}</Alert>}
               <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 2 }}>
                 <TextField label="Nome *" value={draft.name} fullWidth
                   onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />

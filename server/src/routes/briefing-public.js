@@ -8,6 +8,7 @@ import { getTemplate, perguntasDe, progresso, faltando } from "../briefing.js";
 import { hashPassword, publicBaseUrl } from "../auth.js";
 import { makeSignToken } from "./sign.js";
 import { storageConfigured, uploadFileToR2 } from "../storage.js";
+import { fechaOnboarding } from "../onboarding.js";
 
 // Mesma pasta do upload da equipe (disco persistente no Render).
 const DATA_DIR = dirname(process.env.DB_PATH || "./data/agency.db");
@@ -257,13 +258,25 @@ briefingPublicRouter.post("/:token/enviar", (req, res) => {
   }
   db.prepare("UPDATE briefings SET status = 'respondido', answered_at = datetime('now') WHERE id = ?").run(b.id);
 
+  // Daqui o resto anda sozinho: o cadastro dele é preenchido, as senhas vão
+  // para a Central e o contrato nasce pronto com os termos que a agência
+  // definiu ao abrir o onboarding.
+  const fim = fechaOnboarding(b, respostas);
+
   // A equipe fica sabendo na hora, sem precisar ficar conferindo.
   const cliente = db.prepare("SELECT name FROM clients WHERE id = ?").get(b.client_id);
-  try {
-    db.prepare(
-      "INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, NULL, ?, ?)"
-    ).run(b.client_id, `📝 ${cliente?.name || "Um cliente"} respondeu o briefing. Aplique na inteligência da IA.`, b.org_id);
-  } catch { /* o aviso não pode derrubar o envio */ }
+  const aviso = (texto) => {
+    try {
+      db.prepare(
+        "INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, NULL, ?, ?)"
+      ).run(b.client_id, texto, b.org_id);
+    } catch { /* o aviso não pode derrubar o envio */ }
+  };
+  const nome = cliente?.name || "Um cliente";
+  aviso(fim.contrato
+    ? `📝 ${nome} respondeu o onboarding. O contrato já está pronto para ele assinar.`
+    : `📝 ${nome} respondeu o onboarding. Aplique na inteligência da IA.`);
+  if (fim.erroContrato) aviso(`⚠️ Não deu para gerar o contrato de ${nome}: ${fim.erroContrato}`);
 
-  res.json({ ok: true });
+  res.json({ ok: true, contrato: Boolean(fim.contrato) });
 });

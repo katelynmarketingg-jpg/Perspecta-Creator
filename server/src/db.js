@@ -512,6 +512,12 @@ CREATE TABLE IF NOT EXISTS briefings (
 CREATE INDEX IF NOT EXISTS idx_briefings_client ON briefings(org_id, client_id);
 `);
 
+// Os termos comerciais que a AGÊNCIA preenche antes de gerar o link: serviço,
+// quantidades, valor, vigência e a data que deve constar. Ficam guardados aqui
+// para que, quando o cliente terminar de responder, o contrato já nasça pronto
+// — com os dados dele (que o briefing preencheu) e estes, que só ela sabe.
+ensureColumn("briefings", "terms", "terms TEXT");
+
 // O briefing é EDITÁVEL: cada escritório tem o seu texto de boas-vindas e as
 // suas perguntas. Enquanto não mexer em nada, vale o modelo de fábrica
 // (server/src/briefing.js) — a linha só nasce quando alguém salva uma mudança.
