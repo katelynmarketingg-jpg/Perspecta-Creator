@@ -123,20 +123,30 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 // fit="cover" (padrão) preenche o quadrado (para grades/miniaturas);
 // fit="contain" mostra a IMAGEM INTEIRA na proporção real (para a prévia do
 // post), sem cortar nada — sobra uma faixa neutra ao redor quando não é quadrada.
-function Media({ fileId, capaId, height = 200, fit = "cover" }) {
+// Reel e stories são sempre vídeo; fora isso, o tipo do arquivo decide.
+const pecaEhVideo = (p) => ["reel", "stories"].includes(p?.content_type) || /^video\//.test(p?.mime || "");
+
+function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [capa, setCapa] = useState(null);
   const [erro, setErro] = useState(false);
+
+  // VÍDEO não é baixado: toca pelo endereço de streaming, em que o navegador
+  // pede só o começo do arquivo e já mostra o 1º quadro. Baixar um reel de
+  // 200 MB inteiro antes de aparecer qualquer coisa fazia a peça parecer
+  // travada — e em internet de celular, nunca terminava.
+  const transmite = Boolean(streamUrl && ehVideoDica);
+
   useEffect(() => {
     setSrc(null); setErro(false); setCapa(null);
-    if (!fileId) return;
+    if (!fileId || transmite) return undefined;
     let alive = true;
     loadMedia(fileId)
       .then((m) => { if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); } })
       .catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
-  }, [fileId]);
+  }, [fileId, transmite]);
 
   // A CAPA escolhida vira o quadro parado do vídeo: o post aparece com a arte
   // certa e continua dando para dar play — antes era um ou outro.
@@ -170,6 +180,11 @@ function Media({ fileId, capaId, height = 200, fit = "cover" }) {
       "text.secondary", true);
   }
   if (erro) return aviso(<>Arte não carregou<br />(reenvie)</>, "error.main");
+  if (transmite) {
+    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={height > 120}
+      muted playsInline preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
+      onError={() => setErro(true)} />;
+  }
   if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   return video
     ? <Box component="video" src={src} poster={capa || undefined} controls={height > 120} muted playsInline
@@ -531,7 +546,8 @@ function PieceCard({ item, onChanged, flash }) {
 
           {/* Arte da peça; se ela ainda não foi escolhida, mostra a capa ou a
               primeira slide — o que existir. Só fica vazio quando não há nada. */}
-          <Media fileId={fileId || coverId || slides[0]} capaId={coverId} height={280} fit="contain" />
+          <Media fileId={fileId || coverId || slides[0]} capaId={coverId} height={280} fit="contain"
+            streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
 
           {isCarousel ? (
             <Box>
@@ -1147,7 +1163,8 @@ export default function Distribution() {
                             <Chip size="small" color="info" label="Programado 🗓️" />
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
-                          <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} height={200} fit="contain" />
+                          <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} height={200} fit="contain"
+                            streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {p.scheduled_at
@@ -1182,7 +1199,8 @@ export default function Distribution() {
                               label={pediuAjuste ? "Pediu ajuste ✏️" : "Com o cliente ⏳"} />
                           </Stack>
                           {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
-                          <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} height={200} fit="contain" />
+                          <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} height={200} fit="contain"
+                            streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
                           <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
                             {w.scheduled_at
@@ -1218,7 +1236,8 @@ export default function Distribution() {
                             <Chip size="small" color="success" label="Aprovado ✓" />
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
-                          <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} height={200} fit="contain" />
+                          <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} height={200} fit="contain"
+                            streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
                             {a.scheduled_at
