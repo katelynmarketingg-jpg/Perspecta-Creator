@@ -504,10 +504,25 @@ router.get("/feed", (req, res) => {
               (SELECT f.mime FROM files f WHERE f.id = COALESCE(t.cover_file_id,
                        (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1))) AS mime
        FROM tasks t LEFT JOIN kanban_stages s ON s.id = t.stage_id
-       WHERE t.client_id = ? AND t.scheduled_at IS NOT NULL
-       ORDER BY t.scheduled_at DESC`
+       WHERE t.client_id = ?
+         AND (t.scheduled_at IS NOT NULL
+              OR t.approval_status IS NOT NULL
+              OR s.name LIKE '%Distribui%')
+       ORDER BY
+         -- A ordem que a agência arrumou no perfil manda; sem ela, o mais
+         -- recente primeiro, como no Instagram. Antes o perfil do cliente
+         -- ignorava essa ordem e escondia tudo que ainda não tinha data —
+         -- faltavam posts que já estavam lá do outro lado.
+         CASE WHEN t.position IS NULL THEN 1 ELSE 0 END,
+         t.position,
+         t.scheduled_at IS NULL,
+         t.scheduled_at DESC
+       LIMIT 90`
     )
     .all(req.client.client_id);
+  // O endereço da mídia vai junto: é com ele que a grade desenha a foto em
+  // tamanho de verdade e toca o 1º quadro do vídeo, sem baixar o arquivo todo.
+  for (const r of rows) if (r.file_id) r.media_url = mediaUrl(r.file_id, req.client.org_id);
   res.json(rows);
 });
 

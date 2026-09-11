@@ -22,6 +22,8 @@ import PixIcon from "@mui/icons-material/Pix";
 import LinkIcon from "@mui/icons-material/Link";
 import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import portalApi from "../api/portal.js";
 import { currency, formatDate, formatTime, CONTENT_TYPES } from "../utils.js";
 import { printReceipt } from "../receipt.js";
@@ -437,6 +439,10 @@ export default function Portal() {
   const [tab, setTab] = useState("approvals");
   const [galleryMode, setGalleryMode] = useState("pastas"); // pastas | etapas
   const [calView, setCalView] = useState("lista"); // lista | grade
+  // No celular o mês inteiro não cabe em 7 colunas de ~50px: a miniatura de
+  // 44px, o dia e o horário brigavam pelo mesmo espaço e o calendário virava
+  // uma papa. Lá a grade fica enxuta — bolinha e horário — e o toque abre o post.
+  const estreito = useMediaQuery(useTheme().breakpoints.down("sm"));
   const [approvals, setApprovals] = useState([]);
   const [approved, setApproved] = useState([]);
   const [aprovMode, setAprovMode] = useState("pendentes"); // pendentes | aprovados
@@ -666,7 +672,7 @@ export default function Portal() {
           <>
             <Stack direction="row" alignItems="center" justifyContent="center" spacing={2} sx={{ mb: 1.5 }}>
               <IconButton onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))}><ChevronLeftIcon /></IconButton>
-              <Typography variant="h6" sx={{ minWidth: 190, textAlign: "center" }}>
+              <Typography variant="h6" sx={{ minWidth: { xs: 0, sm: 190 }, textAlign: "center", fontSize: { xs: 17, sm: undefined } }}>
                 {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
               </Typography>
               <IconButton onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}><ChevronRightIcon /></IconButton>
@@ -687,33 +693,54 @@ export default function Portal() {
                 <Card>
                   <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: 1, borderColor: "divider" }}>
                     {WEEKDAYS.map((w) => (
-                      <Typography key={w} variant="caption" sx={{ p: 1, textAlign: "center", fontWeight: 700, color: "text.secondary" }}>{w}</Typography>
+                      <Typography key={w} variant="caption" sx={{ p: estreito ? 0.5 : 1, textAlign: "center", fontWeight: 700, color: "text.secondary", fontSize: estreito ? 10 : undefined }}>{w}</Typography>
                     ))}
                   </Box>
                   <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-                    {gridCells.map((day, i) => (
-                      <Box key={i} sx={{ minHeight: 92, p: 0.5, borderRight: (i + 1) % 7 !== 0 ? 1 : 0, borderBottom: i < gridCells.length - 7 ? 1 : 0, borderColor: "divider" }}>
+                    {gridCells.map((day, i) => {
+                      const doDia = day ? (byDay[day] || []) : [];
+                      return (
+                      <Box key={i} sx={{ minHeight: estreito ? 58 : 92, p: estreito ? 0.25 : 0.5, minWidth: 0,
+                                         borderRight: (i + 1) % 7 !== 0 ? 1 : 0, borderBottom: i < gridCells.length - 7 ? 1 : 0, borderColor: "divider" }}>
                         {day && (
                           <>
-                            <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>{day}</Typography>
-                            <Stack spacing={0.5} sx={{ mt: 0.4 }}>
-                              {(byDay[day] || []).slice(0, 2).map((p) => (
-                                <Box key={p.id} onClick={() => setOpenPost(p)}
-                                  sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", position: "relative", "&:hover": { borderColor: "primary.main" } }}>
-                                  {p.file_id ? <PortalThumb fileId={p.file_id} size={44} /> : <Box sx={{ height: 44, bgcolor: "action.hover" }} />}
-                                  <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
-                                    {formatTime(p.scheduled_at)}
-                                  </Box>
+                            <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", fontSize: estreito ? 11 : undefined }}>{day}</Typography>
+                            {estreito ? (
+                              // Celular: o dia com conteúdo vira um toque só, com o
+                              // horário do primeiro e quantos mais existem.
+                              doDia.length > 0 && (
+                                <Box onClick={() => setOpenPost(doDia[0])}
+                                  sx={{ mt: 0.25, px: 0.25, py: 0.35, borderRadius: 0.75, cursor: "pointer",
+                                        bgcolor: "primary.main", color: "primary.contrastText", textAlign: "center" }}>
+                                  <Typography sx={{ fontSize: 9.5, fontWeight: 800, lineHeight: 1.1 }}>
+                                    {formatTime(doDia[0].scheduled_at)}
+                                  </Typography>
+                                  {doDia.length > 1 && (
+                                    <Typography sx={{ fontSize: 9, opacity: .85, lineHeight: 1.1 }}>+{doDia.length - 1}</Typography>
+                                  )}
                                 </Box>
-                              ))}
-                              {(byDay[day] || []).length > 2 && (
-                                <Typography variant="caption" color="text.secondary" sx={{ pl: 0.5 }}>+{byDay[day].length - 2}</Typography>
-                              )}
-                            </Stack>
+                              )
+                            ) : (
+                              <Stack spacing={0.5} sx={{ mt: 0.4 }}>
+                                {doDia.slice(0, 2).map((p) => (
+                                  <Box key={p.id} onClick={() => setOpenPost(p)}
+                                    sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", position: "relative", "&:hover": { borderColor: "primary.main" } }}>
+                                    {p.file_id ? <PortalThumb fileId={p.file_id} size={44} /> : <Box sx={{ height: 44, bgcolor: "action.hover" }} />}
+                                    <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
+                                      {formatTime(p.scheduled_at)}
+                                    </Box>
+                                  </Box>
+                                ))}
+                                {doDia.length > 2 && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ pl: 0.5 }}>+{doDia.length - 2}</Typography>
+                                )}
+                              </Stack>
+                            )}
                           </>
                         )}
                       </Box>
-                    ))}
+                      );
+                    })}
                   </Box>
                 </Card>
               )

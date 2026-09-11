@@ -109,6 +109,32 @@ router.get("/", (req, res) => {
     .all(params)
     .map((it) => ({ ...it, media_ids: parseMediaIds(it.media_ids) }));
 
+  // Conteúdos ESPERANDO O CLIENTE APROVAR. Ao enviar, a peça muda de etapa (vai
+  // para "Aprovação") — então ela sumia de todas as listas desta tela: não
+  // estava mais na Distribuição, não estava aprovada e não estava programada.
+  // Filtrar por empresa dava a impressão de que faltava conteúdo.
+  const wwhere = [
+    "t.org_id = @org_id",
+    "t.approval_status IN ('sent', 'changes_requested')",
+    "(s.is_done IS NULL OR s.is_done = 0)",
+  ];
+  if (req.query.client_id) wwhere.push("t.client_id = @client_id");
+  const waiting = db
+    .prepare(
+      `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
+              t.approval_status, t.client_note, t.approval_sent_at, t.published_at,
+              t.client_id, t.cover_file_id, t.position, t.media_ids,
+              c.name AS client_name, c.phone AS client_phone,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+       FROM tasks t
+       LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN kanban_stages s ON s.id = t.stage_id
+       WHERE ${wwhere.join(" AND ")}
+       ORDER BY t.scheduled_at, t.id`
+    )
+    .all(params)
+    .map((it) => ({ ...it, media_ids: parseMediaIds(it.media_ids) }));
+
   // Conteúdos já PROGRAMADOS (na etapa de conclusão / "Programados").
   const pwhere = ["t.org_id = @org_id", "s.is_done = 1"];
   if (req.query.client_id) pwhere.push("t.client_id = @client_id");
@@ -127,7 +153,7 @@ router.get("/", (req, res) => {
     .all(params)
     .map((it) => ({ ...it, media_ids: parseMediaIds(it.media_ids) }));
 
-  res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled, approved, programmed });
+  res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled, waiting, approved, programmed });
 });
 
 // POST /api/distribution/:id/schedule — programa (manda para "Programados").

@@ -84,31 +84,42 @@ export function UploadProvider({ children }) {
   }, []);
 
   // Enfileira uma lista de arquivos. Retorna na hora — o envio roda por trás.
+  //
+  // De três em três, não todos de uma vez: mandar 20 arquivos juntos faz eles
+  // disputarem a mesma internet e TODOS ficarem lentos (e o navegador ainda
+  // segura as conexões extras numa fila invisível, sem mostrar progresso).
+  // Em blocos, os primeiros terminam rápido e a barra anda de verdade.
   const enqueue = useCallback((fileList, opts = {}) => {
     const files = [...(fileList || [])];
     if (!files.length) return;
     setOpen(true);
     const novos = files.map((file) => ({
-      id: ++SEQ, name: file.name, progress: 0, status: "enviando", error: null, _file: file,
+      id: ++SEQ, name: file.name, progress: 0, status: "aguardando", error: null, _file: file,
     }));
     setJobs((prev) => [...novos, ...prev]);
 
-    novos.forEach((job) => {
-      uploadOne(job._file, opts, (p) => patch(job.id, { progress: p }))
-        .then(() => {
+    const AO_MESMO_TEMPO = 3;
+    let proximo = 0;
+    const roda = async () => {
+      while (proximo < novos.length) {
+        const job = novos[proximo++];
+        patch(job.id, { status: "enviando" });
+        try {
+          await uploadOne(job._file, opts, (p) => patch(job.id, { progress: p }));
           patch(job.id, { status: "pronto", progress: 100 });
           // Dica extra pras telas que não usam SSE (o canal ao vivo já avisa).
           window.dispatchEvent(new CustomEvent("files-uploaded", { detail: opts }));
           removeLater(job.id, 4000);
-        })
-        .catch((err) => {
+        } catch (err) {
           patch(job.id, { status: "erro", error: err.message || "Falha no envio." });
           removeLater(job.id, 12000);
-        });
-    });
+        }
+      }
+    };
+    for (let i = 0; i < Math.min(AO_MESMO_TEMPO, novos.length); i++) roda();
   }, [patch, removeLater]);
 
-  const ativos = jobs.filter((j) => j.status === "enviando").length;
+  const ativos = jobs.filter((j) => j.status === "enviando" || j.status === "aguardando").length;
 
   return (
     <UploadContext.Provider value={{ enqueue, jobs }}>
@@ -148,6 +159,9 @@ export function UploadProvider({ children }) {
                   {j.status === "enviando" && (
                     <LinearProgress variant="determinate" value={j.progress}
                       sx={{ mt: 0.5, borderRadius: 2, height: 6 }} />
+                  )}
+                  {j.status === "aguardando" && (
+                    <Typography variant="caption" color="text.secondary">na fila…</Typography>
                   )}
                   {j.status === "erro" && (
                     <Typography variant="caption" color="error">{j.error}</Typography>
