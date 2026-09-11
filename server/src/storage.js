@@ -68,8 +68,21 @@ export async function listR2Objects(prefix) {
 // remarcado como mp4: o conteúdo costuma ser H.264, que o navegador toca.
 // ---------------------------------------------------------------------------
 export function tipoQueONavegadorToca(file) {
-  const mime = file.mime || "";
-  const ehMov = /quicktime/i.test(mime) || /\.mov$/i.test(file.original_name || "");
+  const mime = (file.mime || "").toLowerCase();
+  const nome = file.original_name || "";
+  const ehMov = /quicktime/i.test(mime) || /\.mov$/i.test(nome);
   if (ehMov) return "video/mp4";
-  return mime || "application/octet-stream";
+  // Mime confiável? usa ele. Senão (vazio ou octet-stream), deduz pela extensão
+  // — sem isso, vídeo/foto que subiu sem mime é servido como octet-stream e o
+  // navegador se recusa a tocar/desenhar (o vídeo "não aparece" na aprovação).
+  const indef = !mime || mime.includes("octet-stream");
+  if (!indef) return mime;
+  const ext = (nome.match(/\.([a-z0-9]+)$/i)?.[1] || "").toLowerCase();
+  const POREXT = {
+    mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", mkv: "video/x-matroska",
+    avi: "video/x-msvideo", "3gp": "video/3gpp", mpg: "video/mpeg", mpeg: "video/mpeg", ogv: "video/ogg",
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+    bmp: "image/bmp", tif: "image/tiff", tiff: "image/tiff", avif: "image/avif", heic: "image/heic", heif: "image/heif",
+  };
+  return POREXT[ext] || mime || "application/octet-stream";
 }
