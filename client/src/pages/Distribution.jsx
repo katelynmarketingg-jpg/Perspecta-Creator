@@ -143,8 +143,17 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
     setSrc(null); setErro(false); setCapa(null);
     if (!fileId || transmite) return undefined;
     let alive = true;
-    loadMedia(fileId)
-      .then((m) => { if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); } })
+    // Miniatura PRIMEIRO (data URI leve, ~640px) → o card pinta na hora. Só
+    // baixa o arquivo inteiro quando não existe miniatura. Antes cada card
+    // baixava a arte cheia (megas por card), e a tela demorava "uma década".
+    loadThumb(fileId)
+      .then((t) => {
+        if (!alive) return null;
+        if (t) { setSrc(t); setVideo(false); return null; }
+        return loadMedia(fileId).then((m) => {
+          if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); }
+        });
+      })
       .catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId, transmite]);
@@ -266,7 +275,7 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
 
 // Capturar um quadro do vídeo anexado e usá-lo como capa do perfil.
 // Tudo no navegador (canvas) — não processa vídeo no servidor.
-function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash }) {
+function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash, streamUrl = null }) {
   const videoRef = useRef(null);
   const [src, setSrc] = useState(null);
   const [isVideo, setIsVideo] = useState(false);
@@ -274,13 +283,17 @@ function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash }
   const [dur, setDur] = useState(0);
   const [cur, setCur] = useState(0);
   useEffect(() => {
-    if (!open || !fileId) { setSrc(null); setDur(0); setCur(0); return; }
+    if (!open || !fileId) { setSrc(null); setDur(0); setCur(0); return undefined; }
+    // Com endereço de streaming, toca por Range (busca só o trecho ao arrastar)
+    // — não baixa o vídeo inteiro antes de abrir, que deixava o diálogo travado
+    // no "carregando". Sem ele, cai no download completo.
+    if (streamUrl) { setSrc(streamUrl); setIsVideo(true); return undefined; }
     let alive = true;
     loadMedia(fileId)
       .then((m) => { if (alive && m) { setSrc(m.url); setIsVideo((m.type || "").startsWith("video")); } })
       .catch(() => {});
     return () => { alive = false; };
-  }, [open, fileId]);
+  }, [open, fileId, streamUrl]);
 
   const fmt = (s) => {
     if (!Number.isFinite(s)) return "0:00";
@@ -751,6 +764,7 @@ function PieceCard({ item, onChanged, flash }) {
           <GalleryPicker clientId={item.client_id} open={slidePicker} onClose={() => setSlidePicker(false)}
             onPick={addSlide} titulo="Adicionar slide ao carrossel" />
           <VideoCoverDialog fileId={fileId} clientId={item.client_id} open={videoCover}
+            streamUrl={fileId === item.file_id ? item.media_url : null}
             onClose={() => setVideoCover(false)} onCaptured={setCover} flash={flash} />
           <PlanningRefDialog clientId={item.client_id} ym={ymOf(when || item.scheduled_at)}
             open={planRef} onClose={() => setPlanRef(false)}
