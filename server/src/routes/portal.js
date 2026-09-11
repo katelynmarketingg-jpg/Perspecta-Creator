@@ -1,13 +1,15 @@
 import { Router } from "express";
+import multer from "multer";
 import jwt from "jsonwebtoken";
-import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, unlinkSync, mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { db } from "../db.js";
 import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
-import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca } from "../storage.js";
+import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca, storageConfigured, uploadFileToR2 } from "../storage.js";
 import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 
 const router = Router();
@@ -191,6 +193,76 @@ router.post("/contracts/:id/sign", (req, res) => {
   ).run(req.client.client_id, `✍️ ${signer_name} assinou o contrato "${contract.title}".`, contract.org_id);
 
   res.json({ ok: true, signed_at: new Date().toISOString(), hash });
+});
+
+// ---------------------------------------------------------------------------
+// O CLIENTE MANDANDO MATERIAL, da área dele.
+//
+// Cai em "Originais", na pasta dele — o mesmo lugar do que ele manda pelo
+// onboarding. É a foto do dia, o vídeo que ele gravou no celular, a referência
+// que viu por aí: chega aqui em vez de se perder no WhatsApp.
+// ---------------------------------------------------------------------------
+const PASTA_CLIENTE = "Enviado pelo cliente";
+const PORTAL_TIPOS = /^(image|video)\//;
+const PORTAL_MAX_ARQUIVO = 200 * 1024 * 1024;
+const PORTAL_MAX_POR_VEZ = 10;
+
+const PORTAL_DATA_DIR = dirname(process.env.DB_PATH || "./data/agency.db");
+const PORTAL_UPLOADS = resolve(process.env.UPLOADS_DIR || join(PORTAL_DATA_DIR, "uploads"));
+mkdirSync(PORTAL_UPLOADS, { recursive: true });
+
+const envioDoCliente = multer({
+  storage: multer.diskStorage({
+    destination: PORTAL_UPLOADS,
+    filename: (_req, _f, cb) => cb(null, `${Date.now()}-${randomUUID()}`),
+  }),
+  limits: { fileSize: PORTAL_MAX_ARQUIVO, files: PORTAL_MAX_POR_VEZ },
+  fileFilter: (_req, f, cb) => cb(null, PORTAL_TIPOS.test(f.mimetype) || f.mimetype === "application/pdf"),
+});
+
+/** A pasta do cliente onde cai o que ele manda (cria na primeira vez). */
+function pastaDoCliente(clientId) {
+  const achada = db.prepare("SELECT id FROM folders WHERE client_id = ? AND name = ? AND parent_id IS NULL")
+    .get(clientId, PASTA_CLIENTE);
+  if (achada) return achada.id;
+  return db.prepare("INSERT INTO folders (name, client_id, parent_id) VALUES (?, ?, NULL)")
+    .run(PASTA_CLIENTE, clientId).lastInsertRowid;
+}
+
+// POST /api/portal/upload — o cliente acrescenta fotos e vídeos aos Originais.
+router.post("/upload", envioDoCliente.array("files", PORTAL_MAX_POR_VEZ), async (req, res) => {
+  if (!req.files?.length) {
+    return res.status(400).json({ error: "Escolha ao menos uma foto ou vídeo. (Aceitamos imagem, vídeo e PDF.)" });
+  }
+  const clientId = req.client.client_id;
+  const orgId = req.client.org_id;
+  const pasta = pastaDoCliente(clientId);
+
+  const stmt = db.prepare(
+    `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, org_id)
+     VALUES (?, ?, ?, ?, ?, ?, 'originais', ?)`
+  );
+  const criados = [];
+  for (const f of req.files) {
+    // originalname chega em latin1 no multer — normaliza para UTF-8.
+    const nome = Buffer.from(f.originalname, "latin1").toString("utf8");
+    let caminho = f.path;
+    if (storageConfigured()) {
+      try {
+        caminho = await uploadFileToR2(f.path, `uploads/${orgId}/${f.filename}`, f.mimetype);
+        try { unlinkSync(f.path); } catch { /* já está no R2 */ }
+      } catch { caminho = f.path; }   // R2 fora: guarda no disco, não perde
+    }
+    const info = stmt.run(pasta, clientId, nome, f.mimetype, f.size, caminho, orgId);
+    const linha = db.prepare("SELECT id, original_name, mime, size, created_at, stage FROM files WHERE id = ?")
+      .get(info.lastInsertRowid);
+    criados.push({ ...linha, media_url: mediaUrl(linha.id, orgId) });
+  }
+
+  const nome = db.prepare("SELECT name FROM clients WHERE id = ?").get(clientId)?.name || "O cliente";
+  notifyAgency(clientId, null, `📷 ${nome} mandou ${criados.length} arquivo(s) pela área dele.`, orgId);
+
+  res.status(201).json(criados);
 });
 
 // ---- Galeria: tudo que é do cliente, por etapa, com prazo para baixar --------

@@ -490,6 +490,16 @@ export default function Portal() {
     portalApi.get("/gallery").then((r) => setGaleria(r.data)).catch(() => {});
   }, []);
 
+  // O cliente mandando material de volta: cai em Originais, na pasta dele, e a
+  // equipe é avisada. Recarrega a galeria para ele ver o que acabou de subir.
+  const enviarArquivos = useCallback(async (arquivos) => {
+    const form = new FormData();
+    arquivos.forEach((f) => form.append("files", f));
+    await portalApi.post("/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
+    const { data } = await portalApi.get("/gallery");
+    setGaleria(data);
+  }, []);
+
   const buscarArquivo = useCallback(
     (fileId) => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
     []
@@ -769,7 +779,7 @@ export default function Portal() {
             </ToggleButtonGroup>
             {galleryMode === "pastas"
               ? <Card><CardContent><GalleryBrowser /></CardContent></Card>
-              : <Galeria dados={galeria} fetchFile={buscarArquivo} />}
+              : <Galeria dados={galeria} fetchFile={buscarArquivo} onEnviar={enviarArquivos} />}
           </>
         )}
 
