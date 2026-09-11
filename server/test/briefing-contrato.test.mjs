@@ -276,3 +276,63 @@ test("o cliente manda fotos e referências pelo link, e caem na galeria dele", a
 
   resetTemplate(org);
 });
+
+test("depois do briefing: o contrato para assinar e o acesso que o cliente cria", async () => {
+  // Cliente próprio: outros testes já criaram contrato para o principal.
+  const novo = db.prepare("INSERT INTO clients (name, status, org_id) VALUES ('Recém-chegado','active',?)")
+    .run(org).lastInsertRowid;
+  const tk = "tk-fim";
+  db.prepare("INSERT INTO briefings (org_id, client_id, token, status) VALUES (?, ?, ?, 'respondido')")
+    .run(org, novo, tk);
+
+  // Sem contrato ainda: a tela não promete o que não existe.
+  const antes = await req("GET", `/briefing/${tk}/proximos-passos`);
+  assert.equal(antes.contrato, null);
+  assert.equal(antes.tem_acesso, false);
+  assert.match(antes.portal_url, /\/portal\/login$/);
+
+  // Com contrato gerado, vem o link de assinatura.
+  db.prepare("INSERT INTO contracts (client_id, title, value, status, notes, org_id) VALUES (?, 'Prestação', 1500, 'active', 'corpo', ?)")
+    .run(novo, org);
+  const comContrato = await req("GET", `/briefing/${tk}/proximos-passos`);
+  assert.equal(comContrato.contrato.assinado, false);
+  assert.match(comContrato.contrato.url, /\/assinar\//);
+
+  // O cliente cria o próprio acesso.
+  const ruim = await req("POST", `/briefing/${tk}/acesso`, { usuario: "kn", senha: "123" });
+  assert.equal(ruim.st, 400, "nome curto e senha curta não passam");
+
+  const ok = await req("POST", `/briefing/${tk}/acesso`, { usuario: "KN Advocacia!", senha: "minhasenha1" });
+  assert.equal(ok.st, 400, "nome com espaço e símbolo não passa");
+
+  const criado = await req("POST", `/briefing/${tk}/acesso`, { usuario: "knadvocacia", senha: "minhasenha1" });
+  assert.equal(criado.st, 201);
+  assert.equal(criado.usuario, "knadvocacia");
+
+  // Ficou salvo no cadastro, com a senha cifrada, e a equipe foi avisada.
+  const c = db.prepare("SELECT portal_username, portal_password_hash FROM clients WHERE id = ?").get(novo);
+  assert.equal(c.portal_username, "knadvocacia");
+  assert.ok(c.portal_password_hash && !c.portal_password_hash.includes("minhasenha1"),
+    "a senha não pode ficar legível");
+  const aviso = db.prepare("SELECT message FROM notifications WHERE org_id = ? ORDER BY id DESC LIMIT 1").get(org);
+  assert.match(aviso.message, /criou o acesso/);
+
+  // E a senha criada funciona mesmo para entrar.
+  const { verifyPassword } = await import("../src/auth.js");
+  assert.equal(verifyPassword("minhasenha1", c.portal_password_hash), true);
+
+  // Um link antigo NÃO pode trocar a senha de quem já tem acesso.
+  const denovo = await req("POST", `/briefing/${tk}/acesso`, { usuario: "outro", senha: "outrasenha1" });
+  assert.equal(denovo.st, 409);
+  assert.equal(db.prepare("SELECT portal_username FROM clients WHERE id = ?").get(novo).portal_username, "knadvocacia");
+
+  assert.equal((await req("GET", `/briefing/${tk}/proximos-passos`)).tem_acesso, true);
+});
+
+test("nome de acesso já usado por outro cliente é recusado", async () => {
+  const vizinho = db.prepare("INSERT INTO clients (name, status, org_id) VALUES ('Vizinho','active',?)").run(org).lastInsertRowid;
+  db.prepare("INSERT INTO briefings (org_id, client_id, token) VALUES (?, ?, 'tk-viz')").run(org, vizinho);
+  const r = await req("POST", "/briefing/tk-viz/acesso", { usuario: "knadvocacia", senha: "minhasenha1" });
+  assert.equal(r.st, 409);
+  assert.match(r.error, /já está em uso/);
+});

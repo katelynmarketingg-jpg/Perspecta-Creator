@@ -5,6 +5,8 @@ import { unlinkSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { db } from "../db.js";
 import { getTemplate, perguntasDe, progresso, faltando } from "../briefing.js";
+import { hashPassword, publicBaseUrl } from "../auth.js";
+import { makeSignToken } from "./sign.js";
 import { storageConfigured, uploadFileToR2 } from "../storage.js";
 
 // Mesma pasta do upload da equipe (disco persistente no Render).
@@ -164,6 +166,83 @@ briefingPublicRouter.post("/:token/arquivos", envio.array("files", MAX_POR_VEZ),
     db.prepare("UPDATE briefings SET answers = ? WHERE id = ?").run(JSON.stringify(respostas), b.id);
   }
   res.status(201).json(criados);
+});
+
+// ---------------------------------------------------------------------------
+// DEPOIS DO BRIEFING: o contrato para assinar e o acesso do cliente.
+//
+// A pessoa acabou de contar tudo sobre o negócio dela; é o melhor momento para
+// resolver o resto de uma vez, sem trocar mais mensagens.
+// ---------------------------------------------------------------------------
+
+// GET /api/briefing/:token/proximos-passos — o que falta para ela fazer.
+briefingPublicRouter.get("/:token/proximos-passos", (req, res) => {
+  const b = carrega(req.params.token);
+  if (!b) return res.status(404).json({ error: "Este link não existe mais." });
+
+  const cliente = db.prepare("SELECT name, portal_username, portal_password_hash FROM clients WHERE id = ?")
+    .get(b.client_id);
+  const org = db.prepare("SELECT name FROM organizations WHERE id = ?").get(b.org_id);
+
+  // O contrato mais recente que ainda espera assinatura.
+  const contrato = db.prepare(
+    `SELECT id, title, signed_at FROM contracts
+      WHERE client_id = ? AND org_id = ? ORDER BY signed_at IS NULL DESC, id DESC LIMIT 1`
+  ).get(b.client_id, b.org_id);
+
+  res.json({
+    client_name: cliente?.name || "",
+    agency_name: org?.name || "",
+    tem_acesso: Boolean(cliente?.portal_password_hash),
+    usuario: cliente?.portal_username || "",
+    portal_url: `${publicBaseUrl(req)}/portal/login`,
+    contrato: contrato
+      ? {
+          titulo: contrato.title,
+          assinado: Boolean(contrato.signed_at),
+          url: contrato.signed_at ? null : `${publicBaseUrl(req)}/assinar/${makeSignToken(contrato.id)}`,
+        }
+      : null,
+  });
+});
+
+// POST /api/briefing/:token/acesso — o cliente cria o próprio acesso.
+// Quem tem o link do briefing é quem a agência convidou, então é ele quem
+// escolhe o nome de acesso e a senha. Se JÁ existe acesso, não mexe: um link
+// antigo não pode servir para trocar a senha de ninguém.
+briefingPublicRouter.post("/:token/acesso", (req, res) => {
+  const b = carrega(req.params.token);
+  if (!b) return res.status(404).json({ error: "Este link não existe mais." });
+
+  const cliente = db.prepare("SELECT * FROM clients WHERE id = ?").get(b.client_id);
+  if (cliente?.portal_password_hash) {
+    return res.status(409).json({ error: "Você já tem acesso criado. Entre com o que você escolheu antes." });
+  }
+
+  const usuario = String(req.body?.usuario || "").trim().toLowerCase();
+  const senha = String(req.body?.senha || "");
+  if (usuario.length < 3) return res.status(400).json({ error: "O nome de acesso precisa de pelo menos 3 letras." });
+  if (!/^[a-z0-9._-]+$/.test(usuario)) {
+    return res.status(400).json({ error: "Use só letras, números, ponto, hífen ou _ no nome de acesso." });
+  }
+  if (senha.length < 6) return res.status(400).json({ error: "A senha precisa de pelo menos 6 caracteres." });
+
+  const ocupado = db.prepare(
+    "SELECT id FROM clients WHERE org_id = ? AND lower(portal_username) = ? AND id <> ?"
+  ).get(b.org_id, usuario, b.client_id);
+  if (ocupado) return res.status(409).json({ error: "Esse nome de acesso já está em uso. Escolha outro." });
+
+  db.prepare("UPDATE clients SET portal_username = ?, portal_password_hash = ? WHERE id = ?")
+    .run(usuario, hashPassword(senha), b.client_id);
+
+  // A equipe fica sabendo, e o nome de acesso fica no cadastro do cliente.
+  try {
+    db.prepare(
+      "INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, NULL, ?, ?)"
+    ).run(b.client_id, `🔑 ${cliente?.name || "Um cliente"} criou o acesso dele: "${usuario}".`, b.org_id);
+  } catch { /* o aviso não pode derrubar a criação */ }
+
+  res.status(201).json({ ok: true, usuario, portal_url: `${publicBaseUrl(req)}/portal/login` });
 });
 
 // POST /api/briefing/:token/enviar — o cliente diz que terminou.
