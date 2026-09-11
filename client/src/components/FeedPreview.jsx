@@ -8,12 +8,13 @@ import { CONTENT_TYPES } from "../utils.js";
 // Miniatura da grade. Recebe o fetcher pronto para servir tanto a agência
 // quanto o portal (cada um tem o seu token).
 //
-// Ordem de desenho:
-//  1. a miniatura que veio junto do post (leve, não baixa nada);
-//  2. senão, baixa a arte e desenha — VÍDEO com <video>, porque <img> não toca
-//     vídeo, e FOTO com <img>.
-// O tipo vem do blob (o servidor manda o tipo certo); se o blob vier sem tipo,
-// usamos o mime do post como reserva.
+// QUALIDADE: cada quadro é 1080x1440 (o retrato do Instagram), e é por ele que
+// o cliente julga o trabalho — então a miniatura leve serve só de rascunho
+// enquanto a ARTE DE VERDADE carrega por cima. Antes a grade parava na
+// miniatura e o texto das artes saía embolado.
+//
+// VÍDEO não é baixado inteiro: o <video> com preload="metadata" puxa só o
+// começo do arquivo e desenha o 1º quadro.
 function Celula({ post, fetchFile, onClick }) {
   const [src, setSrc] = useState(null);
   const [tipo, setTipo] = useState(post.mime || "");
@@ -21,10 +22,13 @@ function Celula({ post, fetchFile, onClick }) {
 
   const fileId = post.file_id;
   const thumb = post.thumb || null;
+  const ehVideo = ["reel", "stories"].includes(post.content_type) || /^video\//.test(post.mime || tipo);
 
   useEffect(() => {
     setSrc(null); setErro(false); setTipo(post.mime || "");
-    if (!fileId || thumb) return undefined;
+    if (!fileId) return undefined;
+    // Vídeo com endereço próprio toca direto, sem baixar nada por aqui.
+    if (ehVideo && post.media_url) return undefined;
     let url;
     let vivo = true;
     fetchFile(fileId)
@@ -34,25 +38,32 @@ function Celula({ post, fetchFile, onClick }) {
         if (blob.type) setTipo(blob.type);
         setSrc(url);
       })
-      .catch(() => { if (vivo) setErro(true); });
+      // Sem a arte inteira, a miniatura (se houver) continua na tela.
+      .catch(() => { if (vivo && !thumb) setErro(true); });
     return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
-  }, [fileId, thumb, post.mime, fetchFile]);
+  }, [fileId, thumb, post.mime, post.media_url, ehVideo, fetchFile]);
 
-  const ehVideo = ["reel", "stories"].includes(post.content_type) || /^video\//.test(tipo);
   const aprovado = post.approval_status === "approved" || post.stage_done;
   const midiaSx = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
+  const porCima = { ...midiaSx, position: "absolute", inset: 0 };
 
-  // A arte em si: miniatura > vídeo > foto > aviso.
+  // A arte em si. A miniatura entra primeiro (instantânea) e a arte cheia
+  // desenha por cima quando chega — a troca não pisca.
   let arte;
-  if (thumb) {
-    arte = <Box component="img" src={thumb} alt={post.title} sx={midiaSx} />;
-  } else if (src && /^video\//.test(tipo)) {
-    // preload="metadata" + #t=0.1 = mostra o 1º quadro sem tocar o vídeo.
-    arte = <Box component="video" src={`${src}#t=0.1`} preload="metadata" muted playsInline
-      sx={{ ...midiaSx, bgcolor: "#000" }} onError={() => setErro(true)} />;
-  } else if (src) {
-    arte = <Box component="img" src={src} alt={post.title} sx={midiaSx}
-      onError={() => setErro(true)} />;
+  if (ehVideo && post.media_url) {
+    arte = <Box component="video" src={`${post.media_url}#t=0.1`} preload="metadata" muted playsInline
+      poster={thumb || undefined} sx={{ ...midiaSx, bgcolor: "#000" }} onError={() => setErro(true)} />;
+  } else if (thumb || src) {
+    arte = (
+      <>
+        {thumb && <Box component="img" src={thumb} alt="" aria-hidden sx={midiaSx} />}
+        {src && (/^video\//.test(tipo)
+          ? <Box component="video" src={`${src}#t=0.1`} preload="metadata" muted playsInline
+              sx={{ ...(thumb ? porCima : midiaSx), bgcolor: "#000" }} onError={() => setErro(true)} />
+          : <Box component="img" src={src} alt={post.title} sx={thumb ? porCima : midiaSx}
+              onError={() => setErro(true)} />)}
+      </>
+    );
   } else {
     arte = (
       <Stack alignItems="center" spacing={0.5} sx={{ color: erro ? "error.main" : "text.disabled", p: 1 }}>

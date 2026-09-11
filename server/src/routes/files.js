@@ -208,7 +208,7 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
   );
   // O navegador manda uma miniatura por arquivo, na mesma ordem. Limite
   // defensivo: miniatura é pequena; qualquer coisa maior é ignorada.
-  const LIMITE_THUMB = 300 * 1024;
+  const LIMITE_THUMB = 400 * 1024;
   let thumbs = [];
   try {
     const bruto = req.body?.thumbs;

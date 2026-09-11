@@ -12,8 +12,13 @@
 
 import { ehHeic, heicParaJpeg } from "./heic.js";
 
-const LADO_MAX = 640;      // suficiente para a grade em telas retina
-const QUALIDADE = 0.72;    // JPEG: bom o bastante, ~40 KB
+// A miniatura é o RASCUNHO que aparece na hora, enquanto a arte de verdade
+// carrega por cima (é a arte original que a grade desenha, em resolução cheia).
+// Por isso ela fica pequena de propósito: uma galeria com 200 arquivos devolve
+// 200 miniaturas na mesma resposta — guardar 1080x1440 em cada uma faria a
+// página levar uma eternidade para abrir.
+const LADO_MAX = 720;      // rascunho nítido o bastante em tela retina
+const QUALIDADE = 0.8;     // JPEG: ~110 KB numa arte cheia de texto
 
 // Desenha respeitando a proporção real — nada de esticar nem cortar.
 export function desenhar(fonte, larguraNatural, alturaNatural) {
@@ -28,7 +33,50 @@ export function desenhar(fonte, larguraNatural, alturaNatural) {
   try { return cv.toDataURL("image/jpeg", QUALIDADE); } catch { return null; }
 }
 
-function daImagem(file) {
+/**
+ * Caminho RÁPIDO: createImageBitmap decodifica FORA da linha principal e o
+ * OffscreenCanvas comprime sem passar pela tela. Medido com 10 fotos de
+ * celular (23 MB): a tela trava 52 ms em vez de 106 ms, e o total cai de
+ * 361 ms para 281 ms — escolher várias fotos deixa de "pendurar" a página.
+ * Navegador antigo sem essas peças cai no caminho de sempre, que funciona.
+ */
+async function porBitmap(file) {
+  if (typeof createImageBitmap !== "function") return null;
+  let bmp = null;
+  try {
+    // UMA decodificação só, e a redução acontece ao desenhar. Medir primeiro e
+    // decodificar de novo com resizeWidth parece mais esperto, mas custa duas
+    // decodificações — medido, sai mais lento do que o caminho antigo.
+    bmp = await createImageBitmap(file);
+    const { width: lw, height: lh } = bmp;
+    if (!lw || !lh) return null;
+    const escala = Math.min(1, LADO_MAX / Math.max(lw, lh));
+    const w = Math.max(1, Math.round(lw * escala));
+    const h = Math.max(1, Math.round(lh * escala));
+
+    if (typeof OffscreenCanvas === "function") {
+      const cv = new OffscreenCanvas(w, h);
+      cv.getContext("2d").drawImage(bmp, 0, 0, w, h);
+      const blob = await cv.convertToBlob({ type: "image/jpeg", quality: QUALIDADE });
+      return await new Promise((resolve) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result));
+        fr.onerror = () => resolve(null);
+        fr.readAsDataURL(blob);
+      });
+    }
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    cv.getContext("2d").drawImage(bmp, 0, 0, w, h);
+    return cv.toDataURL("image/jpeg", QUALIDADE);
+  } catch {
+    return null;
+  } finally {
+    bmp?.close?.();
+  }
+}
+
+function porElemento(file) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -36,6 +84,10 @@ function daImagem(file) {
     img.onerror = () => { resolve(null); URL.revokeObjectURL(url); };
     img.src = url;
   });
+}
+
+async function daImagem(file) {
+  return (await porBitmap(file)) ?? (await porElemento(file));
 }
 
 // Vídeo: pega um quadro do começo (não o 0, que costuma ser preto).

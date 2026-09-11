@@ -437,7 +437,6 @@ function PieceCard({ item, onChanged, flash }) {
   }
   const addSlide = (id) => { if (id && !slides.includes(id)) saveSlides([...slides, id]); };
   const removeSlide = (id) => saveSlides(slides.filter((s) => s !== id));
-  const makeInitial = (id) => saveSlides([id, ...slides.filter((s) => s !== id)]);
   // Mover uma slide de lugar. Num carrossel a ordem É o post: a 1ª é a capa que
   // aparece no perfil, e as outras seguem na ordem em que a pessoa desliza.
   const moveSlide = (i, d) => {
@@ -538,8 +537,8 @@ function PieceCard({ item, onChanged, flash }) {
             <Box>
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
                 Slides do carrossel, na ordem em que o cliente vai deslizar.
-                A <b>1ª é a capa</b> — é ela que aparece no perfil e na prévia do feed.
-                Use as setas para mudar a ordem, ou <b>“usar de capa”</b> para trazer uma slide para a frente.
+                A <b>capa é sempre a 1ª</b> — é ela que aparece no perfil e na prévia do feed.
+                Para trocar a capa, use as setas e ponha outra slide na frente.
               </Typography>
               <Stack direction="row" spacing={1.25} sx={{ overflowX: "auto", pb: 0.5 }}>
                 {slides.map((id, i) => (
@@ -568,12 +567,6 @@ function PieceCard({ item, onChanged, flash }) {
                         <ChevronRightIcon sx={{ fontSize: 16 }} />
                       </IconButton>
                     </Stack>
-                    {i !== 0 && (
-                      <Button size="small" fullWidth onClick={() => makeInitial(id)}
-                        sx={{ mt: -0.25, fontSize: 10, lineHeight: 1.3, minWidth: 0, px: 0.25, py: 0.15 }}>
-                        usar de capa
-                      </Button>
-                    )}
                   </Box>
                 ))}
                 {!slides.length && <Typography variant="caption" color="text.disabled" sx={{ py: 2 }}>Nenhuma slide ainda — adicione abaixo.</Typography>}
@@ -750,6 +743,52 @@ function ListView({ items, onSelect, selectMode, checked, onToggle }) {
 }
 
 // Visão em calendário: grade do mês com miniaturas.
+// ---------------------------------------------------------------------------
+// Separado POR MÊS. Filtrando por empresa, a lista vira o ano inteiro de
+// conteúdo dela — sem as divisórias de mês não dá para achar nada.
+// ---------------------------------------------------------------------------
+function agrupaPorMes(itens) {
+  const grupos = new Map();
+  const semData = [];
+  for (const it of itens) {
+    if (!it.scheduled_at) { semData.push(it); continue; }
+    const d = new Date(it.scheduled_at.replace(" ", "T"));
+    if (Number.isNaN(d.getTime())) { semData.push(it); continue; }
+    const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (!grupos.has(chave)) {
+      grupos.set(chave, { rotulo: `${MONTHS[d.getMonth()]} de ${d.getFullYear()}`, itens: [] });
+    }
+    grupos.get(chave).itens.push(it);
+  }
+  const ordenados = [...grupos.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, g]) => g);
+  // Sem data fica por último: é o que ainda falta resolver, não o que vem antes.
+  if (semData.length) ordenados.push({ rotulo: "Sem data marcada", itens: semData, semData: true });
+  return ordenados;
+}
+
+const GRADE = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" };
+
+/** Desenha os itens em blocos de mês. `children` é como cada item vira cartão. */
+function PorMes({ itens, children }) {
+  const grupos = agrupaPorMes(itens);
+  if (grupos.length <= 1) return <Box sx={GRADE}>{itens.map(children)}</Box>;
+  return (
+    <Stack spacing={3}>
+      {grupos.map((g) => (
+        <Box key={g.rotulo}>
+          <Divider textAlign="left" sx={{ mb: 1.5 }}>
+            <Typography variant="caption" sx={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: .5 }}
+              color={g.semData ? "error.main" : "primary.main"}>
+              {g.rotulo} · {g.itens.length}
+            </Typography>
+          </Divider>
+          <Box sx={GRADE}>{g.itens.map(children)}</Box>
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
 function MonthGrid({ items, onSelect }) {
   const [cursor, setCursor] = useState(() => new Date());
   const byDay = useMemo(() => {
@@ -958,6 +997,7 @@ export default function Distribution() {
   const [sendingBulk, setSendingBulk] = useState(false);
   const [approved, setApproved] = useState([]); // aprovados aguardando programação
   const [programmed, setProgrammed] = useState([]); // já programados
+  const [waiting, setWaiting] = useState([]);   // enviados, esperando o cliente aprovar
   const [postFilter, setPostFilter] = useState("para_aprovar"); // para_aprovar | aprovados | programados
 
   const flash = (texto, tipo = "success") => { setMsg({ texto, tipo }); setTimeout(() => setMsg(null), 4000); };
@@ -973,8 +1013,8 @@ export default function Distribution() {
     if (!loadedOnce.current && !opts.silent) setLoading(true);
     const params = clientFilter ? { client_id: clientFilter } : {};
     api.get("/distribution", { params })
-      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setProgrammed(r.data.programmed || []); setStage(r.data.stage); })
-      .catch(() => { setItems([]); setScheduled([]); setApproved([]); setProgrammed([]); })
+      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setProgrammed(r.data.programmed || []); setWaiting(r.data.waiting || []); setStage(r.data.stage); })
+      .catch(() => { setItems([]); setScheduled([]); setApproved([]); setProgrammed([]); setWaiting([]); })
       .finally(() => { setLoading(false); loadedOnce.current = true; });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1082,8 +1122,10 @@ export default function Distribution() {
         <>
           {/* Filtro: para aprovar (preparar/enviar) x aprovados (programar) */}
           <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
-            <ToggleButtonGroup size="small" exclusive value={postFilter} onChange={(_, v) => v && setPostFilter(v)}>
-              <ToggleButton value="para_aprovar">Distribuição{items.length ? ` (${items.length})` : ""}</ToggleButton>
+            <ToggleButtonGroup size="small" exclusive value={postFilter} onChange={(_, v) => v && setPostFilter(v)}
+              sx={{ flexWrap: "wrap" }}>
+              <ToggleButton value="para_aprovar">Preparar{items.length ? ` (${items.length})` : ""}</ToggleButton>
+              <ToggleButton value="aguardando">Para aprovação{waiting.length ? ` (${waiting.length})` : ""}</ToggleButton>
               <ToggleButton value="aprovados">Aprovados{approved.length ? ` (${approved.length})` : ""}</ToggleButton>
               <ToggleButton value="programados">Programados{programmed.length ? ` (${programmed.length})` : ""}</ToggleButton>
             </ToggleButtonGroup>
@@ -1093,8 +1135,8 @@ export default function Distribution() {
             programmed.length === 0 ? (
               <EmptyState message="Nada programado ainda. Quando você programa um conteúdo aprovado, ele aparece aqui." />
             ) : (
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
-                {programmed.map((p) => {
+              <PorMes itens={programmed}>
+                {(p) => {
                   const ct = CONTENT_TYPES[p.content_type];
                   return (
                     <Card key={p.id}>
@@ -1119,15 +1161,53 @@ export default function Distribution() {
                       </CardContent>
                     </Card>
                   );
-                })}
-              </Box>
+                }}
+              </PorMes>
+            )
+          ) : postFilter === "aguardando" ? (
+            waiting.length === 0 ? (
+              <EmptyState message="Nada esperando aprovação. O que você enviar para o cliente aparece aqui até ele responder." />
+            ) : (
+              <PorMes itens={waiting}>
+                {(w) => {
+                  const ct = CONTENT_TYPES[w.content_type];
+                  const pediuAjuste = w.approval_status === "changes_requested";
+                  return (
+                    <Card key={w.id}>
+                      <CardContent>
+                        <Stack spacing={1}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                            {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
+                            <Chip size="small" color={pediuAjuste ? "warning" : "info"}
+                              label={pediuAjuste ? "Pediu ajuste ✏️" : "Com o cliente ⏳"} />
+                          </Stack>
+                          {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
+                          <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} height={200} fit="contain" />
+                          <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
+                          <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
+                            {w.scheduled_at
+                              ? new Date(w.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              : "Sem data"}
+                          </Typography>
+                          {pediuAjuste && w.client_note && (
+                            <Alert severity="warning" sx={{ py: 0.25 }}>
+                              <Typography variant="caption">{w.client_note}</Typography>
+                            </Alert>
+                          )}
+                          <Button size="small" variant="outlined" onClick={() => setSelected(w)}>Abrir</Button>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  );
+                }}
+              </PorMes>
             )
           ) : postFilter === "aprovados" ? (
             approved.length === 0 ? (
               <EmptyState message="Nada aprovado aguardando programação. Quando o cliente aprova, o conteúdo aparece aqui para programar." />
             ) : (
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
-                {approved.map((a) => {
+              <PorMes itens={approved}>
+                {(a) => {
                   const ct = CONTENT_TYPES[a.content_type];
                   return (
                     <Card key={a.id}>
@@ -1156,8 +1236,8 @@ export default function Distribution() {
                       </CardContent>
                     </Card>
                   );
-                })}
-              </Box>
+                }}
+              </PorMes>
             )
           ) : items.length === 0 ? (
             <EmptyState message="Nenhuma peça para preparar. Mova as tarefas prontas para a coluna 'Distribuição' no quadro de Tarefas." />
@@ -1182,8 +1262,8 @@ export default function Distribution() {
                 </>
               )}
             </Stack>
-            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
-              {items.map((it) => (
+            <PorMes itens={items}>
+              {(it) => (
                 <Box key={it.id} sx={{ position: "relative" }}>
                   {selectMode && (
                     <Checkbox
@@ -1202,8 +1282,8 @@ export default function Distribution() {
                     <PieceCard item={it} flash={flash} onChanged={load} />
                   </Box>
                 </Box>
-              ))}
-            </Box>
+              )}
+            </PorMes>
           </>
           )}
         </>

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { ensureReceiptForEntry, cancelReceiptForEntry } from "../receipts.js";
+import { sincronizaAvisoDeAberto } from "../overdue.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("financeiro"));
@@ -272,11 +273,23 @@ router.put("/:id", (req, res) => {
     console.error("[recibo] não consegui gerar o recibo do lançamento", cur.id, e.message);
   }
 
+  // O aviso "você tem X em aberto" na área do cliente sai daqui: marcou como
+  // paga, ele some na hora — antes ficava na tela mesmo depois de quitado.
+  if (merged.type === "income" && merged.client_id) {
+    try { sincronizaAvisoDeAberto(req.orgId, merged.client_id); }
+    catch (e) { console.error("[aviso] não consegui acertar o aviso de pagamento:", e.message); }
+  }
+
   res.json(db.prepare(`${SELECT} WHERE f.id = ?`).get(req.params.id));
 });
 
 router.delete("/:id", (req, res) => {
+  const cur = db.prepare("SELECT client_id, type FROM financial_entries WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
   db.prepare("DELETE FROM financial_entries WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
+  if (cur?.type === "income" && cur.client_id) {
+    try { sincronizaAvisoDeAberto(req.orgId, cur.client_id); } catch { /* o aviso não derruba a exclusão */ }
+  }
   res.json({ ok: true });
 });
 
