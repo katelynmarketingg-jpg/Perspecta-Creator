@@ -233,21 +233,31 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
 // post) e desliza em JANELAS de 1080px com a setinha — a 1ª janela são os
 // primeiros 1080px da esquerda (a capa). É recorte por CSS sobre o arquivo
 // cheio (qualidade real), sem cortar nada em disco.
-function CarrosselLargo({ fileId }) {
+function CarrosselLargo({ fileId, streamUrl = null }) {
   const [full, setFull] = useState(null);
   const [dim, setDim] = useState(null);   // { w, h, n, slideW }
   const [idx, setIdx] = useState(0);
   const [erro, setErro] = useState(false);
 
   useEffect(() => {
-    setFull(null); setDim(null); setIdx(0); setErro(false);
+    setDim(null); setIdx(0); setErro(false);
+    // Preferimos o LINK DIRETO do Cloudflare (media_url): a imagem em qualidade
+    // real carrega direto do CDN, sem baixar o arquivo pelo servidor — rápido e
+    // nítido. Sem ele, cai no download pelo servidor.
+    if (streamUrl) { setFull(streamUrl); return undefined; }
+    setFull(null);
     if (!fileId) return undefined;
     let alive = true;
-    // Só a arte em QUALIDADE REAL — nada de miniatura borrada aqui. Enquanto
-    // baixa, mostra o carregando; a janela de 1080px é recortada da arte cheia.
     loadMedia(fileId).then((m) => { if (alive && m) setFull(m.url); }).catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };
-  }, [fileId]);
+  }, [fileId, streamUrl]);
+
+  // Se o link direto falhar, tenta baixar pelo servidor antes de desistir.
+  function aoFalhar() {
+    if (streamUrl && full === streamUrl && fileId) {
+      loadMedia(fileId).then((m) => { if (m) setFull(m.url); else setErro(true); }).catch(() => setErro(true));
+    } else { setErro(true); }
+  }
 
   function medir(e) {
     const w = e.currentTarget.naturalWidth, h = e.currentTarget.naturalHeight;
@@ -274,7 +284,7 @@ function CarrosselLargo({ fileId }) {
     <Box sx={box}>
       {/* Só a arte em qualidade real; enquanto baixa, o carregando. */}
       {full
-        ? <Box component="img" src={full} alt="" onLoad={medir} onError={() => setErro(true)} sx={imgSx} />
+        ? <Box component="img" src={full} alt="" onLoad={medir} onError={aoFalhar} sx={imgSx} />
         : <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}
       {n > 1 && (
         <>
@@ -814,7 +824,8 @@ function PieceCard({ item, onChanged, flash }) {
           ) : isCarousel ? (
             // Carrossel salvo como UMA arte larga: mostra em janelas de 1080px na
             // proporção de um post e desliza a janela com a setinha.
-            <CarrosselLargo fileId={slides[0] || fileId || coverId} />
+            <CarrosselLargo fileId={slides[0] || fileId || coverId}
+              streamUrl={(slides[0] || fileId) === item.file_id ? item.media_url : null} />
           ) : (
             <Media fileId={fileId || coverId || slides[0]} capaId={coverId} natural
               streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
@@ -1515,7 +1526,7 @@ export default function Distribution() {
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
                           {p.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={p.cover_file_id || p.file_id} />
+                            ? <CarrosselLargo fileId={p.cover_file_id || p.file_id} streamUrl={p.media_url} />
                             : <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} natural
                                 streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
@@ -1553,7 +1564,7 @@ export default function Distribution() {
                           </Stack>
                           {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
                           {w.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} />
+                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} streamUrl={w.media_url} />
                             : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural
                                 streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
@@ -1592,7 +1603,7 @@ export default function Distribution() {
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
                           {a.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={a.cover_file_id || a.file_id} />
+                            ? <CarrosselLargo fileId={a.cover_file_id || a.file_id} streamUrl={a.media_url} />
                             : <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} natural
                                 streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
