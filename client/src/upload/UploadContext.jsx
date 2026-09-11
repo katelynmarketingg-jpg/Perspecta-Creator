@@ -24,7 +24,7 @@ let SEQ = 0;
 
 // Sobe UM arquivo por XHR (pra ter barra de progresso por arquivo). Resolve com
 // a resposta do servidor; rejeita com uma mensagem amigável.
-async function uploadOne(file, { clientId, folderId }, onProgress) {
+async function uploadOne(file, { clientId, folderId, stage }, onProgress) {
   // Miniatura gerada aqui mesmo, antes de subir: é ela que a grade da Galeria
   // vai mostrar, em vez de baixar o arquivo inteiro de cada item.
   const thumb = await makeThumbnail(file);
@@ -34,6 +34,10 @@ async function uploadOne(file, { clientId, folderId }, onProgress) {
     if (thumb) form.append("thumbs", JSON.stringify([thumb]));
     if (clientId) form.append("client_id", clientId);
     if (folderId) form.append("folder_id", folderId);
+    // A etapa em que o material entra (originais, editados, aprovação…). Sem
+    // ela o servidor usa "originais", que é o certo para quem está subindo
+    // material bruto — mas não para quem está mandando conteúdo pronto.
+    if (stage) form.append("stage", stage);
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/files/upload");

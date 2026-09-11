@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { authRequired, adminRequired } from "../auth.js";
 import { encrypt, decrypt } from "../crypto.js";
 import { ensureReceiptForEntry } from "../receipts.js";
+import { sincronizaAvisoDeAberto } from "../overdue.js";
 
 const router = Router();
 
@@ -62,6 +63,8 @@ billingWebhook.post("/asaas", (req, res) => {
       }
       db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)")
         .run(client.id, `💳 Pagamento confirmado no cartão (${pay.value ? "R$ " + pay.value : "assinatura"}).`, client.org_id);
+      // Pago é pago: o "você tem X em aberto" some da área dele na mesma hora.
+      try { sincronizaAvisoDeAberto(client.org_id, client.id); } catch { /* não derruba o webhook */ }
     }
   }
   res.json({ received: true });
