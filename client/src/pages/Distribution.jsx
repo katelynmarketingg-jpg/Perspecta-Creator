@@ -228,6 +228,74 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
     : <Box component="img" src={src} alt="" sx={sx} onError={() => setErro(true)} />;
 }
 
+// CARROSSEL salvo como UMA arte larga (a tira inteira: várias slides de ~1080px
+// lado a lado num só arquivo). Mostra na proporção de UMA slide (igual a um
+// post) e desliza em JANELAS de 1080px com a setinha — a 1ª janela são os
+// primeiros 1080px da esquerda (a capa). É recorte por CSS sobre o arquivo
+// cheio (qualidade real), sem cortar nada em disco.
+function CarrosselLargo({ fileId }) {
+  const [full, setFull] = useState(null);
+  const [ph, setPh] = useState(null);
+  const [dim, setDim] = useState(null);   // { w, h, n, slideW }
+  const [idx, setIdx] = useState(0);
+  const [erro, setErro] = useState(false);
+
+  useEffect(() => {
+    setFull(null); setPh(null); setDim(null); setIdx(0); setErro(false);
+    if (!fileId) return undefined;
+    let alive = true;
+    loadThumb(fileId).then((t) => { if (alive && t) setPh(t); }).catch(() => {});
+    loadMedia(fileId).then((m) => { if (alive && m) setFull(m.url); }).catch(() => { if (alive) setErro(true); });
+    return () => { alive = false; };
+  }, [fileId]);
+
+  function medir(e) {
+    const w = e.currentTarget.naturalWidth, h = e.currentTarget.naturalHeight;
+    if (!w || !h) return;
+    const n = Math.max(1, Math.round(w / 1080));   // quantas slides de ~1080px cabem
+    setDim({ w, h, n, slideW: w / n });
+  }
+
+  const n = dim?.n || 1;
+  const cur = Math.min(idx, n - 1);
+  // Caixa na proporção de UMA slide (≈ 4:5). Enquanto não mediu, usa 4:5 padrão.
+  const box = {
+    position: "relative", width: "100%", overflow: "hidden", borderRadius: 2, bgcolor: "action.hover",
+    aspectRatio: dim ? `${dim.slideW} / ${dim.h}` : "4 / 5",
+  };
+  // A arte cheia tem N slides de largura; a janela mostra uma por vez e desliza.
+  const imgSx = dim
+    ? { position: "absolute", top: 0, left: 0, height: "100%", width: `${n * 100}%`, maxWidth: "none",
+        transform: `translateX(-${cur * (100 / n)}%)`, transition: "transform .2s ease", display: "block" }
+    : { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "left center", display: "block" };
+
+  if (erro) return <Box sx={{ ...box, display: "grid", placeItems: "center", color: "error.main", fontSize: 13 }}>Arte não carregou</Box>;
+  return (
+    <Box sx={box}>
+      {/* rascunho leve enquanto a arte cheia não chega (mostra o começo da tira) */}
+      {ph && !full && <Box component="img" src={ph} alt="" aria-hidden
+        sx={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "left center" }} />}
+      {full && <Box component="img" src={full} alt="" onLoad={medir} onError={() => setErro(true)} sx={imgSx} />}
+      {!full && !ph && <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}
+      {n > 1 && (
+        <>
+          <IconButton size="small" onClick={() => setIdx((i) => (Math.min(i, n - 1) - 1 + n) % n)}
+            sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+            <ChevronLeftIcon />
+          </IconButton>
+          <IconButton size="small" onClick={() => setIdx((i) => (Math.min(i, n - 1) + 1) % n)}
+            sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+            <ChevronRightIcon />
+          </IconButton>
+          <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", px: 1, py: 0.25, borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11, fontWeight: 700 }}>
+            {cur + 1} / {n}
+          </Box>
+        </>
+      )}
+    </Box>
+  );
+}
+
 // Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
 // aba Arquivos). Mostra as pastas para entrar e os arquivos para selecionar.
 function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar da galeria de arquivos" }) {
@@ -727,25 +795,27 @@ function PieceCard({ item, onChanged, flash }) {
           {/* Arte da peça. No carrossel vira um visualizador: a 1ª slide fica na
               frente e a pessoa desliza com a setinha. Fora do carrossel, mostra
               a capa/arte escolhida. */}
-          {isCarousel && slides.length ? (
+          {isCarousel && slides.length > 1 ? (
+            // Carrossel já em slides SEPARADAS (um arquivo por slide): desliza
+            // arquivo por arquivo.
             <Box sx={{ position: "relative" }}>
               <Media fileId={slides[Math.min(viewIdx, slides.length - 1)]} natural />
-              {slides.length > 1 && (
-                <>
-                  <IconButton size="small" onClick={() => setViewIdx((i) => (i - 1 + slides.length) % slides.length)}
-                    sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
-                    <ChevronLeftIcon />
-                  </IconButton>
-                  <IconButton size="small" onClick={() => setViewIdx((i) => (i + 1) % slides.length)}
-                    sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
-                    <ChevronRightIcon />
-                  </IconButton>
-                  <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", px: 1, py: 0.25, borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11, fontWeight: 700 }}>
-                    {Math.min(viewIdx, slides.length - 1) + 1} / {slides.length}
-                  </Box>
-                </>
-              )}
+              <IconButton size="small" onClick={() => setViewIdx((i) => (i - 1 + slides.length) % slides.length)}
+                sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+                <ChevronLeftIcon />
+              </IconButton>
+              <IconButton size="small" onClick={() => setViewIdx((i) => (i + 1) % slides.length)}
+                sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+                <ChevronRightIcon />
+              </IconButton>
+              <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", px: 1, py: 0.25, borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11, fontWeight: 700 }}>
+                {Math.min(viewIdx, slides.length - 1) + 1} / {slides.length}
+              </Box>
             </Box>
+          ) : isCarousel ? (
+            // Carrossel salvo como UMA arte larga: mostra em janelas de 1080px na
+            // proporção de um post e desliza a janela com a setinha.
+            <CarrosselLargo fileId={slides[0] || fileId || coverId} />
           ) : (
             <Media fileId={fileId || coverId || slides[0]} capaId={coverId} natural
               streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
@@ -1235,29 +1305,44 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
       </Typography>
       <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
-          {order.map((p, i) => (
-            <Box key={p.id} draggable
-              onDragStart={() => { dragIndex.current = i; movedRef.current = false; setDragId(p.id); }}
-              onDragEnter={() => onEnter(i)}
-              onDragOver={(e) => e.preventDefault()}
-              onDragEnd={fim}
-              onDrop={(e) => { e.preventDefault(); fim(); }}
-              onClick={() => onSelect(p)}
-              sx={{
-                position: "relative", aspectRatio: "1080 / 1440", cursor: "grab", bgcolor: "action.hover", overflow: "hidden",
-                opacity: dragId === p.id ? 0.35 : 1, transition: "opacity .12s ease",
-                outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
-              }}>
-              <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
-                comecoDaTira={p.content_type === "carrossel"} />
-              <Box sx={{
-                position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
-                bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
-              }}>
-                {p.scheduled_at ? dtISO(p.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "sem data"}
+          {(() => {
+            // Igual ao perfil real (e à Área do Cliente): a folga (quando o total
+            // não fecha múltiplo de 3) sobra EM CIMA, à direita do mais recente —
+            // as linhas de baixo ficam completas. O `i` do arrasto continua sendo
+            // o índice na ordem salva, então as células vazias não atrapalham.
+            const resto = order.length % 3;
+            const folga = resto === 0 ? 0 : 3 - resto;
+            const celula = (p, i) => (
+              <Box key={p.id} draggable
+                onDragStart={() => { dragIndex.current = i; movedRef.current = false; setDragId(p.id); }}
+                onDragEnter={() => onEnter(i)}
+                onDragOver={(e) => e.preventDefault()}
+                onDragEnd={fim}
+                onDrop={(e) => { e.preventDefault(); fim(); }}
+                onClick={() => onSelect(p)}
+                sx={{
+                  position: "relative", aspectRatio: "1080 / 1440", cursor: "grab", bgcolor: "action.hover", overflow: "hidden",
+                  opacity: dragId === p.id ? 0.35 : 1, transition: "opacity .12s ease",
+                  outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
+                }}>
+                <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
+                  comecoDaTira={p.content_type === "carrossel"} />
+                <Box sx={{
+                  position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
+                  bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
+                }}>
+                  {p.scheduled_at ? dtISO(p.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "sem data"}
+                </Box>
               </Box>
-            </Box>
-          ))}
+            );
+            return [
+              ...order.slice(0, resto).map((p, j) => celula(p, j)),
+              ...Array.from({ length: folga }, (_, k) => (
+                <Box key={`gap-${k}`} sx={{ aspectRatio: "1080 / 1440", bgcolor: "background.paper" }} />
+              )),
+              ...order.slice(resto).map((p, j) => celula(p, resto + j)),
+            ];
+          })()}
         </Box>
       </Box>
     </Box>
