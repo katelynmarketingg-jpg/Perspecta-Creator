@@ -184,11 +184,22 @@ function PostDialog({ post, onClose }) {
 // baixar) e tem um botão "Baixar" para a arte original.
 // Reconhece vídeo pelo tipo OU pela extensão do nome — alguns uploads (.mov do
 // iPhone) chegam sem o "video/" no tipo, e sem isso o card mostrava só a capa.
-const EXT_VIDEO = /\.(mp4|mov|webm|m4v|mkv|avi|quicktime)$/i;
+const EXT_VIDEO = /\.(mp4|mov|webm|m4v|mkv|avi|quicktime|3gp|mpe?g|ogv)$/i;
+const EXT_IMG = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|avif)$/i;
 const ehArquivoVideo = (f) => (f?.mime || "").startsWith("video/") || EXT_VIDEO.test(f?.original_name || "");
+// Tipo indefinido: mime vazio ou "octet-stream". Alguns vídeos sobem assim (sem
+// extensão no arquivo gravado), e é justamente por isso que o vídeo "sumia" da
+// aba do cliente — o filtro exigia mime image/ ou video/ e descartava esses.
+const tipoIndefinido = (f) => { const m = (f?.mime || "").toLowerCase(); return !m || m.includes("octet-stream"); };
+// É arte do post (foto/vídeo) e não um documento? Aqui sim entra na aprovação.
+const ehMidiaAprovacao = (f) =>
+  /^(image|video)\//.test(f?.mime || "") || ehArquivoVideo(f) || EXT_IMG.test(f?.original_name || "") || tipoIndefinido(f);
 
 function ApprovalMedia({ file }) {
-  const ehVideo = ehArquivoVideo(file);
+  // Vídeo quando o tipo diz vídeo OU quando é indefinido (o Reel costuma subir
+  // sem mime) — nesse caso tentamos o <video> e, se ele falhar, caímos para
+  // <img>. Assim o vídeo aparece de um jeito ou de outro.
+  const [comoVideo, setComoVideo] = useState(ehArquivoVideo(file) || tipoIndefinido(file));
   const [baixando, setBaixando] = useState(false);
   async function baixar() {
     setBaixando(true);
@@ -202,9 +213,10 @@ function ApprovalMedia({ file }) {
   }
   return (
     <Box>
-      {ehVideo ? (
+      {comoVideo ? (
         <Box component="video" src={file.media_url} poster={file.thumb || undefined}
           controls playsInline preload="metadata"
+          onError={() => setComoVideo(false)}
           sx={{ width: "100%", maxHeight: 520, borderRadius: 2, bgcolor: "#000", display: "block" }} />
       ) : (
         <Box component="img" src={file.media_url} alt={file.original_name}
@@ -247,8 +259,9 @@ function ApprovalCard({ post, onDone }) {
   }
 
   // Mostra fotos E vídeos (o Reel é vídeo — antes ficava de fora e o cliente
-  // via só a capa, sem conseguir assistir).
-  const midias = attachments.filter((a) => /^(image|video)\//.test(a.mime || "") || ehArquivoVideo(a));
+  // via só a capa, sem conseguir assistir). Inclui também os anexos de tipo
+  // indefinido (vídeos que subiram sem mime), que antes eram descartados.
+  const midias = attachments.filter(ehMidiaAprovacao);
 
   return (
     <Card>
