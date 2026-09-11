@@ -139,24 +139,24 @@ function Celula({ post, fetchFile, onClick }) {
  * O Instagram põe o mais recente primeiro, então a ordem é decrescente.
  */
 export default function FeedPreview({ posts, fetchFile, onSelect, titulo = "Prévia do feed" }) {
-  if (!posts?.length) {
+  // O perfil mostra o que EXISTE. Peça sem arte não é um quadrado cinza no
+  // Instagram — ela simplesmente ainda não está lá. Quadro vazio no meio da
+  // grade dava a impressão de um perfil furado.
+  const comArte = (posts || []).filter((p) => p.file_id);
+
+  if (!comArte.length) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-        Nada programado ainda. Assim que os posts tiverem data, a prévia do perfil aparece aqui.
+        Nada por aqui ainda. Assim que os conteúdos tiverem arte, a prévia do perfil aparece.
       </Typography>
     );
   }
-
-  const semArte = posts.filter((p) => !p.file_id).length;
 
   return (
     <Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", gap: 1 }}>
         <Typography variant="subtitle2">{titulo}</Typography>
-        <Chip size="small" variant="outlined" label={`${posts.length} publicações`} />
-        {semArte > 0 && (
-          <Chip size="small" color="warning" variant="outlined" label={`${semArte} sem arte`} />
-        )}
+        <Chip size="small" variant="outlined" label={`${comArte.length} publicações`} />
       </Stack>
 
       {/* Moldura de celular para dar a leitura certa da grade */}
@@ -165,14 +165,14 @@ export default function FeedPreview({ posts, fetchFile, onSelect, titulo = "Pré
         borderRadius: 3, overflow: "hidden", bgcolor: "background.paper",
       }}>
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
-          {posts.map((p) => (
+          {comArte.map((p) => (
             <Celula key={p.id} post={p} fetchFile={fetchFile} onClick={onSelect} />
           ))}
         </Box>
       </Box>
 
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "center", mt: 1.5 }}>
-        Ordem do mais recente para o mais antigo, como aparece no perfil.
+        O mais recente em cima à esquerda, como aparece no perfil.
       </Typography>
     </Box>
   );
