@@ -1,29 +1,15 @@
 // O briefing preenche o CADASTRO (razão social, CNPJ, quem assina, dia do
 // pagamento) — e é isso que faz o contrato sair pronto para assinar.
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import http from "node:http";
 
 const dir = mkdtempSync(join(tmpdir(), "pc-brf-"));
 process.env.DB_PATH = join(dir, "test.db");
 process.env.JWT_SECRET = "test-secret";
 
-// "Receita Federal" de mentira, para o teste não depender da internet.
-const receita = http.createServer((req, res) => {
-  res.setHeader("content-type", "application/json");
-  if (!req.url.endsWith("19131243000197")) { res.statusCode = 404; return res.end("{}"); }
-  res.end(JSON.stringify({
-    razao_social: "KN ADVOCACIA CRIMINAL LTDA", logradouro: "Rua dos Andradas", numero: "1234",
-    bairro: "Centro", municipio: "Porto Alegre", uf: "RS", cep: "90020008",
-    email: "contato@kn.com.br", descricao_situacao_cadastral: "ATIVA",
-    qsa: [{ nome_socio: "KAREN NUNES", qualificacao_socio: "Sócio-Administrador" }],
-  }));
-});
-await new Promise((r) => receita.listen(0, r));
-process.env.CNPJ_API_URL = `http://127.0.0.1:${receita.address().port}/cnpj`;
 
 const { db } = await import("../src/db.js");
 const { hashPassword, JWT_SECRET } = await import("../src/auth.js");
@@ -31,7 +17,6 @@ const {
   BRIEFING, getTemplate, saveTemplate, resetTemplate, saneiaSecoes,
   respostasParaCliente, perguntasDe,
 } = await import("../src/briefing.js");
-const { cnpjValido, formataCnpj, buscaCnpj } = await import("../src/cnpj.js");
 const jwt = (await import("jsonwebtoken")).default;
 const express = (await import("express")).default;
 const briefingsRoutes = (await import("../src/routes/briefings.js")).default;
@@ -54,41 +39,13 @@ await new Promise((r) => srv.once("listening", r));
 const B = `http://127.0.0.1:${srv.address().port}/api`;
 const H = { "content-type": "application/json", authorization: `Bearer ${jwt.sign({ id: uid }, JWT_SECRET)}` };
 const J = { "content-type": "application/json" };
+after(() => srv.close());
+
 const req = (m, u, corpo, cab) => fetch(B + u, {
   method: m, headers: cab || J, body: corpo ? JSON.stringify(corpo) : undefined,
 }).then(async (r) => ({ st: r.status, ...(await r.json().catch(() => ({}))) }));
 
 const criado = await req("POST", "/briefings", { client_id: cliente }, H);
-
-test("o CNPJ é conferido antes de gastar uma consulta", () => {
-  assert.equal(cnpjValido("19.131.243/0001-97"), true);
-  assert.equal(cnpjValido("11.111.111/1111-11"), false);
-  assert.equal(cnpjValido("123"), false);
-  assert.equal(formataCnpj("19131243000197"), "19.131.243/0001-97");
-});
-
-test("consulta de CNPJ traz razão social, endereço e quem assina", async () => {
-  const r = await buscaCnpj("19131243000197");
-  assert.equal(r.ok, true);
-  assert.equal(r.razao_social, "KN ADVOCACIA CRIMINAL LTDA");
-  assert.match(r.endereco, /Rua dos Andradas, 1234/);
-  assert.match(r.endereco, /Porto Alegre - RS/);
-  assert.equal(r.representante, "KAREN NUNES");
-});
-
-test("CNPJ inexistente e inválido não quebram o briefing", async () => {
-  assert.equal((await buscaCnpj("11222333000181")).ok, false);   // válido, mas não existe na base
-  const ruim = await buscaCnpj("12345");
-  assert.equal(ruim.ok, false);
-  assert.match(ruim.message, /14 números/);
-});
-
-test("a consulta pública exige um link de briefing válido", async () => {
-  const bom = await req("GET", `/briefing/${criado.token}/cnpj/19131243000197`);
-  assert.equal(bom.ok, true);
-  const ruim = await req("GET", "/briefing/link-inventado/cnpj/19131243000197");
-  assert.equal(ruim.ok, false);
-});
 
 test("o escritório edita as perguntas e o cliente passa a ver as dele", async () => {
   const minhas = [{
@@ -269,5 +226,53 @@ test("a senha do cliente vai para a Central, criptografada, e sai do briefing", 
   assert.equal(quantos, 1);
 
   resetTemplate(org);
-  srv.close(); receita.close();
+});
+
+test("o cliente manda fotos e referências pelo link, e caem na galeria dele", async () => {
+  const secoes = [{
+    id: "material", titulo: "Seu material",
+    perguntas: [{ id: "envios", tipo: "arquivos", label: "Mande fotos e referências" }],
+  }];
+  saveTemplate(org, { welcome: getTemplate(org).welcome, secoes });
+  const tk = "tk-envio";
+  const bid = db.prepare("INSERT INTO briefings (org_id, client_id, token) VALUES (?, ?, ?)")
+    .run(org, cliente, tk).lastInsertRowid;
+
+  const manda = (nome, tipo, conteudo) => {
+    const fd = new FormData();
+    fd.append("files", new Blob([conteudo], { type: tipo }), nome);
+    return fetch(`${B}/briefing/${tk}/arquivos?pergunta=envios`, { method: "POST", body: fd });
+  };
+
+  const r = await manda("foto-da-loja.png", "image/png", "conteudo-da-foto");
+  assert.equal(r.status, 201);
+
+  // Caiu na galeria do cliente, numa pasta própria.
+  const pasta = db.prepare("SELECT * FROM folders WHERE client_id = ? AND name = 'Enviado pelo cliente'").get(cliente);
+  assert.ok(pasta, "não criou a pasta do cliente");
+  const arq = db.prepare("SELECT * FROM files WHERE folder_id = ?").all(pasta.id);
+  assert.equal(arq.length, 1);
+  assert.equal(arq[0].original_name, "foto-da-loja.png");
+  assert.equal(arq[0].client_id, cliente);
+  assert.equal(arq[0].org_id, org);
+
+  // A resposta da pergunta registra o quanto veio (conta no progresso).
+  const respostas = JSON.parse(db.prepare("SELECT answers FROM briefings WHERE id = ?").get(bid).answers);
+  assert.match(respostas.envios, /1 arquivo\(s\) enviado\(s\)/);
+
+  // Tipo que não é foto, vídeo ou PDF não entra.
+  await manda("virus.exe", "application/x-msdownload", "MZ");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM files WHERE folder_id = ?").get(pasta.id).n, 1,
+    "o executável não podia ter entrado");
+
+  // Link que não existe não vira porta de upload.
+  const semLink = await fetch(`${B}/briefing/nao-existe/arquivos`, { method: "POST", body: new FormData() });
+  assert.equal(semLink.status, 404);
+
+  // E dá para ver o que já foi mandado.
+  const lista = await (await fetch(`${B}/briefing/${tk}/arquivos`)).json();
+  assert.equal(lista.length, 1);
+  assert.equal(lista[0].original_name, "foto-da-loja.png");
+
+  resetTemplate(org);
 });

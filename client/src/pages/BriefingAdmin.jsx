@@ -33,8 +33,9 @@ const TIPOS = [
   { v: "texto", label: "Resposta curta" },
   { v: "longo", label: "Resposta longa" },
   { v: "escolhas", label: "Opções para escolher" },
-  { v: "cnpj", label: "CNPJ (busca os dados sozinho)" },
+  { v: "cnpj", label: "CNPJ (com formatação)" },
   { v: "dia", label: "Dia do mês (1 a 31)" },
+  { v: "arquivos", label: "Envio de arquivos (fotos, vídeos, referências)" },
 ];
 const CAMPOS_IA = PERSONA_GRUPOS.flatMap((g) => g.campos.map((c) => ({ key: c.key, label: c.label })));
 const ESTADO = {

@@ -72,11 +72,13 @@ export default function Briefing() {
     setSalvando(false);
   }
 
-  async function irPara(n) {
+  // `manterAviso` é usado ao clicar numa pergunta que faltou: a lista some, mas
+  // o campo continua destacado na etapa de destino — senão a pessoa chega lá e
+  // não sabe qual era.
+  async function irPara(n, manterAviso = false) {
     if (passo >= 0) await guardar();
     setPasso(n);
-    setFaltando([]);
-    setErro("");
+    if (!manterAviso) { setFaltando([]); setErro(""); }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -241,22 +243,39 @@ export default function Briefing() {
           <Stack spacing={3.5}>
             {secao.perguntas.map((p) => (
               <Pergunta key={p.id} p={p} valor={respostas[p.id]} onChange={(v) => setResp(p.id, v)}
-                faltando={faltando.includes(p.id)} base={base}
-                preencher={(campos) => setRespostas((r) => {
-                  // Só preenche o que ainda está em branco: nada do que a pessoa
-                  // já escreveu é sobrescrito pela consulta.
-                  const novo = { ...r };
-                  for (const [id, v] of Object.entries(campos)) {
-                    if (v && !String(novo[id] || "").trim()) novo[id] = v;
-                  }
-                  return novo;
-                })} />
+                faltando={faltando.includes(p.id)} base={base} />
             ))}
           </Stack>
         </Box>
       </Fade>
 
-      {erro && <Alert severity="warning" sx={{ mt: 3, borderRadius: 2 }}>{erro}</Alert>}
+      {erro && (
+        <Alert severity="warning" sx={{ mt: 3, borderRadius: 2 }}>
+          {erro}
+          {/* Dizer QUAIS faltam, e levar até elas: a pessoa está na última etapa
+              e não tem como adivinhar o que ficou para trás. */}
+          {faltando.length > 0 && (
+            <Box sx={{ mt: 1 }}>
+              {faltando.map((id) => {
+                const i = dados.secoes.findIndex((sec) => sec.perguntas.some((q) => q.id === id));
+                const q = i >= 0 && dados.secoes[i].perguntas.find((x) => x.id === id);
+                if (!q) return null;
+                return (
+                  <Box key={id} component="button" type="button" onClick={() => irPara(i, true)}
+                    sx={{
+                      display: "block", width: "100%", textAlign: "left", border: 0, p: 0, mt: 0.4,
+                      bgcolor: "transparent", cursor: "pointer", font: "inherit", fontSize: 13,
+                      color: "inherit", opacity: 0.9, "&:hover": { textDecoration: "underline" },
+                    }}>
+                    • {q.label}
+                    <Box component="span" sx={{ opacity: 0.65 }}> — etapa {i + 1}</Box>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+        </Alert>
+      )}
 
       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 5, mb: 8 }}>
         <Button startIcon={<ArrowBackRoundedIcon />} disabled={salvando} color="inherit"
@@ -299,9 +318,10 @@ function Aviso({ icone, titulo, texto }) {
   );
 }
 
-function Pergunta({ p, valor, onChange, faltando, base, preencher }) {
-  if (p.tipo === "cnpj") return <PerguntaCnpj p={p} valor={valor} onChange={onChange} faltando={faltando} base={base} preencher={preencher} />;
+function Pergunta({ p, valor, onChange, faltando, base }) {
+  if (p.tipo === "cnpj") return <PerguntaCnpj p={p} valor={valor} onChange={onChange} faltando={faltando} />;
   if (p.tipo === "dia") return <PerguntaDia p={p} valor={valor} onChange={onChange} faltando={faltando} />;
+  if (p.tipo === "arquivos") return <PerguntaArquivos p={p} onChange={onChange} base={base} />;
   if (p.tipo === "escolhas") {
     const marcadas = String(valor || "").split(",").map((s) => s.trim()).filter(Boolean);
     const alterna = (o) => {
@@ -348,62 +368,107 @@ function troca(texto, dados) {
     .replaceAll("{cliente}", dados.client_name || "");
 }
 
-// CNPJ: a pessoa digita e o resto vem sozinho da Receita Federal. Se a consulta
-// falhar, ela segue preenchendo à mão — nada trava.
-function PerguntaCnpj({ p, valor, onChange, faltando, base, preencher }) {
-  const [buscando, setBuscando] = useState(false);
-  const [achou, setAchou] = useState(null);
-  const [erro, setErro] = useState("");
-
-  const digitos = String(valor || "").replace(/\D/g, "");
+// CNPJ com máscara: vai formatando enquanto a pessoa digita, para o número
+// chegar bonito no contrato.
+function PerguntaCnpj({ p, valor, onChange, faltando }) {
   const formata = (v) => {
     const d = String(v).replace(/\D/g, "").slice(0, 14);
     return d.replace(/^(\d{2})(\d)/, "$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
       .replace(/\.(\d{3})(\d)/, ".$1/$2").replace(/(\d{4})(\d)/, "$1-$2");
   };
+  return (
+    <Box>
+      <Rotulo p={p} faltando={faltando} />
+      <TextField fullWidth value={formata(valor || "")} error={faltando}
+        onChange={(e) => onChange(formata(e.target.value))}
+        placeholder="00.000.000/0000-00"
+        inputProps={{ inputMode: "numeric" }}
+        sx={{ mt: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 2, fontSize: 16 } }} />
+    </Box>
+  );
+}
 
-  async function buscar() {
-    setBuscando(true); setErro(""); setAchou(null);
+// Envio de material: o cliente manda fotos, vídeos e referências de dentro do
+// briefing, e tudo cai na galeria dele com a agência. Sem login, sem e-mail,
+// sem "me manda por WhatsApp".
+function PerguntaArquivos({ p, onChange, base }) {
+  const [enviados, setEnviados] = useState([]);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    fetch(`${base}/arquivos`).then((r) => r.json())
+      .then((l) => { if (Array.isArray(l)) setEnviados(l); }).catch(() => {});
+  }, [base]);
+
+  async function mandar(lista) {
+    const arquivos = Array.from(lista || []);
+    if (!arquivos.length) return;
+    setEnviando(true); setErro("");
     try {
-      const r = await fetch(`${base}/cnpj/${digitos}`);
-      const d = await r.json();
-      if (!d.ok) { setErro(d.message || "Não consegui buscar."); return; }
-      setAchou(d);
-      preencher({
-        nome: d.nome_fantasia || d.razao_social,
-        razao_social: d.razao_social,
-        endereco: d.endereco,
-        rep_nome: d.representante,
-        email_nota: d.email,
-      });
-    } catch { setErro("Não consegui falar com a Receita agora. Pode preencher à mão."); }
-    finally { setBuscando(false); }
+      // De 10 em 10, que é o teto por vez do servidor.
+      for (let i = 0; i < arquivos.length; i += 10) {
+        const fd = new FormData();
+        arquivos.slice(i, i + 10).forEach((f) => fd.append("files", f));
+        const r = await fetch(`${base}/arquivos?pergunta=${encodeURIComponent(p.id)}`, { method: "POST", body: fd });
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.error || "Não consegui enviar.");
+        }
+      }
+      const l = await (await fetch(`${base}/arquivos`)).json();
+      setEnviados(l);
+      onChange(`${l.length} arquivo(s) enviado(s)`);
+    } catch (e) { setErro(e.message); }
+    finally { setEnviando(false); }
   }
 
   return (
     <Box>
-      <Rotulo p={p} faltando={faltando} />
-      <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} alignItems="flex-start">
-        <TextField fullWidth value={formata(valor || "")} error={faltando}
-          onChange={(e) => onChange(formata(e.target.value))}
-          placeholder="00.000.000/0000-00"
-          inputProps={{ inputMode: "numeric" }}
-          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, fontSize: 16 } }} />
-        <Button variant="contained" onClick={buscar} disabled={digitos.length !== 14 || buscando}
-          sx={{ height: 56, px: 2.5, borderRadius: 2, flexShrink: 0 }}>
-          {buscando ? "Buscando…" : "Buscar"}
+      <Rotulo p={p} faltando={false} />
+      <Box
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); mandar(e.dataTransfer.files); }}
+        sx={{
+          mt: 1.5, p: 3, borderRadius: 2.5, border: "2px dashed", borderColor: "divider",
+          textAlign: "center", bgcolor: "action.hover",
+        }}
+      >
+        <Typography sx={{ fontSize: 15, mb: 1.5 }}>
+          Arraste os arquivos aqui, ou:
+        </Typography>
+        <Button variant="contained" component="label" disabled={enviando}
+          sx={{ px: 3, py: 1.2, borderRadius: 2, fontWeight: 700 }}>
+          {enviando ? "Enviando…" : "Escolher do meu aparelho"}
+          <input hidden type="file" multiple accept="image/*,video/*,application/pdf"
+            onChange={(e) => { mandar(e.target.files); e.target.value = ""; }} />
         </Button>
-      </Stack>
-      {achou && (
-        <Alert severity="success" sx={{ mt: 1.5, borderRadius: 2 }}>
-          <b>{achou.razao_social}</b>
-          {achou.situacao ? ` · ${achou.situacao}` : ""}
-          <Typography variant="caption" sx={{ display: "block", mt: 0.5 }}>
-            Preenchi o que consegui abaixo — confira e ajuste se precisar.
-          </Typography>
-        </Alert>
-      )}
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+          Fotos, vídeos e PDF — até 200 MB cada. Pode voltar depois e mandar mais.
+        </Typography>
+      </Box>
+
       {erro && <Alert severity="warning" sx={{ mt: 1.5, borderRadius: 2 }}>{erro}</Alert>}
+
+      {enviados.length > 0 && (
+        <Box sx={{ mt: 1.5 }}>
+          <Typography variant="caption" color="text.secondary">
+            {enviados.length} arquivo(s) recebido(s):
+          </Typography>
+          <Stack sx={{ mt: 0.5 }}>
+            {enviados.slice(0, 12).map((f) => (
+              <Typography key={f.id} variant="body2" noWrap sx={{ fontSize: 13.5 }}>
+                ✓ {f.original_name}
+              </Typography>
+            ))}
+            {enviados.length > 12 && (
+              <Typography variant="caption" color="text.secondary">
+                e mais {enviados.length - 12}…
+              </Typography>
+            )}
+          </Stack>
+        </Box>
+      )}
     </Box>
   );
 }
