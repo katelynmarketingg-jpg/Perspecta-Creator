@@ -127,7 +127,7 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 // Reel e stories são sempre vídeo; fora isso, o tipo do arquivo decide.
 const pecaEhVideo = (p) => ["reel", "stories"].includes(p?.content_type) || /^video\//.test(p?.mime || "");
 
-function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false, comecoDaTira = false }) {
+function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false, comecoDaTira = false, natural = false }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [capa, setCapa] = useState(null);
@@ -168,24 +168,35 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   }, [capaId, fileId]);
 
   const contain = fit === "contain";
+  // Modo NATURAL: a arte aparece na proporção REAL, preenchendo a largura do
+  // card, com altura automática — sem cortar e sem tarja preta em volta. É o
+  // jeito certo de ver o post (retrato 4:5, reel 9:16, etc.) na Distribuição.
   // Carrossel salvo como UMA imagem larga: onde o quadro representa a CAPA, o
   // que tem de aparecer é o começo da tira — os primeiros 1080px da esquerda.
-  // Sem isto, o quadradinho da capa mostrava o meio (ou o fim) do carrossel,
-  // contradizendo o "a capa é sempre a 1ª" escrito logo acima dele.
-  const sx = {
-    width: "100%", height, objectFit: fit, borderRadius: 2,
-    objectPosition: comecoDaTira && !contain ? "left center" : "center",
-    bgcolor: contain ? "#000" : "action.hover", display: "block",
-  };
-  const pequeno = height <= 90;
+  const sx = natural
+    ? {
+        width: "100%", height: "auto", display: "block", borderRadius: 2,
+        objectPosition: comecoDaTira ? "left center" : "center",
+      }
+    : {
+        width: "100%", height, objectFit: fit, borderRadius: 2,
+        objectPosition: comecoDaTira && !contain ? "left center" : "center",
+        bgcolor: contain ? "#000" : "action.hover", display: "block",
+      };
+  const pequeno = !natural && height <= 90;
+  // Caixa de aviso/carregando: no modo natural usa uma proporção retrato padrão
+  // só para não "colapsar" a altura enquanto nada carregou.
+  const molduraVazia = natural
+    ? { width: "100%", aspectRatio: "4 / 5", borderRadius: 2 }
+    : { width: "100%", height, borderRadius: 2 };
   const aviso = (texto, cor, tracejado = false) => (
     <Box sx={{
-      width: "100%", height, borderRadius: 2, display: "grid", placeItems: "center", textAlign: "center",
+      ...molduraVazia, display: "grid", placeItems: "center", textAlign: "center",
       color: cor, fontSize: pequeno ? 9 : 13, lineHeight: 1.3, p: 1,
       // Falta de arte NÃO é erro: fundo claro e borda tracejada, como um espaço
       // esperando ser preenchido. Antes era um retângulo preto com "Sem mídia",
       // que parecia exatamente uma imagem quebrada.
-      bgcolor: tracejado ? "action.hover" : (contain ? "#000" : "action.hover"),
+      bgcolor: tracejado ? "action.hover" : (contain && !natural ? "#000" : "action.hover"),
       border: tracejado ? "2px dashed" : 0, borderColor: "divider",
     }}>{texto}</Box>
   );
@@ -195,20 +206,24 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
       "text.secondary", true);
   }
   if (erro) return aviso(<>Arte não carregou<br />(reenvie)</>, "error.main");
+  const mostraControles = natural || height > 120;
+  // No modo natural o vídeo também aparece na proporção real (altura automática);
+  // fora dele, mantém a caixa de altura fixa com o vídeo contido em fundo preto.
+  const sxVideo = natural ? { ...sx, bgcolor: "#000" } : { ...sx, objectFit: "contain", bgcolor: "#000" };
   if (transmite) {
-    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={height > 120}
-      muted playsInline preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
+    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={mostraControles}
+      muted playsInline preload="metadata" sx={sxVideo}
       onError={() => setErro(true)} />;
   }
   // Ainda baixando a arte cheia: mostra a miniatura (se já veio) como rascunho;
   // senão, o spinner. A qualidade final entra por cima quando o arquivo chega.
   if (!src) {
     if (ph) return <Box component="img" src={ph} alt="" sx={sx} />;
-    return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
+    return <Box sx={{ ...molduraVazia, bgcolor: "action.hover", display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   }
   return video
-    ? <Box component="video" src={src} poster={capa || ph || undefined} controls={height > 120} muted playsInline
-        preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
+    ? <Box component="video" src={src} poster={capa || ph || undefined} controls={mostraControles} muted playsInline
+        preload="metadata" sx={sxVideo}
         onError={() => setErro(true)} />
     : <Box component="img" src={src} alt="" sx={sx} onError={() => setErro(true)} />;
 }
@@ -681,7 +696,7 @@ function PieceCard({ item, onChanged, flash }) {
               a capa/arte escolhida. */}
           {isCarousel && slides.length ? (
             <Box sx={{ position: "relative" }}>
-              <Media fileId={slides[Math.min(viewIdx, slides.length - 1)]} height={280} fit="contain" />
+              <Media fileId={slides[Math.min(viewIdx, slides.length - 1)]} natural />
               {slides.length > 1 && (
                 <>
                   <IconButton size="small" onClick={() => setViewIdx((i) => (i - 1 + slides.length) % slides.length)}
@@ -699,7 +714,7 @@ function PieceCard({ item, onChanged, flash }) {
               )}
             </Box>
           ) : (
-            <Media fileId={fileId || coverId || slides[0]} capaId={coverId} height={280} fit="contain"
+            <Media fileId={fileId || coverId || slides[0]} capaId={coverId} natural
               streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
           )}
 
@@ -1370,7 +1385,7 @@ export default function Distribution() {
                             <Chip size="small" color="info" label="Programado 🗓️" />
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
-                          <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} height={200} fit="contain"
+                          <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} natural
                             streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
@@ -1406,7 +1421,7 @@ export default function Distribution() {
                               label={pediuAjuste ? "Pediu ajuste ✏️" : "Com o cliente ⏳"} />
                           </Stack>
                           {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
-                          <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} height={200} fit="contain"
+                          <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural
                             streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
                           <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
@@ -1443,7 +1458,7 @@ export default function Distribution() {
                             <Chip size="small" color="success" label="Aprovado ✓" />
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
-                          <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} height={200} fit="contain"
+                          <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} natural
                             streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
