@@ -77,7 +77,7 @@ router.get("/", (req, res) => {
   const scheduled = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
-              t.approval_status, t.client_id, t.cover_file_id, t.position,
+              t.approval_status, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, s.is_done AS stage_done,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -86,7 +86,8 @@ router.get("/", (req, res) => {
        WHERE ${swhere.join(" AND ")}
        ORDER BY t.scheduled_at DESC`
     )
-    .all(params);
+    .all(params)
+    .map((it) => ({ ...it, media_ids: parseMediaIds(it.media_ids) }));
 
   // Conteúdos APROVADOS pelo cliente e ainda não programados — a fila da Rafa
   // para agendar. (Filtra por empresa se pedido.)
@@ -96,7 +97,8 @@ router.get("/", (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
               t.approval_status, t.published_at,
-              t.client_id, t.cover_file_id, t.position, c.name AS client_name, c.phone AS client_phone,
+              t.client_id, t.cover_file_id, t.position, t.media_ids,
+              c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
        LEFT JOIN clients c ON c.id = t.client_id
@@ -104,7 +106,8 @@ router.get("/", (req, res) => {
        WHERE ${awhere.join(" AND ")}
        ORDER BY t.scheduled_at, t.id`
     )
-    .all(params);
+    .all(params)
+    .map((it) => ({ ...it, media_ids: parseMediaIds(it.media_ids) }));
 
   // Conteúdos já PROGRAMADOS (na etapa de conclusão / "Programados").
   const pwhere = ["t.org_id = @org_id", "s.is_done = 1"];
@@ -112,7 +115,7 @@ router.get("/", (req, res) => {
   const programmed = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.client_id, t.cover_file_id, t.position,
+              t.approval_status, t.published_at, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -121,7 +124,8 @@ router.get("/", (req, res) => {
        WHERE ${pwhere.join(" AND ")}
        ORDER BY t.scheduled_at DESC, t.id DESC`
     )
-    .all(params);
+    .all(params)
+    .map((it) => ({ ...it, media_ids: parseMediaIds(it.media_ids) }));
 
   res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled, approved, programmed });
 });

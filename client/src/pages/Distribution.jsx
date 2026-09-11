@@ -438,6 +438,15 @@ function PieceCard({ item, onChanged, flash }) {
   const addSlide = (id) => { if (id && !slides.includes(id)) saveSlides([...slides, id]); };
   const removeSlide = (id) => saveSlides(slides.filter((s) => s !== id));
   const makeInitial = (id) => saveSlides([id, ...slides.filter((s) => s !== id)]);
+  // Mover uma slide de lugar. Num carrossel a ordem É o post: a 1ª é a capa que
+  // aparece no perfil, e as outras seguem na ordem em que a pessoa desliza.
+  const moveSlide = (i, d) => {
+    const alvo = i + d;
+    if (alvo < 0 || alvo >= slides.length) return;
+    const next = [...slides];
+    [next[i], next[alvo]] = [next[alvo], next[i]];
+    saveSlides(next);
+  };
   async function uploadSlide(e) {
     const file = e.target.files?.[0]; e.target.value = "";
     if (!file) return;
@@ -527,21 +536,44 @@ function PieceCard({ item, onChanged, flash }) {
 
           {isCarousel ? (
             <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                Slides do carrossel — a primeira (★ inicial) é a capa que aparece no perfil.
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                Slides do carrossel, na ordem em que o cliente vai deslizar.
+                A <b>1ª é a capa</b> — é ela que aparece no perfil e na prévia do feed.
+                Use as setas para mudar a ordem, ou <b>“usar de capa”</b> para trazer uma slide para a frente.
               </Typography>
-              <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 0.5 }}>
+              <Stack direction="row" spacing={1.25} sx={{ overflowX: "auto", pb: 0.5 }}>
                 {slides.map((id, i) => (
-                  <Box key={id} sx={{ position: "relative", width: 74, flex: "0 0 auto" }}>
-                    <Box sx={{ borderRadius: 1, overflow: "hidden", border: 2, borderColor: i === 0 ? "primary.main" : "divider" }}>
-                      <Media fileId={id} height={98} />
+                  <Box key={id} sx={{ width: 84, flex: "0 0 auto" }}>
+                    <Box sx={{ position: "relative" }}>
+                      <Box sx={{ borderRadius: 1, overflow: "hidden", border: 2, borderColor: i === 0 ? "primary.main" : "divider" }}>
+                        <Media fileId={id} height={110} />
+                      </Box>
+                      <Chip size="small" color={i === 0 ? "primary" : "default"}
+                        label={i === 0 ? "★ capa" : i + 1}
+                        sx={{ position: "absolute", top: 3, left: 3, height: 18, fontSize: 10, fontWeight: 700,
+                              bgcolor: i === 0 ? undefined : "rgba(0,0,0,0.6)", color: i === 0 ? undefined : "#fff",
+                              "& .MuiChip-label": { px: 0.7 } }} />
+                      <IconButton size="small" onClick={() => removeSlide(id)} title="Tirar esta slide"
+                        sx={{ position: "absolute", top: 0, right: 0, p: 0.25, color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "error.main" } }}>
+                        <Typography sx={{ fontSize: 13, lineHeight: 1, fontWeight: 700 }}>×</Typography>
+                      </IconButton>
                     </Box>
-                    {i === 0
-                      ? <Chip size="small" color="primary" label="★ inicial" sx={{ position: "absolute", top: 3, left: 3, height: 18, fontSize: 9, "& .MuiChip-label": { px: 0.6 } }} />
-                      : <Button size="small" onClick={() => makeInitial(id)} sx={{ position: "absolute", bottom: 3, left: 3, minWidth: 0, px: 0.5, py: 0, fontSize: 9, lineHeight: 1.4, bgcolor: "rgba(0,0,0,0.55)", color: "#fff", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>tornar inicial</Button>}
-                    <IconButton size="small" onClick={() => removeSlide(id)} sx={{ position: "absolute", top: 0, right: 0, p: 0.25, color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "error.main" } }}>
-                      <Typography sx={{ fontSize: 13, lineHeight: 1, fontWeight: 700 }}>×</Typography>
-                    </IconButton>
+                    <Stack direction="row" justifyContent="center" alignItems="center" sx={{ mt: 0.25 }}>
+                      <IconButton size="small" sx={{ p: 0.25 }} disabled={i === 0}
+                        onClick={() => moveSlide(i, -1)} title="Mover para trás">
+                        <ChevronLeftIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                      <IconButton size="small" sx={{ p: 0.25 }} disabled={i === slides.length - 1}
+                        onClick={() => moveSlide(i, 1)} title="Mover para a frente">
+                        <ChevronRightIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Stack>
+                    {i !== 0 && (
+                      <Button size="small" fullWidth onClick={() => makeInitial(id)}
+                        sx={{ mt: -0.25, fontSize: 10, lineHeight: 1.3, minWidth: 0, px: 0.25, py: 0.15 }}>
+                        usar de capa
+                      </Button>
+                    )}
                   </Box>
                 ))}
                 {!slides.length && <Typography variant="caption" color="text.disabled" sx={{ py: 2 }}>Nenhuma slide ainda — adicione abaixo.</Typography>}
