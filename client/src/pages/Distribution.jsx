@@ -127,10 +127,11 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 // Reel e stories são sempre vídeo; fora isso, o tipo do arquivo decide.
 const pecaEhVideo = (p) => ["reel", "stories"].includes(p?.content_type) || /^video\//.test(p?.mime || "");
 
-function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false }) {
+function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false, comecoDaTira = false }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [capa, setCapa] = useState(null);
+  const [ph, setPh] = useState(null);   // miniatura leve como placeholder instantâneo
   const [erro, setErro] = useState(false);
 
   // VÍDEO não é baixado: toca pelo endereço de streaming, em que o navegador
@@ -140,20 +141,16 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   const transmite = Boolean(streamUrl && ehVideoDica);
 
   useEffect(() => {
-    setSrc(null); setErro(false); setCapa(null);
+    setSrc(null); setErro(false); setCapa(null); setPh(null);
     if (!fileId || transmite) return undefined;
     let alive = true;
-    // Miniatura PRIMEIRO (data URI leve, ~640px) → o card pinta na hora. Só
-    // baixa o arquivo inteiro quando não existe miniatura. Antes cada card
-    // baixava a arte cheia (megas por card), e a tela demorava "uma década".
-    loadThumb(fileId)
-      .then((t) => {
-        if (!alive) return null;
-        if (t) { setSrc(t); setVideo(false); return null; }
-        return loadMedia(fileId).then((m) => {
-          if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); }
-        });
-      })
+    // Carregamento PROGRESSIVO, sem perder qualidade: a miniatura leve (~640px)
+    // entra na hora como rascunho, e a ARTE EM QUALIDADE REAL desenha por cima
+    // assim que baixa. A pessoa vê algo na hora (tela não fica "carregando uma
+    // década") e a qualidade final é sempre a do arquivo original.
+    loadThumb(fileId).then((t) => { if (alive && t) setPh(t); }).catch(() => {});
+    loadMedia(fileId)
+      .then((m) => { if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); } })
       .catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId, transmite]);
@@ -171,7 +168,15 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   }, [capaId, fileId]);
 
   const contain = fit === "contain";
-  const sx = { width: "100%", height, objectFit: fit, borderRadius: 2, bgcolor: contain ? "#000" : "action.hover", display: "block" };
+  // Carrossel salvo como UMA imagem larga: onde o quadro representa a CAPA, o
+  // que tem de aparecer é o começo da tira — os primeiros 1080px da esquerda.
+  // Sem isto, o quadradinho da capa mostrava o meio (ou o fim) do carrossel,
+  // contradizendo o "a capa é sempre a 1ª" escrito logo acima dele.
+  const sx = {
+    width: "100%", height, objectFit: fit, borderRadius: 2,
+    objectPosition: comecoDaTira && !contain ? "left center" : "center",
+    bgcolor: contain ? "#000" : "action.hover", display: "block",
+  };
   const pequeno = height <= 90;
   const aviso = (texto, cor, tracejado = false) => (
     <Box sx={{
@@ -195,9 +200,14 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
       muted playsInline preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
       onError={() => setErro(true)} />;
   }
-  if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
+  // Ainda baixando a arte cheia: mostra a miniatura (se já veio) como rascunho;
+  // senão, o spinner. A qualidade final entra por cima quando o arquivo chega.
+  if (!src) {
+    if (ph) return <Box component="img" src={ph} alt="" sx={sx} />;
+    return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
+  }
   return video
-    ? <Box component="video" src={src} poster={capa || undefined} controls={height > 120} muted playsInline
+    ? <Box component="video" src={src} poster={capa || ph || undefined} controls={height > 120} muted playsInline
         preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
         onError={() => setErro(true)} />
     : <Box component="img" src={src} alt="" sx={sx} onError={() => setErro(true)} />;
@@ -273,20 +283,42 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
   );
 }
 
-// Capturar um quadro do vídeo anexado e usá-lo como capa do perfil.
-// Tudo no navegador (canvas) — não processa vídeo no servidor.
-function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash, streamUrl = null }) {
+// ---------------------------------------------------------------------------
+// ESCOLHER A CAPA DO VÍDEO, como no Instagram: uma tira de quadros embaixo do
+// vídeo; toca num e a capa é aquela. A barra fica para ajustar no detalhe.
+//
+// O que fazia isso demorar: a tela BAIXAVA o vídeo inteiro antes de mostrar
+// qualquer coisa. Agora ela transmite (o navegador pede só os pedaços de que
+// precisa) e a tira é montada pulando de quadro em quadro, num vídeo escondido
+// — então a janela abre na hora, mesmo num reel grande.
+// ---------------------------------------------------------------------------
+const QUADROS_DA_TIRA = 8;
+
+/** Pula para `t` e espera o quadro estar desenhado. */
+function vaiPara(v, t) {
+  return new Promise((resolve) => {
+    let feito = false;
+    const acabou = () => { if (feito) return; feito = true; v.removeEventListener("seeked", acabou); resolve(); };
+    v.addEventListener("seeked", acabou);
+    setTimeout(acabou, 2500);        // quadro teimoso não trava a tira
+    try { v.currentTime = t; } catch { acabou(); }
+  });
+}
+
+function VideoCoverDialog({ fileId, streamUrl, clientId, open, onClose, onCaptured, flash }) {
   const videoRef = useRef(null);
+  const tiraRef = useRef(null);       // vídeo escondido que monta a tira
   const [src, setSrc] = useState(null);
   const [isVideo, setIsVideo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [dur, setDur] = useState(0);
   const [cur, setCur] = useState(0);
+  const [tira, setTira] = useState([]);      // [{ t, url }]
+  const [montando, setMontando] = useState(false);
+
   useEffect(() => {
-    if (!open || !fileId) { setSrc(null); setDur(0); setCur(0); return undefined; }
-    // Com endereço de streaming, toca por Range (busca só o trecho ao arrastar)
-    // — não baixa o vídeo inteiro antes de abrir, que deixava o diálogo travado
-    // no "carregando". Sem ele, cai no download completo.
+    if (!open || !fileId) { setSrc(null); setDur(0); setCur(0); setTira([]); return undefined; }
+    // Endereço de streaming: abre na hora, sem baixar o arquivo.
     if (streamUrl) { setSrc(streamUrl); setIsVideo(true); return undefined; }
     let alive = true;
     loadMedia(fileId)
@@ -295,12 +327,44 @@ function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash, 
     return () => { alive = false; };
   }, [open, fileId, streamUrl]);
 
+  // A tira de quadros, assim que o vídeo diz quanto dura.
+  useEffect(() => {
+    if (!open || !src || !dur) return undefined;
+    let vivo = true;
+    const urls = [];
+    (async () => {
+      setMontando(true);
+      const v = tiraRef.current;
+      if (!v) return;
+      const cv = document.createElement("canvas");
+      const feitos = [];
+      for (let i = 0; i < QUADROS_DA_TIRA && vivo; i++) {
+        // Não pega o 0 nem o fim: costumam ser preto.
+        const t = dur * ((i + 0.5) / QUADROS_DA_TIRA);
+        await vaiPara(v, t);
+        if (!vivo || !v.videoWidth) continue;
+        const esc = Math.min(1, 160 / v.videoHeight);
+        cv.width = Math.max(1, Math.round(v.videoWidth * esc));
+        cv.height = Math.max(1, Math.round(v.videoHeight * esc));
+        cv.getContext("2d").drawImage(v, 0, 0, cv.width, cv.height);
+        const blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", 0.7));
+        if (!blob || !vivo) continue;
+        const url = URL.createObjectURL(blob);
+        urls.push(url);
+        feitos.push({ t, url });
+        setTira([...feitos]);        // aparecem um a um, sem esperar a tira toda
+      }
+      if (vivo) setMontando(false);
+    })();
+    return () => { vivo = false; urls.forEach((u) => URL.revokeObjectURL(u)); };
+  }, [open, src, dur]);
+
   const fmt = (s) => {
     if (!Number.isFinite(s)) return "0:00";
     const m = Math.floor(s / 60), ss = Math.floor(s % 60);
     return `${m}:${String(ss).padStart(2, "0")}`;
   };
-  // Arrasta a barra → move o vídeo pro instante escolhido (mostra o frame ao vivo).
+  // Arrasta a barra (ou toca num quadro) → o vídeo vai para aquele instante.
   const seek = (t) => {
     setCur(t);
     const v = videoRef.current;
@@ -328,6 +392,10 @@ function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash, 
     setBusy(false);
   }
 
+  // Qual quadro da tira está escolhido agora (o mais perto do instante atual).
+  const escolhido = tira.reduce((melhor, q, i) =>
+    (melhor === -1 || Math.abs(q.t - cur) < Math.abs(tira[melhor].t - cur) ? i : melhor), -1);
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>Escolher a capa do vídeo</DialogTitle>
@@ -339,27 +407,43 @@ function VideoCoverDialog({ fileId, clientId, open, onClose, onCaptured, flash, 
             O anexo atual é uma foto. Anexe um vídeo para escolher um quadro.
           </Typography>
         ) : (
-          <Stack spacing={1}>
-            <Box component="video" ref={videoRef} src={src} playsInline
+          <Stack spacing={1.25}>
+            <Box component="video" ref={videoRef} src={src} playsInline preload="metadata"
               onLoadedMetadata={(e) => setDur(e.currentTarget.duration || 0)}
               onTimeUpdate={(e) => setCur(e.currentTarget.currentTime || 0)}
               sx={{ width: "100%", maxHeight: 420, bgcolor: "#000", borderRadius: 2 }} />
+
+            {/* O vídeo que monta a tira, fora da vista. */}
+            <Box component="video" ref={tiraRef} src={src} muted playsInline preload="auto"
+              crossOrigin="anonymous" sx={{ display: "none" }} />
+
             <Typography variant="caption" color="text.secondary">
-              Arraste a barra até o momento do vídeo que você quer como capa — o quadro aparece acima.
+              Toque no quadro que você quer de capa. Dá para afinar na barra.
             </Typography>
+
+            {/* A TIRA — o jeito rápido de escolher */}
+            <Box sx={{ display: "flex", gap: 0.5, overflowX: "auto", pb: 0.5 }}>
+              {tira.map((q, i) => (
+                <Box key={q.url} onClick={() => seek(q.t)}
+                  sx={{
+                    flex: "0 0 auto", cursor: "pointer", borderRadius: 1, overflow: "hidden",
+                    border: 2, borderColor: i === escolhido ? "primary.main" : "transparent",
+                    opacity: i === escolhido ? 1 : 0.75, transition: "opacity .12s, border-color .12s",
+                    "&:hover": { opacity: 1 },
+                  }}>
+                  <Box component="img" src={q.url} alt="" sx={{ height: 78, display: "block" }} />
+                </Box>
+              ))}
+              {montando && Array.from({ length: Math.max(0, QUADROS_DA_TIRA - tira.length) }).map((_, i) => (
+                <Box key={`v${i}`} sx={{ flex: "0 0 auto", width: 44, height: 78, borderRadius: 1, bgcolor: "action.hover" }} />
+              ))}
+            </Box>
+
             <Stack direction="row" spacing={1.5} alignItems="center">
               <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", minWidth: 34 }}>{fmt(cur)}</Typography>
               <Slider size="small" min={0} max={dur || 0} step={0.05} value={Math.min(cur, dur || 0)}
                 onChange={(_, v) => seek(Array.isArray(v) ? v[0] : v)} sx={{ flex: 1 }} disabled={!dur} />
               <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", minWidth: 34 }}>{fmt(dur)}</Typography>
-            </Stack>
-            <Stack direction="row" spacing={1}>
-              <Button size="small" variant="outlined" onClick={() => { const v = videoRef.current; if (v) v.paused ? v.play() : v.pause(); }}>
-                Play / Pause
-              </Button>
-              <Typography variant="caption" color="text.secondary" sx={{ alignSelf: "center" }}>
-                (dá pra dar play pra achar o trecho e depois ajustar na barra)
-              </Typography>
             </Stack>
           </Stack>
         )}
@@ -631,7 +715,7 @@ function PieceCard({ item, onChanged, flash }) {
                   <Box key={id} sx={{ width: 84, flex: "0 0 auto" }}>
                     <Box sx={{ position: "relative" }}>
                       <Box sx={{ borderRadius: 1, overflow: "hidden", border: 2, borderColor: i === 0 ? "primary.main" : "divider" }}>
-                        <Media fileId={id} height={110} />
+                        <Media fileId={id} height={110} comecoDaTira={isCarousel} />
                       </Box>
                       <Chip size="small" color={i === 0 ? "primary" : "default"}
                         label={i === 0 ? "★ capa" : i + 1}
@@ -763,8 +847,8 @@ function PieceCard({ item, onChanged, flash }) {
             onPick={setCover} titulo="Escolher a capa do perfil (uma foto)" />
           <GalleryPicker clientId={item.client_id} open={slidePicker} onClose={() => setSlidePicker(false)}
             onPick={addSlide} titulo="Adicionar slide ao carrossel" />
-          <VideoCoverDialog fileId={fileId} clientId={item.client_id} open={videoCover}
-            streamUrl={fileId === item.file_id ? item.media_url : null}
+          <VideoCoverDialog fileId={fileId} streamUrl={fileId === item.file_id ? item.media_url : null}
+            clientId={item.client_id} open={videoCover}
             onClose={() => setVideoCover(false)} onCaptured={setCover} flash={flash} />
           <PlanningRefDialog clientId={item.client_id} ym={ymOf(when || item.scheduled_at)}
             open={planRef} onClose={() => setPlanRef(false)}
@@ -843,7 +927,8 @@ function ListView({ items, onSelect, selectMode, checked, onToggle }) {
               )}
               <Box onClick={selectMode ? (marcavel ? () => onToggle(it.id) : undefined) : () => onSelect(it)}
                 sx={{ display: "flex", gap: 1.5, flex: 1, minWidth: 0, alignItems: "center", cursor: selectMode ? (marcavel ? "pointer" : "default") : "pointer", "&:hover": { bgcolor: selectMode && !marcavel ? "transparent" : "action.hover" }, borderRadius: 1 }}>
-                <Box sx={{ width: 56, height: 56, flexShrink: 0 }}><Media fileId={it.cover_file_id || it.file_id} height={56} /></Box>
+                <Box sx={{ width: 56, height: 56, flexShrink: 0 }}><Media fileId={it.cover_file_id || it.file_id} height={56}
+                    comecoDaTira={it.content_type === "carrossel"} /></Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
                     {ct && <Chip size="small" color="primary" variant="outlined" label={`${ct.emoji} ${ct.label}`} />}
@@ -959,7 +1044,8 @@ function MonthGrid({ items, onSelect }) {
                     {(byDay[day] || []).slice(0, 2).map((it) => (
                       <Box key={it.id} onClick={() => onSelect(it)} sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
                         <Box sx={{ position: "relative", aspectRatio: "1" }}>
-                          <Media fileId={it.cover_file_id || it.file_id} height="100%" />
+                          <Media fileId={it.cover_file_id || it.file_id} height="100%"
+                            comecoDaTira={it.content_type === "carrossel"} />
                           <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
                             {formatTime(it.scheduled_at)}
                           </Box>
@@ -1035,12 +1121,17 @@ const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
 // paradas — cada peça mantém a sua. Sem data ou no passado aparece em vermelho
 // (clique para ajustar). O 1º fica em cima à esquerda; enche → direita → baixo.
 function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
-  const [order, setOrder] = useState(posts);
+  // O PERFIL só tem o que já existe. Peça sem arte não é um quadrado cinza no
+  // Instagram — ela simplesmente não está lá. Deixá-la na grade dava um perfil
+  // falso, cheio de buracos que ninguém vai ver.
+  const comArte = useMemo(() => posts.filter((p) => p.cover_file_id || p.file_id), [posts]);
+  const semArte = posts.length - comArte.length;
+  const [order, setOrder] = useState(comArte);
   const [dragId, setDragId] = useState(null); // qual peça está sendo arrastada
   const dragIndex = useRef(null);
   const movedRef = useRef(false);
   // Só ressincroniza com o servidor quando NÃO está arrastando (evita "pulo").
-  useEffect(() => { if (dragIndex.current == null) setOrder(posts); }, [posts]);
+  useEffect(() => { if (dragIndex.current == null) setOrder(comArte); }, [comArte]);
 
   const now = Date.now();
   const errada = (p) => { const d = dtISO(p.scheduled_at); return !d || d.getTime() < now; };
@@ -1065,9 +1156,11 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
     if (movedRef.current) { movedRef.current = false; onReorder(order.map((p) => p.id)); }
   }
 
-  if (!posts.length) {
+  if (!comArte.length) {
     return <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-      Nada por aqui ainda. As peças que estiverem na Distribuição aparecem aqui para organizar.
+      {posts.length
+        ? `${posts.length} peça(s) ainda sem arte — o perfil aparece aqui assim que você anexar a primeira.`
+        : "Nada por aqui ainda. As peças que estiverem na Distribuição aparecem aqui para organizar."}
     </Typography>;
   }
 
@@ -1075,8 +1168,10 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
     <Box>
       <Typography variant="subtitle2">{titulo}</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-        Arraste para organizar (encaixa entre um e outro) — a ordem fica salva e as datas não mudam.
-        A data só aparece quando você coloca; em vermelho = sem data ou no passado (clique para ajustar).
+        O mais recente em cima à esquerda, como no perfil. Arraste para organizar (encaixa entre um e
+        outro) — a ordem fica salva e as datas não mudam. Em vermelho = sem data ou no passado
+        (clique para ajustar).
+        {semArte > 0 && ` ${semArte} peça(s) ainda sem arte ficam de fora daqui.`}
       </Typography>
       <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>

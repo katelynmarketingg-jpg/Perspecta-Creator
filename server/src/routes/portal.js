@@ -9,7 +9,7 @@ import { db } from "../db.js";
 import { verifyPassword, portalAuthRequired, JWT_SECRET } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
-import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca, storageConfigured, uploadFileToR2 } from "../storage.js";
+import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca, storageConfigured, uploadFileToR2, enderecoAssinado } from "../storage.js";
 import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 
 const router = Router();
@@ -553,6 +553,13 @@ router.get("/files/:id/download", async (req, res) => {
     .get(req.params.id, req.client.client_id);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
   if (isR2Path(file.stored_path)) {
+    // Direto na Cloudflare: o arquivo não atravessa mais esta máquina. É o que
+    // faz o vídeo da área do cliente abrir rápido de qualquer lugar.
+    const direto = await enderecoAssinado(r2Key(file.stored_path), { tipo: tipoQueONavegadorToca(file) });
+    if (direto) {
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      return res.redirect(302, direto);
+    }
     try {
       // Range (bytes=…) é o que faz VÍDEO tocar: o navegador pede só o começo,
       // mostra o 1º quadro e vai buscando o resto conforme a pessoa assiste.
