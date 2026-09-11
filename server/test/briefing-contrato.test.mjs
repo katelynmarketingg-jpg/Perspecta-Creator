@@ -108,13 +108,17 @@ test("do briefing ao contrato: sai preenchido, sem marcador sobrando", async () 
   await req("PUT", `/briefing/${criado.token}`, { respostas });
   assert.equal((await req("POST", `/briefing/${criado.token}/enviar`)).st, 200);
 
-  const ap = await req("POST", `/briefings/${criado.id}/aplicar`, {}, H);
-  assert.equal(ap.st, 200);
+  // O cadastro é preenchido no ENVIO, sem ninguém clicar em nada: é isso que
+  // faz o contrato já estar esperando quando o cliente chega na tela final.
+  const c = db.prepare("SELECT * FROM clients WHERE id = ?").get(cliente);
   // O TIPO do documento tem que virar OAB: a coluna nasce com 'cpf' por padrão,
   // e o padrão não pode vencer a resposta do cliente — um contrato dizendo CPF
   // onde é OAB está errado.
-  assert.ok(ap.cadastro.includes("rep_doc_type"), `não gravou o tipo do documento: ${ap.cadastro}`);
-  const c = db.prepare("SELECT * FROM clients WHERE id = ?").get(cliente);
+  assert.equal(c.rep_doc_type, "oab", "o padrão 'cpf' não pode vencer a resposta");
+
+  // Aplicar depois continua valendo — é o que leva as respostas para a IA.
+  const ap = await req("POST", `/briefings/${criado.id}/aplicar`, {}, H);
+  assert.equal(ap.st, 200);
   assert.equal(c.rep_doc_type, "oab");
   assert.equal(c.payment_day, 10);
   assert.equal(c.legal_name, "KN ADVOCACIA CRIMINAL LTDA");

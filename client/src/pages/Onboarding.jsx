@@ -14,16 +14,28 @@ import LinkRoundedIcon from "@mui/icons-material/Link";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import EditIcon from "@mui/icons-material/Edit";
+import DescriptionIcon from "@mui/icons-material/Description";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { PERSONA_GRUPOS } from "../persona.js";
+import { currency } from "../utils.js";
 
 // ---------------------------------------------------------------------------
-// BRIEFING — aba própria: o formulário que o cliente responde, editável.
+// ONBOARDING — a entrada do cliente na casa, do convite ao contrato assinado.
 //
-//  · "Links": um por cliente — gerar, copiar, ver as respostas, aplicar.
-//  · "Perguntas": o texto de boas-vindas e as perguntas, do jeito da casa.
+// A aba é dividida no caminho que o cliente percorre, e cada parte é editável:
+//
+//  · "Clientes"     — abrir o onboarding de alguém e acompanhar de longe.
+//  · "1 · Boas-vindas" — a mensagem que ele lê antes de responder.
+//  · "2 · Perguntas"   — o briefing, incluindo a etapa em que ele manda material.
+//  · "3 · Contrato"    — o modelo e o que a agência preenche por cliente.
+//
+// Ao abrir o onboarding, a agência preenche o que SÓ ELA sabe: serviço,
+// quantidades, valor, vigência e a data do contrato. Quando o cliente termina
+// de responder, o cadastro dele e o contrato saem prontos sozinhos — ela só
+// acompanha e assina embaixo.
 //
 // Cada pergunta pode dizer PARA ONDE vai a resposta: um campo da inteligência
 // da IA (tom, público…) ou um campo do cadastro (CNPJ, razão social, dia do
@@ -44,8 +56,8 @@ const ESTADO = {
   aplicado: { label: "Aplicado", cor: "success" },
 };
 
-export default function BriefingAdmin() {
-  const [tab, setTab] = useState("links");
+export default function Onboarding() {
+  const [tab, setTab] = useState("clientes");
   const [clients, setClients] = useState([]);
   const [briefings, setBriefings] = useState([]);
   const [modelo, setModelo] = useState(null);
@@ -57,6 +69,8 @@ export default function BriefingAdmin() {
   const [vendo, setVendo] = useState(null);
   const [sobrescrever, setSobrescrever] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [modelos, setModelos] = useState([]);   // contratos disponíveis
+  const [abrindo, setAbrindo] = useState(null); // o cliente para quem vou abrir o onboarding
 
   const carregar = () => {
     api.get("/briefings").then((r) => setBriefings(r.data)).catch(() => {});
@@ -69,17 +83,20 @@ export default function BriefingAdmin() {
 
   useEffect(() => {
     api.get("/clients").then((r) => setClients(r.data.filter((c) => c.status === "active"))).catch(() => {});
+    api.get("/briefings/modelos").then((r) => setModelos(r.data)).catch(() => {});
     carregar();
   }, []);
 
   const porCliente = {};
   for (const b of briefings) if (!porCliente[b.client_id]) porCliente[b.client_id] = b;
 
-  async function criarLink(c) {
+  async function criarLink(clienteId, termos) {
+    const c = clients.find((x) => x.id === clienteId);
     try {
-      const { data } = await api.post("/briefings", { client_id: c.id });
+      const { data } = await api.post("/briefings", { client_id: clienteId, termos });
       await carregar();
-      setLink({ url: data.url, client_name: c.name });
+      setAbrindo(null);
+      setLink({ url: data.url, client_name: c?.name || "" });
     } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui criar o link." }); }
   }
 
@@ -117,16 +134,16 @@ export default function BriefingAdmin() {
     try {
       const { data } = await api.put("/briefings/template", modelo);
       setModelo({ welcome: data.welcome, secoes: data.secoes });
-      setMsg({ t: "success", m: "Briefing salvo. Quem abrir o link a partir de agora já vê assim." });
+      setMsg({ t: "success", m: "Salvo. Quem abrir o link a partir de agora já vê assim." });
     } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui salvar." }); }
     finally { setSalvando(false); setTimeout(() => setMsg(null), 6000); }
   }
 
   async function voltarAoPadrao() {
-    if (!window.confirm("Voltar ao briefing de fábrica? Suas perguntas personalizadas serão perdidas.")) return;
+    if (!window.confirm("Voltar ao onboarding de fábrica? Suas perguntas personalizadas serão perdidas.")) return;
     const { data } = await api.delete("/briefings/template");
     setModelo({ welcome: data.welcome, secoes: data.secoes });
-    setMsg({ t: "success", m: "Voltou ao briefing de fábrica." });
+    setMsg({ t: "success", m: "Voltou ao onboarding de fábrica." });
   }
 
   // --- edição das seções/perguntas ---
@@ -174,26 +191,30 @@ export default function BriefingAdmin() {
 
   return (
     <>
-      <PageHeader title="Briefing"
-        subtitle="O formulário que o cliente responde — e que preenche a inteligência da IA, o cadastro e o contrato" />
+      <PageHeader title="Onboarding"
+        subtitle="Do convite ao contrato assinado — você preenche o que só você sabe, o cliente responde o resto" />
 
       {msg && <Alert severity={msg.t} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.m}</Alert>}
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2.5 }}>
-        <Tab value="links" label={`Links${respondidos ? ` (${respondidos})` : ""}`} />
-        <Tab value="perguntas" label="Perguntas e texto" />
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2.5 }}>
+        <Tab value="clientes" label={`Clientes${respondidos ? ` (${respondidos})` : ""}`} />
+        <Tab value="boasvindas" label="1 · Boas-vindas" />
+        <Tab value="perguntas" label="2 · Perguntas" />
+        <Tab value="contrato" label="3 · Contrato" />
       </Tabs>
 
-      {tab === "links" ? (
+      {tab === "clientes" ? (
         <Card><CardContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Gere um link e mande para o cliente. Ao aplicar as respostas, o sistema preenche de uma vez
-            a <b>inteligência da IA</b> e os <b>dados do contrato</b> (razão social, CNPJ, endereço,
-            quem assina e o dia do pagamento).
+            Abra o onboarding de um cliente: você preenche o serviço, as quantidades, o valor e a
+            vigência — o que só você sabe — e o sistema devolve o link para mandar a ele. Quando ele
+            terminar de responder, o <b>cadastro</b> e o <b>contrato</b> já saem prontos, e as
+            respostas ficam aqui esperando você levar para a <b>inteligência da IA</b>.
           </Typography>
           <Table size="small">
             <TableHead><TableRow>
-              <TableCell>Cliente</TableCell><TableCell>Briefing</TableCell><TableCell align="right">Ações</TableCell>
+              <TableCell>Cliente</TableCell><TableCell>Onboarding</TableCell>
+              <TableCell>O que foi combinado</TableCell><TableCell align="right">Ações</TableCell>
             </TableRow></TableHead>
             <TableBody>
               {clients.map((c) => {
@@ -210,7 +231,20 @@ export default function BriefingAdmin() {
                             {b.respondidas}/{b.total} perguntas
                           </Typography>
                         </Stack>
-                      ) : <Typography variant="caption" color="text.secondary">sem briefing ainda</Typography>}
+                      ) : <Typography variant="caption" color="text.secondary">não começou</Typography>}
+                    </TableCell>
+                    <TableCell>
+                      {b?.termos ? (
+                        <Typography variant="caption" color="text.secondary">
+                          {[b.termos.servico, b.termos.value ? currency(b.termos.value) + "/mês" : null,
+                            b.termos.duration_months ? `${b.termos.duration_months} meses` : null]
+                            .filter(Boolean).join(" · ") || "—"}
+                        </Typography>
+                      ) : b ? (
+                        <Tooltip title="Sem isto o contrato não tem como sair sozinho">
+                          <Chip size="small" variant="outlined" color="warning" label="faltam os termos" />
+                        </Tooltip>
+                      ) : <Typography variant="caption" color="text.secondary">—</Typography>}
                     </TableCell>
                     <TableCell align="right">
                       {b ? (
@@ -223,9 +257,16 @@ export default function BriefingAdmin() {
                           <Tooltip title="Ver as respostas">
                             <IconButton size="small" onClick={() => abrir(b)}><VisibilityIcon fontSize="small" /></IconButton>
                           </Tooltip>
+                          <Tooltip title="Corrigir o que foi combinado">
+                            <IconButton size="small" onClick={() => setAbrindo({ cliente: c, briefing: b })}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </>
                       ) : (
-                        <Button size="small" variant="outlined" onClick={() => criarLink(c)}>Gerar link</Button>
+                        <Button size="small" variant="outlined" onClick={() => setAbrindo({ cliente: c })}>
+                          Abrir onboarding
+                        </Button>
                       )}
                     </TableCell>
                   </TableRow>
@@ -234,8 +275,11 @@ export default function BriefingAdmin() {
             </TableBody>
           </Table>
         </CardContent></Card>
+      ) : tab === "contrato" ? (
+        <AbaContrato modelos={modelos} />
       ) : !modelo ? <LinearProgress /> : (
         <Stack spacing={2.5}>
+          {tab === "boasvindas" && (
           <Card><CardContent>
             <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Texto de boas-vindas</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
@@ -268,8 +312,9 @@ export default function BriefingAdmin() {
                 onChange={(e) => setModelo((m) => ({ ...m, welcome: { ...m.welcome, botao: e.target.value } }))} />
             </Stack>
           </CardContent></Card>
+          )}
 
-          {modelo.secoes.map((sec, i) => (
+          {tab === "perguntas" && modelo.secoes.map((sec, i) => (
             <Accordion key={i} disableGutters sx={{ "&:before": { display: "none" }, border: 1, borderColor: "divider", borderRadius: 1 }}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%", pr: 1 }}>
@@ -373,9 +418,9 @@ export default function BriefingAdmin() {
 
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", gap: 1 }}>
             <Button variant="contained" onClick={salvarModelo} disabled={salvando}>
-              {salvando ? "Salvando…" : "Salvar briefing"}
+              {salvando ? "Salvando…" : "Salvar"}
             </Button>
-            <Button startIcon={<AddIcon />} onClick={novaSecao}>Nova etapa</Button>
+            {tab === "perguntas" && <Button startIcon={<AddIcon />} onClick={novaSecao}>Nova etapa</Button>}
             <Box sx={{ flex: 1 }} />
             <Button color="error" startIcon={<RestartAltIcon />} onClick={voltarAoPadrao}>
               Voltar ao de fábrica
@@ -384,9 +429,13 @@ export default function BriefingAdmin() {
         </Stack>
       )}
 
+      {/* O que a agência preenche antes de mandar o link */}
+      <FormularioOnboarding aberto={abrindo} modelos={modelos} onFechar={() => setAbrindo(null)}
+        onSalvar={criarLink} />
+
       {/* O link, à vista */}
       <Dialog open={Boolean(link)} onClose={() => setLink(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Link do briefing — {link?.client_name}</DialogTitle>
+        <DialogTitle>Link do onboarding — {link?.client_name}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Mande este endereço para o cliente. Ele abre no celular, sem senha.
@@ -407,7 +456,7 @@ export default function BriefingAdmin() {
 
       {/* Respostas + aplicar */}
       <Dialog open={Boolean(vendo)} onClose={() => setVendo(null)} fullWidth maxWidth="md">
-        <DialogTitle>Briefing — {vendo?.client_name}</DialogTitle>
+        <DialogTitle>Respostas — {vendo?.client_name}</DialogTitle>
         <DialogContent dividers>
           {vendo && (
             <>
@@ -446,5 +495,246 @@ export default function BriefingAdmin() {
         </DialogActions>
       </Dialog>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// O QUE A AGÊNCIA PREENCHE — antes de o link existir.
+//
+// São os dados que o cliente não tem como responder: qual serviço ele contratou,
+// quanto de cada coisa vai receber por mês, quanto paga, de quando até quando e
+// que data deve constar no contrato. O resto (razão social, CNPJ, quem assina,
+// dia do pagamento) vem do próprio cliente, respondendo o briefing.
+// ---------------------------------------------------------------------------
+const VAZIO = {
+  modelo: "", servico: "", value: "", itens: [],
+  start_date: "", end_date: "", contract_date: "", observacoes: "",
+};
+
+/** "servico:3" / "modelo:7" — o select precisa de um valor só. */
+const chaveDoModelo = (m) => `${m.origem}:${m.id}`;
+
+function FormularioOnboarding({ aberto, modelos, onFechar, onSalvar }) {
+  const [f, setF] = useState(VAZIO);
+  const cliente = aberto?.cliente;
+  const jaExiste = aberto?.briefing;
+
+  useEffect(() => {
+    if (!aberto) return;
+    const t = jaExiste?.termos;
+    if (t) {
+      setF({
+        modelo: t.service_id ? `servico:${t.service_id}` : (t.template_id ? `modelo:${t.template_id}` : ""),
+        servico: t.servico || "", value: t.value ?? "", itens: t.itens || [],
+        start_date: t.start_date || "", end_date: t.end_date || "",
+        contract_date: t.contract_date || "", observacoes: t.observacoes || "",
+      });
+    } else {
+      setF({ ...VAZIO, contract_date: new Date().toISOString().slice(0, 10) });
+    }
+  }, [aberto, jaExiste]);
+
+  // Escolher o serviço já traz o nome, o valor de tabela e as entregas dele —
+  // é para ela só conferir os números, não redigitar tudo.
+  function escolheModelo(chave) {
+    const m = modelos.find((x) => chaveDoModelo(x) === chave);
+    setF((a) => ({
+      ...a,
+      modelo: chave,
+      servico: a.servico || m?.name || "",
+      value: a.value === "" && m?.valor_padrao ? m.valor_padrao : a.value,
+      itens: a.itens.length ? a.itens : (m?.itens || []).map((i) => ({ ...i, quantidade: "" })),
+    }));
+  }
+
+  const meses = mesesEntre(f.start_date, f.end_date);
+  const escolhido = modelos.find((x) => chaveDoModelo(x) === f.modelo);
+  const semContrato = escolhido && !escolhido.tem_contrato;
+
+  function salvar() {
+    const [origem, id] = (f.modelo || ":").split(":");
+    onSalvar(cliente.id, {
+      service_id: origem === "servico" ? Number(id) : null,
+      template_id: origem === "modelo" ? Number(id) : null,
+      servico: f.servico, value: f.value,
+      itens: f.itens.filter((i) => i.label),
+      start_date: f.start_date || null, end_date: f.end_date || null,
+      contract_date: f.contract_date || null, observacoes: f.observacoes,
+    });
+  }
+
+  return (
+    <Dialog open={Boolean(aberto)} onClose={onFechar} fullWidth maxWidth="sm">
+      <DialogTitle>
+        {jaExiste ? "O que foi combinado" : "Abrir onboarding"} — {cliente?.name}
+      </DialogTitle>
+      <DialogContent dividers>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+          Preencha o que só você sabe. O resto — razão social, CNPJ, endereço, quem assina e o dia do
+          pagamento — vem do próprio cliente ao responder, e o contrato se monta com as duas metades.
+        </Typography>
+        <Stack spacing={2}>
+          <TextField select label="Contrato deste cliente" size="small" fullWidth value={f.modelo}
+            onChange={(e) => escolheModelo(e.target.value)}
+            helperText={semContrato
+              ? "Este serviço ainda não tem o texto do contrato escrito — abra Serviços e escreva."
+              : "De onde sai o texto do contrato. Sem isto, o contrato não sai sozinho."}
+            error={Boolean(semContrato)}>
+            <MenuItem value="">— decidir depois —</MenuItem>
+            {modelos.map((m) => (
+              <MenuItem key={chaveDoModelo(m)} value={chaveDoModelo(m)}>
+                {m.name}
+                <Typography variant="caption" color={m.tem_contrato ? "success.main" : "text.disabled"} sx={{ ml: 1 }}>
+                  {m.origem === "servico" ? "serviço" : "modelo"}{m.tem_contrato ? " ✓" : " — sem texto"}
+                </Typography>
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField label="Serviço (como aparece no contrato)" size="small" fullWidth value={f.servico}
+              onChange={(e) => setF((a) => ({ ...a, servico: e.target.value }))} />
+            <TextField label="Valor por mês (R$)" size="small" type="number" sx={{ minWidth: 170 }}
+              value={f.value} onChange={(e) => setF((a) => ({ ...a, value: e.target.value }))}
+              inputProps={{ inputMode: "decimal", min: 0 }} />
+          </Stack>
+
+          <Divider textAlign="left">
+            <Typography variant="caption" color="text.secondary">Quanto ele recebe por mês</Typography>
+          </Divider>
+          {f.itens.map((it, i) => (
+            <Stack key={i} direction="row" spacing={1} alignItems="center">
+              <TextField size="small" label="Entrega" value={it.label} sx={{ flex: 1 }}
+                placeholder="Ex.: Posts"
+                onChange={(e) => setF((a) => {
+                  const itens = [...a.itens]; itens[i] = { ...itens[i], label: e.target.value }; return { ...a, itens };
+                })} />
+              <TextField size="small" label="Quantidade" type="number" sx={{ width: 130 }} value={it.quantidade ?? ""}
+                inputProps={{ inputMode: "numeric", min: 0 }}
+                onChange={(e) => setF((a) => {
+                  const itens = [...a.itens]; itens[i] = { ...itens[i], quantidade: e.target.value }; return { ...a, itens };
+                })} />
+              <IconButton size="small" color="error"
+                onClick={() => setF((a) => ({ ...a, itens: a.itens.filter((_, k) => k !== i) }))}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+          ))}
+          <Button size="small" startIcon={<AddIcon />} sx={{ alignSelf: "flex-start" }}
+            onClick={() => setF((a) => ({ ...a, itens: [...a.itens, { label: "", unit: "", quantidade: "" }] }))}>
+            Mais uma entrega
+          </Button>
+
+          <Divider textAlign="left">
+            <Typography variant="caption" color="text.secondary">Vigência e data</Typography>
+          </Divider>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField label="Começa em" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}
+              value={f.start_date} onChange={(e) => setF((a) => ({ ...a, start_date: e.target.value }))} />
+            <TextField label="Termina em" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}
+              value={f.end_date} onChange={(e) => setF((a) => ({ ...a, end_date: e.target.value }))}
+              error={Boolean(f.start_date && f.end_date && !meses)}
+              helperText={f.start_date && f.end_date && !meses ? "O fim tem que vir depois do começo." : " "} />
+          </Stack>
+          {meses > 0 && (
+            <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
+              No contrato: <b>vigência de {String(meses).padStart(2, "0")} meses</b> — contando o mês de
+              início e o de término.
+            </Alert>
+          )}
+          <TextField label="Data que deve constar no contrato" type="date" size="small" sx={{ maxWidth: 280 }}
+            InputLabelProps={{ shrink: true }} value={f.contract_date}
+            onChange={(e) => setF((a) => ({ ...a, contract_date: e.target.value }))} />
+          <TextField label="Observações (só para você)" size="small" fullWidth multiline minRows={2}
+            value={f.observacoes} onChange={(e) => setF((a) => ({ ...a, observacoes: e.target.value }))} />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onFechar}>Cancelar</Button>
+        <Button variant="contained" onClick={salvar}>
+          {jaExiste ? "Salvar" : "Gerar link"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/** Meses de vigência contando os dois extremos — igual ao servidor. */
+function mesesEntre(inicio, fim) {
+  if (!inicio || !fim) return 0;
+  const a = new Date(`${inicio}T12:00:00`);
+  const b = new Date(`${fim}T12:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return 0;
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1;
+}
+
+// ---------------------------------------------------------------------------
+// A aba do CONTRATO: de onde sai o texto e o que o sistema troca nele.
+// ---------------------------------------------------------------------------
+const MARCADORES = [
+  ["Quem contrata", ["razao_social", "cnpj", "cnpj_formatado", "endereco", "cliente", "empresa", "email", "telefone", "segmento"]],
+  ["Quem assina pela empresa", ["representante", "documento_representante", "tipo_documento_representante"]],
+  ["Dinheiro", ["valor", "valor_extenso", "dia_pagamento", "vencimento"]],
+  ["Prazos e datas", ["inicio", "fim", "prazo", "duracao", "data", "inicio_curto"]],
+  ["O que foi contratado", ["servico", "posts_mes", "videos_mes", "captacoes_mes"]],
+  ["A agência", ["agencia", "cnpj_agencia", "endereco_agencia", "representante_agencia", "documento_representante_agencia", "cidade", "foro"]],
+];
+
+function AbaContrato({ modelos }) {
+  const comTexto = modelos.filter((m) => m.tem_contrato);
+  return (
+    <Stack spacing={2.5}>
+      <Card><CardContent>
+        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>De onde sai o texto do contrato</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          O contrato de cada serviço é escrito na aba <b>Serviços</b>. Aqui você vê quais já têm texto
+          pronto — só esses conseguem gerar contrato sozinhos ao fim do onboarding.
+        </Typography>
+        {modelos.length === 0 ? (
+          <Alert severity="info">Nenhum serviço cadastrado ainda. Comece pela aba Serviços.</Alert>
+        ) : (
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
+            {modelos.map((m) => (
+              <Chip key={chaveDoModelo(m)} label={m.name} variant="outlined"
+                color={m.tem_contrato ? "success" : "default"}
+                icon={m.tem_contrato ? undefined : <DescriptionIcon />} />
+            ))}
+          </Stack>
+        )}
+        {comTexto.length === 0 && modelos.length > 0 && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            Nenhum tem o texto escrito ainda. Abra <b>Serviços</b>, escolha o serviço e escreva o
+            contrato dele — depois disso o onboarding passa a gerar o contrato sozinho.
+          </Alert>
+        )}
+      </CardContent></Card>
+
+      <Card><CardContent>
+        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>O que o sistema preenche sozinho</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Escreva estes marcadores dentro do contrato e eles viram os dados de verdade na hora de
+          gerar. Metade vem do que <b>você</b> preenche ao abrir o onboarding; a outra metade, do que o
+          <b> cliente</b> responde.
+        </Typography>
+        <Stack spacing={2}>
+          {MARCADORES.map(([grupo, chaves]) => (
+            <Box key={grupo}>
+              <Typography variant="caption" color="text.secondary">{grupo}</Typography>
+              <Box sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+                {chaves.map((k) => (
+                  <Chip key={k} size="small" variant="outlined" label={`{{${k}}}`}
+                    sx={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12 }} />
+                ))}
+              </Box>
+            </Box>
+          ))}
+          <Alert severity="info" icon={false}>
+            As entregas que você cadastra no serviço também viram marcador pelo próprio nome:
+            uma entrega chamada <b>Stories</b> pode ser escrita no contrato como{" "}
+            <code>{"{{qtd_stories}}"}</code> — e sai <b>12 (doze)</b>, por extenso.
+          </Alert>
+        </Stack>
+      </CardContent></Card>
+    </Stack>
   );
 }

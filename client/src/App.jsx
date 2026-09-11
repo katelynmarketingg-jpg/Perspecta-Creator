@@ -36,7 +36,7 @@ import Portal from "./pages/Portal.jsx";
 import SignContract from "./pages/SignContract.jsx";
 import Intelligence from "./pages/Intelligence.jsx";
 import Briefing from "./pages/Briefing.jsx";
-import BriefingAdmin from "./pages/BriefingAdmin.jsx";
+import Onboarding from "./pages/Onboarding.jsx";
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -73,7 +73,10 @@ export default function App() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/deliveries" element={<Deliveries />} />
         <Route path="/intelligence" element={<Intelligence />} />
-        <Route path="/briefing-admin" element={<BriefingAdmin />} />
+        <Route path="/onboarding" element={<Onboarding />} />
+        {/* O endereço antigo continua valendo: quem tinha a aba salva não cai
+            numa página em branco. */}
+        <Route path="/briefing-admin" element={<Navigate to="/onboarding" replace />} />
         <Route path="/ai" element={<AI />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/distribution" element={<Distribution />} />

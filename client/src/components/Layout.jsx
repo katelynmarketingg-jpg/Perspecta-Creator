@@ -68,7 +68,7 @@ const NAV = [
   { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
   { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },
   { to: "/intelligence", label: "Inteligência", icon: <PsychologyIcon /> },
-  { to: "/briefing-admin", label: "Briefing", icon: <AssignmentIcon /> },
+  { to: "/onboarding", label: "Onboarding", icon: <AssignmentIcon /> },
   { to: "/ai", label: "IA", icon: <AutoAwesomeIcon /> },
   { to: "/integrations", label: "Integrações", icon: <HubIcon /> },
   { to: "/users", label: "Usuários", icon: <GroupIcon />, adminOnly: true },
