@@ -9,14 +9,7 @@ import CheckIcon from "@mui/icons-material/Check";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
-
-const PERSONA_CAMPOS = [
-  { key: "tone", label: "Tom de voz", ph: "Ex: próximo, bem-humorado, sem gírias" },
-  { key: "audience", label: "Público", ph: "Ex: mulheres 25-45, classe B, região sul" },
-  { key: "pillars", label: "Pilares de conteúdo", ph: "Ex: bastidores, dicas, prova social, promoções" },
-  { key: "avoid", label: "O que evitar", ph: "Ex: falar de preço, tom formal, vermelho" },
-  { key: "extra", label: "Observações", ph: "Qualquer coisa que a IA deva saber" },
-];
+import ClientBrain from "../components/ClientBrain.jsx";
 
 const GERADORES = [
   { kind: "caption", label: "Legendas", desc: "Opções de legenda prontas para copiar" },
@@ -29,8 +22,6 @@ export default function AI() {
   const [config, setConfig] = useState(null);
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState("");
-  const [persona, setPersona] = useState({});
-  const [personaSalva, setPersonaSalva] = useState(false);
   const [kind, setKind] = useState("caption");
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(3);
@@ -43,6 +34,8 @@ export default function AI() {
   const [chave, setChave] = useState("");
   const [provider, setProvider] = useState("openai");
   const [salvandoChave, setSalvandoChave] = useState(false);
+  const [teste, setTeste] = useState(null);        // resultado do "Testar chave"
+  const [testando, setTestando] = useState(false);
 
   // Uso e limite de gasto (R$/mês)
   const [uso, setUso] = useState(null);
@@ -73,22 +66,31 @@ export default function AI() {
   useEffect(() => {
     if (!clientId) return;
     setResultado(""); setErro("");
-    api.get(`/ai/persona/${clientId}`).then((r) => setPersona(r.data || {})).catch(() => setPersona({}));
   }, [clientId]);
 
   async function salvarChave() {
     setSalvandoChave(true);
+    setTeste(null);
     try {
       const { data } = await api.put("/ai/config", { provider, api_key: chave || undefined });
       setConfig(data);
       setChave("");
+      await testarChave();   // já diz na hora se a chave funciona de verdade
     } finally { setSalvandoChave(false); }
   }
 
-  async function salvarPersona() {
-    await api.put(`/ai/persona/${clientId}`, persona);
-    setPersonaSalva(true);
-    setTimeout(() => setPersonaSalva(false), 2500);
+  // Faz a chamada mais barata possível ao provedor e mostra, em português, o
+  // que está acontecendo. É por aqui que se descobre por que "gerar" não gera:
+  // chave errada, conta sem crédito, modelo sem acesso...
+  async function testarChave() {
+    setTestando(true);
+    try {
+      const { data } = await api.post("/ai/test");
+      setTeste(data);
+      if (data.ok) setConfig((c) => ({ ...c, configured: true, key_unreadable: false }));
+    } catch (e) {
+      setTeste({ ok: false, message: e.response?.data?.error || "Não consegui testar agora." });
+    } finally { setTestando(false); }
   }
 
   async function gerar() {
@@ -133,9 +135,35 @@ export default function AI() {
                 value={chave} onChange={(e) => setChave(e.target.value)} sx={{ flex: 1 }}
                 placeholder="sk-..." />
               <Button variant="contained" onClick={salvarChave} disabled={salvandoChave || (!chave && !config?.configured)}>
-                Salvar
+                {salvandoChave ? "Salvando…" : "Salvar"}
+              </Button>
+              <Button variant="outlined" onClick={testarChave} disabled={testando || !config?.configured}>
+                {testando ? "Testando…" : "Testar chave"}
               </Button>
             </Stack>
+
+            {config?.key_unreadable && (
+              <Alert severity="warning" sx={{ mt: 1.5 }}>
+                A chave guardada não pôde ser lida (o segredo do servidor mudou). Cole a chave de novo.
+              </Alert>
+            )}
+
+            {teste && (
+              <Alert severity={teste.ok ? "success" : "error"} sx={{ mt: 1.5 }}>
+                {teste.message}
+                {teste.code === "SEM_CREDITO" && (
+                  <Typography variant="caption" sx={{ display: "block", mt: 0.75 }}>
+                    A API da OpenAI é cobrada à parte e por uso. Uma legenda custa menos de um centavo —
+                    US$ 5 de crédito dão para milhares de gerações.
+                  </Typography>
+                )}
+              </Alert>
+            )}
+
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+              Depois de salvar, clique em <b>Testar chave</b>: o teste custa praticamente nada e diz na hora
+              se está tudo certo — ou exatamente o que falta.
+            </Typography>
           </CardContent>
         </Card>
       )}
@@ -218,26 +246,11 @@ export default function AI() {
 
       {clientId && (
         <Stack spacing={2.5}>
-          {/* Persona */}
+          {/* Inteligência do cliente — o MESMO editor da ficha do cliente e do
+              planejamento. Editar aqui vale em todo lugar. */}
           <Card>
             <CardContent>
-              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-                <Typography variant="h6">Persona do cliente</Typography>
-                <Button variant="outlined" size="small" onClick={salvarPersona}>
-                  {personaSalva ? "Salvo ✓" : "Salvar persona"}
-                </Button>
-              </Stack>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Quanto mais completa, melhor a IA acerta o jeito do cliente.
-              </Typography>
-              <Stack spacing={2}>
-                {PERSONA_CAMPOS.map((f) => (
-                  <TextField key={f.key} label={f.label} placeholder={f.ph} fullWidth
-                    multiline={f.key === "extra"} minRows={f.key === "extra" ? 2 : 1}
-                    value={persona[f.key] || ""}
-                    onChange={(e) => setPersona((p) => ({ ...p, [f.key]: e.target.value }))} />
-                ))}
-              </Stack>
+              <ClientBrain clientId={clientId} clientName={clients.find((c) => c.id === clientId)?.name} />
             </CardContent>
           </Card>
 

@@ -1,7 +1,28 @@
 import { Router } from "express";
+import jwt from "jsonwebtoken";
 import { db } from "../db.js";
-import { authRequired, moduleAllowed } from "../auth.js";
+import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
+
+// Endereço de streaming da arte. É por ele que o <video> toca: o navegador
+// pede só o começo do arquivo (Range) e mostra o 1º quadro na hora. Sem isso a
+// tela baixava o vídeo INTEIRO antes de aparecer qualquer coisa — num reel de
+// 200 MB, parecia que a peça não carregava.
+function mediaUrl(fileId, orgId) {
+  if (!fileId) return null;
+  const ticket = jwt.sign({ file_id: fileId, org_id: orgId, inline: true }, JWT_SECRET, { expiresIn: "12h" });
+  return `/api/files/shared/${ticket}`;
+}
+
+/** Acrescenta o endereço de streaming da arte e da capa a cada peça. */
+function comMidia(linhas, orgId) {
+  return linhas.map((it) => ({
+    ...it,
+    media_ids: parseMediaIds(it.media_ids),
+    media_url: mediaUrl(it.file_id, orgId),
+    cover_url: mediaUrl(it.cover_file_id, orgId),
+  }));
+}
 
 // Slides do carrossel: guardados como JSON de file ids (o 1º é a capa/inicial).
 function parseMediaIds(raw) {
@@ -67,8 +88,8 @@ router.get("/", (req, res) => {
        WHERE ${where.join(" AND ")}
        ORDER BY c.name, t.scheduled_at, t.id`
     )
-    .all(params)
-    .map((it) => ({ ...it, media_ids: parseMediaIds(it.media_ids) }));
+    .all(params);
+  const itemsComp = comMidia(items, req.orgId);
 
   // Panorama completo (o "calendário"): TODOS os posts com data marcada do
   // escritório (ou do cliente filtrado) — para as visões Lista/Perfil/Calendário.
@@ -77,7 +98,7 @@ router.get("/", (req, res) => {
   const scheduled = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
-              t.approval_status, t.client_id, t.cover_file_id, t.position,
+              t.approval_status, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, s.is_done AS stage_done,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -87,6 +108,7 @@ router.get("/", (req, res) => {
        ORDER BY t.scheduled_at DESC`
     )
     .all(params);
+  const scheduledComp = comMidia(scheduled, req.orgId);
 
   // Conteúdos APROVADOS pelo cliente e ainda não programados — a fila da Rafa
   // para agendar. (Filtra por empresa se pedido.)
@@ -96,7 +118,8 @@ router.get("/", (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
               t.approval_status, t.published_at,
-              t.client_id, t.cover_file_id, t.position, c.name AS client_name, c.phone AS client_phone,
+              t.client_id, t.cover_file_id, t.position, t.media_ids,
+              c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
        LEFT JOIN clients c ON c.id = t.client_id
@@ -105,6 +128,33 @@ router.get("/", (req, res) => {
        ORDER BY t.scheduled_at, t.id`
     )
     .all(params);
+  const approvedComp = comMidia(approved, req.orgId);
+
+  // Conteúdos ESPERANDO O CLIENTE APROVAR. Ao enviar, a peça muda de etapa (vai
+  // para "Aprovação") — então ela sumia de todas as listas desta tela: não
+  // estava mais na Distribuição, não estava aprovada e não estava programada.
+  // Filtrar por empresa dava a impressão de que faltava conteúdo.
+  const wwhere = [
+    "t.org_id = @org_id",
+    "t.approval_status IN ('sent', 'changes_requested')",
+    "(s.is_done IS NULL OR s.is_done = 0)",
+  ];
+  if (req.query.client_id) wwhere.push("t.client_id = @client_id");
+  const waiting = db
+    .prepare(
+      `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
+              t.approval_status, t.client_note, t.approval_sent_at, t.published_at,
+              t.client_id, t.cover_file_id, t.position, t.media_ids,
+              c.name AS client_name, c.phone AS client_phone,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+       FROM tasks t
+       LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN kanban_stages s ON s.id = t.stage_id
+       WHERE ${wwhere.join(" AND ")}
+       ORDER BY t.scheduled_at, t.id`
+    )
+    .all(params);
+  const waitingComp = comMidia(waiting, req.orgId);
 
   // Conteúdos já PROGRAMADOS (na etapa de conclusão / "Programados").
   const pwhere = ["t.org_id = @org_id", "s.is_done = 1"];
@@ -112,7 +162,7 @@ router.get("/", (req, res) => {
   const programmed = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.client_id, t.cover_file_id, t.position,
+              t.approval_status, t.published_at, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -122,8 +172,13 @@ router.get("/", (req, res) => {
        ORDER BY t.scheduled_at DESC, t.id DESC`
     )
     .all(params);
+  const programmedComp = comMidia(programmed, req.orgId);
 
-  res.json({ stage: { id: stage.id, name: stage.name }, items, scheduled, approved, programmed });
+  res.json({
+    stage: { id: stage.id, name: stage.name },
+    items: itemsComp, scheduled: scheduledComp, waiting: waitingComp,
+    approved: approvedComp, programmed: programmedComp,
+  });
 });
 
 // POST /api/distribution/:id/schedule — programa (manda para "Programados").
@@ -225,7 +280,9 @@ router.put("/:id", (req, res) => {
   }
 
   // Mídia: substitui o anexo (a arte do post). file_id null = remove.
-  if (file_id !== undefined) {
+  // Quando o pedido traz media_ids (carrossel), o anexo JÁ foi definido acima —
+  // reescrever aqui apagaria a slide inicial e a peça ficaria "sem mídia".
+  if (file_id !== undefined && media_ids === undefined) {
     const tx = db.transaction(() => {
       db.prepare("DELETE FROM task_attachments WHERE task_id = ?").run(req.params.id);
       if (file_id) {

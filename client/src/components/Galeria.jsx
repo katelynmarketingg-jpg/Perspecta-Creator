@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Chip, Stack, Button, Tabs, Tab, Alert,
   IconButton, Tooltip, Dialog, DialogContent,
@@ -8,6 +8,8 @@ import DownloadIcon from "@mui/icons-material/Download";
 import MovieIcon from "@mui/icons-material/Movie";
 import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
+import CircularProgress from "@mui/material/CircularProgress";
 import { fileSize } from "../utils.js";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
 
@@ -138,7 +140,55 @@ function Item({ arquivo, fetchFile }) {
   );
 }
 
-export default function Galeria({ dados, fetchFile }) {
+// ---------------------------------------------------------------------------
+// O cliente acrescentando material aos Originais, da área dele.
+//
+// É onde ele já vem procurar as fotos; poder mandar de volta pelo mesmo lugar
+// evita a foto boa ficar perdida numa conversa de WhatsApp.
+// ---------------------------------------------------------------------------
+function Enviar({ onEnviar }) {
+  const input = useRef(null);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function escolheu(e) {
+    const arquivos = Array.from(e.target.files || []);
+    e.target.value = "";           // deixa reescolher o mesmo arquivo depois
+    if (!arquivos.length) return;
+    setErro("");
+    setEnviando(true);
+    try { await onEnviar(arquivos); }
+    catch (err) {
+      setErro(err?.response?.data?.error
+        || (err?.response?.status === 413 ? "Esse arquivo é grande demais (o limite é 200 MB por arquivo)."
+          : "Não deu para enviar agora. Tente de novo em instantes."));
+    }
+    finally { setEnviando(false); }
+  }
+
+  return (
+    <Card variant="outlined" sx={{ mb: 2, borderStyle: "dashed" }}>
+      <CardContent sx={{ py: 2 }}>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+          <Box sx={{ flex: 1 }}>
+            <Typography sx={{ fontWeight: 600 }}>Mandar fotos e vídeos</Typography>
+            <Typography variant="body2" color="text.secondary">
+              O que você mandar aqui chega direto para a equipe e fica guardado em Originais.
+            </Typography>
+          </Box>
+          <Button variant="contained" startIcon={enviando ? <CircularProgress size={16} color="inherit" /> : <AddPhotoAlternateIcon />}
+            disabled={enviando} onClick={() => input.current?.click()}>
+            {enviando ? "Enviando…" : "Escolher arquivos"}
+          </Button>
+        </Stack>
+        {erro && <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setErro("")}>{erro}</Alert>}
+        <input ref={input} type="file" multiple hidden accept="image/*,video/*,.pdf" onChange={escolheu} />
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function Galeria({ dados, fetchFile, onEnviar }) {
   const [aba, setAba] = useState("todos");
   if (!dados) return null;
 
@@ -169,6 +219,8 @@ export default function Galeria({ dados, fetchFile }) {
           return <Tab key={a.key} value={a.key} label={`${a.label} (${n})`} />;
         })}
       </Tabs>
+
+      {onEnviar && (aba === "todos" || aba === "originais") && <Enviar onEnviar={onEnviar} />}
 
       {lista.length === 0 ? (
         <Card><CardContent sx={{ textAlign: "center", py: 5 }}>

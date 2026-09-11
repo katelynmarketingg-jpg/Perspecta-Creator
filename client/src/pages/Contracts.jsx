@@ -41,6 +41,13 @@ export default function Contracts() {
 
   const loadTemplates = () => api.get("/contract-templates").then((r) => setTemplates(r.data)).catch(() => {});
 
+  // Cria o contrato de redes sociais já escrito e abre para edição.
+  async function usarModeloPronto() {
+    const { data } = await api.post("/contract-templates/pronto");
+    await loadTemplates();
+    setTplDraft(data);
+  }
+
   async function salvarModelo() {
     if (!tplDraft?.name?.trim()) return;
     if (tplDraft.id) await api.put(`/contract-templates/${tplDraft.id}`, tplDraft);
@@ -269,6 +276,17 @@ export default function Contracts() {
       <Dialog open={tplManage} onClose={() => { setTplManage(false); setTplDraft(null); }} fullWidth maxWidth="md">
         <DialogTitle>Modelos de contrato</DialogTitle>
         <DialogContent>
+          {!tplDraft && (
+            <Alert severity="success" sx={{ mb: 2, "& .MuiAlert-message": { width: "100%" } }}
+              action={<Button size="small" variant="contained" onClick={usarModeloPronto}>Usar modelo pronto</Button>}>
+              <b>Contrato de gestão de redes sociais, pronto.</b>
+              <Typography variant="caption" sx={{ display: "block" }}>
+                Já vem com os marcadores e com as cláusulas que protegem a agência — sem garantia de
+                resultado, aprovação tácita, limite de responsabilidade, suspensão por atraso e foro.
+                É um ponto de partida: leia e ajuste (e peça uma olhada do seu advogado).
+              </Typography>
+            </Alert>
+          )}
           {!tplDraft ? (
             <>
               <Button variant="contained" startIcon={<AddIcon />} sx={{ mb: 2 }}
@@ -304,10 +322,23 @@ export default function Contracts() {
                 {services.map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
               </TextField>
               <Alert severity="info" sx={{ "& .MuiAlert-message": { width: "100%" } }}>
-                Use marcadores que o sistema troca sozinho ao gerar:
-                <Box sx={{ mt: 0.5, fontFamily: "monospace", fontSize: 13 }}>
-                  {"{{cliente}} {{empresa}} {{email}} {{telefone}} {{segmento}} {{endereco}} {{valor}} {{duracao}} {{data}}"}
-                </Box>
+                Marcadores que o sistema troca sozinho ao gerar o contrato:
+                {[
+                  ["O cliente", "{{cliente}} {{empresa}} {{razao_social}} {{cnpj}} {{endereco}} {{email}} {{telefone}} {{segmento}}"],
+                  ["Quem assina pelo cliente", "{{representante}} {{tipo_documento_representante}} {{documento_representante}}"],
+                  ["Sua agência", "{{agencia}} {{cnpj_agencia}} {{endereco_agencia}} {{representante_agencia}} {{cargo_representante_agencia}}"],
+                  ["Valores e prazos", "{{valor}} {{valor_extenso}} {{dia_pagamento}} {{vencimento}} {{prazo}} {{duracao}} {{inicio}}"],
+                  ["Lugar e data", "{{cidade}} {{foro}} {{data}} {{servico}}"],
+                ].map(([titulo, lista]) => (
+                  <Box key={titulo} sx={{ mt: 1 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700 }}>{titulo}</Typography>
+                    <Box sx={{ fontFamily: "monospace", fontSize: 12.5, lineHeight: 1.7 }}>{lista}</Box>
+                  </Box>
+                ))}
+                <Typography variant="caption" sx={{ display: "block", mt: 1.5 }}>
+                  Os dados da sua agência vêm de <b>Configurações → Recibos</b>; os do cliente, do
+                  cadastro dele (que o briefing preenche sozinho).
+                </Typography>
               </Alert>
               <TextField label="Texto do contrato" value={tplDraft.body} fullWidth multiline minRows={12}
                 onChange={(e) => setTplDraft((d) => ({ ...d, body: e.target.value }))}

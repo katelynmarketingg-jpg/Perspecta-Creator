@@ -8,12 +8,13 @@ import { CONTENT_TYPES } from "../utils.js";
 // Miniatura da grade. Recebe o fetcher pronto para servir tanto a agência
 // quanto o portal (cada um tem o seu token).
 //
-// Ordem de desenho:
-//  1. a miniatura que veio junto do post (leve, não baixa nada);
-//  2. senão, baixa a arte e desenha — VÍDEO com <video>, porque <img> não toca
-//     vídeo, e FOTO com <img>.
-// O tipo vem do blob (o servidor manda o tipo certo); se o blob vier sem tipo,
-// usamos o mime do post como reserva.
+// QUALIDADE: cada quadro é 1080x1440 (o retrato do Instagram), e é por ele que
+// o cliente julga o trabalho — então a miniatura leve serve só de rascunho
+// enquanto a ARTE DE VERDADE carrega por cima. Antes a grade parava na
+// miniatura e o texto das artes saía embolado.
+//
+// VÍDEO não é baixado inteiro: o <video> com preload="metadata" puxa só o
+// começo do arquivo e desenha o 1º quadro.
 function Celula({ post, fetchFile, onClick }) {
   const [src, setSrc] = useState(null);
   const [tipo, setTipo] = useState(post.mime || "");
@@ -21,10 +22,13 @@ function Celula({ post, fetchFile, onClick }) {
 
   const fileId = post.file_id;
   const thumb = post.thumb || null;
+  const ehVideo = ["reel", "stories"].includes(post.content_type) || /^video\//.test(post.mime || tipo);
 
   useEffect(() => {
     setSrc(null); setErro(false); setTipo(post.mime || "");
-    if (!fileId || thumb) return undefined;
+    if (!fileId) return undefined;
+    // Vídeo com endereço próprio toca direto, sem baixar nada por aqui.
+    if (ehVideo && post.media_url) return undefined;
     let url;
     let vivo = true;
     fetchFile(fileId)
@@ -34,25 +38,42 @@ function Celula({ post, fetchFile, onClick }) {
         if (blob.type) setTipo(blob.type);
         setSrc(url);
       })
-      .catch(() => { if (vivo) setErro(true); });
+      // Sem a arte inteira, a miniatura (se houver) continua na tela.
+      .catch(() => { if (vivo && !thumb) setErro(true); });
     return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
-  }, [fileId, thumb, post.mime, fetchFile]);
+  }, [fileId, thumb, post.mime, post.media_url, ehVideo, fetchFile]);
 
-  const ehVideo = ["reel", "stories"].includes(post.content_type) || /^video\//.test(tipo);
   const aprovado = post.approval_status === "approved" || post.stage_done;
-  const midiaSx = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
 
-  // A arte em si: miniatura > vídeo > foto > aviso.
+  // CARROSSEL exportado como UMA imagem larga (as partes lado a lado): a capa
+  // é o COMEÇO do carrossel, os primeiros 1080px da esquerda — nunca o meio da
+  // tira. Ancorando à esquerda, a conta fecha sozinha: num quadro 1080x1440
+  // (3:4), o recorte visível tem 0,75 x a altura da arte de largura — ou seja,
+  // exatamente 1080px numa tira de 1440 de altura.
+  const comecoDaTira = post.content_type === "carrossel";
+  const midiaSx = {
+    width: "100%", height: "100%", objectFit: "cover", display: "block",
+    objectPosition: comecoDaTira ? "left center" : "center",
+  };
+  const porCima = { ...midiaSx, position: "absolute", inset: 0 };
+
+  // A arte em si. A miniatura entra primeiro (instantânea) e a arte cheia
+  // desenha por cima quando chega — a troca não pisca.
   let arte;
-  if (thumb) {
-    arte = <Box component="img" src={thumb} alt={post.title} sx={midiaSx} />;
-  } else if (src && /^video\//.test(tipo)) {
-    // preload="metadata" + #t=0.1 = mostra o 1º quadro sem tocar o vídeo.
-    arte = <Box component="video" src={`${src}#t=0.1`} preload="metadata" muted playsInline
-      sx={{ ...midiaSx, bgcolor: "#000" }} onError={() => setErro(true)} />;
-  } else if (src) {
-    arte = <Box component="img" src={src} alt={post.title} sx={midiaSx}
-      onError={() => setErro(true)} />;
+  if (ehVideo && post.media_url) {
+    arte = <Box component="video" src={`${post.media_url}#t=0.1`} preload="metadata" muted playsInline
+      poster={thumb || undefined} sx={{ ...midiaSx, bgcolor: "#000" }} onError={() => setErro(true)} />;
+  } else if (thumb || src) {
+    arte = (
+      <>
+        {thumb && <Box component="img" src={thumb} alt="" aria-hidden sx={midiaSx} />}
+        {src && (/^video\//.test(tipo)
+          ? <Box component="video" src={`${src}#t=0.1`} preload="metadata" muted playsInline
+              sx={{ ...(thumb ? porCima : midiaSx), bgcolor: "#000" }} onError={() => setErro(true)} />
+          : <Box component="img" src={src} alt={post.title} sx={thumb ? porCima : midiaSx}
+              onError={() => setErro(true)} />)}
+      </>
+    );
   } else {
     arte = (
       <Stack alignItems="center" spacing={0.5} sx={{ color: erro ? "error.main" : "text.disabled", p: 1 }}>
@@ -81,14 +102,18 @@ function Celula({ post, fetchFile, onClick }) {
             filter: "drop-shadow(0 1px 3px rgba(0,0,0,.6))", fontSize: 20 }} />
         )}
 
-        {/* Marca o que ainda não passou pelo cliente */}
+        {/* Marca o que ainda não passou pelo cliente. É um selo no canto, não
+            uma tarja no quadro inteiro: a prévia existe para a pessoa ver o
+            PERFIL dela, e uma faixa laranja em cima de cada arte tapava
+            justamente o que ela veio olhar. */}
         {!aprovado && (
           <Box sx={{
-            position: "absolute", bottom: 0, left: 0, right: 0, py: 0.25,
-            bgcolor: (t) => alpha(t.palette.warning.main, 0.9),
-            color: "#1C1917", fontSize: 9.5, fontWeight: 700, textAlign: "center",
+            position: "absolute", top: 5, left: 5, px: 0.6, py: 0.15, borderRadius: 0.75,
+            bgcolor: (t) => alpha(t.palette.warning.main, 0.95),
+            color: "#1C1917", fontSize: 8.5, fontWeight: 800, letterSpacing: .2,
+            boxShadow: "0 1px 3px rgba(0,0,0,.25)",
           }}>
-            AGUARDA APROVAÇÃO
+            AGUARDA
           </Box>
         )}
 

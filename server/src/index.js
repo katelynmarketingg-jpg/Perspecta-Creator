@@ -27,6 +27,8 @@ import plansRoutes from "./routes/plans.js";
 import integrationsRoutes from "./routes/integrations.js";
 import { sharedRouter } from "./routes/files.js";
 import { signRouter } from "./routes/sign.js";
+import briefingsRoutes from "./routes/briefings.js";
+import { briefingPublicRouter } from "./routes/briefing-public.js";
 import commentsRoutes from "./routes/comments.js";
 import timeRoutes from "./routes/time.js";
 import prospectsRoutes from "./routes/prospects.js";
@@ -57,7 +59,11 @@ const PORT = Number(process.env.PORT || 8080);
 const app = express();
 app.set("trust proxy", 1); // atrás do proxy do Render: HTTPS e IP reais
 app.use(cors());
-app.use(express.json({ limit: "5mb" }));
+// 15 MB: um contrato com a logo e alguma imagem colada dentro do texto passa
+// dos 5 MB antigos com facilidade — e o salvamento falhava com "413" sem que
+// ninguém entendesse por quê. Arquivo de verdade (foto, vídeo) não passa por
+// aqui: sobe pelo multer, em outra rota.
+app.use(express.json({ limit: "15mb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true, ts: Date.now() }));
 
@@ -96,6 +102,8 @@ app.use("/api/organizations", organizationsRoutes);
 app.use("/api/plans", plansRoutes);
 app.use("/api/integrations", integrationsRoutes);
 app.use("/api/sign", signRouter);    // assinatura por link público
+app.use("/api/briefing", briefingPublicRouter); // briefing do cliente, por link público
+app.use("/api/briefings", briefingsRoutes);     // briefing do lado da equipe
 app.use("/api/comments", commentsRoutes);
 app.use("/api/time", timeRoutes);
 app.use("/api/prospects", prospectsRoutes);

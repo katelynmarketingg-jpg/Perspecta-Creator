@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AppBar, Toolbar, Box, Container, Tabs, Tab, Badge, Card, CardContent,
@@ -22,35 +22,72 @@ import PixIcon from "@mui/icons-material/Pix";
 import LinkIcon from "@mui/icons-material/Link";
 import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
 import portalApi from "../api/portal.js";
 import { currency, formatDate, formatTime, CONTENT_TYPES } from "../utils.js";
 import { printReceipt } from "../receipt.js";
+import { carregarArte } from "../media.js";
 
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 // Imagem/vídeo anexado, carregado com o token do portal.
-function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl }) {
+// `capa` (a miniatura escolhida) vira o quadro parado do vídeo: o post aparece
+// com a arte certa e continua dando para dar play.
+function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
   const [src, setSrc] = useState(mediaUrl || null);
+  const [erro, setErro] = useState(false);
+  const ehVideoAqui = (mime || "").startsWith("video/");
   useEffect(() => {
+    setErro(false);
     // Com media_url (link inline), toca/mostra direto por streaming — sem baixar
     // o arquivo inteiro (essencial para vídeo grande, que travava antes).
     if (mediaUrl) { setSrc(mediaUrl); return undefined; }
-    let url;
-    portalApi
-      .get(`/files/${fileId}/download`, { responseType: "blob" })
-      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); })
-      .catch(() => {});
-    return () => url && URL.revokeObjectURL(url);
-  }, [fileId, mediaUrl]);
+    if (!fileId) return undefined;
+    let vivo = true;
+    // Pelo carregador compartilhado: é ele que converte a foto de iPhone
+    // (.HEIC), que nenhum navegador desenha.
+    carregarArte(`portal:${fileId}`,
+      () => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+      { mime })
+      .then((m) => { if (vivo) setSrc(m.url); })
+      .catch(() => { if (vivo) setErro(true); });
+    return () => { vivo = false; };   // não revoga: o cache é dono da URL
+  }, [fileId, mediaUrl, mime]);
+
+  // Com link inline, o <img>/<video> pode falhar (formato que o navegador não
+  // desenha). Aí baixamos e convertemos — uma vez só.
+  const tentouConverter = useRef(false);
+  async function naoDesenhou() {
+    if (tentouConverter.current || !fileId) { setErro(true); return; }
+    tentouConverter.current = true;
+    try {
+      const m = await carregarArte(`portal:${fileId}`,
+        () => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+        { alt, mime });
+      setSrc(m.url);
+    } catch { setErro(true); }
+  }
+
+  const moldura = { width: "100%", maxHeight, borderRadius: 2 };
+  if (erro) {
+    return (
+      <Box sx={{ ...moldura, height: 140, bgcolor: "action.hover", display: "grid", placeItems: "center",
+                 color: "text.secondary", fontSize: 13, textAlign: "center", p: 1 }}>
+        A arte não carregou. Avise a equipe.
+      </Box>
+    );
+  }
   if (!src) return null;
-  if (mime?.startsWith("video/")) {
-    return <Box component="video" src={src} controls sx={{ width: "100%", maxHeight, borderRadius: 2, bgcolor: "#000" }} />;
+  if (ehVideoAqui) {
+    return <Box component="video" src={src} poster={capa || undefined} controls playsInline preload="metadata"
+      sx={{ ...moldura, bgcolor: "#000" }} onError={naoDesenhou} />;
   }
   return (
     <Box component="img" src={src} alt={alt}
-      sx={{ width: "100%", maxHeight, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover" }} />
+      sx={{ ...moldura, objectFit: "contain", bgcolor: "action.hover" }} onError={naoDesenhou} />
   );
 }
 
@@ -64,11 +101,13 @@ function PortalThumb({ fileId, size = 56, mime, thumb, mediaUrl }) {
     // um arquivo gigante só para a miniatura, que antes deixava o tile em branco.
     if ((mime || "").startsWith("video/") && mediaUrl) { setIsVideo(true); setSrc(null); return undefined; }
     if (!fileId) return undefined;
-    let url;
-    portalApi.get(`/files/${fileId}/download`, { responseType: "blob" })
-      .then((r) => { url = URL.createObjectURL(r.data); setSrc(url); setIsVideo((r.data.type || "").startsWith("video")); })
+    let vivo = true;
+    carregarArte(`portal:${fileId}`,
+      () => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+      { mime })
+      .then((m) => { if (!vivo) return; setSrc(m.url); setIsVideo((m.tipo || "").startsWith("video")); })
       .catch(() => {});
-    return () => url && URL.revokeObjectURL(url);
+    return () => { vivo = false; };   // não revoga: o cache é dono da URL
   }, [fileId, thumb, mediaUrl, mime]);
   const sx = { width: size, height: size, borderRadius: 1.5, objectFit: "cover", flexShrink: 0, bgcolor: isVideo ? "#000" : "action.hover" };
   if (src) return isVideo
@@ -164,7 +203,8 @@ function PostDialog({ post, onClose }) {
             )}
           </Stack>
           {attachments.map((f) => (
-            <AuthImg key={f.id} fileId={f.id} alt={f.original_name} mime={f.mime} maxHeight={460} />
+            <AuthImg key={f.id} fileId={f.id} alt={f.original_name} mime={f.mime} maxHeight={460}
+              mediaUrl={f.media_url} capa={f.thumb || f.cover_thumb} />
           ))}
           <Divider />
           <Typography variant="subtitle2" color="text.secondary">Legenda</Typography>
@@ -195,6 +235,40 @@ const tipoIndefinido = (f) => { const m = (f?.mime || "").toLowerCase(); return 
 const ehMidiaAprovacao = (f) =>
   /^(image|video)\//.test(f?.mime || "") || ehArquivoVideo(f) || EXT_IMG.test(f?.original_name || "") || tipoIndefinido(f);
 
+// A foto do post. Vai direto pelo link (rápido, sem baixar o arquivo inteiro);
+// se o navegador NÃO conseguir desenhar — é o caso do .HEIC, foto de iPhone —
+// cai no carregador compartilhado, que converte. Assim a foto aparece sem
+// deixar todas as outras mais lentas.
+function Foto({ file }) {
+  const [src, setSrc] = useState(file.media_url || null);
+  const [erro, setErro] = useState(false);
+  const tentouConverter = useRef(false);
+
+  async function naoDesenhou() {
+    if (tentouConverter.current) { setErro(true); return; }
+    tentouConverter.current = true;
+    try {
+      const m = await carregarArte(`portal:${file.id}`,
+        () => portalApi.get(`/files/${file.id}/download`, { responseType: "blob" }).then((r) => r.data),
+        { nome: file.original_name, mime: file.mime });
+      setSrc(m.url);
+    } catch { setErro(true); }
+  }
+
+  if (erro) {
+    return (
+      <Box sx={{ width: "100%", height: 160, borderRadius: 2, bgcolor: "action.hover", display: "grid",
+                 placeItems: "center", color: "text.secondary", fontSize: 13, textAlign: "center", p: 1 }}>
+        A arte não carregou. Avise a equipe.
+      </Box>
+    );
+  }
+  return (
+    <Box component="img" src={src} alt={file.original_name} onError={naoDesenhou}
+      sx={{ width: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover", display: "block" }} />
+  );
+}
+
 function ApprovalMedia({ file }) {
   // Vídeo quando o tipo diz vídeo OU quando é indefinido (o Reel costuma subir
   // sem mime) — nesse caso tentamos o <video> e, se ele falhar, caímos para
@@ -214,13 +288,14 @@ function ApprovalMedia({ file }) {
   return (
     <Box>
       {comoVideo ? (
-        <Box component="video" src={file.media_url} poster={file.thumb || undefined}
+        // A CAPA escolhida na Distribuição é o quadro parado do vídeo — o post
+        // aparece com a arte certa e o cliente ainda assiste.
+        <Box component="video" src={file.media_url} poster={file.thumb || file.cover_thumb || undefined}
           controls playsInline preload="metadata"
           onError={() => setComoVideo(false)}
           sx={{ width: "100%", maxHeight: 520, borderRadius: 2, bgcolor: "#000", display: "block" }} />
       ) : (
-        <Box component="img" src={file.media_url} alt={file.original_name}
-          sx={{ width: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover", display: "block" }} />
+        <Foto file={file} />
       )}
       <Button size="small" startIcon={<DownloadIcon />} disabled={baixando} onClick={baixar} sx={{ mt: 0.5 }}>
         {baixando ? "Baixando…" : "Baixar na qualidade original"}
@@ -377,6 +452,10 @@ export default function Portal() {
   const [tab, setTab] = useState("approvals");
   const [galleryMode, setGalleryMode] = useState("pastas"); // pastas | etapas
   const [calView, setCalView] = useState("lista"); // lista | grade
+  // No celular o mês inteiro não cabe em 7 colunas de ~50px: a miniatura de
+  // 44px, o dia e o horário brigavam pelo mesmo espaço e o calendário virava
+  // uma papa. Lá a grade fica enxuta — bolinha e horário — e o toque abre o post.
+  const estreito = useMediaQuery(useTheme().breakpoints.down("sm"));
   const [approvals, setApprovals] = useState([]);
   const [approved, setApproved] = useState([]);
   const [aprovMode, setAprovMode] = useState("pendentes"); // pendentes | aprovados
@@ -428,6 +507,16 @@ export default function Portal() {
     portalApi.get("/notifications").then((r) => setAvisos(r.data.filter((n) => !n.is_read))).catch(() => {});
     portalApi.get("/feed").then((r) => setFeed(r.data)).catch(() => {});
     portalApi.get("/gallery").then((r) => setGaleria(r.data)).catch(() => {});
+  }, []);
+
+  // O cliente mandando material de volta: cai em Originais, na pasta dele, e a
+  // equipe é avisada. Recarrega a galeria para ele ver o que acabou de subir.
+  const enviarArquivos = useCallback(async (arquivos) => {
+    const form = new FormData();
+    arquivos.forEach((f) => form.append("files", f));
+    await portalApi.post("/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
+    const { data } = await portalApi.get("/gallery");
+    setGaleria(data);
   }, []);
 
   const buscarArquivo = useCallback(
@@ -596,7 +685,7 @@ export default function Portal() {
           <>
             <Stack direction="row" alignItems="center" justifyContent="center" spacing={2} sx={{ mb: 1.5 }}>
               <IconButton onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() - 1, 1))}><ChevronLeftIcon /></IconButton>
-              <Typography variant="h6" sx={{ minWidth: 190, textAlign: "center" }}>
+              <Typography variant="h6" sx={{ minWidth: { xs: 0, sm: 190 }, textAlign: "center", fontSize: { xs: 17, sm: undefined } }}>
                 {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
               </Typography>
               <IconButton onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}><ChevronRightIcon /></IconButton>
@@ -617,33 +706,54 @@ export default function Portal() {
                 <Card>
                   <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: 1, borderColor: "divider" }}>
                     {WEEKDAYS.map((w) => (
-                      <Typography key={w} variant="caption" sx={{ p: 1, textAlign: "center", fontWeight: 700, color: "text.secondary" }}>{w}</Typography>
+                      <Typography key={w} variant="caption" sx={{ p: estreito ? 0.5 : 1, textAlign: "center", fontWeight: 700, color: "text.secondary", fontSize: estreito ? 10 : undefined }}>{w}</Typography>
                     ))}
                   </Box>
                   <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-                    {gridCells.map((day, i) => (
-                      <Box key={i} sx={{ minHeight: 92, p: 0.5, borderRight: (i + 1) % 7 !== 0 ? 1 : 0, borderBottom: i < gridCells.length - 7 ? 1 : 0, borderColor: "divider" }}>
+                    {gridCells.map((day, i) => {
+                      const doDia = day ? (byDay[day] || []) : [];
+                      return (
+                      <Box key={i} sx={{ minHeight: estreito ? 58 : 92, p: estreito ? 0.25 : 0.5, minWidth: 0,
+                                         borderRight: (i + 1) % 7 !== 0 ? 1 : 0, borderBottom: i < gridCells.length - 7 ? 1 : 0, borderColor: "divider" }}>
                         {day && (
                           <>
-                            <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>{day}</Typography>
-                            <Stack spacing={0.5} sx={{ mt: 0.4 }}>
-                              {(byDay[day] || []).slice(0, 2).map((p) => (
-                                <Box key={p.id} onClick={() => setOpenPost(p)}
-                                  sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", position: "relative", "&:hover": { borderColor: "primary.main" } }}>
-                                  {p.file_id ? <PortalThumb fileId={p.file_id} size={44} /> : <Box sx={{ height: 44, bgcolor: "action.hover" }} />}
-                                  <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
-                                    {formatTime(p.scheduled_at)}
-                                  </Box>
+                            <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", fontSize: estreito ? 11 : undefined }}>{day}</Typography>
+                            {estreito ? (
+                              // Celular: o dia com conteúdo vira um toque só, com o
+                              // horário do primeiro e quantos mais existem.
+                              doDia.length > 0 && (
+                                <Box onClick={() => setOpenPost(doDia[0])}
+                                  sx={{ mt: 0.25, px: 0.25, py: 0.35, borderRadius: 0.75, cursor: "pointer",
+                                        bgcolor: "primary.main", color: "primary.contrastText", textAlign: "center" }}>
+                                  <Typography sx={{ fontSize: 9.5, fontWeight: 800, lineHeight: 1.1 }}>
+                                    {formatTime(doDia[0].scheduled_at)}
+                                  </Typography>
+                                  {doDia.length > 1 && (
+                                    <Typography sx={{ fontSize: 9, opacity: .85, lineHeight: 1.1 }}>+{doDia.length - 1}</Typography>
+                                  )}
                                 </Box>
-                              ))}
-                              {(byDay[day] || []).length > 2 && (
-                                <Typography variant="caption" color="text.secondary" sx={{ pl: 0.5 }}>+{byDay[day].length - 2}</Typography>
-                              )}
-                            </Stack>
+                              )
+                            ) : (
+                              <Stack spacing={0.5} sx={{ mt: 0.4 }}>
+                                {doDia.slice(0, 2).map((p) => (
+                                  <Box key={p.id} onClick={() => setOpenPost(p)}
+                                    sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", position: "relative", "&:hover": { borderColor: "primary.main" } }}>
+                                    {p.file_id ? <PortalThumb fileId={p.file_id} size={44} /> : <Box sx={{ height: 44, bgcolor: "action.hover" }} />}
+                                    <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
+                                      {formatTime(p.scheduled_at)}
+                                    </Box>
+                                  </Box>
+                                ))}
+                                {doDia.length > 2 && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ pl: 0.5 }}>+{doDia.length - 2}</Typography>
+                                )}
+                              </Stack>
+                            )}
                           </>
                         )}
                       </Box>
-                    ))}
+                      );
+                    })}
                   </Box>
                 </Card>
               )
@@ -709,7 +819,7 @@ export default function Portal() {
             </ToggleButtonGroup>
             {galleryMode === "pastas"
               ? <Card><CardContent><GalleryBrowser /></CardContent></Card>
-              : <Galeria dados={galeria} fetchFile={buscarArquivo} />}
+              : <Galeria dados={galeria} fetchFile={buscarArquivo} onEnviar={enviarArquivos} />}
           </>
         )}
 

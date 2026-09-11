@@ -10,6 +10,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DriveIcon from "@mui/icons-material/AddToDrive";
 import DescriptionIcon from "@mui/icons-material/Description";
+import PsychologyIcon from "@mui/icons-material/Psychology";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import PrintIcon from "@mui/icons-material/Print";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -23,6 +24,7 @@ import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState, TableSkeleton } from "../components/ui.jsx";
 import { currency, formatDate, CONTENT_TYPES } from "../utils.js";
+import ClientBrain from "../components/ClientBrain.jsx";
 
 // Quantidades do mês que aparecem no cadastro do cliente (as mais comuns).
 // Viram o plano de tarefas — o "Lançar mês" (Projetos) gera tudo.
@@ -39,6 +41,8 @@ const EMPTY = {
 };
 
 export default function Clients() {
+  // Inteligência da IA deste cliente (o mesmo cadastro da aba IA e do Planejamento)
+  const [cerebro, setCerebro] = useState(null);
   const [rows, setRows] = useState([]);
   const [allServices, setAllServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -315,6 +319,9 @@ export default function Clients() {
                     <Tooltip title="Contratos do cliente">
                       <IconButton size="small" onClick={() => abrirContratos(c)}><DescriptionIcon fontSize="small" /></IconButton>
                     </Tooltip>
+                    <Tooltip title="Inteligência da IA — o que a IA sabe deste cliente">
+                      <IconButton size="small" onClick={() => setCerebro(c)}><PsychologyIcon fontSize="small" /></IconButton>
+                    </Tooltip>
                     <IconButton size="small" onClick={() => openEdit(c)}><EditIcon fontSize="small" /></IconButton>
                     <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
                   </TableCell>
@@ -324,6 +331,18 @@ export default function Clients() {
           </Table>
         </Card>
       )}
+
+      {/* Inteligência da IA do cliente — MESMO editor da aba IA e do Planejamento.
+          Salvar aqui já vale nas legendas da Distribuição e no planejamento. */}
+      <Dialog open={Boolean(cerebro)} onClose={() => setCerebro(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Inteligência da IA — {cerebro?.name}</DialogTitle>
+        <DialogContent dividers>
+          {cerebro && <ClientBrain clientId={cerebro.id} clientName={cerebro.name} />}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCerebro(null)}>Fechar</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Projetos e entregas do cliente (interliga Clientes ↔ Projetos) */}
       <Dialog open={Boolean(projetos)} onClose={() => setProjetos(null)} fullWidth maxWidth="sm">

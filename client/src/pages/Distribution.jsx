@@ -29,26 +29,22 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 import PlanningRefDialog from "../components/PlanningRefDialog.jsx";
 import { thumbFromElement } from "../upload/thumbnail.js";
+import { carregarArte } from "../media.js";
 
 // Cache de mídias por sessão: cada arquivo é baixado UMA vez e reaproveitado
 // entre telas, filtros e re-renderizações. Antes cada componente rebaixava o
 // blob e o revogava ao desmontar — trocar de visão/rolar recarregava tudo, o
 // que deixava a Distribuição lenta. Aqui a URL do objeto vive enquanto a página
 // estiver aberta (o cache é o dono; ninguém revoga).
-const _mediaCache = new Map();    // fileId -> { url, type }
-const _mediaInflight = new Map(); // fileId -> Promise<{url,type}>
 function loadMedia(fileId) {
   if (!fileId) return Promise.resolve(null);
-  if (_mediaCache.has(fileId)) return Promise.resolve(_mediaCache.get(fileId));
-  if (_mediaInflight.has(fileId)) return _mediaInflight.get(fileId);
-  const p = api.get(`/files/${fileId}/download`, { responseType: "blob" })
-    .then((r) => {
-      const v = { url: URL.createObjectURL(r.data), type: r.data.type || "" };
-      _mediaCache.set(fileId, v); _mediaInflight.delete(fileId); return v;
-    })
-    .catch((e) => { _mediaInflight.delete(fileId); throw e; });
-  _mediaInflight.set(fileId, p);
-  return p;
+  // Passa pelo carregador compartilhado: é ele que converte a foto de iPhone
+  // (.HEIC), que nenhum navegador desenha — era por isso que as fotos ficavam
+  // em branco aqui, mesmo já aparecendo na Galeria.
+  return carregarArte(
+    `agencia:${fileId}`,
+    () => api.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data)
+  ).then((m) => ({ url: m.url, type: m.tipo }));
 }
 
 // Miniatura (leve) do arquivo: é o que desenha a grade do perfil sem baixar a
@@ -127,27 +123,74 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 // fit="cover" (padrão) preenche o quadrado (para grades/miniaturas);
 // fit="contain" mostra a IMAGEM INTEIRA na proporção real (para a prévia do
 // post), sem cortar nada — sobra uma faixa neutra ao redor quando não é quadrada.
-function Media({ fileId, height = 200, fit = "cover" }) {
+// Reel e stories são sempre vídeo; fora isso, o tipo do arquivo decide.
+const pecaEhVideo = (p) => ["reel", "stories"].includes(p?.content_type) || /^video\//.test(p?.mime || "");
+
+function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
+  const [capa, setCapa] = useState(null);
   const [erro, setErro] = useState(false);
+
+  // VÍDEO não é baixado: toca pelo endereço de streaming, em que o navegador
+  // pede só o começo do arquivo e já mostra o 1º quadro. Baixar um reel de
+  // 200 MB inteiro antes de aparecer qualquer coisa fazia a peça parecer
+  // travada — e em internet de celular, nunca terminava.
+  const transmite = Boolean(streamUrl && ehVideoDica);
+
   useEffect(() => {
-    setSrc(null); setErro(false);
-    if (!fileId) return;
+    setSrc(null); setErro(false); setCapa(null);
+    if (!fileId || transmite) return undefined;
     let alive = true;
     loadMedia(fileId)
       .then((m) => { if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); } })
       .catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
-  }, [fileId]);
+  }, [fileId, transmite]);
+
+  // A CAPA escolhida vira o quadro parado do vídeo: o post aparece com a arte
+  // certa e continua dando para dar play — antes era um ou outro.
+  useEffect(() => {
+    if (!capaId || capaId === fileId) return undefined;
+    let alive = true;
+    loadThumb(capaId)
+      .then((t) => (t ? { url: t } : loadMedia(capaId)))
+      .then((m) => { if (alive && m) setCapa(m.url); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [capaId, fileId]);
+
   const contain = fit === "contain";
   const sx = { width: "100%", height, objectFit: fit, borderRadius: 2, bgcolor: contain ? "#000" : "action.hover", display: "block" };
-  if (!fileId) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "text.secondary", fontSize: height <= 90 ? 9 : 13, lineHeight: 1.1, p: 0.25 }}>Sem mídia</Box>;
-  if (erro) return <Box sx={{ ...sx, display: "grid", placeItems: "center", textAlign: "center", color: "error.main", fontSize: height <= 90 ? 9 : 12, lineHeight: 1.15, p: 0.5 }}>Imagem não carregou<br/>(reenvie)</Box>;
+  const pequeno = height <= 90;
+  const aviso = (texto, cor, tracejado = false) => (
+    <Box sx={{
+      width: "100%", height, borderRadius: 2, display: "grid", placeItems: "center", textAlign: "center",
+      color: cor, fontSize: pequeno ? 9 : 13, lineHeight: 1.3, p: 1,
+      // Falta de arte NÃO é erro: fundo claro e borda tracejada, como um espaço
+      // esperando ser preenchido. Antes era um retângulo preto com "Sem mídia",
+      // que parecia exatamente uma imagem quebrada.
+      bgcolor: tracejado ? "action.hover" : (contain ? "#000" : "action.hover"),
+      border: tracejado ? "2px dashed" : 0, borderColor: "divider",
+    }}>{texto}</Box>
+  );
+  if (!fileId) {
+    return aviso(
+      pequeno ? "sem arte" : <>Nenhuma arte ainda<br /><Box component="span" sx={{ fontSize: 12, opacity: 0.75 }}>use “Subir” ou “Da galeria”</Box></>,
+      "text.secondary", true);
+  }
+  if (erro) return aviso(<>Arte não carregou<br />(reenvie)</>, "error.main");
+  if (transmite) {
+    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={height > 120}
+      muted playsInline preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
+      onError={() => setErro(true)} />;
+  }
   if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   return video
-    ? <Box component="video" src={src} controls={height > 120} muted sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }} />
-    : <Box component="img" src={src} alt="" sx={sx} />;
+    ? <Box component="video" src={src} poster={capa || undefined} controls={height > 120} muted playsInline
+        preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
+        onError={() => setErro(true)} />
+    : <Box component="img" src={src} alt="" sx={sx} onError={() => setErro(true)} />;
 }
 
 // Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
@@ -409,7 +452,15 @@ function PieceCard({ item, onChanged, flash }) {
   }
   const addSlide = (id) => { if (id && !slides.includes(id)) saveSlides([...slides, id]); };
   const removeSlide = (id) => saveSlides(slides.filter((s) => s !== id));
-  const makeInitial = (id) => saveSlides([id, ...slides.filter((s) => s !== id)]);
+  // Mover uma slide de lugar. Num carrossel a ordem É o post: a 1ª é a capa que
+  // aparece no perfil, e as outras seguem na ordem em que a pessoa desliza.
+  const moveSlide = (i, d) => {
+    const alvo = i + d;
+    if (alvo < 0 || alvo >= slides.length) return;
+    const next = [...slides];
+    [next[i], next[alvo]] = [next[alvo], next[i]];
+    saveSlides(next);
+  };
   async function uploadSlide(e) {
     const file = e.target.files?.[0]; e.target.value = "";
     if (!file) return;
@@ -493,25 +544,45 @@ function PieceCard({ item, onChanged, flash }) {
             </Alert>
           )}
 
-          <Media fileId={fileId} height={280} fit="contain" />
+          {/* Arte da peça; se ela ainda não foi escolhida, mostra a capa ou a
+              primeira slide — o que existir. Só fica vazio quando não há nada. */}
+          <Media fileId={fileId || coverId || slides[0]} capaId={coverId} height={280} fit="contain"
+            streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
 
           {isCarousel ? (
             <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                Slides do carrossel — a primeira (★ inicial) é a capa que aparece no perfil.
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                Slides do carrossel, na ordem em que o cliente vai deslizar.
+                A <b>capa é sempre a 1ª</b> — é ela que aparece no perfil e na prévia do feed.
+                Para trocar a capa, use as setas e ponha outra slide na frente.
               </Typography>
-              <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 0.5 }}>
+              <Stack direction="row" spacing={1.25} sx={{ overflowX: "auto", pb: 0.5 }}>
                 {slides.map((id, i) => (
-                  <Box key={id} sx={{ position: "relative", width: 74, flex: "0 0 auto" }}>
-                    <Box sx={{ borderRadius: 1, overflow: "hidden", border: 2, borderColor: i === 0 ? "primary.main" : "divider" }}>
-                      <Media fileId={id} height={98} />
+                  <Box key={id} sx={{ width: 84, flex: "0 0 auto" }}>
+                    <Box sx={{ position: "relative" }}>
+                      <Box sx={{ borderRadius: 1, overflow: "hidden", border: 2, borderColor: i === 0 ? "primary.main" : "divider" }}>
+                        <Media fileId={id} height={110} />
+                      </Box>
+                      <Chip size="small" color={i === 0 ? "primary" : "default"}
+                        label={i === 0 ? "★ capa" : i + 1}
+                        sx={{ position: "absolute", top: 3, left: 3, height: 18, fontSize: 10, fontWeight: 700,
+                              bgcolor: i === 0 ? undefined : "rgba(0,0,0,0.6)", color: i === 0 ? undefined : "#fff",
+                              "& .MuiChip-label": { px: 0.7 } }} />
+                      <IconButton size="small" onClick={() => removeSlide(id)} title="Tirar esta slide"
+                        sx={{ position: "absolute", top: 0, right: 0, p: 0.25, color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "error.main" } }}>
+                        <Typography sx={{ fontSize: 13, lineHeight: 1, fontWeight: 700 }}>×</Typography>
+                      </IconButton>
                     </Box>
-                    {i === 0
-                      ? <Chip size="small" color="primary" label="★ inicial" sx={{ position: "absolute", top: 3, left: 3, height: 18, fontSize: 9, "& .MuiChip-label": { px: 0.6 } }} />
-                      : <Button size="small" onClick={() => makeInitial(id)} sx={{ position: "absolute", bottom: 3, left: 3, minWidth: 0, px: 0.5, py: 0, fontSize: 9, lineHeight: 1.4, bgcolor: "rgba(0,0,0,0.55)", color: "#fff", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>tornar inicial</Button>}
-                    <IconButton size="small" onClick={() => removeSlide(id)} sx={{ position: "absolute", top: 0, right: 0, p: 0.25, color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "error.main" } }}>
-                      <Typography sx={{ fontSize: 13, lineHeight: 1, fontWeight: 700 }}>×</Typography>
-                    </IconButton>
+                    <Stack direction="row" justifyContent="center" alignItems="center" sx={{ mt: 0.25 }}>
+                      <IconButton size="small" sx={{ p: 0.25 }} disabled={i === 0}
+                        onClick={() => moveSlide(i, -1)} title="Mover para trás">
+                        <ChevronLeftIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                      <IconButton size="small" sx={{ p: 0.25 }} disabled={i === slides.length - 1}
+                        onClick={() => moveSlide(i, 1)} title="Mover para a frente">
+                        <ChevronRightIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Stack>
                   </Box>
                 ))}
                 {!slides.length && <Typography variant="caption" color="text.disabled" sx={{ py: 2 }}>Nenhuma slide ainda — adicione abaixo.</Typography>}
@@ -688,6 +759,52 @@ function ListView({ items, onSelect, selectMode, checked, onToggle }) {
 }
 
 // Visão em calendário: grade do mês com miniaturas.
+// ---------------------------------------------------------------------------
+// Separado POR MÊS. Filtrando por empresa, a lista vira o ano inteiro de
+// conteúdo dela — sem as divisórias de mês não dá para achar nada.
+// ---------------------------------------------------------------------------
+function agrupaPorMes(itens) {
+  const grupos = new Map();
+  const semData = [];
+  for (const it of itens) {
+    if (!it.scheduled_at) { semData.push(it); continue; }
+    const d = new Date(it.scheduled_at.replace(" ", "T"));
+    if (Number.isNaN(d.getTime())) { semData.push(it); continue; }
+    const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (!grupos.has(chave)) {
+      grupos.set(chave, { rotulo: `${MONTHS[d.getMonth()]} de ${d.getFullYear()}`, itens: [] });
+    }
+    grupos.get(chave).itens.push(it);
+  }
+  const ordenados = [...grupos.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, g]) => g);
+  // Sem data fica por último: é o que ainda falta resolver, não o que vem antes.
+  if (semData.length) ordenados.push({ rotulo: "Sem data marcada", itens: semData, semData: true });
+  return ordenados;
+}
+
+const GRADE = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" };
+
+/** Desenha os itens em blocos de mês. `children` é como cada item vira cartão. */
+function PorMes({ itens, children }) {
+  const grupos = agrupaPorMes(itens);
+  if (grupos.length <= 1) return <Box sx={GRADE}>{itens.map(children)}</Box>;
+  return (
+    <Stack spacing={3}>
+      {grupos.map((g) => (
+        <Box key={g.rotulo}>
+          <Divider textAlign="left" sx={{ mb: 1.5 }}>
+            <Typography variant="caption" sx={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: .5 }}
+              color={g.semData ? "error.main" : "primary.main"}>
+              {g.rotulo} · {g.itens.length}
+            </Typography>
+          </Divider>
+          <Box sx={GRADE}>{g.itens.map(children)}</Box>
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
 function MonthGrid({ items, onSelect }) {
   const [cursor, setCursor] = useState(() => new Date());
   const byDay = useMemo(() => {
@@ -761,7 +878,7 @@ function MonthGrid({ items, onSelect }) {
 // vídeo); se o arquivo não tiver miniatura, cai na arte inteira — e aí VÍDEO é
 // desenhado com <video> mostrando o 1º quadro, porque <img> não toca vídeo (era
 // por isso que os vídeos não apareciam aqui).
-function FeedThumb({ fileId }) {
+function FeedThumb({ fileId, comecoDaTira = false }) {
   const [thumb, setThumb] = useState(null);
   const [midia, setMidia] = useState(null);   // { url, type } quando não há miniatura
   const [erro, setErro] = useState(false);
@@ -780,7 +897,12 @@ function FeedThumb({ fileId }) {
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId]);
 
-  const sx = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
+  // Carrossel salvo como UMA imagem larga: a capa é o começo da tira (os
+  // primeiros 1080px da esquerda), nunca o meio. Ver FeedPreview.jsx.
+  const sx = {
+    width: "100%", height: "100%", objectFit: "cover", display: "block",
+    objectPosition: comecoDaTira ? "left center" : "center",
+  };
   const vazio = (texto, cor = "text.disabled") => (
     <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", textAlign: "center",
                color: cor, fontSize: 10, lineHeight: 1.2, p: 0.5 }}>{texto}</Box>
@@ -865,7 +987,8 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
                 opacity: dragId === p.id ? 0.35 : 1, transition: "opacity .12s ease",
                 outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
               }}>
-              <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile} />
+              <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
+                comecoDaTira={p.content_type === "carrossel"} />
               <Box sx={{
                 position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
                 bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
@@ -896,6 +1019,7 @@ export default function Distribution() {
   const [sendingBulk, setSendingBulk] = useState(false);
   const [approved, setApproved] = useState([]); // aprovados aguardando programação
   const [programmed, setProgrammed] = useState([]); // já programados
+  const [waiting, setWaiting] = useState([]);   // enviados, esperando o cliente aprovar
   const [postFilter, setPostFilter] = useState("para_aprovar"); // para_aprovar | aprovados | programados
 
   const flash = (texto, tipo = "success") => { setMsg({ texto, tipo }); setTimeout(() => setMsg(null), 4000); };
@@ -911,8 +1035,8 @@ export default function Distribution() {
     if (!loadedOnce.current && !opts.silent) setLoading(true);
     const params = clientFilter ? { client_id: clientFilter } : {};
     api.get("/distribution", { params })
-      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setProgrammed(r.data.programmed || []); setStage(r.data.stage); })
-      .catch(() => { setItems([]); setScheduled([]); setApproved([]); setProgrammed([]); })
+      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setProgrammed(r.data.programmed || []); setWaiting(r.data.waiting || []); setStage(r.data.stage); })
+      .catch(() => { setItems([]); setScheduled([]); setApproved([]); setProgrammed([]); setWaiting([]); })
       .finally(() => { setLoading(false); loadedOnce.current = true; });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1020,8 +1144,10 @@ export default function Distribution() {
         <>
           {/* Filtro: para aprovar (preparar/enviar) x aprovados (programar) */}
           <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
-            <ToggleButtonGroup size="small" exclusive value={postFilter} onChange={(_, v) => v && setPostFilter(v)}>
-              <ToggleButton value="para_aprovar">Distribuição{items.length ? ` (${items.length})` : ""}</ToggleButton>
+            <ToggleButtonGroup size="small" exclusive value={postFilter} onChange={(_, v) => v && setPostFilter(v)}
+              sx={{ flexWrap: "wrap" }}>
+              <ToggleButton value="para_aprovar">Preparar{items.length ? ` (${items.length})` : ""}</ToggleButton>
+              <ToggleButton value="aguardando">Para aprovação{waiting.length ? ` (${waiting.length})` : ""}</ToggleButton>
               <ToggleButton value="aprovados">Aprovados{approved.length ? ` (${approved.length})` : ""}</ToggleButton>
               <ToggleButton value="programados">Programados{programmed.length ? ` (${programmed.length})` : ""}</ToggleButton>
             </ToggleButtonGroup>
@@ -1031,8 +1157,8 @@ export default function Distribution() {
             programmed.length === 0 ? (
               <EmptyState message="Nada programado ainda. Quando você programa um conteúdo aprovado, ele aparece aqui." />
             ) : (
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
-                {programmed.map((p) => {
+              <PorMes itens={programmed}>
+                {(p) => {
                   const ct = CONTENT_TYPES[p.content_type];
                   return (
                     <Card key={p.id}>
@@ -1043,7 +1169,8 @@ export default function Distribution() {
                             <Chip size="small" color="info" label="Programado 🗓️" />
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
-                          <Media fileId={p.cover_file_id || p.file_id} height={200} fit="contain" />
+                          <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} height={200} fit="contain"
+                            streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {p.scheduled_at
@@ -1057,15 +1184,54 @@ export default function Distribution() {
                       </CardContent>
                     </Card>
                   );
-                })}
-              </Box>
+                }}
+              </PorMes>
+            )
+          ) : postFilter === "aguardando" ? (
+            waiting.length === 0 ? (
+              <EmptyState message="Nada esperando aprovação. O que você enviar para o cliente aparece aqui até ele responder." />
+            ) : (
+              <PorMes itens={waiting}>
+                {(w) => {
+                  const ct = CONTENT_TYPES[w.content_type];
+                  const pediuAjuste = w.approval_status === "changes_requested";
+                  return (
+                    <Card key={w.id}>
+                      <CardContent>
+                        <Stack spacing={1}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                            {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
+                            <Chip size="small" color={pediuAjuste ? "warning" : "info"}
+                              label={pediuAjuste ? "Pediu ajuste ✏️" : "Com o cliente ⏳"} />
+                          </Stack>
+                          {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
+                          <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} height={200} fit="contain"
+                            streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />
+                          <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
+                          <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
+                            {w.scheduled_at
+                              ? new Date(w.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              : "Sem data"}
+                          </Typography>
+                          {pediuAjuste && w.client_note && (
+                            <Alert severity="warning" sx={{ py: 0.25 }}>
+                              <Typography variant="caption">{w.client_note}</Typography>
+                            </Alert>
+                          )}
+                          <Button size="small" variant="outlined" onClick={() => setSelected(w)}>Abrir</Button>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  );
+                }}
+              </PorMes>
             )
           ) : postFilter === "aprovados" ? (
             approved.length === 0 ? (
               <EmptyState message="Nada aprovado aguardando programação. Quando o cliente aprova, o conteúdo aparece aqui para programar." />
             ) : (
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
-                {approved.map((a) => {
+              <PorMes itens={approved}>
+                {(a) => {
                   const ct = CONTENT_TYPES[a.content_type];
                   return (
                     <Card key={a.id}>
@@ -1076,7 +1242,8 @@ export default function Distribution() {
                             <Chip size="small" color="success" label="Aprovado ✓" />
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
-                          <Media fileId={a.cover_file_id || a.file_id} height={200} fit="contain" />
+                          <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} height={200} fit="contain"
+                            streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
                             {a.scheduled_at
@@ -1094,8 +1261,8 @@ export default function Distribution() {
                       </CardContent>
                     </Card>
                   );
-                })}
-              </Box>
+                }}
+              </PorMes>
             )
           ) : items.length === 0 ? (
             <EmptyState message="Nenhuma peça para preparar. Mova as tarefas prontas para a coluna 'Distribuição' no quadro de Tarefas." />
@@ -1120,8 +1287,8 @@ export default function Distribution() {
                 </>
               )}
             </Stack>
-            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
-              {items.map((it) => (
+            <PorMes itens={items}>
+              {(it) => (
                 <Box key={it.id} sx={{ position: "relative" }}>
                   {selectMode && (
                     <Checkbox
@@ -1140,8 +1307,8 @@ export default function Distribution() {
                     <PieceCard item={it} flash={flash} onChanged={load} />
                   </Box>
                 </Box>
-              ))}
-            </Box>
+              )}
+            </PorMes>
           </>
           )}
         </>
