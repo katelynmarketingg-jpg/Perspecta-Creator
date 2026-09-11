@@ -607,6 +607,8 @@ function PieceCard({ item, onChanged, flash }) {
   }
 
   // Corta a arte em N fatias (no navegador) e sobe cada uma como slide, na ordem.
+  // Se `substituir` estiver setado (arte larga que já estava), as fatias tomam o
+  // LUGAR dela na sequência — é assim que "arrumamos" um carrossel antigo.
   async function confirmarFatiar() {
     if (!slicer) return;
     setSlideUploading(true);
@@ -618,10 +620,41 @@ function PieceCard({ item, onChanged, flash }) {
         const id = await subirArquivo(parte);
         if (id) novos.push(id);
       }
-      if (novos.length) { saveSlides([...slides, ...novos]); flash(`Carrossel montado com ${novos.length} slides. ✅`, "success"); }
+      if (novos.length) {
+        let next;
+        const sub = slicer.substituir;
+        if (sub) {
+          const base = slides.length ? slides : [sub];
+          const i = base.indexOf(sub);
+          next = i >= 0 ? [...base.slice(0, i), ...novos, ...base.slice(i + 1)] : novos;
+        } else {
+          next = [...slides, ...novos];
+        }
+        saveSlides(next);
+        setViewIdx(0);
+        flash(`Carrossel montado com ${novos.length} slides. ✅`, "success");
+      }
       setSlicer(null);
     } catch (err) { flash(err.response?.data?.error || "Não consegui fatiar a arte.", "error"); }
     setSlideUploading(false);
+  }
+
+  // "Arrumar" um carrossel que já existe: pega a arte larga atual (uma tira com
+  // várias slides lado a lado) e abre o corte, para trocá-la pelas slides.
+  async function cortarArteExistente() {
+    const id = slides[0] || fileId || coverId;
+    if (!id) { flash("Não há arte para cortar aqui.", "error"); return; }
+    try {
+      const blob = (await api.get(`/files/${id}/download`, { responseType: "blob" })).data;
+      const file = new File([blob], `${(item.title || "carrossel").replace(/[^\w.-]+/g, "_")}.jpg`,
+        { type: blob.type || "image/jpeg" });
+      const medida = await medirImagem(file);
+      if (!medida?.fatiavel) {
+        flash("Essa arte não é larga o bastante para virar um carrossel de várias slides.", "error");
+        return;
+      }
+      setSlicer({ file, largura: medida.largura, altura: medida.altura, n: medida.sugestao, substituir: id });
+    } catch { flash("Não consegui abrir a arte para cortar.", "error"); }
   }
 
   async function upload(e) {
@@ -766,6 +799,14 @@ function PieceCard({ item, onChanged, flash }) {
                   + Da galeria
                 </Button>
               </Stack>
+              {/* Carrossel antigo que veio como UMA arte larga → cortar em slides.
+                  Aparece quando ainda há no máximo 1 slide (a tira inteira). */}
+              {slides.length <= 1 && (fileId || slides[0]) && (
+                <Button fullWidth variant="text" size="small" startIcon={<GridOnIcon />}
+                  disabled={slideUploading} onClick={cortarArteExistente} sx={{ mt: 0.5 }}>
+                  {slideUploading ? "Cortando…" : "Cortar arte larga em slides"}
+                </Button>
+              )}
             </Box>
           ) : (
             <>
@@ -891,13 +932,17 @@ function PieceCard({ item, onChanged, flash }) {
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setSlicer(null)} disabled={slideUploading}>Cancelar</Button>
-              <Button variant="outlined" disabled={slideUploading}
-                onClick={async () => { const f = slicer.file; setSlicer(null); setSlideUploading(true);
-                  try { const id = await subirArquivo(f); if (id) saveSlides([...slides, id]); }
-                  catch (err) { flash(err.response?.data?.error || "Falha no upload.", "error"); }
-                  setSlideUploading(false); }}>
-                Manter inteira
-              </Button>
+              {/* "Manter inteira" só faz sentido ao SUBIR uma arte nova; para
+                  arte que já está na peça, manter inteira é simplesmente cancelar. */}
+              {!slicer?.substituir && (
+                <Button variant="outlined" disabled={slideUploading}
+                  onClick={async () => { const f = slicer.file; setSlicer(null); setSlideUploading(true);
+                    try { const id = await subirArquivo(f); if (id) saveSlides([...slides, id]); }
+                    catch (err) { flash(err.response?.data?.error || "Falha no upload.", "error"); }
+                    setSlideUploading(false); }}>
+                  Manter inteira
+                </Button>
+              )}
               <Button variant="contained" onClick={confirmarFatiar} disabled={slideUploading}>
                 {slideUploading ? "Cortando…" : `Cortar em ${slicer?.n ?? 2}`}
               </Button>
