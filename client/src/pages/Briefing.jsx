@@ -112,36 +112,8 @@ export default function Briefing() {
     return <Tela><Stack alignItems="center" sx={{ py: 10 }}><CircularProgress /></Stack></Tela>;
   }
 
-  // ---- fim ----------------------------------------------------------------
-  if (pronto) {
-    return (
-      <Tela logo={dados.agency_logo}>
-        <Fade in>
-          <Box sx={{ textAlign: "center", py: { xs: 4, sm: 7 } }}>
-            <Box sx={{
-              width: 92, height: 92, borderRadius: "50%", mx: "auto", mb: 3,
-              display: "grid", placeItems: "center",
-              bgcolor: (t) => alpha(t.palette.success.main, 0.12),
-            }}>
-              <CheckCircleRoundedIcon color="success" sx={{ fontSize: 54 }} />
-            </Box>
-            <Typography variant="h4" sx={{ fontWeight: 800, mb: 1.5, letterSpacing: "-0.02em" }}>
-              Recebemos. Obrigado!
-            </Typography>
-            <Typography sx={{ fontSize: 17, color: "text.secondary", maxWidth: 460, mx: "auto", lineHeight: 1.7 }}>
-              Suas respostas já estão com a equipe da <b>{dados.agency_name}</b>. É com elas que
-              vamos escrever com a sua voz — e não com a de qualquer um.
-            </Typography>
-            <Stack direction="row" spacing={1} justifyContent="center" alignItems="center"
-              sx={{ mt: 4, color: "text.disabled" }}>
-              <FavoriteRoundedIcon sx={{ fontSize: 15 }} />
-              <Typography variant="caption">Pode fechar esta página.</Typography>
-            </Stack>
-          </Box>
-        </Fade>
-      </Tela>
-    );
-  }
+  // ---- fim: contrato + acesso ---------------------------------------------
+  if (pronto) return <Concluido base={base} dados={dados} />;
 
   // ---- boas-vindas --------------------------------------------------------
   if (passo === -1) {
@@ -297,6 +269,176 @@ export default function Briefing() {
         )}
       </Stack>
     </Tela>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A tela de depois do briefing. A pessoa acabou de contar tudo sobre o negócio
+// dela — é a hora de resolver o resto de uma vez: assinar o contrato e abrir o
+// próprio acesso. Ela pode voltar a este mesmo link depois, se quiser.
+// ---------------------------------------------------------------------------
+function Concluido({ base, dados }) {
+  const [passos, setPassos] = useState(null);
+  const [usuario, setUsuario] = useState("");
+  const [senha, setSenha] = useState("");
+  const [confirma, setConfirma] = useState("");
+  const [criando, setCriando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [criado, setCriado] = useState(null);
+
+  const carregar = () => api.get(`${base}/proximos-passos`).then(setPassos).catch(() => {});
+  useEffect(() => { carregar(); }, [base]);
+
+  async function criarAcesso() {
+    setErro("");
+    if (senha !== confirma) { setErro("As duas senhas não são iguais."); return; }
+    setCriando(true);
+    try {
+      const r = await api.send(`${base}/acesso`, "POST", { usuario, senha });
+      setCriado(r);
+      await carregar();
+    } catch (e) { setErro(e.message); }
+    finally { setCriando(false); }
+  }
+
+  const temAcesso = criado || passos?.tem_acesso;
+  const contrato = passos?.contrato;
+
+  return (
+    <Tela logo={dados.agency_logo}>
+      <Fade in>
+        <Box>
+          <Box sx={{ textAlign: "center", mb: 5 }}>
+            <Box sx={{
+              width: 76, height: 76, borderRadius: "50%", mx: "auto", mb: 2.5,
+              display: "grid", placeItems: "center",
+              bgcolor: (t) => alpha(t.palette.success.main, 0.12),
+            }}>
+              <CheckCircleRoundedIcon color="success" sx={{ fontSize: 46 }} />
+            </Box>
+            <Typography sx={{ fontSize: { xs: 27, sm: 34 }, fontWeight: 800, letterSpacing: "-0.02em", mb: 1.5 }}>
+              Recebemos. Obrigado!
+            </Typography>
+            <Typography sx={{ fontSize: 16.5, color: "text.secondary", lineHeight: 1.7, maxWidth: 470, mx: "auto" }}>
+              Suas respostas já estão com a equipe da <b>{dados.agency_name}</b>. É com elas que vamos
+              escrever com a sua voz — e não com a de qualquer um.
+            </Typography>
+          </Box>
+
+          <Typography sx={{ fontWeight: 800, fontSize: 19, mb: 0.5 }}>Faltam só dois passos</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Dá para resolver agora, aqui mesmo. Se preferir, volte a este link depois — ele continua seu.
+          </Typography>
+
+          <Stack spacing={2}>
+            {/* ---- 1. contrato ---- */}
+            <Passo numero="1" titulo="Seu contrato" pronto={contrato?.assinado}>
+              {contrato?.assinado ? (
+                <Typography variant="body2" color="text.secondary">
+                  Assinado — está tudo certo. Você encontra a via no seu acesso, quando quiser.
+                </Typography>
+              ) : contrato?.url ? (
+                <>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Já está pronto, com os seus dados preenchidos. Leia com calma e assine por aqui —
+                    não precisa imprimir nem escanear nada.
+                  </Typography>
+                  <Button variant="contained" component="a" href={contrato.url} target="_blank" rel="noreferrer"
+                    endIcon={<ArrowForwardRoundedIcon />}
+                    sx={{ px: 3, py: 1.2, borderRadius: 2, fontWeight: 700 }}>
+                    Ler e assinar
+                  </Button>
+                </>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  A equipe está preparando o seu contrato com os dados que você acabou de enviar.
+                  Assim que ficar pronto, ele aparece aqui — e você recebe um aviso.
+                </Typography>
+              )}
+            </Passo>
+
+            {/* ---- 2. acesso ---- */}
+            <Passo numero="2" titulo="Seu acesso" pronto={Boolean(temAcesso)}>
+              {temAcesso ? (
+                <>
+                  <Alert severity="success" sx={{ borderRadius: 2, mb: 2 }}>
+                    Acesso criado! Seu nome de acesso é <b>{criado?.usuario || passos?.usuario}</b>.
+                    Guarde a senha que você escolheu — ela é só sua.
+                  </Alert>
+                  <Button variant="contained" component="a"
+                    href={criado?.portal_url || passos?.portal_url} target="_blank" rel="noreferrer"
+                    endIcon={<ArrowForwardRoundedIcon />}
+                    sx={{ px: 3, py: 1.2, borderRadius: 2, fontWeight: 700 }}>
+                    Entrar na minha área
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.75, mb: 2 }}>
+                    É a sua área dentro da {dados.agency_name} — um lugar só seu, aberto o tempo todo.
+                    Lá você <b>vê os conteúdos antes de irem ao ar</b> e aprova ou pede ajuste;
+                    acompanha a <b>prévia do seu feed</b>, para saber como o perfil vai ficar;
+                    <b> manda fotos e vídeos</b> que achar importantes, a qualquer hora; e ainda
+                    encontra o <b>contrato</b> e os <b>pagamentos</b> reunidos, sem precisar procurar
+                    conversa antiga.
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "text.secondary", mb: 2.5 }}>
+                    Escolha agora como quer entrar:
+                  </Typography>
+                  <Stack spacing={2}>
+                    <TextField label="Nome de acesso" value={usuario} fullWidth
+                      onChange={(e) => setUsuario(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))}
+                      helperText="Letras e números, sem espaço. Ex.: knadvocacia"
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                    <TextField label="Senha" type="password" value={senha} fullWidth
+                      onChange={(e) => setSenha(e.target.value)}
+                      helperText="No mínimo 6 caracteres"
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                    <TextField label="Repita a senha" type="password" value={confirma} fullWidth
+                      onChange={(e) => setConfirma(e.target.value)}
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                    {erro && <Alert severity="warning" sx={{ borderRadius: 2 }}>{erro}</Alert>}
+                    <Button variant="contained" onClick={criarAcesso}
+                      disabled={criando || usuario.length < 3 || senha.length < 6}
+                      sx={{ alignSelf: "flex-start", px: 3, py: 1.2, borderRadius: 2, fontWeight: 700 }}>
+                      {criando ? "Criando…" : "Criar meu acesso"}
+                    </Button>
+                  </Stack>
+                </>
+              )}
+            </Passo>
+          </Stack>
+
+          <Stack direction="row" spacing={1} justifyContent="center" alignItems="center"
+            sx={{ mt: 5, mb: 4, color: "text.disabled" }}>
+            <FavoriteRoundedIcon sx={{ fontSize: 15 }} />
+            <Typography variant="caption">Que venha muito conteúdo bom pela frente.</Typography>
+          </Stack>
+        </Box>
+      </Fade>
+    </Tela>
+  );
+}
+
+function Passo({ numero, titulo, pronto, children }) {
+  return (
+    <Box sx={{
+      p: { xs: 2.5, sm: 3 }, borderRadius: 3, border: 1, borderColor: "divider",
+      bgcolor: "background.paper",
+    }}>
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5 }}>
+        <Box sx={{
+          width: 30, height: 30, borderRadius: "50%", flexShrink: 0, display: "grid", placeItems: "center",
+          fontSize: 14, fontWeight: 800,
+          bgcolor: (t) => pronto ? alpha(t.palette.success.main, 0.15) : alpha(t.palette.primary.main, 0.12),
+          color: pronto ? "success.main" : "primary.main",
+        }}>
+          {pronto ? "✓" : numero}
+        </Box>
+        <Typography sx={{ fontWeight: 800, fontSize: 18 }}>{titulo}</Typography>
+      </Stack>
+      {children}
+    </Box>
   );
 }
 
