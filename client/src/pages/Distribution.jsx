@@ -121,21 +121,32 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 
 // Mostra a arte (foto ou vídeo), carregada em alta qualidade.
 // fit="cover" (padrão) preenche o quadrado (para grades/miniaturas);
-// fit="contain" mostra a IMAGEM INTEIRA na proporção real (para a prévia do
-// post), sem cortar nada — sobra uma faixa neutra ao redor quando não é quadrada.
-// Reel e stories são sempre vídeo; fora isso, o tipo do arquivo decide.
 const pecaEhVideo = (p) => ["reel", "stories"].includes(p?.content_type) || /^video\//.test(p?.mime || "");
 
-function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false, comecoDaTira = false }) {
+// ---------------------------------------------------------------------------
+// O VISOR DA ARTE — sempre no formato do post: vertical 1080x1440 (4:5).
+//
+// Antes cada arte aparecia na proporção do arquivo, com tarja preta em volta
+// para completar o retângulo. Vídeo em pé virava uma faixa fina no meio de dois
+// tapumes pretos, e post e vídeo tinham alturas diferentes: a tela ficava
+// remendada e não dava para julgar o conteúdo.
+//
+// Agora o quadro é sempre o do post e a arte preenche (sem esticar, cortando o
+// que sobra) — igual ao que o Instagram faz na grade.
+// ---------------------------------------------------------------------------
+const FORMATO_POST = "1080 / 1440";
+
+function Media({
+  fileId, capaId, height = null, aspecto = FORMATO_POST, streamUrl = null,
+  ehVideoDica = false, comecoDaTira = false, controles = false,
+}) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [capa, setCapa] = useState(null);
   const [erro, setErro] = useState(false);
 
   // VÍDEO não é baixado: toca pelo endereço de streaming, em que o navegador
-  // pede só o começo do arquivo e já mostra o 1º quadro. Baixar um reel de
-  // 200 MB inteiro antes de aparecer qualquer coisa fazia a peça parecer
-  // travada — e em internet de celular, nunca terminava.
+  // pede só o começo do arquivo e já mostra o 1º quadro.
   const transmite = Boolean(streamUrl && ehVideoDica);
 
   useEffect(() => {
@@ -148,8 +159,7 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId, transmite]);
 
-  // A CAPA escolhida vira o quadro parado do vídeo: o post aparece com a arte
-  // certa e continua dando para dar play — antes era um ou outro.
+  // A CAPA escolhida vira o quadro parado do vídeo.
   useEffect(() => {
     if (!capaId || capaId === fileId) return undefined;
     let alive = true;
@@ -160,25 +170,24 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
     return () => { alive = false; };
   }, [capaId, fileId]);
 
-  const contain = fit === "contain";
-  // Carrossel salvo como UMA imagem larga: onde o quadro representa a CAPA, o
-  // que tem de aparecer é o começo da tira — os primeiros 1080px da esquerda.
-  // Sem isto, o quadradinho da capa mostrava o meio (ou o fim) do carrossel,
-  // contradizendo o "a capa é sempre a 1ª" escrito logo acima dele.
+  // O quadro: ou uma altura fixa (miniaturas de lista e calendário), ou a
+  // proporção do post, que é o caso normal.
+  const quadro = height
+    ? { width: "100%", height }
+    : { width: "100%", aspectRatio: aspecto };
   const sx = {
-    width: "100%", height, objectFit: fit, borderRadius: 2,
-    objectPosition: comecoDaTira && !contain ? "left center" : "center",
-    bgcolor: contain ? "#000" : "action.hover", display: "block",
+    ...quadro, objectFit: "cover", borderRadius: 2, display: "block",
+    objectPosition: comecoDaTira ? "left center" : "center",
+    bgcolor: "action.hover",
   };
-  const pequeno = height <= 90;
+  const pequeno = height && height <= 90;
   const aviso = (texto, cor, tracejado = false) => (
     <Box sx={{
-      width: "100%", height, borderRadius: 2, display: "grid", placeItems: "center", textAlign: "center",
+      ...quadro, borderRadius: 2, display: "grid", placeItems: "center", textAlign: "center",
       color: cor, fontSize: pequeno ? 9 : 13, lineHeight: 1.3, p: 1,
       // Falta de arte NÃO é erro: fundo claro e borda tracejada, como um espaço
-      // esperando ser preenchido. Antes era um retângulo preto com "Sem mídia",
-      // que parecia exatamente uma imagem quebrada.
-      bgcolor: tracejado ? "action.hover" : (contain ? "#000" : "action.hover"),
+      // esperando ser preenchido.
+      bgcolor: "action.hover",
       border: tracejado ? "2px dashed" : 0, borderColor: "divider",
     }}>{texto}</Box>
   );
@@ -189,16 +198,94 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   }
   if (erro) return aviso(<>Arte não carregou<br />(reenvie)</>, "error.main");
   if (transmite) {
-    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={height > 120}
-      muted playsInline preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
-      onError={() => setErro(true)} />;
+    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={controles}
+      muted playsInline preload="metadata" sx={sx} onError={() => setErro(true)} />;
   }
   if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   return video
-    ? <Box component="video" src={src} poster={capa || undefined} controls={height > 120} muted playsInline
-        preload="metadata" sx={{ ...sx, objectFit: "contain", bgcolor: "#000" }}
-        onError={() => setErro(true)} />
+    ? <Box component="video" src={src} poster={capa || undefined} controls={controles} muted playsInline
+        preload="metadata" sx={sx} onError={() => setErro(true)} />
     : <Box component="img" src={src} alt="" sx={sx} onError={() => setErro(true)} />;
+}
+
+// ---------------------------------------------------------------------------
+// CARROSSEL: a peça toda, no formato do post, para ARRASTAR DE LADO.
+//
+// A casa exporta o carrossel como UMA imagem larga, com as partes lado a lado.
+// Mostrar a tira inteira num quadro só espremia tudo. Aqui a tira é aberta em
+// janelas do tamanho do post — quantas couberem na largura da arte — e cada
+// arrasto encaixa na parte seguinte, como deslizar o carrossel no Instagram.
+//
+// Quando o carrossel foi montado com slides separadas, são elas as janelas.
+// ---------------------------------------------------------------------------
+function CarrosselDeslizante({ fileId, slides = [], comecoDaTira = true }) {
+  const [src, setSrc] = useState(null);
+  const [partes, setPartes] = useState(1);
+  const [erro, setErro] = useState(false);
+  const temSlides = slides.length > 1;
+
+  useEffect(() => {
+    setSrc(null); setErro(false); setPartes(1);
+    if (temSlides || !fileId) return undefined;
+    let alive = true;
+    loadMedia(fileId)
+      .then((m) => { if (alive && m) setSrc(m.url); })
+      .catch(() => { if (alive) setErro(true); });
+    return () => { alive = false; };
+  }, [fileId, temSlides]);
+
+  // Quantas partes cabem na tira: cada uma tem 0,75 da altura de largura.
+  const medir = (e) => {
+    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+    if (!w || !h) return;
+    setPartes(Math.max(1, Math.round(w / (h * 0.75))));
+  };
+
+  const janela = {
+    flex: "0 0 100%", scrollSnapAlign: "start", aspectRatio: FORMATO_POST,
+    overflow: "hidden", position: "relative", bgcolor: "action.hover",
+  };
+  const tira = {
+    display: "flex", overflowX: "auto", scrollSnapType: "x mandatory",
+    borderRadius: 2, scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" },
+    cursor: "grab",
+  };
+
+  if (temSlides) {
+    return (
+      <Box sx={tira}>
+        {slides.map((id) => (
+          <Box key={id} sx={janela}><Media fileId={id} /></Box>
+        ))}
+      </Box>
+    );
+  }
+  if (erro) return <Media fileId={null} />;
+  if (!src) {
+    return <Box sx={{ ...janela, borderRadius: 2, display: "grid", placeItems: "center" }}>
+      <CircularProgress size={22} />
+    </Box>;
+  }
+  return (
+    <Box sx={tira}>
+      {Array.from({ length: partes }).map((_, i) => (
+        <Box key={i} sx={janela}>
+          <Box component="img" src={src} alt="" onLoad={medir}
+            sx={{
+              width: "100%", height: "100%", objectFit: "cover", display: "block",
+              // 0% = 1ª parte, 100% = última. O navegador interpola no meio.
+              objectPosition: `${partes > 1 ? (i / (partes - 1)) * 100 : (comecoDaTira ? 0 : 50)}% 50%`,
+            }} />
+          {partes > 1 && (
+            <Box sx={{
+              position: "absolute", top: 6, right: 6, px: 0.7, py: 0.1, borderRadius: 1,
+              bgcolor: "rgba(0,0,0,.6)", color: "#fff", fontSize: 10, fontWeight: 700,
+            }}>{i + 1}/{partes}</Box>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
 }
 
 // Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
@@ -632,8 +719,10 @@ function PieceCard({ item, onChanged, flash }) {
 
           {/* Arte da peça; se ela ainda não foi escolhida, mostra a capa ou a
               primeira slide — o que existir. Só fica vazio quando não há nada. */}
-          <Media fileId={fileId || coverId || slides[0]} capaId={coverId} height={280} fit="contain"
-            streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
+          {isCarousel
+            ? <CarrosselDeslizante fileId={fileId || coverId || slides[0]} slides={slides} />
+            : <Media fileId={fileId || coverId || slides[0]} capaId={coverId} controles
+                streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />}
 
           {isCarousel ? (
             <Box>
@@ -1267,8 +1356,10 @@ export default function Distribution() {
                             <Chip size="small" color="info" label="Programado 🗓️" />
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
-                          <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} height={200} fit="contain"
-                            streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />
+                          {p.content_type === "carrossel"
+                            ? <CarrosselDeslizante fileId={p.cover_file_id || p.file_id} slides={p.media_ids || []} />
+                            : <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id}
+                                streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {p.scheduled_at
@@ -1303,8 +1394,10 @@ export default function Distribution() {
                               label={pediuAjuste ? "Pediu ajuste ✏️" : "Com o cliente ⏳"} />
                           </Stack>
                           {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
-                          <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} height={200} fit="contain"
-                            streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />
+                          {w.content_type === "carrossel"
+                            ? <CarrosselDeslizante fileId={w.cover_file_id || w.file_id} slides={w.media_ids || []} />
+                            : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id}
+                                streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
                           <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
                             {w.scheduled_at
@@ -1340,8 +1433,10 @@ export default function Distribution() {
                             <Chip size="small" color="success" label="Aprovado ✓" />
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
-                          <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} height={200} fit="contain"
-                            streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />
+                          {a.content_type === "carrossel"
+                            ? <CarrosselDeslizante fileId={a.cover_file_id || a.file_id} slides={a.media_ids || []} />
+                            : <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id}
+                                streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
                             {a.scheduled_at

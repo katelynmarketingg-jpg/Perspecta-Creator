@@ -82,8 +82,11 @@ function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
   }
   if (!src) return null;
   if (ehVideoAqui) {
+    // Aqui o cliente está APROVANDO: ele precisa ver o vídeo inteiro, então o
+    // enquadramento é o do arquivo. Só o fundo deixa de ser preto duro — a
+    // tarja preta em volta fazia a tela parecer quebrada.
     return <Box component="video" src={src} poster={capa || undefined} controls playsInline preload="metadata"
-      sx={{ ...moldura, bgcolor: "#000" }} onError={naoDesenhou} />;
+      sx={{ ...moldura, objectFit: "contain", bgcolor: "action.hover" }} onError={naoDesenhou} />;
   }
   return (
     <Box component="img" src={src} alt={alt}
@@ -293,7 +296,8 @@ function ApprovalMedia({ file }) {
         <Box component="video" src={file.media_url} poster={file.thumb || file.cover_thumb || undefined}
           controls playsInline preload="metadata"
           onError={() => setComoVideo(false)}
-          sx={{ width: "100%", maxHeight: 520, borderRadius: 2, bgcolor: "#000", display: "block" }} />
+          sx={{ width: "100%", maxHeight: 520, borderRadius: 2, objectFit: "contain",
+                bgcolor: "action.hover", display: "block" }} />
       ) : (
         <Foto file={file} />
       )}
