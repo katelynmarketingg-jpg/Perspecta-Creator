@@ -554,11 +554,18 @@ router.get("/files/:id/download", async (req, res) => {
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
   if (isR2Path(file.stored_path)) {
     try {
-      const obj = await getR2Object(r2Key(file.stored_path));
+      // Range (bytes=…) é o que faz VÍDEO tocar: o navegador pede só o começo,
+      // mostra o 1º quadro e vai buscando o resto conforme a pessoa assiste.
+      // Sem isto ele precisa baixar o arquivo INTEIRO antes de aparecer
+      // qualquer coisa — num vídeo de 200 MB, parece que não carrega nunca.
+      const obj = await getR2Object(r2Key(file.stored_path), req.headers.range);
       res.setHeader("Content-Type", obj.ContentType && obj.ContentType !== "application/octet-stream"
         ? obj.ContentType
         : tipoQueONavegadorToca(file));
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "private, max-age=86400");
       if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
+      if (obj.ContentRange) { res.status(206); res.setHeader("Content-Range", obj.ContentRange); }
       // Idem: sem tratar o erro do stream, uma foto cancelada pelo navegador
       // derruba o servidor e a área do cliente inteira responde 502.
       return await pipeline(obj.Body, res).catch((e) => {
