@@ -235,16 +235,16 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
 // cheio (qualidade real), sem cortar nada em disco.
 function CarrosselLargo({ fileId }) {
   const [full, setFull] = useState(null);
-  const [ph, setPh] = useState(null);
   const [dim, setDim] = useState(null);   // { w, h, n, slideW }
   const [idx, setIdx] = useState(0);
   const [erro, setErro] = useState(false);
 
   useEffect(() => {
-    setFull(null); setPh(null); setDim(null); setIdx(0); setErro(false);
+    setFull(null); setDim(null); setIdx(0); setErro(false);
     if (!fileId) return undefined;
     let alive = true;
-    loadThumb(fileId).then((t) => { if (alive && t) setPh(t); }).catch(() => {});
+    // Só a arte em QUALIDADE REAL — nada de miniatura borrada aqui. Enquanto
+    // baixa, mostra o carregando; a janela de 1080px é recortada da arte cheia.
     loadMedia(fileId).then((m) => { if (alive && m) setFull(m.url); }).catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };
   }, [fileId]);
@@ -1515,8 +1515,10 @@ export default function Distribution() {
                             <Chip size="small" color="info" label="Programado 🗓️" />
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
-                          <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} natural
-                            streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />
+                          {p.content_type === "carrossel"
+                            ? <CarrosselLargo fileId={p.cover_file_id || p.file_id} />
+                            : <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} natural
+                                streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {p.scheduled_at
@@ -1551,8 +1553,10 @@ export default function Distribution() {
                               label={pediuAjuste ? "Pediu ajuste ✏️" : "Com o cliente ⏳"} />
                           </Stack>
                           {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
-                          <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural
-                            streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />
+                          {w.content_type === "carrossel"
+                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} />
+                            : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural
+                                streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
                           <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
                             {w.scheduled_at
@@ -1588,8 +1592,10 @@ export default function Distribution() {
                             <Chip size="small" color="success" label="Aprovado ✓" />
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
-                          <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} natural
-                            streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />
+                          {a.content_type === "carrossel"
+                            ? <CarrosselLargo fileId={a.cover_file_id || a.file_id} />
+                            : <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} natural
+                                streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
                             {a.scheduled_at
