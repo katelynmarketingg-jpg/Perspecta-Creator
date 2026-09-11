@@ -126,6 +126,20 @@ export const BRIEFING = [
     ],
   },
   {
+    id: "material",
+    titulo: "Seu material",
+    intro: "Aqui você já pode nos passar o que tiver — quanto mais, melhor sai o conteúdo.",
+    perguntas: [
+      { id: "envios", tipo: "arquivos",
+        label: "Mande fotos, vídeos e referências",
+        ajuda: "Vale foto do espaço, da equipe, dos serviços, bastidores — e também referências: "
+             + "prints de posts que você gosta, mesmo de outros ramos. Tudo o que você mandar aqui "
+             + "vai direto para a sua galeria com a gente." },
+      { id: "links_referencia", tipo: "longo", label: "Links de referência",
+        ajuda: "Pinterest, perfis do Instagram, sites — cole os links que te inspiram." },
+    ],
+  },
+  {
     id: "final",
     titulo: "Para fechar",
     intro: "Quase lá.",
@@ -289,7 +303,7 @@ export function saneiaSecoes(entrada) {
     titulo: String(s.titulo || `Etapa ${i + 1}`).slice(0, 120),
     intro: String(s.intro || "").slice(0, 400),
     perguntas: (Array.isArray(s.perguntas) ? s.perguntas : []).map((p, j) => {
-      const tipo = ["texto", "longo", "escolhas", "cnpj", "dia"].includes(p.tipo) ? p.tipo : "texto";
+      const tipo = ["texto", "longo", "escolhas", "cnpj", "dia", "arquivos"].includes(p.tipo) ? p.tipo : "texto";
       const q = {
         id: limpaId(p.id, `p_${i + 1}_${j + 1}`),
         tipo,

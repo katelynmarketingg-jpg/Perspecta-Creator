@@ -9,7 +9,6 @@ import {
   getTemplate, saveTemplate, resetTemplate,
 } from "../briefing.js";
 import { guardaNaCentral } from "../central.js";
-import { buscaCnpj } from "../cnpj.js";
 import { PERSONA_FIELDS } from "../ai.js";
 
 // ---------------------------------------------------------------------------
@@ -68,9 +67,6 @@ router.put("/template", adminRequired, (req, res) => {
 
 // Volta ao briefing de fábrica.
 router.delete("/template", adminRequired, (req, res) => res.json(resetTemplate(req.orgId)));
-
-// Consulta de CNPJ pelo lado da equipe (para completar um cadastro na mão).
-router.get("/cnpj/:cnpj", async (req, res) => res.json(await buscaCnpj(req.params.cnpj)));
 
 // POST /api/briefings — cria (ou devolve) o link do cliente.
 router.post("/", (req, res) => {
