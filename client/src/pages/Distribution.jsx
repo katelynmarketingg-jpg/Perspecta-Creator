@@ -24,6 +24,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "../api/client.js";
 import { makeThumbnail } from "../upload/thumbnail.js";
+import { medirImagem, fatiarEmSlides } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
@@ -143,6 +144,7 @@ function Media({
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [capa, setCapa] = useState(null);
+  const [ph, setPh] = useState(null);   // miniatura leve como placeholder instantâneo
   const [erro, setErro] = useState(false);
 
   // VÍDEO não é baixado: toca pelo endereço de streaming, em que o navegador
@@ -150,9 +152,14 @@ function Media({
   const transmite = Boolean(streamUrl && ehVideoDica);
 
   useEffect(() => {
-    setSrc(null); setErro(false); setCapa(null);
+    setSrc(null); setErro(false); setCapa(null); setPh(null);
     if (!fileId || transmite) return undefined;
     let alive = true;
+    // Carregamento PROGRESSIVO, sem perder qualidade: a miniatura leve (~640px)
+    // entra na hora como rascunho, e a ARTE EM QUALIDADE REAL desenha por cima
+    // assim que baixa. A pessoa vê algo na hora (tela não fica "carregando uma
+    // década") e a qualidade final é sempre a do arquivo original.
+    loadThumb(fileId).then((t) => { if (alive && t) setPh(t); }).catch(() => {});
     loadMedia(fileId)
       .then((m) => { if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); } })
       .catch(() => { if (alive) setErro(true); });
@@ -201,9 +208,14 @@ function Media({
     return <Box component="video" src={streamUrl} poster={capa || undefined} controls={controles}
       muted playsInline preload="metadata" sx={sx} onError={() => setErro(true)} />;
   }
-  if (!src) return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
+  // Ainda baixando a arte cheia: mostra a miniatura (se já veio) como rascunho;
+  // senão, o spinner. A qualidade final entra por cima quando o arquivo chega.
+  if (!src) {
+    if (ph) return <Box component="img" src={ph} alt="" sx={sx} />;
+    return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
+  }
   return video
-    ? <Box component="video" src={src} poster={capa || undefined} controls={controles} muted playsInline
+    ? <Box component="video" src={src} poster={capa || ph || undefined} controls={controles} muted playsInline
         preload="metadata" sx={sx} onError={() => setErro(true)} />
     : <Box component="img" src={src} alt="" sx={sx} onError={() => setErro(true)} />;
 }
@@ -222,7 +234,22 @@ function CarrosselDeslizante({ fileId, slides = [], comecoDaTira = true }) {
   const [src, setSrc] = useState(null);
   const [partes, setPartes] = useState(1);
   const [erro, setErro] = useState(false);
+  const tiraRef = useRef(null);
+  const [emQual, setEmQual] = useState(0);
   const temSlides = slides.length > 1;
+  const quantas = temSlides ? slides.length : partes;
+
+  // No computador não existe arrastar com o dedo: as setas fazem o mesmo papel.
+  const anda = (d) => {
+    const el = tiraRef.current;
+    if (!el) return;
+    const alvo = Math.min(Math.max(emQual + d, 0), quantas - 1);
+    el.scrollTo({ left: alvo * el.clientWidth, behavior: "smooth" });
+  };
+  const acompanha = (e) => {
+    const el = e.currentTarget;
+    if (el.clientWidth) setEmQual(Math.round(el.scrollLeft / el.clientWidth));
+  };
 
   useEffect(() => {
     setSrc(null); setErro(false); setPartes(1);
@@ -251,14 +278,38 @@ function CarrosselDeslizante({ fileId, slides = [], comecoDaTira = true }) {
     cursor: "grab",
   };
 
+  // As setas e o contador ficam por cima da tira, sem atrapalhar o arrasto.
+  const comSetas = (conteudo) => (
+    <Box sx={{ position: "relative" }}>
+      <Box ref={tiraRef} onScroll={acompanha} sx={tira}>{conteudo}</Box>
+      {quantas > 1 && (
+        <>
+          <IconButton size="small" onClick={() => anda(-1)} disabled={emQual === 0}
+            sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff",
+                  bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" },
+                  "&.Mui-disabled": { color: "rgba(255,255,255,.35)", bgcolor: "rgba(0,0,0,0.25)" } }}>
+            <ChevronLeftIcon />
+          </IconButton>
+          <IconButton size="small" onClick={() => anda(1)} disabled={emQual >= quantas - 1}
+            sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff",
+                  bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" },
+                  "&.Mui-disabled": { color: "rgba(255,255,255,.35)", bgcolor: "rgba(0,0,0,0.25)" } }}>
+            <ChevronRightIcon />
+          </IconButton>
+          <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)",
+                     px: 1, py: 0.25, borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff",
+                     fontSize: 11, fontWeight: 700 }}>
+            {Math.min(emQual, quantas - 1) + 1} / {quantas}
+          </Box>
+        </>
+      )}
+    </Box>
+  );
+
   if (temSlides) {
-    return (
-      <Box sx={tira}>
-        {slides.map((id) => (
-          <Box key={id} sx={janela}><Media fileId={id} /></Box>
-        ))}
-      </Box>
-    );
+    return comSetas(slides.map((id) => (
+      <Box key={id} sx={janela}><Media fileId={id} /></Box>
+    )));
   }
   if (erro) return <Media fileId={null} />;
   if (!src) {
@@ -266,26 +317,16 @@ function CarrosselDeslizante({ fileId, slides = [], comecoDaTira = true }) {
       <CircularProgress size={22} />
     </Box>;
   }
-  return (
-    <Box sx={tira}>
-      {Array.from({ length: partes }).map((_, i) => (
-        <Box key={i} sx={janela}>
-          <Box component="img" src={src} alt="" onLoad={medir}
-            sx={{
-              width: "100%", height: "100%", objectFit: "cover", display: "block",
-              // 0% = 1ª parte, 100% = última. O navegador interpola no meio.
-              objectPosition: `${partes > 1 ? (i / (partes - 1)) * 100 : (comecoDaTira ? 0 : 50)}% 50%`,
-            }} />
-          {partes > 1 && (
-            <Box sx={{
-              position: "absolute", top: 6, right: 6, px: 0.7, py: 0.1, borderRadius: 1,
-              bgcolor: "rgba(0,0,0,.6)", color: "#fff", fontSize: 10, fontWeight: 700,
-            }}>{i + 1}/{partes}</Box>
-          )}
-        </Box>
-      ))}
+  return comSetas(Array.from({ length: partes }).map((_, i) => (
+    <Box key={i} sx={janela}>
+      <Box component="img" src={src} alt="" onLoad={medir}
+        sx={{
+          width: "100%", height: "100%", objectFit: "cover", display: "block",
+          // 0% = 1ª parte, 100% = última. O navegador interpola no meio.
+          objectPosition: `${partes > 1 ? (i / (partes - 1)) * 100 : (comecoDaTira ? 0 : 50)}% 50%`,
+        }} />
     </Box>
-  );
+  )));
 }
 
 // Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
@@ -551,6 +592,11 @@ function PieceCard({ item, onChanged, flash }) {
   const [posted, setPosted] = useState(!!item.published_at);
   const [baixando, setBaixando] = useState(false);
   const [iaLegenda, setIaLegenda] = useState(false);
+  // Fatiador de carrossel: quando a arte é mais larga que uma slide, pergunta
+  // em quantas partes cortar. { file, largura, altura, n }.
+  const [slicer, setSlicer] = useState(null);
+  // Visualizador do carrossel (setinha): qual slide está na frente.
+  const [viewIdx, setViewIdx] = useState(0);
   const ct = CONTENT_TYPES[item.content_type];
   const isCarousel = item.content_type === "carrossel";
 
@@ -634,19 +680,48 @@ function PieceCard({ item, onChanged, flash }) {
     [next[i], next[alvo]] = [next[alvo], next[i]];
     saveSlides(next);
   };
+  // Sobe UM arquivo (File/Blob) e devolve o id — reaproveitado pelo fatiador.
+  async function subirArquivo(file) {
+    const fd = new FormData();
+    fd.append("files", file);
+    if (item.client_id) fd.append("client_id", item.client_id);
+    fd.append("stage", "editados");
+    const { data } = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+    return data?.[0]?.id || null;
+  }
+
   async function uploadSlide(e) {
     const file = e.target.files?.[0]; e.target.value = "";
     if (!file) return;
+    // Arte larga (mais de uma slide)? Pergunta em quantas fatiar em vez de subir
+    // um bloco só — a pessoa vê o carrossel montado, deslizando com a setinha.
+    try {
+      const medida = await medirImagem(file);
+      if (medida?.fatiavel) { setSlicer({ file, largura: medida.largura, altura: medida.altura, n: medida.sugestao }); return; }
+    } catch { /* segue como slide única */ }
     setSlideUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("files", file);
-      if (item.client_id) fd.append("client_id", item.client_id);
-      fd.append("stage", "editados");
-      const { data } = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      const newId = data?.[0]?.id;
+      const newId = await subirArquivo(file);
       if (newId) saveSlides([...slides, newId]);
     } catch (err) { flash(err.response?.data?.error || "Falha no upload.", "error"); }
+    setSlideUploading(false);
+  }
+
+  // Corta a arte em N fatias (no navegador) e sobe cada uma como slide, na ordem.
+  async function confirmarFatiar() {
+    if (!slicer) return;
+    setSlideUploading(true);
+    try {
+      const partes = await fatiarEmSlides(slicer.file, slicer.n);
+      const novos = [];
+      for (const parte of partes) {
+        // eslint-disable-next-line no-await-in-loop
+        const id = await subirArquivo(parte);
+        if (id) novos.push(id);
+      }
+      if (novos.length) { saveSlides([...slides, ...novos]); flash(`Carrossel montado com ${novos.length} slides. ✅`, "success"); }
+      setSlicer(null);
+    } catch (err) { flash(err.response?.data?.error || "Não consegui fatiar a arte.", "error"); }
     setSlideUploading(false);
   }
 
@@ -717,8 +792,9 @@ function PieceCard({ item, onChanged, flash }) {
             </Alert>
           )}
 
-          {/* Arte da peça; se ela ainda não foi escolhida, mostra a capa ou a
-              primeira slide — o que existir. Só fica vazio quando não há nada. */}
+          {/* Arte da peça. No carrossel vira um visualizador: as partes ficam
+              lado a lado, no formato do post, e a pessoa desliza — arrastando
+              ou pelas setas. Fora do carrossel, mostra a capa/arte escolhida. */}
           {isCarousel
             ? <CarrosselDeslizante fileId={fileId || coverId || slides[0]} slides={slides} />
             : <Media fileId={fileId || coverId || slides[0]} capaId={coverId} controles
@@ -874,6 +950,41 @@ function PieceCard({ item, onChanged, flash }) {
           <PlanningRefDialog clientId={item.client_id} ym={ymOf(when || item.scheduled_at)}
             open={planRef} onClose={() => setPlanRef(false)}
             onUse={(txt) => { setCaption(txt); flash("Legenda trazida do planejamento. Ajuste e salve.", "success"); }} />
+
+          {/* Fatiar carrossel: a arte é mais larga que uma slide → pergunta em
+              quantas partes cortar (cada uma vira uma slide, na ordem). */}
+          <Dialog open={Boolean(slicer)} onClose={() => !slideUploading && setSlicer(null)} fullWidth maxWidth="xs">
+            <DialogTitle>Cortar em carrossel</DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Essa arte tem <b>{slicer?.largura}px</b> de largura — dá para cortar em várias slides
+                de <b>~1080px</b>. Em quantas partes você quer dividir? A 1ª vira a capa, e no card você
+                desliza pelas slides com a setinha.
+              </Typography>
+              <TextField type="number" label="Quantas slides" fullWidth autoFocus
+                value={slicer?.n ?? 2}
+                onChange={(e) => setSlicer((s) => s && ({ ...s, n: Math.max(2, Math.min(20, Number(e.target.value) || 2)) }))}
+                inputProps={{ min: 2, max: 20 }} />
+              {slicer && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                  Cada slide fica com ~{Math.round(slicer.largura / (slicer.n || 2))}px de largura.
+                </Typography>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setSlicer(null)} disabled={slideUploading}>Cancelar</Button>
+              <Button variant="outlined" disabled={slideUploading}
+                onClick={async () => { const f = slicer.file; setSlicer(null); setSlideUploading(true);
+                  try { const id = await subirArquivo(f); if (id) saveSlides([...slides, id]); }
+                  catch (err) { flash(err.response?.data?.error || "Falha no upload.", "error"); }
+                  setSlideUploading(false); }}>
+                Manter inteira
+              </Button>
+              <Button variant="contained" onClick={confirmarFatiar} disabled={slideUploading}>
+                {slideUploading ? "Cortando…" : `Cortar em ${slicer?.n ?? 2}`}
+              </Button>
+            </DialogActions>
+          </Dialog>
         </Stack>
       </CardContent>
     </Card>
