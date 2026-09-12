@@ -86,6 +86,17 @@ function loadThumb(fileId) {
 // Era exatamente o que sobrava depois da correção anterior.
 const enderecoDaPeca = (p) => (p?.media_url || p?.cover_url || null);
 
+// Quantas slides um carrossel pode ter. Dois é o mínimo para ser carrossel;
+// vinte é o teto do próprio Instagram.
+const MIN_SLIDES = 2;
+const MAX_SLIDES = 20;
+/** O que foi digitado, virado num número válido. Vazio ou bobagem vira o mínimo. */
+const dentroDaFaixa = (v) => {
+  const n = Math.round(Number(String(v ?? "").replace(",", ".")));
+  if (!Number.isFinite(n)) return MIN_SLIDES;
+  return Math.max(MIN_SLIDES, Math.min(MAX_SLIDES, n));
+};
+
 // O ENDEREÇO DIRETO de UM arquivo específico da peça.
 //
 // O servidor manda três coisas em paralelo: media_url (a arte anexada),
@@ -740,7 +751,7 @@ function PieceCard({ item, onChanged, flash }) {
     // um bloco só — a pessoa vê o carrossel montado, deslizando com a setinha.
     try {
       const medida = await medirImagem(file);
-      if (medida?.fatiavel) { setSlicer({ file, largura: medida.largura, altura: medida.altura, n: medida.sugestao }); return; }
+      if (medida?.fatiavel) { setSlicer({ file, largura: medida.largura, altura: medida.altura, texto: String(dentroDaFaixa(medida.sugestao)) }); return; }
     } catch { /* segue como slide única */ }
     setSlideUploading(true);
     try {
@@ -757,7 +768,7 @@ function PieceCard({ item, onChanged, flash }) {
     if (!slicer) return;
     setSlideUploading(true);
     try {
-      const partes = await fatiarEmSlides(slicer.file, slicer.n);
+      const partes = await fatiarEmSlides(slicer.file, dentroDaFaixa(slicer.texto));
       const novos = [];
       for (const parte of partes) {
         // eslint-disable-next-line no-await-in-loop
@@ -797,7 +808,7 @@ function PieceCard({ item, onChanged, flash }) {
         flash("Essa arte não é larga o bastante para virar um carrossel de várias slides.", "error");
         return;
       }
-      setSlicer({ file, largura: medida.largura, altura: medida.altura, n: medida.sugestao, substituir: id });
+      setSlicer({ file, largura: medida.largura, altura: medida.altura, texto: String(dentroDaFaixa(medida.sugestao)), substituir: id });
     } catch { flash("Não consegui abrir a arte para cortar.", "error"); }
   }
 
@@ -1072,13 +1083,36 @@ function PieceCard({ item, onChanged, flash }) {
                 de <b>~1080px</b>. Em quantas partes você quer dividir? A 1ª vira a capa, e no card você
                 desliza pelas slides com a setinha.
               </Typography>
+              {/* O campo guarda o que foi DIGITADO, e só arredonda para a faixa
+                  quando a pessoa sai dele.
+                  Antes a conta rodava a cada tecla: quem clicava no fim do "20"
+                  e digitava 6 virava "206", que era cortado de volta para 20 na
+                  hora; e apagar tudo voltava para 2 sozinho. Não dava para
+                  escrever o número que se queria. */}
               <TextField type="number" label="Quantas slides" fullWidth autoFocus
-                value={slicer?.n ?? 2}
-                onChange={(e) => setSlicer((s) => s && ({ ...s, n: Math.max(2, Math.min(20, Number(e.target.value) || 2)) }))}
-                inputProps={{ min: 2, max: 20 }} />
+                value={slicer?.texto ?? ""}
+                onChange={(e) => setSlicer((s) => s && ({ ...s, texto: e.target.value }))}
+                onFocus={(e) => e.target.select()}
+                onBlur={() => setSlicer((s) => s && ({ ...s, texto: String(dentroDaFaixa(s.texto)) }))}
+                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                inputProps={{ min: MIN_SLIDES, max: MAX_SLIDES, inputMode: "numeric" }}
+                helperText={`De ${MIN_SLIDES} a ${MAX_SLIDES} slides — é o limite do Instagram.`} />
               {slicer && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                  Cada slide fica com ~{Math.round(slicer.largura / (slicer.n || 2))}px de largura.
+                  {(() => {
+                    const n = dentroDaFaixa(slicer.texto);
+                    const larguraSlide = Math.round(slicer.largura / n);
+                    const sugestao = dentroDaFaixa(Math.round(slicer.largura / 1080));
+                    return (
+                      <>
+                        Cada slide fica com ~<b>{larguraSlide}px</b> de largura.
+                        {n !== sugestao && (
+                          <> Pela largura da arte, o corte certinho seria em <b>{sugestao}</b>{" "}
+                          (slides de ~1080px, o tamanho do Instagram).</>
+                        )}
+                      </>
+                    );
+                  })()}
                 </Typography>
               )}
             </DialogContent>
@@ -1096,7 +1130,7 @@ function PieceCard({ item, onChanged, flash }) {
                 </Button>
               )}
               <Button variant="contained" onClick={confirmarFatiar} disabled={slideUploading}>
-                {slideUploading ? "Cortando…" : `Cortar em ${slicer?.n ?? 2}`}
+                {slideUploading ? "Cortando…" : `Cortar em ${dentroDaFaixa(slicer?.texto)}`}
               </Button>
             </DialogActions>
           </Dialog>
