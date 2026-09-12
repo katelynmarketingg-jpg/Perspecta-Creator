@@ -70,7 +70,14 @@ export function valorPorExtenso(valor) {
   const reais = Math.floor(Math.abs(v) / 100);
   const centavos = Math.abs(v) % 100;
   const partes = [];
-  if (reais > 0) partes.push(`${inteiroPorExtenso(reais)} ${reais === 1 ? "real" : "reais"}`);
+  if (reais > 0) {
+    // Depois de milhão/bilhão o português exige "de": são "dois milhões DE
+    // reais", não "dois milhões reais". Num recibo de fechamento de ano ou num
+    // contrato anual, esse erro aparece.
+    const extenso = inteiroPorExtenso(reais);
+    const pedeDe = /\b(milh(ão|ões)|bilh(ão|ões)|trilh(ão|ões))$/.test(extenso);
+    partes.push(`${extenso} ${pedeDe ? "de " : ""}${reais === 1 ? "real" : "reais"}`);
+  }
   if (centavos > 0) partes.push(`${inteiroPorExtenso(centavos)} ${centavos === 1 ? "centavo" : "centavos"}`);
   if (!partes.length) return "zero real";
   return partes.join(" e ");
