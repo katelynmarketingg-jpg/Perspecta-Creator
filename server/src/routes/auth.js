@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { verifyPassword, hashPassword, signToken, authRequired } from "../auth.js";
 import { emitirEventoPerspecta } from "../perspecta-webhook.js";
+import { chaveDaPorta, trancada, registraErro, registraAcerto } from "../tranca.js";
 
 const router = Router();
 
@@ -32,10 +33,16 @@ router.post("/login", (req, res) => {
     return res.status(400).json({ error: "Informe o escritório e o seu nome." });
   }
 
+  // Trava de tentativas: sem isto a porta aceitava 11 senhas erradas por
+  // segundo, sem fim. Ver server/src/tranca.js.
+  const porta = chaveDaPorta(req, `agencia:${organization}:${username}`);
+  if (trancada(req, res, porta)) return;
+
   const org = db
     .prepare("SELECT * FROM organizations WHERE lower(name) = lower(?)")
     .get(organization.trim());
   if (!org) {
+    registraErro(porta);
     emitirEventoPerspecta("login.novo", { resultado: "falha", motivo: "escritorio_nao_encontrado", email: username });
     return res.status(401).json({ error: "Escritório, nome ou senha inválidos." });
   }
@@ -45,11 +52,13 @@ router.post("/login", (req, res) => {
     .prepare("SELECT * FROM users WHERE lower(username) = lower(?) AND org_id = ?")
     .get(username.trim(), org.id);
   if (!user || !verifyPassword(password || "", user.password_hash)) {
+    registraErro(porta);
     emitirEventoPerspecta("login.novo", { resultado: "falha", motivo: "senha_incorreta", empresa_ref: String(org.id), usuario_id: user ? String(user.id) : null, ip: req.ip });
     return res.status(401).json({ error: "Escritório, nome ou senha inválidos." });
   }
   if (!user.active) return res.status(403).json({ error: "Usuário desativado." });
 
+  registraAcerto(porta);
   emitirEventoPerspecta("login.novo", { resultado: "sucesso", empresa_ref: String(org.id), usuario_id: String(user.id), email: user.email, ip: req.ip });
   res.json({ token: signToken(user), user: publicUser(user, org) });
 });
