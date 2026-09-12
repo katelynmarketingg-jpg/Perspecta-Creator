@@ -14,6 +14,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { Box, Typography, Tooltip, Alert } from "@mui/material";
+import TextoDoContrato, { pareceHtml, limpaContrato } from "../components/TextoDoContrato.jsx";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -110,11 +111,18 @@ export default function Contracts() {
            em ${new Date(c.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}${c.signer_ip ? " · IP " + c.signer_ip : ""}.
          </div>`
       : "";
+    // O contrato escrito no editor da aba Serviços é HTML; o modelo da casa é
+    // texto puro. Imprimir os dois como texto fazia sair "<p>" e "<strong>" no
+    // papel — num documento para assinar.
+    const corpoImpresso = (texto) => (pareceHtml(texto)
+      ? limpaContrato(texto)
+      : `<pre>${String(texto || "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]))}</pre>`);
+
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${c.title}</title>
       <style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:0 24px;color:#1a1a1a;line-height:1.7}
       h1{font-size:20px;border-bottom:2px solid #EA580C;padding-bottom:8px}
-      pre{white-space:pre-wrap;font-family:inherit;font-size:14.5px}</style></head>
-      <body><h1>${c.title}</h1><pre>${(c.notes || "").replace(/</g, "&lt;")}</pre>${assinatura}
+      pre{white-space:pre-wrap;font-family:inherit;font-size:14.5px}\n      .corpo{font-size:14.5px}.corpo h1,.corpo h2,.corpo h3{font-size:16px}.corpo img{max-width:100%}</style></head>
+      <body><h1>${c.title}</h1><div class="corpo">${corpoImpresso(c.notes)}</div>${assinatura}
       <script>window.onload=()=>window.print()</script></body></html>`);
     w.document.close();
   }
@@ -238,9 +246,7 @@ export default function Contracts() {
             </Alert>
           )}
           <Box sx={{ p: 2, borderRadius: 2, bgcolor: "action.hover" }}>
-            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", fontFamily: "Georgia, serif", lineHeight: 1.7 }}>
-              {ver?.notes || "Este contrato não tem texto."}
-            </Typography>
+            <TextoDoContrato texto={ver?.notes} />
           </Box>
         </DialogContent>
         <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>

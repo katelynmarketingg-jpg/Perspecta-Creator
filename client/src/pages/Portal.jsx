@@ -8,6 +8,7 @@ import {
 } from "@mui/material";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import FeedPreview from "../components/FeedPreview.jsx";
+import TextoDoContrato from "../components/TextoDoContrato.jsx";
 import PostComments from "../components/PostComments.jsx";
 import Galeria from "../components/Galeria.jsx";
 import { alpha } from "@mui/material/styles";
@@ -990,11 +991,7 @@ export default function Portal() {
                     </Typography>
                     <Typography variant="body2"><strong>Início:</strong> {formatDate(c.start_date)}</Typography>
                   </Stack>
-                  {c.notes && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, whiteSpace: "pre-wrap" }}>
-                      {c.notes}
-                    </Typography>
-                  )}
+                  {c.notes && <TextoDoContrato texto={c.notes} sx={{ mt: 1 }} />}
 
                   <Divider sx={{ my: 2 }} />
                   {c.signed_at ? (
