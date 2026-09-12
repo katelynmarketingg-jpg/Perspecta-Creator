@@ -95,5 +95,6 @@ export function fechaOnboarding(briefing, respostas) {
     // tudo. A agência resolve o contrato depois, avisada.
     erroContrato = e.message;
   }
-  return { cadastro, central: central.titulos, contrato, erroContrato };
+  return { cadastro, central: central.titulos, contrato, erroContrato,
+           faltandoNoContrato: contrato?.faltando || [] };
 }

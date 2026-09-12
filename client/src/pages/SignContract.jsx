@@ -7,6 +7,7 @@ import {
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SignaturePad from "../components/SignaturePad.jsx";
+import TextoDoContrato from "../components/TextoDoContrato.jsx";
 
 // Página pública: o cliente abre o link do WhatsApp e assina, sem conta.
 export default function SignContract() {
@@ -46,6 +47,11 @@ export default function SignContract() {
 
   const fundo = {
     minHeight: "100dvh", display: "grid", placeItems: "center", p: 2,
+    // minmax(0, …): sem isto a coluna do grid cresce até o tamanho do
+    // cartão e o "maxWidth: 100%" dele não segura nada — a página ficava
+    // 640px de largura num celular de 390 e rolava para o lado, bem na
+    // tela em que a pessoa vai assinar.
+    gridTemplateColumns: "minmax(0, 1fr)",
     bgcolor: "#0C0A09",
     backgroundImage: "radial-gradient(900px 480px at 50% -10%, rgba(234,88,12,0.22), transparent 60%)",
   };
@@ -71,7 +77,7 @@ export default function SignContract() {
 
   return (
     <Box sx={{ ...fundo, alignItems: "start", py: 5 }}>
-      <Card sx={{ width: 640, maxWidth: "100%" }}>
+      <Card sx={{ width: "100%", maxWidth: 640 }}>
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           <Stack alignItems="center" spacing={0.5} sx={{ mb: 3 }}>
             <Box sx={{ width: 46, height: 46, borderRadius: 2.5, bgcolor: "primary.main", color: "#fff",
@@ -92,9 +98,7 @@ export default function SignContract() {
           ) : (
             <>
               <Box sx={{ p: 2, borderRadius: 2, bgcolor: "action.hover", maxHeight: 340, overflowY: "auto", mb: 3 }}>
-                <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", fontFamily: "Georgia, serif", lineHeight: 1.7 }}>
-                  {contract?.notes || "—"}
-                </Typography>
+                <TextoDoContrato texto={contract?.notes} />
               </Box>
 
               <Divider sx={{ mb: 2 }}>Assinatura</Divider>

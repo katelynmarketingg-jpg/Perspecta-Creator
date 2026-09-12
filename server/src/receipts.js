@@ -70,7 +70,14 @@ export function valorPorExtenso(valor) {
   const reais = Math.floor(Math.abs(v) / 100);
   const centavos = Math.abs(v) % 100;
   const partes = [];
-  if (reais > 0) partes.push(`${inteiroPorExtenso(reais)} ${reais === 1 ? "real" : "reais"}`);
+  if (reais > 0) {
+    // Depois de milhão/bilhão o português exige "de": são "dois milhões DE
+    // reais", não "dois milhões reais". Num recibo de fechamento de ano ou num
+    // contrato anual, esse erro aparece.
+    const extenso = inteiroPorExtenso(reais);
+    const pedeDe = /\b(milh(ão|ões)|bilh(ão|ões)|trilh(ão|ões))$/.test(extenso);
+    partes.push(`${extenso} ${pedeDe ? "de " : ""}${reais === 1 ? "real" : "reais"}`);
+  }
   if (centavos > 0) partes.push(`${inteiroPorExtenso(centavos)} ${centavos === 1 ? "centavo" : "centavos"}`);
   if (!partes.length) return "zero real";
   return partes.join(" e ");
@@ -87,7 +94,10 @@ const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
 export function dataExtenso(iso) {
   const d = new Date(`${String(iso || "").slice(0, 10)}T12:00:00`);
   if (Number.isNaN(d.getTime())) return "";
-  return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
+  // O primeiro dia do mês se escreve "1º" em português — num contrato,
+  // "iniciando-se em 1 de setembro" fica errado.
+  const dia = d.getDate() === 1 ? "1º" : String(d.getDate());
+  return `${dia} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
 /** "agosto de 2026" — o mês a que a cobrança se refere. */

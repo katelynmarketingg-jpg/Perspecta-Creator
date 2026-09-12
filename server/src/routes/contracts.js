@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, publicBaseUrl } from "../auth.js";
-import { makeSignToken } from "./sign.js";
+import { makeSignToken, conferirAssinatura } from "./sign.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("contratos"));
@@ -10,8 +10,13 @@ const SELECT = `
   SELECT ct.*, c.name AS client_name
   FROM contracts ct LEFT JOIN clients c ON c.id = ct.client_id`;
 
+/** Todo contrato que sai daqui leva se o texto ainda bate com o que foi assinado. */
+const comIntegridade = (linhas) =>
+  (Array.isArray(linhas) ? linhas : [linhas]).filter(Boolean)
+    .map((c) => ({ ...c, integridade: conferirAssinatura(c) }));
+
 router.get("/", (req, res) => {
-  res.json(db.prepare(`${SELECT} WHERE ct.org_id = ? ORDER BY ct.created_at DESC`).all(req.orgId));
+  res.json(comIntegridade(db.prepare(`${SELECT} WHERE ct.org_id = ? ORDER BY ct.created_at DESC`).all(req.orgId)));
 });
 
 router.post("/", (req, res) => {
@@ -36,16 +41,33 @@ router.post("/", (req, res) => {
   res.status(201).json(db.prepare(`${SELECT} WHERE ct.id = ?`).get(info.lastInsertRowid));
 });
 
+// Campos que FORAM ASSINADOS: mexer neles depois transforma a assinatura numa
+// mentira — a pessoa concordou com outro texto, outro valor, outro título.
+const ASSINADOS = ["title", "value", "notes"];
+
 router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Contrato não encontrado." });
+
+  if (cur.signed_at) {
+    const mexendo = ASSINADOS.filter((k) =>
+      req.body?.[k] !== undefined && String(req.body[k] ?? "") !== String(cur[k] ?? ""));
+    if (mexendo.length) {
+      return res.status(409).json({
+        error: "Este contrato já foi assinado — o texto, o título e o valor não podem mais mudar. "
+          + "Se precisa de outro acordo, faça um aditivo ou um contrato novo.",
+        campos: mexendo,
+      });
+    }
+  }
+
   const merged = { ...cur, ...req.body, id: req.params.id, org_id: req.orgId };
   db.prepare(
     `UPDATE contracts SET client_id=@client_id, title=@title, value=@value,
      duration_months=@duration_months, start_date=@start_date, first_due_date=@first_due_date,
      status=@status, notes=@notes WHERE id=@id AND org_id=@org_id`
   ).run(merged);
-  res.json(db.prepare(`${SELECT} WHERE ct.id = ?`).get(req.params.id));
+  res.json(comIntegridade(db.prepare(`${SELECT} WHERE ct.id = ?`).get(req.params.id))[0]);
 });
 
 router.delete("/:id", (req, res) => {

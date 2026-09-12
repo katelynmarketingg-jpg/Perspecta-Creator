@@ -375,9 +375,28 @@ function getOwnTask(req, res) {
   return task;
 }
 
+/**
+ * Igual ao de cima, mas exige que a peça TENHA SIDO ENVIADA para aprovação.
+ *
+ * Antes bastava a peça ser do cliente. Com um id conhecido, dava para aprovar
+ * conteúdo que a equipe ainda estava produzindo — sem arte escolhida, sem
+ * revisão — e no modo automático isso ia direto para "Programados", ou seja,
+ * para o ar. A equipe ainda recebia um aviso dizendo que o cliente aprovou uma
+ * coisa que ela nunca mostrou.
+ */
+function getTaskEnviada(req, res) {
+  const task = getOwnTask(req, res);
+  if (!task) return null;
+  if (!["sent", "changes_requested"].includes(task.approval_status)) {
+    res.status(409).json({ error: "Este conteúdo ainda não foi enviado para a sua aprovação." });
+    return null;
+  }
+  return task;
+}
+
 // POST /api/portal/approvals/:id/approve — aprova e avança para Programação.
 router.post("/approvals/:id/approve", (req, res) => {
-  const task = getOwnTask(req, res);
+  const task = getTaskEnviada(req, res);
   if (!task) return;
   // Modo do escritório: 'auto' programa direto (vai para "Programados"); 'notify'
   // (padrão) apenas marca aprovado e avisa a equipe, que clica em "Programar".
@@ -401,7 +420,7 @@ router.post("/approvals/:id/approve", (req, res) => {
 // POST /api/portal/approvals/:id/request-changes — legenda editada e/ou
 // observações. O post volta para "Em andamento" e a agência é notificada.
 router.post("/approvals/:id/request-changes", (req, res) => {
-  const task = getOwnTask(req, res);
+  const task = getTaskEnviada(req, res);
   if (!task) return;
   const { client_caption, client_note, client_ref_file_id } = req.body || {};
   if (!client_caption && !client_note && !client_ref_file_id) {

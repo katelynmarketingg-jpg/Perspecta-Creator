@@ -81,6 +81,24 @@ function MediaThumb({ file, size = 64, onRemove }) {
 function CredentialRow({ item }) {
   const [show, setShow] = useState(false);
   const [copied, setCopied] = useState(false);
+  // A senha NÃO vem na listagem: ela é buscada no momento em que a pessoa
+  // clica para ver ou copiar. Assim abrir a Central deixa de trazer as senhas
+  // de todos os clientes para dentro da página de uma vez só.
+  const [senha, setSenha] = useState(item.secret ?? null);
+  const [erroSenha, setErroSenha] = useState("");
+
+  async function buscaSenha() {
+    if (senha != null) return senha;
+    setErroSenha("");
+    try {
+      const { data } = await api.get(`/workspace/${item.id}/secret`);
+      setSenha(data.secret ?? "");
+      return data.secret ?? "";
+    } catch (e) {
+      setErroSenha(e.response?.data?.error || "não consegui abrir a senha");
+      return null;
+    }
+  }
 
   function copy(text) {
     navigator.clipboard.writeText(text).then(() => {
@@ -101,20 +119,25 @@ function CredentialRow({ item }) {
           </Tooltip>
         </Typography>
       )}
-      {item.secret && (
+      {(item.tem_senha || item.secret) && (
         <Typography variant="body2" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontFamily: "monospace" }}>
-          {show ? item.secret : "••••••••"}
+          {show ? (senha ?? "…") : "••••••••"}
           <Tooltip title={show ? "Ocultar" : "Mostrar"}>
-            <IconButton size="small" onClick={(e) => { e.stopPropagation(); setShow(!show); }}>
+            <IconButton size="small" onClick={async (e) => {
+              e.stopPropagation();
+              if (!show) await buscaSenha();
+              setShow(!show);
+            }}>
               {show ? <VisibilityOffIcon sx={{ fontSize: 14 }} /> : <VisibilityIcon sx={{ fontSize: 14 }} />}
             </IconButton>
           </Tooltip>
           <Tooltip title={copied ? "Copiado!" : "Copiar senha"}>
             <IconButton size="small" color={copied ? "success" : "default"}
-              onClick={(e) => { e.stopPropagation(); copy(item.secret); }}>
+              onClick={async (e) => { e.stopPropagation(); const v = await buscaSenha(); if (v) copy(v); }}>
               {copied ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 13 }} />}
             </IconButton>
           </Tooltip>
+          {erroSenha && <Typography variant="caption" color="error">{erroSenha}</Typography>}
         </Typography>
       )}
     </Box>
@@ -157,13 +180,28 @@ export default function Workspace() {
     setOpen(true);
   }
 
-  function openEdit(item) {
+  async function openEdit(item) {
     if (draggingRef.current) { draggingRef.current = false; return; }
+    // A senha não vem na listagem. Para EDITAR, ela é buscada agora — senão a
+    // caixa abriria vazia e salvar apagaria a senha guardada.
+    let secret = item.secret ?? null;
+    let senhaCarregou = secret != null;
+    if (item.tem_senha && secret == null) {
+      try {
+        const { data } = await api.get(`/workspace/${item.id}/secret`);
+        secret = data.secret ?? "";
+        senhaCarregou = true;
+      } catch {
+        secret = "";
+        senhaCarregou = false;   // não conseguiu: salvar NÃO vai mexer na senha
+      }
+    }
     setDraft({
       ...item,
       content: item.content || "",
       username: item.username || "",
-      secret: item.secret || "",
+      secret: secret || "",
+      senhaCarregou,
       url: item.url || "",
       gallery: item.kind === "gallery" ? parseJson(item.content, []) : [],
       checklist: item.kind === "checklist" ? parseJson(item.content, []) : [],
@@ -181,9 +219,12 @@ export default function Workspace() {
       title: draft.title,
       content,
       username: draft.username || null,
-      secret: draft.secret || null,
       url: draft.url || null,
     };
+    // Só manda a senha quando o formulário de fato a tem em mãos. Se a leitura
+    // falhou, o campo vai OMITIDO e o servidor mantém a que já estava — salvar
+    // uma edição de título nunca pode apagar a senha do cliente.
+    if (!draft.id || draft.senhaCarregou !== false) payload.secret = draft.secret || null;
     if (draft.id) await api.put(`/workspace/${draft.id}`, payload);
     else await api.post("/workspace", payload);
     setOpen(false);

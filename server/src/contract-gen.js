@@ -39,6 +39,24 @@ function slug(texto) {
     .toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
+/**
+ * A frase inteira concordando com o número. "02 (duas) captação presencial"
+ * está errado: o número concordava e o resto da frase não. Aqui sai
+ * "02 (duas) captações presenciais" — e no singular, "01 (uma) captação
+ * presencial".
+ */
+function frase(n, { um, muitos, genero = "m" }) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "";
+  return `${quantia(v, genero)} ${v === 1 ? um : muitos}`;
+}
+
+/** O verbo que acompanha: "será realizada" x "serão realizadas". */
+function verbo(n, { um, muitos }) {
+  const v = Number(n);
+  return (!Number.isFinite(v) || v === 1) ? um : muitos;
+}
+
 /** A quantidade da entrega cujo nome casa com o padrão ("Posts por mês" ~ /post/). */
 function porNome(itens, padrao) {
   if (!Array.isArray(itens)) return undefined;
@@ -46,11 +64,24 @@ function porNome(itens, padrao) {
   return achado ? achado.quantidade : undefined;
 }
 
-/** "04 (quatro)" — como se escreve quantidade em contrato. */
-function quantia(n) {
+/**
+ * "04 (quatro)" — como se escreve quantidade em contrato.
+ *
+ * O número por extenso vem de valorPorExtenso, que escreve DINHEIRO ("um
+ * real", "quatro reais"). Tirar só " reais" funcionava no plural e falhava no
+ * singular: o contrato dela saiu com "01 (UM REAL) captação presencial ao mês".
+ * Aqui a moeda é removida nos dois casos.
+ *
+ * E português tem gênero no 1 e no 2: é "01 (uma) captação" e "02 (duas)
+ * captações", mas "01 (um) post". Por isso o `genero`.
+ */
+function quantia(n, genero = "m") {
   const v = Number(n);
   if (!Number.isFinite(v) || v <= 0) return "";
-  const extenso = valorPorExtenso(v).replace(/ reais.*/, "").replace(/^um$/, "um");
+  let extenso = valorPorExtenso(v).replace(/\s+(reais|real)\b.*/i, "").trim();
+  if (genero === "f") {
+    extenso = extenso.replace(/\bum\b$/, "uma").replace(/\bdois\b$/, "duas");
+  }
   return `${String(v).padStart(2, "0")} (${extenso})`;
 }
 
@@ -113,6 +144,36 @@ export function modelosDisponiveis(orgId) {
   ];
 }
 
+// Um dado que faltou vira uma LINHA para preencher à mão, e não um buraco.
+// "inscrita no CNPJ sob o n.º ," é defeito; "sob o n.º ______" é um contrato
+// esperando um dado, que é o que ele de fato é.
+const LINHA = "_______________";
+
+/**
+ * O contrato não pode sair furado sem ninguém saber. Aqui cada campo essencial
+ * é conferido: o que estiver vazio entra na lista `faltando`, que sobe até a
+ * tela — antes o contrato saía com "sob o n.º ," e só um advogado ia notar.
+ */
+function confereEssenciais(client) {
+  const essenciais = [
+    ["razão social", client.legal_name || client.company || client.name],
+    ["CNPJ/CPF", client.document],
+    ["endereço", client.address],
+    ["quem assina", client.rep_name],
+    ["documento de quem assina", client.rep_document],
+    ["dia do pagamento", client.payment_day],
+  ];
+  return essenciais.filter(([, v]) => !String(v ?? "").trim()).map(([nome]) => nome);
+}
+
+/** CPF tem 11 dígitos; CNPJ tem 14. O contrato precisa chamar pelo nome certo. */
+function rotuloDoDocumento(doc) {
+  const n = String(doc || "").replace(/\D/g, "");
+  if (n.length === 11) return "CPF";
+  if (n.length === 14) return "CNPJ";
+  return "CNPJ/CPF";
+}
+
 export function geraContrato(orgId, termos = {}) {
   const tpl = achaModelo(orgId, termos);
 
@@ -126,13 +187,19 @@ export function geraContrato(orgId, termos = {}) {
     : mesesDeVigencia(termos.start_date, termos.end_date);
   const diaPgto = client.payment_day ? Number(client.payment_day) : null;
 
+  // As três entregas que o contrato da casa cita pelo nome. Saem das entregas
+  // que a agência cadastrou, não importa como ela escreveu o rótulo.
+  const qtPosts = porNome(termos.itens, /post/) ?? termos.posts_per_month;
+  const qtVideos = porNome(termos.itens, /video|reel/) ?? termos.videos_per_month;
+  const qtCaptacoes = porNome(termos.itens, /captac|gravac/) ?? termos.captures_per_month ?? 1;
+
   const map = {
     cliente: client.name || "",
     empresa: client.company || "",
     email: client.email || "",
     telefone: client.phone || "",
     segmento: client.segment || "",
-    endereco: client.address || "",
+    endereco: client.address || LINHA,
     valor: brl(valor),
     valor_extenso: valorPorExtenso(valor),
     duracao: duracao ? `${duracao} meses` : "prazo indeterminado",
@@ -140,16 +207,24 @@ export function geraContrato(orgId, termos = {}) {
     data: termos.contract_date ? dataExtenso(termos.contract_date) : hoje(),
     servico: termos.servico || tpl.name || "",
     // --- identificação da empresa contratante ---
-    razao_social: client.legal_name || client.company || client.name || "",
-    cnpj: client.document || "",
-    documento: client.document || "",
-    cnpj_formatado: formataDocumento(client.document || ""),
+    razao_social: client.legal_name || client.company || client.name || LINHA,
+    // FORMATADO: é este que o contrato usa ("55.514.449/0001-60"). Antes saía
+    // o número cru, "55514449000160" — feio ao lado do CNPJ da agência, que já
+    // vinha pontuado, e num documento que vai para um advogado ler.
+    cnpj: formataDocumento(client.document || "") || LINHA,
+    documento: formataDocumento(client.document || "") || LINHA,
+    cnpj_formatado: formataDocumento(client.document || "") || LINHA,
+    cnpj_numeros: String(client.document || "").replace(/\D/g, ""),
+    // Pessoa física assina com CPF: dizer "inscrita no CNPJ" num CPF está
+    // errado no documento. Use {{documento_rotulo}} no modelo.
+    documento_rotulo: rotuloDoDocumento(client.document),
     // --- quem assina pela empresa ---
-    representante: client.rep_name || "",
-    documento_representante: client.rep_document || "",
+    representante: client.rep_name || LINHA,
+    // Também formatado: um CPF de quem assina saía "04009664096" no contrato.
+    documento_representante: (formataDocumento(client.rep_document || "") || client.rep_document || LINHA),
     tipo_documento_representante: (client.rep_doc_type || "cpf").toUpperCase(),
     // --- cobrança ---
-    dia_pagamento: diaPgto ? String(diaPgto) : "",
+    dia_pagamento: diaPgto ? String(diaPgto) : LINHA,
     vencimento: diaPgto ? `todo dia ${diaPgto} de cada mês` : "conforme combinado",
     // --- a agência (contratada) ---
     agencia: org.name || "",
@@ -169,9 +244,15 @@ export function geraContrato(orgId, termos = {}) {
     // Os três marcadores que o contrato da casa já usa saem das entregas que a
     // agência definiu ("Posts", "Vídeos", "Captações"), não importa como ela
     // tenha escrito o nome. Assim o mesmo modelo serve para pacotes diferentes.
-    posts_mes: quantia(porNome(termos.itens, /post/) ?? termos.posts_per_month),
-    videos_mes: quantia(porNome(termos.itens, /video|reel/) ?? termos.videos_per_month),
-    captacoes_mes: quantia(porNome(termos.itens, /captac|gravac/) ?? termos.captures_per_month ?? 1),
+    posts_mes: quantia(qtPosts),
+    videos_mes: quantia(qtVideos),
+    captacoes_mes: quantia(qtCaptacoes, "f"),
+    // As versões que já vêm com o substantivo concordando — é o que o modelo
+    // da casa usa, para a frase não sair "02 (duas) captação presencial".
+    posts_frase: frase(qtPosts, { um: "post estático e/ou carrossel estratégico", muitos: "posts estáticos e/ou carrosséis estratégicos" }),
+    videos_frase: frase(qtVideos, { um: "vídeo no formato Reels", muitos: "vídeos no formato Reels" }),
+    captacoes_frase: frase(qtCaptacoes, { um: "captação presencial", muitos: "captações presenciais", genero: "f" }),
+    captacoes_verbo: verbo(qtCaptacoes, { um: "será realizada", muitos: "serão realizadas" }),
   };
 
   // As quantidades que a casa definiu para ESTE serviço viram marcadores pelo
@@ -192,7 +273,10 @@ export function geraContrato(orgId, termos = {}) {
      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`
   ).run(client.id, titulo, valor, duracao, termos.start_date ?? null, termos.first_due_date ?? null, corpo, orgId);
 
-  return db.prepare(
+  const criado = db.prepare(
     "SELECT ct.*, c.name AS client_name FROM contracts ct LEFT JOIN clients c ON c.id = ct.client_id WHERE ct.id = ?"
   ).get(info.lastInsertRowid);
+  // A lista sobe junto: é ela que faz a tela avisar "este contrato saiu sem
+  // endereço e sem quem assina" em vez de deixar a agência descobrir depois.
+  return { ...criado, faltando: confereEssenciais(client) };
 }

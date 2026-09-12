@@ -80,7 +80,7 @@ test("valor com separador de milhar e por extenso", () => {
 
 test("prazo, foro e cidade vêm dos dados da agência", () => {
   assert.match(contrato.notes, /terá vigência de 12 \(doze\) meses/);
-  assert.match(contrato.notes, /iniciando-se em 1 de outubro de 2026/);
+  assert.match(contrato.notes, /iniciando-se em 1º de outubro de 2026/);
   assert.match(contrato.notes, /foro da comarca de Porto Alegre/);
   assert.match(contrato.notes, /^Porto Alegre, \d+ de \w+ de \d{4}\./m);
 });

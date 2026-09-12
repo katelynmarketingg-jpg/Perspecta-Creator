@@ -57,6 +57,11 @@ export default function Login() {
     <Box
       sx={{
         minHeight: "100dvh", display: "grid", placeItems: "center", p: 2,
+    // minmax(0, …): sem isto a coluna do grid cresce até o tamanho do
+    // cartão e o "maxWidth: 100%" dele não segura nada — a página ficava
+    // 640px de largura num celular de 390 e rolava para o lado, bem na
+    // tela em que a pessoa vai assinar.
+    gridTemplateColumns: "minmax(0, 1fr)",
         bgcolor: "#0C0A09",
         backgroundImage: `
           radial-gradient(900px 480px at 15% -10%, rgba(234,88,12,0.28), transparent 60%),
@@ -64,7 +69,7 @@ export default function Login() {
         `,
       }}
     >
-      <Card sx={{ width: 400, maxWidth: "100%" }}>
+      <Card sx={{ width: "100%", maxWidth: 400 }}>
         <CardContent sx={{ p: 4 }}>
           <Stack alignItems="center" spacing={1} sx={{ mb: 3 }}>
             <Box sx={{ width: 52, height: 52, borderRadius: 2.5, bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 20, fontFamily: '"Outfit", sans-serif' }}>

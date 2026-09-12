@@ -8,6 +8,7 @@ import {
 } from "@mui/material";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import FeedPreview from "../components/FeedPreview.jsx";
+import TextoDoContrato from "../components/TextoDoContrato.jsx";
 import PostComments from "../components/PostComments.jsx";
 import Galeria from "../components/Galeria.jsx";
 import { alpha } from "@mui/material/styles";
@@ -82,8 +83,11 @@ function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
   }
   if (!src) return null;
   if (ehVideoAqui) {
+    // Aqui o cliente está APROVANDO: ele precisa ver o vídeo inteiro, então o
+    // enquadramento é o do arquivo. Só o fundo deixa de ser preto duro — a
+    // tarja preta em volta fazia a tela parecer quebrada.
     return <Box component="video" src={src} poster={capa || undefined} controls playsInline preload="metadata"
-      sx={{ ...moldura, bgcolor: "#000" }} onError={naoDesenhou} />;
+      sx={{ ...moldura, objectFit: "contain", bgcolor: "action.hover" }} onError={naoDesenhou} />;
   }
   return (
     <Box component="img" src={src} alt={alt}
@@ -352,7 +356,8 @@ function ApprovalMedia({ file, carrossel = false }) {
         <Box component="video" src={file.media_url} poster={file.thumb || file.cover_thumb || undefined}
           controls playsInline preload="metadata"
           onError={() => setComoVideo(false)}
-          sx={{ width: "100%", maxHeight: 520, borderRadius: 2, bgcolor: "#000", display: "block" }} />
+          sx={{ width: "100%", maxHeight: 520, borderRadius: 2, objectFit: "contain",
+                bgcolor: "action.hover", display: "block" }} />
       ) : carrossel ? (
         // Carrossel numa arte larga só → mostra em janelas de 1080px, deslizando.
         <CarrosselLargoPortal file={file} />
@@ -1048,11 +1053,7 @@ export default function Portal() {
                     </Typography>
                     <Typography variant="body2"><strong>Início:</strong> {formatDate(c.start_date)}</Typography>
                   </Stack>
-                  {c.notes && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, whiteSpace: "pre-wrap" }}>
-                      {c.notes}
-                    </Typography>
-                  )}
+                  {c.notes && <TextoDoContrato texto={c.notes} sx={{ mt: 1 }} />}
 
                   <Divider sx={{ my: 2 }} />
                   {c.signed_at ? (

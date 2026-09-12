@@ -22,7 +22,7 @@ export const MODELO_REDES = {
   body: `CONTRATO DE PRESTAÇÃO DE SERVIÇOS
 MARKETING E GESTÃO DE REDES SOCIAIS
 
-CONTRATANTE: {{razao_social}}, inscrita no CNPJ sob o n.º {{cnpj}}, com sede em {{endereco}}, neste ato representada por {{representante}}, brasileiro(a), inscrito(a) na {{tipo_documento_representante}} sob o n.º {{documento_representante}}.
+CONTRATANTE: {{razao_social}}, inscrita no {{documento_rotulo}} sob o n.º {{cnpj}}, com sede em {{endereco}}, neste ato representada por {{representante}}, brasileiro(a), inscrito(a) na {{tipo_documento_representante}} sob o n.º {{documento_representante}}.
 
 CONTRATADA: {{agencia}}, inscrita no CNPJ sob o n.º {{cnpj_agencia}}, com sede em {{endereco_agencia}}, neste ato representada por sua titular, {{representante_agencia}}, brasileira, portadora do CPF n.º {{documento_representante_agencia}}.
 
@@ -33,9 +33,9 @@ O presente contrato tem por objeto a prestação de serviços de planejamento es
 
 I – Estudo Estratégico: realização de briefing por meio de formulário para levantamento das informações da empresa, serviços, público-alvo, diferenciais, objetivos, tom de voz e posicionamento da marca, bem como desenvolvimento interno de estratégia personalizada, branding, definição de identidade visual base de acordo com a atual, paleta de cores, análise estratégica do perfil do CONTRATANTE e de seus principais concorrentes. Todo o estudo estratégico constitui metodologia própria da CONTRATADA, sendo realizado exclusivamente para embasar os serviços contratados, não havendo obrigação de entrega dos documentos internos elaborados.
 
-II – Captação de Conteúdo: será realizada {{captacoes_mes}} captação presencial ao mês, em data previamente ajustada entre as partes. O planejamento da gravação será encaminhado ao CONTRATANTE com antecedência mínima de 02 (dois) dias úteis, podendo este solicitar alterações, exclusões ou inclusão de novos temas até 01 (um) dia útil antes da data agendada.
+II – Captação de Conteúdo: {{captacoes_verbo}} {{captacoes_frase}} ao mês, em data previamente ajustada entre as partes. O planejamento da gravação será encaminhado ao CONTRATANTE com antecedência mínima de 02 (dois) dias úteis, podendo este solicitar alterações, exclusões ou inclusão de novos temas até 01 (um) dia útil antes da data agendada.
 
-III – Criação dos Conteúdos: produção mensal de {{videos_mes}} vídeos no formato Reels, bem como {{posts_mes}} posts estáticos e/ou carrosséis estratégicos, elaborados de acordo com o planejamento definido, juntamente com as respectivas legendas.
+III – Criação dos Conteúdos: produção mensal de {{videos_frase}}, bem como {{posts_frase}}, elaborados de acordo com o planejamento definido, juntamente com as respectivas legendas.
 
 IV – Aprovação: após a edição dos conteúdos, esses serão disponibilizados em plataforma online para análise do CONTRATANTE, que poderá solicitar até 02 (duas) rodadas de alterações nas artes, vídeos e legendas, bem como realizar ajustes diretamente nas legendas, caso entenda necessário, devendo aprovar os conteúdos no prazo de 07 (sete) dias úteis, contado da disponibilização na plataforma. Alterações que impliquem nova gravação poderão ser consideradas serviço adicional.
 
@@ -143,7 +143,7 @@ CONTRATANTE
 
 _______________________________________________
 {{razao_social}}
-CNPJ {{cnpj}}
+{{documento_rotulo}} {{cnpj}}
 
 
 CONTRATADA

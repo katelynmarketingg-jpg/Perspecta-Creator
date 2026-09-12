@@ -6,11 +6,24 @@ import { encrypt, decrypt } from "../central.js";
 const router = Router();
 router.use(authRequired, moduleAllowed("central"));
 
+/**
+ * O item como ele sai na LISTAGEM: sem a senha.
+ *
+ * Antes toda listagem da Central decifrava e mandava TODAS as senhas de TODOS
+ * os clientes para o navegador. Bastava abrir a aba para as senhas do
+ * Instagram de todo mundo estarem na memória da página, no histórico de rede e
+ * no devtools — e um único furo de XSS em qualquer canto do sistema colheria
+ * o conjunto inteiro de uma vez.
+ *
+ * Agora a listagem diz apenas SE existe senha. Ver uma senha é um pedido
+ * separado, item por item (ver a rota /:id/secret).
+ */
 function publicItem(row) {
-  return { ...row, secret: decrypt(row.secret) };
+  const { secret, ...resto } = row;
+  return { ...resto, secret: null, tem_senha: Boolean(secret) };
 }
 
-// GET /api/workspace?client_id= — itens (com senha decifrada para a equipe)
+// GET /api/workspace?client_id= — itens (SEM as senhas; veja /:id/secret)
 router.get("/", (req, res) => {
   const where = req.query.client_id ? "WHERE w.org_id = ? AND w.client_id = ?" : "WHERE w.org_id = ?";
   const args = req.query.client_id ? [req.orgId, req.query.client_id] : [req.orgId];
@@ -22,6 +35,22 @@ router.get("/", (req, res) => {
     )
     .all(...args);
   res.json(rows.map(publicItem));
+});
+
+// GET /api/workspace/:id/secret — mostra UMA senha, quando a pessoa pede.
+// É a troca: a tela continua servindo para o que serve, mas a senha só sai do
+// servidor no momento em que alguém realmente clica para vê-la ou copiá-la.
+router.get("/:id/secret", (req, res) => {
+  const row = db.prepare("SELECT secret FROM workspace_items WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!row) return res.status(404).json({ error: "Item não encontrado." });
+  const valor = decrypt(row.secret);
+  if (valor === null && row.secret) {
+    // Guardada com outra chave (o JWT_SECRET mudou): dizer isso é melhor do
+    // que devolver vazio e a pessoa achar que a senha sumiu.
+    return res.status(409).json({ error: "Não consegui abrir esta senha — ela foi guardada com outra chave do sistema." });
+  }
+  res.json({ secret: valor });
 });
 
 router.post("/", (req, res) => {
