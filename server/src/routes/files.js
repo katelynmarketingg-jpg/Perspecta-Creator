@@ -249,7 +249,13 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
     const t = thumbs[i];
     const thumb = typeof t === "string" && t.startsWith("data:image/") && t.length <= LIMITE_THUMB ? t : null;
     const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, storedPath, stage, thumb, req.orgId);
-    created.push(db.prepare("SELECT id, original_name, mime, size, created_at, thumb FROM files WHERE id = ?").get(info.lastInsertRowid));
+    const novo = db.prepare("SELECT id, original_name, mime, size, created_at, thumb FROM files WHERE id = ?").get(info.lastInsertRowid);
+    // O endereço direto vai junto na resposta. Sem isso, quem acabou de subir um
+    // arquivo não tinha como mostrá-lo a não ser baixando tudo de novo — e era o
+    // que fazia as slides recém-cortadas ficarem rodando sem fim, mesmo sendo
+    // pequenas: nenhuma delas estava na listagem ainda.
+    novo.media_url = mediaUrl(novo.id, req.orgId);
+    created.push(novo);
   }
   res.status(201).json(created);
 });
