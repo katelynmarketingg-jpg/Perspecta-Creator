@@ -77,6 +77,15 @@ function loadThumb(fileId) {
   return p;
 }
 
+// O ENDEREÇO DIRETO da arte de uma peça.
+//
+// O servidor manda dois: media_url (a arte anexada) e cover_url (a capa). A tela
+// só usava o primeiro — e carrossel antigo costuma ter só a CAPA definida, sem
+// anexo. Nesses, media_url vinha NULO, a tela caía no download da arte inteira
+// e o quadro ficava em branco, enquanto post e reel apareciam normalmente.
+// Era exatamente o que sobrava depois da correção anterior.
+const enderecoDaPeca = (p) => (p?.media_url || p?.cover_url || null);
+
 // Mês de referência da peça (para abrir o planejamento certo): usa a data
 // programada; se não tiver, o mês atual.
 const ymOf = (scheduled) => {
@@ -1565,9 +1574,9 @@ export default function Distribution() {
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
                           {p.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={p.cover_file_id || p.file_id} streamUrl={p.media_url} />
+                            ? <CarrosselLargo fileId={p.cover_file_id || p.file_id} streamUrl={enderecoDaPeca(p)} />
                             : <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} natural
-                                streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />}
+                                streamUrl={enderecoDaPeca(p)} ehVideoDica={pecaEhVideo(p)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {p.scheduled_at
@@ -1603,9 +1612,9 @@ export default function Distribution() {
                           </Stack>
                           {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
                           {w.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} streamUrl={w.media_url} />
+                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} streamUrl={enderecoDaPeca(w)} />
                             : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural
-                                streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />}
+                                streamUrl={enderecoDaPeca(w)} ehVideoDica={pecaEhVideo(w)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
                           <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
                             {w.scheduled_at
@@ -1642,9 +1651,9 @@ export default function Distribution() {
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
                           {a.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={a.cover_file_id || a.file_id} streamUrl={a.media_url} />
+                            ? <CarrosselLargo fileId={a.cover_file_id || a.file_id} streamUrl={enderecoDaPeca(a)} />
                             : <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} natural
-                                streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />}
+                                streamUrl={enderecoDaPeca(a)} ehVideoDica={pecaEhVideo(a)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
                             {a.scheduled_at

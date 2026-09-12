@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { confere } from "../pertence.js";
 
 // ---------------------------------------------------------------------------
 // Planejamento — datas importantes por empresa.
@@ -44,6 +45,8 @@ router.get("/doc", (req, res) => {
 router.put("/doc", (req, res) => {
   const { client_id, ym, content } = req.body || {};
   if (!client_id || !ym) return res.status(400).json({ error: "Informe o cliente e o mês." });
+  const naoEhDaCasa = confere(req.orgId, { clients: client_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   db.prepare(
     `INSERT INTO planning_docs (org_id, client_id, ym, content, updated_at)
      VALUES (?, ?, ?, ?, datetime('now'))
@@ -56,6 +59,8 @@ router.put("/doc", (req, res) => {
 router.post("/", (req, res) => {
   const b = req.body || {};
   if (!b.date || !b.title) return res.status(400).json({ error: "Data e título são obrigatórios." });
+  const naoEhDaCasa = confere(req.orgId, { clients: b.client_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   const info = db
     .prepare(
       `INSERT INTO planning_dates (org_id, client_id, date, title, notes)
