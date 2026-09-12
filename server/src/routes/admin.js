@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { timingSafeEqual } from "node:crypto";
 import { db } from "../db.js";
-import { hashPassword } from "../auth.js";
+import { hashPassword, conferirSenha } from "../auth.js";
 import { seedOrgDefaults } from "./organizations.js";
 import { computeUsage } from "../plans-monitor.js";
 
@@ -37,6 +37,9 @@ router.use(serviceAuth);
 function createUserRow({ org_id, name, username, password, email, role }) {
   const uname = String(username || "").trim();
   if (!uname || !password) return { error: "username e password são obrigatórios.", status: 400 };
+  // Mesma regra de senha da casa: por aqui nascem contas de ADMIN de escritório.
+  const fraca = conferirSenha(password);
+  if (fraca) return { error: fraca, status: 400 };
   const papel = ["superadmin", "admin", "member"].includes(role) ? role : "member";
   const mail = email ? String(email).toLowerCase() : `${uname.toLowerCase()}@org${org_id}.local`;
 
