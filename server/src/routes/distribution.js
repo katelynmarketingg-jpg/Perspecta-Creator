@@ -3,28 +3,39 @@ import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
+import { bilheteDeMidia, enderecosDeMidia } from "../midia-url.js";
 
 // Endereço de streaming da arte. É por ele que o <video> toca: o navegador
 // pede só o começo do arquivo (Range) e mostra o 1º quadro na hora. Sem isso a
 // tela baixava o vídeo INTEIRO antes de aparecer qualquer coisa — num reel de
 // 200 MB, parecia que a peça não carregava.
-function mediaUrl(fileId, orgId) {
-  if (!fileId) return null;
-  const ticket = jwt.sign({ file_id: fileId, org_id: orgId, inline: true }, JWT_SECRET, { expiresIn: "12h" });
-  return `/api/files/shared/${ticket}`;
-}
+const mediaUrl = (fileId, orgId) => bilheteDeMidia(fileId, orgId);
 
-/** Acrescenta o endereço de streaming da arte e da capa a cada peça. */
-function comMidia(linhas, orgId) {
+/**
+ * Acrescenta o endereço da arte, da capa e de cada slide a cada peça.
+ *
+ * Os endereços saem do R2 DIRETO quando o arquivo está lá — o navegador não
+ * bate no nosso servidor uma vez por imagem antes de começar a carregar. Todos
+ * os ids da tela são resolvidos numa consulta só.
+ */
+async function comMidia(linhas, orgId) {
+  const ids = [];
+  for (const it of linhas) {
+    if (it.file_id) ids.push(it.file_id);
+    if (it.cover_file_id) ids.push(it.cover_file_id);
+    ids.push(...parseMediaIds(it.media_ids));
+  }
+  const mapa = await enderecosDeMidia(db, ids, orgId);
+  const de = (id) => (id ? mapa.get(Number(id)) || mediaUrl(id, orgId) : null);
   return linhas.map((it) => ({
     ...it,
     media_ids: parseMediaIds(it.media_ids),
-    media_url: mediaUrl(it.file_id, orgId),
-    cover_url: mediaUrl(it.cover_file_id, orgId),
+    media_url: de(it.file_id),
+    cover_url: de(it.cover_file_id),
     // Um endereço por SLIDE, na ordem. Carrossel montado com um arquivo por
     // slide não tinha endereço nenhum para as slides: a tela de editar caía no
     // download da arte inteira de cada uma e ficava rodando para sempre.
-    media_urls: parseMediaIds(it.media_ids).map((id) => mediaUrl(id, orgId)),
+    media_urls: parseMediaIds(it.media_ids).map(de),
   }));
 }
 
@@ -66,7 +77,7 @@ function ensureStage(orgId, pattern, name, isDone = 0) {
 }
 
 // GET /api/distribution?client_id= — peças prontas para distribuir/programar.
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const stage = stageByName("%Distribui%", req.orgId);
   if (!stage) return res.json({ stage: null, items: [] });
 
@@ -93,7 +104,7 @@ router.get("/", (req, res) => {
        ORDER BY c.name, t.scheduled_at, t.id`
     )
     .all(params);
-  const itemsComp = comMidia(items, req.orgId);
+  const itemsComp = await comMidia(items, req.orgId);
 
   // Panorama completo (o "calendário"): TODOS os posts com data marcada do
   // escritório (ou do cliente filtrado) — para as visões Lista/Perfil/Calendário.
@@ -112,7 +123,7 @@ router.get("/", (req, res) => {
        ORDER BY t.scheduled_at DESC`
     )
     .all(params);
-  const scheduledComp = comMidia(scheduled, req.orgId);
+  const scheduledComp = await comMidia(scheduled, req.orgId);
 
   // Conteúdos APROVADOS pelo cliente e ainda não programados — a fila da Rafa
   // para agendar. (Filtra por empresa se pedido.)
@@ -132,7 +143,7 @@ router.get("/", (req, res) => {
        ORDER BY t.scheduled_at, t.id`
     )
     .all(params);
-  const approvedComp = comMidia(approved, req.orgId);
+  const approvedComp = await comMidia(approved, req.orgId);
 
   // Conteúdos ESPERANDO O CLIENTE APROVAR. Ao enviar, a peça muda de etapa (vai
   // para "Aprovação") — então ela sumia de todas as listas desta tela: não
@@ -158,7 +169,7 @@ router.get("/", (req, res) => {
        ORDER BY t.scheduled_at, t.id`
     )
     .all(params);
-  const waitingComp = comMidia(waiting, req.orgId);
+  const waitingComp = await comMidia(waiting, req.orgId);
 
   // Conteúdos já PROGRAMADOS (na etapa de conclusão / "Programados").
   const pwhere = ["t.org_id = @org_id", "s.is_done = 1"];
@@ -176,7 +187,7 @@ router.get("/", (req, res) => {
        ORDER BY t.scheduled_at DESC, t.id DESC`
     )
     .all(params);
-  const programmedComp = comMidia(programmed, req.orgId);
+  const programmedComp = await comMidia(programmed, req.orgId);
 
   res.json({
     stage: { id: stage.id, name: stage.name },

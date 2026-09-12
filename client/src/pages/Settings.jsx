@@ -36,15 +36,24 @@ function Armazenamento() {
   const [diag, setDiag] = useState(null);
   const [conferindo, setConferindo] = useState(false);
   useEffect(() => {
-    api.get("/files/armazenamento").then((r) => setD(r.data)).catch(() => setErro(true));
+    api.get("/files/armazenamento").then((r) => setD(r.data))
+      .catch((e) => setErro(e?.response?.status === 404
+        ? "Este servidor ainda está com a versão antiga do sistema (a conferência de armazenamento nem existe nele). Se acabou de publicar, espere terminar e recarregue com Ctrl+Shift+R."
+        : (e?.response?.data?.error || "Não consegui conferir o armazenamento agora.")));
     api.get("/files/diagnostico").then((r) => setDiag(r.data)).catch(() => {});
   }, []);
   async function conferirAgora() {
     setConferindo(true);
-    try { setDiag((await api.get("/files/diagnostico")).data); } catch { /* deixa o que já tinha */ }
+    setErro(null);
+    try {
+      const [a, b] = await Promise.all([api.get("/files/armazenamento"), api.get("/files/diagnostico")]);
+      setD(a.data); setDiag(b.data);
+    } catch (e) { setErro(e?.response?.data?.error || "Não consegui conferir o armazenamento agora."); }
     setConferindo(false);
   }
-  if (erro) return null;
+  // NÃO esconde o bloco quando dá erro. Ele existe para responder "por que as
+  // fotos sumiram" — sumir justamente quando há problema é o pior que ele podia
+  // fazer, e foi o que fez: a tela ficava sem nada e sem explicação.
 
   return (
     <Card>
@@ -52,6 +61,14 @@ function Armazenamento() {
         <Typography variant="h6" sx={{ mb: 0.5 }}>Onde os arquivos ficam guardados</Typography>
         {/* O veredito vem primeiro e em cima de tudo: quando as fotos somem, é a
             única coisa que interessa ler. */}
+        {erro && (
+          <Alert severity="warning" sx={{ mb: 2 }}
+            action={<Button size="small" onClick={conferirAgora} disabled={conferindo}>
+              {conferindo ? "Conferindo…" : "Tentar de novo"}
+            </Button>}>
+            {erro}
+          </Alert>
+        )}
         {diag && (
           <Alert severity={diag.r2?.ok && !diag.sumiram_do_disco ? "success" : "error"}
             sx={{ mb: 2 }}

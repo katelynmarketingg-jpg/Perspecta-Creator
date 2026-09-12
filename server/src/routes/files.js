@@ -10,6 +10,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2 } from "../storage.js";
 import { confere } from "../pertence.js";
+import { bilheteDeMidia, enderecoDeMidia } from "../midia-url.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -81,10 +82,7 @@ async function serveFile(res, file, asAttachment, range) {
 // Assina uma URL "inline" curta para uma foto/vídeo — o <img>/<video> carrega
 // direto por ela (sem cabeçalho de autenticação), com streaming e cache. Vai
 // junto de cada arquivo na listagem, então a galeria mostra a prévia na hora.
-function mediaUrl(fileId, orgId) {
-  const ticket = jwt.sign({ file_id: fileId, org_id: orgId, inline: true }, JWT_SECRET, { expiresIn: "12h" });
-  return `/api/files/shared/${ticket}`;
-}
+const mediaUrl = (fileId, orgId) => bilheteDeMidia(fileId, orgId);
 
 // Remove o arquivo físico (R2 ou disco).
 async function removeStored(stored_path) {
@@ -193,7 +191,7 @@ router.delete("/folders/:id", (req, res) => {
 
 // ---- Arquivos ---------------------------------------------------------------
 // GET /api/files?client_id=&folder_id=&all=1  (all=1 ignora pastas)
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const { client_id, folder_id, all } = req.query;
   const where = ["f.org_id = @org_id"];
   const params = { org_id: req.orgId };
@@ -208,9 +206,10 @@ router.get("/", (req, res) => {
      FROM files f LEFT JOIN clients c ON c.id = f.client_id
      WHERE ${where.join(" AND ")} ORDER BY f.original_name`
   ).all(params);
-  // media_url: link inline (streaming) para o <img>/<video> mostrar a prévia na
-  // hora, sem cada tela ter de baixar o arquivo inteiro só para ver a miniatura.
-  for (const f of rows) f.media_url = mediaUrl(f.id, req.orgId);
+  // media_url: o endereço que o <img>/<video> usa. Para arquivo no R2 vai o
+  // endereço DIRETO da Cloudflare — assim a galeria não faz o navegador bater
+  // no nosso servidor uma vez por foto antes de começar a carregar.
+  await Promise.all(rows.map(async (f) => { f.media_url = await enderecoDeMidia(f, req.orgId); }));
   res.json(rows);
 });
 
@@ -254,7 +253,10 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
     // arquivo não tinha como mostrá-lo a não ser baixando tudo de novo — e era o
     // que fazia as slides recém-cortadas ficarem rodando sem fim, mesmo sendo
     // pequenas: nenhuma delas estava na listagem ainda.
-    novo.media_url = mediaUrl(novo.id, req.orgId);
+    novo.media_url = await enderecoDeMidia(
+      { id: novo.id, mime: novo.mime, original_name: novo.original_name, stored_path: storedPath },
+      req.orgId,
+    );
     created.push(novo);
   }
   res.status(201).json(created);
