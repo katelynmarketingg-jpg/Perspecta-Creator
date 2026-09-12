@@ -86,6 +86,25 @@ function loadThumb(fileId) {
 // Era exatamente o que sobrava depois da correção anterior.
 const enderecoDaPeca = (p) => (p?.media_url || p?.cover_url || null);
 
+// O ENDEREÇO DIRETO de UM arquivo específico da peça.
+//
+// O servidor manda três coisas em paralelo: media_url (a arte anexada),
+// cover_url (a capa) e media_urls (uma por slide, na ordem de media_ids). A tela
+// vinha escolhendo qual usar caso a caso — e cada caso esquecido virava um
+// quadro em branco: carrossel sem anexo, carrossel de várias slides, carrossel
+// de UMA slide. Aqui a pergunta é uma só: "qual o endereço DESTE arquivo?".
+// Se não houver, devolve null e quem chamou baixa como antes.
+function enderecoDoArquivo(p, fileId) {
+  if (!p || !fileId) return null;
+  const id = Number(fileId);
+  const ids = Array.isArray(p.media_ids) ? p.media_ids.map(Number) : [];
+  const i = ids.indexOf(id);
+  if (i >= 0 && p.media_urls?.[i]) return p.media_urls[i];
+  if (Number(p.file_id) === id && p.media_url) return p.media_url;
+  if (Number(p.cover_file_id) === id && p.cover_url) return p.cover_url;
+  return null;
+}
+
 // Mês de referência da peça (para abrir o planejamento certo): usa a data
 // programada; se não tiver, o mês atual.
 const ymOf = (scheduled) => {
@@ -860,7 +879,7 @@ function PieceCard({ item, onChanged, flash }) {
                   mesma ordem). Sem ele, esta prévia baixava a arte inteira da
                   slide — e com arte de vários MB ficava rodando sem fim. */}
               <Media fileId={slides[Math.min(viewIdx, slides.length - 1)]} natural
-                streamUrl={item.media_urls?.[Math.min(viewIdx, slides.length - 1)] || null} />
+                streamUrl={enderecoDoArquivo(item, slides[Math.min(viewIdx, slides.length - 1)])} />
               <IconButton size="small" onClick={() => setViewIdx((i) => (i - 1 + slides.length) % slides.length)}
                 sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
                 <ChevronLeftIcon />
@@ -877,10 +896,11 @@ function PieceCard({ item, onChanged, flash }) {
             // Carrossel salvo como UMA arte larga: mostra em janelas de 1080px na
             // proporção de um post e desliza a janela com a setinha.
             <CarrosselLargo fileId={slides[0] || fileId || coverId}
-              streamUrl={(slides[0] || fileId) === item.file_id ? item.media_url : null} />
+              streamUrl={enderecoDoArquivo(item, slides[0] || fileId || coverId)} />
           ) : (
             <Media fileId={fileId || coverId || slides[0]} capaId={coverId} natural
-              streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
+              streamUrl={enderecoDoArquivo(item, fileId || coverId || slides[0])}
+              ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
           )}
 
           {isCarousel ? (
@@ -1035,7 +1055,7 @@ function PieceCard({ item, onChanged, flash }) {
             onPick={setCover} titulo="Escolher a capa do perfil (uma foto)" />
           <GalleryPicker clientId={item.client_id} open={slidePicker} onClose={() => setSlidePicker(false)}
             onPick={addSlide} titulo="Adicionar slide ao carrossel" />
-          <VideoCoverDialog fileId={fileId} streamUrl={fileId === item.file_id ? item.media_url : null}
+          <VideoCoverDialog fileId={fileId} streamUrl={enderecoDoArquivo(item, fileId)}
             clientId={item.client_id} open={videoCover}
             onClose={() => setVideoCover(false)} onCaptured={setCover} flash={flash} />
           <PlanningRefDialog clientId={item.client_id} ym={ymOf(when || item.scheduled_at)}
