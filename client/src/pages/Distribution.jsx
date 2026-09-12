@@ -24,7 +24,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "../api/client.js";
 import { makeThumbnail } from "../upload/thumbnail.js";
-import { medirImagem, fatiarEmSlides } from "../upload/carousel.js";
+import { medirImagem, fatiarEmSlides, sugerirSlides } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
@@ -340,7 +340,11 @@ function CarrosselLargo({ fileId, streamUrl = null }) {
   function medir(e) {
     const w = e.currentTarget.naturalWidth, h = e.currentTarget.naturalHeight;
     if (!w || !h) return;
-    const n = Math.max(1, Math.round(w / 1080));   // quantas slides de ~1080px cabem
+    // Pelo FORMATO, não por 1080 fixo — mesma correção da conta do corte. Uma
+    // tira exportada em alta resolução era lida como "18 slides" quando eram 5:
+    // o visor dividia a largura por 1080 e ignorava a altura, que é o que diz
+    // qual é a largura de UMA slide.
+    const { n } = sugerirSlides(w, h);
     setDim({ w, h, n, slideW: w / n });
   }
 
@@ -874,6 +878,23 @@ function PieceCard({ item, onChanged, flash }) {
     catch (err) { flash(err.response?.data?.error || "Não foi possível anexar.", "error"); }
   }
 
+  // TIRAR A ARTE da peça, para começar do zero.
+  //
+  // Faltava por completo: dava para trocar a arte e para tirar uma slide, mas
+  // não para deixar a peça sem arte nenhuma. Quem tinha uma tira errada
+  // pendurada ficava preso com ela.
+  //
+  // Só desamarra da peça — o arquivo continua na Galeria, é só escolher de novo.
+  async function limparArte() {
+    if (!confirm("Tirar a arte desta peça? O arquivo continua na Galeria.")) return;
+    try {
+      await api.put(`/distribution/${item.id}`, { file_id: null, media_ids: [], cover_file_id: null });
+      setFileId(null); setCoverId(null); setSlides([]); setViewIdx(0);
+      flash("Arte tirada. A peça está pronta para receber outra.", "success");
+      onChanged();
+    } catch (err) { flash(err.response?.data?.error || "Não foi possível tirar a arte.", "error"); }
+  }
+
   async function setCover(id) {
     setCoverId(id);
     try { await api.put(`/distribution/${item.id}`, { cover_file_id: id }); flash("Capa do perfil definida.", "success"); }
@@ -1011,6 +1032,12 @@ function PieceCard({ item, onChanged, flash }) {
               </Stack>
               {/* Carrossel antigo que veio como UMA arte larga → cortar em slides.
                   Aparece quando ainda há no máximo 1 slide (a tira inteira). */}
+              {(fileId || coverId || slides.length > 0) && (
+                <Button fullWidth variant="text" size="small" color="error"
+                  disabled={slideUploading} onClick={limparArte} sx={{ mt: 0.5 }}>
+                  Tirar a arte desta peça
+                </Button>
+              )}
               {slides.length <= 1 && (fileId || slides[0]) && (
                 <Button fullWidth variant="text" size="small" startIcon={<GridOnIcon />}
                   disabled={slideUploading} onClick={cortarArteExistente} sx={{ mt: 0.5 }}>
@@ -1373,24 +1400,31 @@ function MonthGrid({ items, onSelect }) {
 // vídeo); se o arquivo não tiver miniatura, cai na arte inteira — e aí VÍDEO é
 // desenhado com <video> mostrando o 1º quadro, porque <img> não toca vídeo (era
 // por isso que os vídeos não apareciam aqui).
-function FeedThumb({ fileId, comecoDaTira = false }) {
+function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, ehVideo = false }) {
   const [thumb, setThumb] = useState(null);
   const [midia, setMidia] = useState(null);   // { url, type } quando não há miniatura
   const [erro, setErro] = useState(false);
+  const [faltouStream, setFaltouStream] = useState(false);
 
   useEffect(() => {
-    setThumb(null); setMidia(null); setErro(false);
+    setThumb(null); setMidia(null); setErro(false); setFaltouStream(false);
     if (!fileId) return;
     let alive = true;
+    // A miniatura entra como RASCUNHO instantâneo. Quando há endereço direto, a
+    // arte de verdade desenha por cima — antes a grade parava na miniatura
+    // (720px, comprimida) e o perfil ficava embaçado para sempre, mesmo com a
+    // arte em qualidade cheia a um clique de distância.
     loadThumb(fileId).then((t) => {
       if (!alive) return;
-      if (t) { setThumb(t); return; }
-      loadMedia(fileId)
-        .then((m) => { if (alive && m) setMidia(m); })
-        .catch(() => { if (alive) setErro(true); });
+      if (t) setThumb(t);
+      if (!t && !streamUrl) {
+        loadMedia(fileId)
+          .then((m) => { if (alive && m) setMidia(m); })
+          .catch(() => { if (alive) setErro(true); });
+      }
     });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
-  }, [fileId]);
+  }, [fileId, streamUrl]);
 
   // Carrossel salvo como UMA imagem larga: a capa é o começo da tira (os
   // primeiros 1080px da esquerda), nunca o meio. Ver FeedPreview.jsx.
@@ -1404,6 +1438,28 @@ function FeedThumb({ fileId, comecoDaTira = false }) {
   );
 
   if (erro) return vazio("arte não carregou", "error.main");
+
+  // Arte em QUALIDADE CHEIA, direto da nuvem, com a miniatura por baixo
+  // enquanto ela não chega. loading="lazy": só o que está à vista carrega.
+  if (streamUrl && !faltouStream) {
+    if (ehVideo) {
+      return <Box component="video" src={`${streamUrl}#t=0.1`} poster={thumb || undefined}
+        preload="metadata" muted playsInline sx={{ ...sx, bgcolor: "#000" }}
+        onError={() => setFaltouStream(true)}
+        onLoadedData={(e) => guardarMiniatura(fileId, e.currentTarget)} />;
+    }
+    return (
+      <Box sx={{ width: "100%", height: "100%", position: "relative",
+                 backgroundImage: thumb ? `url(${thumb})` : undefined,
+                 backgroundSize: "cover",
+                 backgroundPosition: comecoDaTira ? "left center" : "center" }}>
+        <Box component="img" src={streamUrl} alt="" loading="lazy" decoding="async" sx={sx}
+          onError={() => setFaltouStream(true)}
+          onLoad={(e) => guardarMiniatura(fileId, e.currentTarget)} />
+      </Box>
+    );
+  }
+
   if (thumb) return <Box component="img" src={thumb} alt="" sx={sx} onError={() => setErro(true)} />;
   if (!midia) return vazio("sem arte");
   if ((midia.type || "").startsWith("video")) {
@@ -1499,6 +1555,8 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
                   outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
                 }}>
                 <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
+                  streamUrl={enderecoDoArquivo(p, p.cover_file_id || p.file_id) || enderecoDaPeca(p)}
+                  ehVideo={pecaEhVideo(p)}
                   comecoDaTira={p.content_type === "carrossel"} />
                 <Box sx={{
                   position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
