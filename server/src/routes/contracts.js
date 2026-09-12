@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, publicBaseUrl } from "../auth.js";
 import { makeSignToken, conferirAssinatura } from "./sign.js";
+import { confere } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("contratos"));
@@ -21,6 +22,9 @@ router.get("/", (req, res) => {
 
 router.post("/", (req, res) => {
   const b = req.body || {};
+  // Cliente vindo do corpo do pedido: tem que ser desta casa (pertence.js).
+  const naoEhDaCasa = confere(req.orgId, { clients: b.client_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   if (!b.title) return res.status(400).json({ error: "Título é obrigatório." });
   const info = db
     .prepare(
@@ -48,6 +52,10 @@ const ASSINADOS = ["title", "value", "notes"];
 router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Contrato não encontrado." });
+  // Reapontar um registro existente para o cliente de outra agência é o mesmo
+  // buraco da criação — a trava vale nos dois (pertence.js).
+  const naoEhDaCasaEdit = confere(req.orgId, { clients: req.body?.client_id });
+  if (naoEhDaCasaEdit) return res.status(400).json({ error: naoEhDaCasaEdit });
 
   if (cur.signed_at) {
     const mexendo = ASSINADOS.filter((k) =>

@@ -4,6 +4,7 @@ import { authRequired, moduleAllowed } from "../auth.js";
 import { stopTimersForTask } from "./time.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
 import { broadcast } from "../live.js";
+import { confere } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("tarefas"));
@@ -100,6 +101,11 @@ router.get("/", (req, res) => {
 router.post("/", (req, res) => {
   const b = req.body || {};
   if (!b.title) return res.status(400).json({ error: "Título é obrigatório." });
+  // Ids que vieram do corpo do pedido: têm que ser desta casa. Ver pertence.js —
+  // sem isto, dava para amarrar uma tarefa ao cliente de outra agência, e a
+  // coisa aparecia na Área do Cliente dela.
+  const naoEhDaCasa = confere(req.orgId, { clients: b.client_id, projects: b.project_id, users: b.assignee_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   // criação em lote: cria N tarefas idênticas (máx 100)
   const count = Math.min(Math.max(Number(b.quantity) || 1, 1), 100);
   const stmt = db.prepare(
@@ -138,6 +144,10 @@ router.post("/", (req, res) => {
 router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Tarefa não encontrada." });
+  // Reapontar um registro existente para o cliente de outra agência é o mesmo
+  // buraco da criação — a trava vale nos dois (pertence.js).
+  const naoEhDaCasaEdit = confere(req.orgId, { clients: req.body?.client_id, projects: req.body?.project_id, users: req.body?.assignee_id });
+  if (naoEhDaCasaEdit) return res.status(400).json({ error: naoEhDaCasaEdit });
   const merged = {
     ...cur,
     ...req.body,

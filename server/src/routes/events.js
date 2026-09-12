@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { confere } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("agenda"));
@@ -40,6 +41,9 @@ router.get("/", (req, res) => {
 
 router.post("/", (req, res) => {
   const b = req.body || {};
+  // Cliente vindo do corpo do pedido: tem que ser desta casa (pertence.js).
+  const naoEhDaCasa = confere(req.orgId, { clients: b.client_id, prospects: b.prospect_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   if (!b.title || !b.start_at) return res.status(400).json({ error: "Título e início são obrigatórios." });
   const info = db
     .prepare(
@@ -68,6 +72,10 @@ router.post("/", (req, res) => {
 router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM events WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Evento não encontrado." });
+  // Reapontar um registro existente para o cliente de outra agência é o mesmo
+  // buraco da criação — a trava vale nos dois (pertence.js).
+  const naoEhDaCasaEdit = confere(req.orgId, { clients: req.body?.client_id, prospects: req.body?.prospect_id });
+  if (naoEhDaCasaEdit) return res.status(400).json({ error: naoEhDaCasaEdit });
   const merged = {
     ...cur,
     ...req.body,
