@@ -12,15 +12,13 @@ import { syncTaskMediaToStage } from "../gallery-sync.js";
 import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca, storageConfigured, uploadFileToR2, enderecoAssinado } from "../storage.js";
 import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 import { chaveDaPorta, trancada, registraErro, registraAcerto } from "../tranca.js";
+import { bilheteDeMidia, enderecosDeMidia } from "../midia-url.js";
 
 const router = Router();
 
 // Link inline (streaming, sem login) para o <img>/<video> mostrar/tocar a mídia
 // direto na Área do Cliente — o mesmo mecanismo da Galeria da equipe.
-function mediaUrl(fileId, orgId) {
-  const ticket = jwt.sign({ file_id: fileId, org_id: orgId, inline: true }, JWT_SECRET, { expiresIn: "12h" });
-  return `/api/files/shared/${ticket}`;
-}
+const mediaUrl = (fileId, orgId) => bilheteDeMidia(fileId, orgId);
 
 // userId opcional: mira o aviso numa pessoa (ex.: quem programa). NULL = equipe.
 function notifyAgency(clientId, taskId, message, orgId, userId = null) {
@@ -273,7 +271,7 @@ router.post("/upload", envioDoCliente.array("files", PORTAL_MAX_POR_VEZ), async 
 });
 
 // ---- Galeria: tudo que é do cliente, por etapa, com prazo para baixar --------
-router.get("/gallery", (req, res) => {
+router.get("/gallery", async (req, res) => {
   const rows = db
     .prepare(
       `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.expires_at, f.keep_forever, f.stage,
@@ -303,7 +301,8 @@ router.get("/gallery", (req, res) => {
     return VALIDAS.includes(f.stage) ? f.stage : "originais";
   };
   const out = { originais: [], editados: [], aprovacao: [], aprovados: [], programados: [] };
-  rows.forEach((f) => { f.media_url = mediaUrl(f.id, req.client.org_id); out[grupo(f)].push(f); });
+  const mapaG = await enderecosDeMidia(db, rows.map((f) => f.id), req.client.org_id);
+  rows.forEach((f) => { f.media_url = mapaG.get(f.id) || mediaUrl(f.id, req.client.org_id); out[grupo(f)].push(f); });
   res.json(out);
 });
 
@@ -515,7 +514,7 @@ router.post("/tasks/:id/comments", (req, res) => {
 });
 
 // ---- Preview do feed: como o perfil vai ficar, na ordem programada ----------
-router.get("/feed", (req, res) => {
+router.get("/feed", async (req, res) => {
   const rows = db
     .prepare(
       // A arte da grade é a CAPA escolhida na Distribuição; sem capa, o 1º anexo.
@@ -548,12 +547,13 @@ router.get("/feed", (req, res) => {
     .all(req.client.client_id);
   // O endereço da mídia vai junto: é com ele que a grade desenha a foto em
   // tamanho de verdade e toca o 1º quadro do vídeo, sem baixar o arquivo todo.
-  for (const r of rows) if (r.file_id) r.media_url = mediaUrl(r.file_id, req.client.org_id);
+  const mapaF = await enderecosDeMidia(db, rows.map((r) => r.file_id), req.client.org_id);
+  for (const r of rows) if (r.file_id) r.media_url = mapaF.get(Number(r.file_id)) || mediaUrl(r.file_id, req.client.org_id);
   res.json(rows);
 });
 
 // ---- Anexos (arte do post) ---------------------------------------------------
-router.get("/tasks/:id/attachments", (req, res) => {
+router.get("/tasks/:id/attachments", async (req, res) => {
   const task = getOwnTask(req, res);
   if (!task) return;
   // `cover_thumb` é a miniatura da CAPA escolhida na Distribuição: é ela que
@@ -580,7 +580,8 @@ router.get("/tasks/:id/attachments", (req, res) => {
       )
       .all(task.cover_file_id, req.client.org_id);
   }
-  for (const f of rows) f.media_url = mediaUrl(f.id, req.client.org_id);
+  const mapaA = await enderecosDeMidia(db, rows.map((f) => f.id), req.client.org_id);
+  for (const f of rows) f.media_url = mapaA.get(f.id) || mediaUrl(f.id, req.client.org_id);
   res.json(rows);
 });
 

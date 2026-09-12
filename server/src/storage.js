@@ -65,7 +65,21 @@ export async function getR2Object(key, range) {
 // O endereço expira (1 hora por padrão) e ninguém consegue adivinhar: quem não
 // passou pela checagem de permissão do sistema não chega nele.
 // ---------------------------------------------------------------------------
-export async function enderecoAssinado(key, { segundos = 3600, tipo, baixarComoNome } = {}) {
+/**
+ * A MESMA assinatura durante uma janela de tempo.
+ *
+ * Assinar com a hora exata gera um endereço diferente a cada pedido — e
+ * endereço diferente é arquivo diferente para o navegador, que joga o cache
+ * fora e baixa tudo de novo a cada abrir de tela. Ancorando a assinatura no
+ * início da hora, todo mundo recebe o MESMO endereço durante aquela hora e o
+ * cache do navegador funciona como deveria.
+ */
+function horaAncorada() {
+  const agora = Date.now();
+  return new Date(agora - (agora % 3_600_000));
+}
+
+export async function enderecoAssinado(key, { segundos = 3600, tipo, baixarComoNome, estavel = false } = {}) {
   if (!configured) return null;
   const comando = new GetObjectCommand({
     Bucket: R2_BUCKET,
@@ -79,7 +93,10 @@ export async function enderecoAssinado(key, { segundos = 3600, tipo, baixarComoN
       : {}),
   });
   try {
-    return await getSignedUrl(client, comando, { expiresIn: segundos });
+    return await getSignedUrl(client, comando, {
+      expiresIn: segundos,
+      ...(estavel ? { signingDate: horaAncorada() } : {}),
+    });
   } catch {
     return null;   // não deu para assinar: quem chamou serve pelo caminho antigo
   }
