@@ -556,17 +556,30 @@ router.get("/feed", (req, res) => {
 router.get("/tasks/:id/attachments", (req, res) => {
   const task = getOwnTask(req, res);
   if (!task) return;
-  const rows = db
+  // `cover_thumb` é a miniatura da CAPA escolhida na Distribuição: é ela que
+  // vira o quadro parado do vídeo, quando o próprio vídeo ainda não tem
+  // miniatura própria.
+  let rows = db
     .prepare(
-      // `cover_thumb` é a miniatura da CAPA escolhida na Distribuição: é ela que
-      // vira o quadro parado do vídeo, quando o próprio vídeo ainda não tem
-      // miniatura própria.
       `SELECT f.id, f.original_name, f.mime, f.size, f.thumb,
               (SELECT c.thumb FROM files c WHERE c.id = ?) AS cover_thumb
        FROM task_attachments ta JOIN files f ON f.id = ta.file_id
        WHERE ta.task_id = ?`
     )
     .all(task.cover_file_id || null, task.id);
+
+  // Peça com CAPA definida e nenhum anexo — carrossel montado antes de a peça
+  // ganhar anexo, ou que teve o anexo trocado. Aqui isso devolvia lista VAZIA:
+  // o cliente recebia "aprove isto" sem ter o que olhar, e nem a agência ficava
+  // sabendo. A capa é a arte da peça; se é o que existe, é o que ele vê.
+  if (!rows.length && task.cover_file_id) {
+    rows = db
+      .prepare(
+        `SELECT f.id, f.original_name, f.mime, f.size, f.thumb, f.thumb AS cover_thumb
+         FROM files f WHERE f.id = ? AND f.org_id = ?`
+      )
+      .all(task.cover_file_id, req.client.org_id);
+  }
   for (const f of rows) f.media_url = mediaUrl(f.id, req.client.org_id);
   res.json(rows);
 });
