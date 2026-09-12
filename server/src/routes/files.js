@@ -351,8 +351,11 @@ router.get("/:id/thumb", (req, res) => {
   const f = db.prepare("SELECT thumb FROM files WHERE id = ? AND org_id = ?")
     .get(req.params.id, req.orgId);
   if (!f) return res.status(404).json({ error: "Arquivo não encontrado." });
-  if (!f.thumb) return res.status(404).json({ error: "Sem miniatura." });
-  res.json({ thumb: f.thumb });
+  // Arquivo enviado antes de a miniatura existir simplesmente não tem uma —
+  // isso é normal, não é erro. Devolvendo 200 com thumb: null, a grade cai na
+  // arte inteira sem encher o console de 404 a cada quadradinho (o 404 aqui
+  // fica só para arquivo que não existe mesmo).
+  res.json({ thumb: f.thumb || null });
 });
 
 // PUT /api/files/:id/thumb — guarda a miniatura de um arquivo que ainda não
