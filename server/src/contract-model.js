@@ -22,7 +22,7 @@ export const MODELO_REDES = {
   body: `CONTRATO DE PRESTAÇÃO DE SERVIÇOS
 MARKETING E GESTÃO DE REDES SOCIAIS
 
-CONTRATANTE: {{razao_social}}, inscrita no {{documento_rotulo}} sob o n.º {{cnpj}}, com sede em {{endereco}}, neste ato representada por {{representante}}, brasileiro(a), inscrito(a) na {{tipo_documento_representante}} sob o n.º {{documento_representante}}.
+CONTRATANTE: {{razao_social}}, inscrita no {{documento_rotulo}} sob o n.º {{cnpj}}, com sede em {{endereco}}, neste ato representada por {{representante}}, brasileiro(a), inscrito(a) {{documento_representante_rotulo}} sob o n.º {{documento_representante}}.
 
 CONTRATADA: {{agencia}}, inscrita no CNPJ sob o n.º {{cnpj_agencia}}, com sede em {{endereco_agencia}}, neste ato representada por sua titular, {{representante_agencia}}, brasileira, portadora do CPF n.º {{documento_representante_agencia}}.
 

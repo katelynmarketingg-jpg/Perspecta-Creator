@@ -665,9 +665,15 @@ export default function Portal() {
           </Tooltip>
         </Toolbar>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" sx={{ px: 2 }}>
+          {/* A bolinha com o número só faz sentido quando há algo esperando. O
+              "transform: none" que coloca o número ao lado do texto desliga,
+              sem querer, o jeito que o MUI tem de esconder o zero — por isso a
+              bolinha aparecia com "0" quando não havia nada para aprovar. */}
           <Tab value="approvals" label={
             <Badge color="primary" badgeContent={approvals.length} max={99}
-              sx={{ "& .MuiBadge-badge": { position: "static", transform: "none", ml: 0.75 } }}>
+              invisible={approvals.length === 0}
+              sx={{ "& .MuiBadge-badge": { position: "static", transform: "none", ml: 0.75 },
+                    "& .MuiBadge-invisible": { display: "none" } }}>
               Aprovações
             </Badge>
           } />

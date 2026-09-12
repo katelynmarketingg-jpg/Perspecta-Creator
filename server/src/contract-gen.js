@@ -154,7 +154,7 @@ const LINHA = "_______________";
  * é conferido: o que estiver vazio entra na lista `faltando`, que sobe até a
  * tela — antes o contrato saía com "sob o n.º ," e só um advogado ia notar.
  */
-function confereEssenciais(client) {
+function confereEssenciais(client, org = {}) {
   const essenciais = [
     ["razão social", client.legal_name || client.company || client.name],
     ["CNPJ/CPF", client.document],
@@ -162,8 +162,28 @@ function confereEssenciais(client) {
     ["quem assina", client.rep_name],
     ["documento de quem assina", client.rep_document],
     ["dia do pagamento", client.payment_day],
+    // Os dados da PRÓPRIA CASA também. Antes só o cliente era conferido, e o
+    // contrato saía com a qualificação da agência em branco — "inscrita no CNPJ
+    // sob o n.º , com sede em , representada por sua titular, ," — sem que
+    // ninguém fosse avisado. Preenche em Configurações.
+    ["CNPJ da agência", org.document],
+    ["endereço da agência", org.address],
+    ["quem assina pela agência", org.signer_name],
+    ["documento de quem assina pela agência", org.signer_document],
+    ["cidade da agência (para o foro)", org.city],
   ];
   return essenciais.filter(([, v]) => !String(v ?? "").trim()).map(([nome]) => nome);
+}
+
+/**
+ * "no CPF", "no CNPJ", "na OAB" — o artigo TEM que concordar com o documento.
+ * O contrato saía "inscrito(a) na CPF sob o n.º ...", porque o modelo trazia o
+ * "na" fixo (que só serve para OAB) e o marcador só devolvia a sigla. Erro de
+ * português num documento que um advogado vai ler.
+ */
+function documentoComArtigo(tipo) {
+  const t = String(tipo || "cpf").trim().toUpperCase();
+  return t === "OAB" ? "na OAB" : `no ${t}`;
 }
 
 /** CPF tem 11 dígitos; CNPJ tem 14. O contrato precisa chamar pelo nome certo. */
@@ -223,15 +243,18 @@ export function geraContrato(orgId, termos = {}) {
     // Também formatado: um CPF de quem assina saía "04009664096" no contrato.
     documento_representante: (formataDocumento(client.rep_document || "") || client.rep_document || LINHA),
     tipo_documento_representante: (client.rep_doc_type || "cpf").toUpperCase(),
+    // Este já vem com o artigo certo ("no CPF", "na OAB"): use ESTE no modelo,
+    // sem escrever "na" antes. O de cima fica para quem já tinha modelo pronto.
+    documento_representante_rotulo: documentoComArtigo(client.rep_doc_type),
     // --- cobrança ---
     dia_pagamento: diaPgto ? String(diaPgto) : LINHA,
     vencimento: diaPgto ? `todo dia ${diaPgto} de cada mês` : "conforme combinado",
     // --- a agência (contratada) ---
     agencia: org.name || "",
-    cnpj_agencia: formataDocumento(org.document || ""),
-    endereco_agencia: org.address || "",
-    representante_agencia: org.signer_name || "",
-    documento_representante_agencia: org.signer_document || "",
+    cnpj_agencia: formataDocumento(org.document || "") || LINHA,
+    endereco_agencia: org.address || "" || LINHA,
+    representante_agencia: org.signer_name || "" || LINHA,
+    documento_representante_agencia: org.signer_document || "" || LINHA,
     cargo_representante_agencia: org.signer_role || "",
     // --- lugar e prazos ---
     cidade: org.city || "",
@@ -278,5 +301,5 @@ export function geraContrato(orgId, termos = {}) {
   ).get(info.lastInsertRowid);
   // A lista sobe junto: é ela que faz a tela avisar "este contrato saiu sem
   // endereço e sem quem assina" em vez de deixar a agência descobrir depois.
-  return { ...criado, faltando: confereEssenciais(client) };
+  return { ...criado, faltando: confereEssenciais(client, org) };
 }
