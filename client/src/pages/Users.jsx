@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Card, Table, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
+  Button, Card, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
   FormControlLabel, Switch, Typography, Divider, Alert, Box,
 } from "@mui/material";
@@ -82,42 +82,46 @@ export default function Users() {
       />
 
       <Card>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Nome</TableCell><TableCell>Entra como</TableCell>
-              <TableCell>Função</TableCell><TableCell>Responsável por</TableCell>
-              <TableCell>Papel</TableCell><TableCell>Status</TableCell>
-              <TableCell align="right">Ações</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rows.map((u) => (
-              <TableRow key={u.id} hover>
-                <TableCell>{u.name}</TableCell>
-                <TableCell sx={{ fontFamily: "monospace" }}>{u.username || "—"}</TableCell>
-                <TableCell>{u.job_title || "—"}</TableCell>
-                <TableCell>
-                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
-                    {(u.duties || []).map((d) => {
-                      const info = DUTIES.find((x) => x.key === d);
-                      return <Chip key={d} size="small" variant="outlined" label={info?.label || d} />;
-                    })}
-                    {u.can_approve ? <Chip size="small" color="primary" label="✓ aprova" /> : null}
-                    {(!u.duties || u.duties.length === 0) && !u.can_approve ? "—" : null}
-                  </Stack>
-                </TableCell>
-                <TableCell><Chip size="small" label={u.role === "admin" ? "Administrador" : "Colaborador"} color={u.role === "admin" ? "primary" : "default"} /></TableCell>
-                <TableCell><Chip size="small" label={u.active ? "Ativo" : "Inativo"} color={u.active ? "success" : "default"} /></TableCell>
-                <TableCell align="right">
-                  <IconButton size="small" onClick={() => openPerms(u)} title="Permissões"><SecurityIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" onClick={() => { setDraft({ ...u, password: "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => remove(u.id)}><DeleteIcon fontSize="small" /></IconButton>
-                </TableCell>
+        <TableContainer>
+          {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+              aqui dentro, em vez de arrastar a página inteira para o lado. */}
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Nome</TableCell><TableCell>Entra como</TableCell>
+                <TableCell>Função</TableCell><TableCell>Responsável por</TableCell>
+                <TableCell>Papel</TableCell><TableCell>Status</TableCell>
+                <TableCell align="right">Ações</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {rows.map((u) => (
+                <TableRow key={u.id} hover>
+                  <TableCell>{u.name}</TableCell>
+                  <TableCell sx={{ fontFamily: "monospace" }}>{u.username || "—"}</TableCell>
+                  <TableCell>{u.job_title || "—"}</TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                      {(u.duties || []).map((d) => {
+                        const info = DUTIES.find((x) => x.key === d);
+                        return <Chip key={d} size="small" variant="outlined" label={info?.label || d} />;
+                      })}
+                      {u.can_approve ? <Chip size="small" color="primary" label="✓ aprova" /> : null}
+                      {(!u.duties || u.duties.length === 0) && !u.can_approve ? "—" : null}
+                    </Stack>
+                  </TableCell>
+                  <TableCell><Chip size="small" label={u.role === "admin" ? "Administrador" : "Colaborador"} color={u.role === "admin" ? "primary" : "default"} /></TableCell>
+                  <TableCell><Chip size="small" label={u.active ? "Ativo" : "Inativo"} color={u.active ? "success" : "default"} /></TableCell>
+                  <TableCell align="right">
+                    <IconButton size="small" onClick={() => openPerms(u)} title="Permissões"><SecurityIcon fontSize="small" /></IconButton>
+                    <IconButton size="small" onClick={() => { setDraft({ ...u, password: "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
+                    <IconButton size="small" color="error" onClick={() => remove(u.id)}><DeleteIcon fontSize="small" /></IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Card>
 
       {/* Dialog usuário */}

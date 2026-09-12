@@ -3,7 +3,7 @@ import {
   Button, Box, Card, CardContent, Typography, Chip, IconButton, Dialog,
   DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
   Tooltip, Divider, Autocomplete, Alert, Checkbox, ToggleButtonGroup, ToggleButton,
-  Table, TableBody, TableCell, TableHead, TableRow,
+  Table, TableContainer, TableBody, TableCell, TableHead, TableRow,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
@@ -504,34 +504,38 @@ export default function Tasks() {
           {listaOrdenada.length === 0 ? (
             <Box sx={{ p: 5, textAlign: "center", color: "text.secondary" }}>Nenhuma tarefa com esses filtros.</Box>
           ) : (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Data</TableCell><TableCell>Tarefa</TableCell><TableCell>Cliente</TableCell>
-                  <TableCell>Tipo</TableCell><TableCell>Etapa</TableCell><TableCell>Responsável</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {listaOrdenada.map((t) => {
-                  const st = stages.find((s) => s.id === t.stage_id);
-                  const ct = t.content_type && CONTENT_TYPES[t.content_type];
-                  return (
-                    <TableRow key={t.id} hover sx={{ cursor: "pointer" }} onClick={() => openEdit(t)}>
-                      <TableCell sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                        {t.scheduled_at ? formatDateTime(t.scheduled_at)
-                          : t.ref_month ? refMonthLabel(t.ref_month)
-                          : t.due_date ? formatDate(t.due_date) : "—"}
-                      </TableCell>
-                      <TableCell>{t.title}</TableCell>
-                      <TableCell>{t.client_name || "—"}</TableCell>
-                      <TableCell>{ct ? `${ct.emoji} ${ct.label}` : "—"}</TableCell>
-                      <TableCell><Chip size="small" variant="outlined" label={st?.name || "—"} color={st?.is_done ? "success" : "default"} /></TableCell>
-                      <TableCell>{t.assignee_name || "—"}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <TableContainer>
+              {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                  aqui dentro, em vez de arrastar a página inteira para o lado. */}
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Data</TableCell><TableCell>Tarefa</TableCell><TableCell>Cliente</TableCell>
+                    <TableCell>Tipo</TableCell><TableCell>Etapa</TableCell><TableCell>Responsável</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {listaOrdenada.map((t) => {
+                    const st = stages.find((s) => s.id === t.stage_id);
+                    const ct = t.content_type && CONTENT_TYPES[t.content_type];
+                    return (
+                      <TableRow key={t.id} hover sx={{ cursor: "pointer" }} onClick={() => openEdit(t)}>
+                        <TableCell sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                          {t.scheduled_at ? formatDateTime(t.scheduled_at)
+                            : t.ref_month ? refMonthLabel(t.ref_month)
+                            : t.due_date ? formatDate(t.due_date) : "—"}
+                        </TableCell>
+                        <TableCell>{t.title}</TableCell>
+                        <TableCell>{t.client_name || "—"}</TableCell>
+                        <TableCell>{ct ? `${ct.emoji} ${ct.label}` : "—"}</TableCell>
+                        <TableCell><Chip size="small" variant="outlined" label={st?.name || "—"} color={st?.is_done ? "success" : "default"} /></TableCell>
+                        <TableCell>{t.assignee_name || "—"}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
         </Card>
       ) : (

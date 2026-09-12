@@ -251,6 +251,16 @@ briefingPublicRouter.post("/:token/enviar", (req, res) => {
   const b = carrega(req.params.token);
   if (!b) return res.status(404).json({ error: "Este link não existe mais." });
 
+  // Já enviado: clique duplo, voltar no navegador, recarregar a página. Não
+  // refaz nada — senão o cliente recebe "enviado!" mas a equipe recebe o aviso
+  // duas vezes, e tudo o que roda no fechamento roda de novo sem precisar.
+  if (b.status === "respondido") {
+    const contratoAberto = db.prepare(
+      "SELECT id FROM contracts WHERE client_id = ? AND org_id = ? ORDER BY id DESC LIMIT 1"
+    ).get(b.client_id, b.org_id);
+    return res.json({ ok: true, contrato: Boolean(contratoAberto), ja_enviado: true });
+  }
+
   const respostas = JSON.parse(b.answers || "{}");
   const faltam = faltando(getTemplate(b.org_id).secoes, respostas);
   if (faltam.length) {

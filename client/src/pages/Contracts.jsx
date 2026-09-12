@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Card, Table, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
+  Button, Card, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -179,46 +179,50 @@ export default function Contracts() {
       {rows.length === 0 ? <EmptyState message="Nenhum contrato cadastrado." /> :
        filtrados.length === 0 ? <EmptyState message="Nenhum contrato com esse filtro." /> : (
         <Card>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Contrato</TableCell>
-                <TableCell>Cliente</TableCell>
-                <TableCell>Duração</TableCell>
-                <TableCell>1º vencimento</TableCell>
-                <TableCell>Assinatura</TableCell>
-                <TableCell align="right">Valor</TableCell>
-                <TableCell align="right">Ações</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filtrados.map((c) => (
-                <TableRow key={c.id} hover>
-                  <TableCell>{c.title}</TableCell>
-                  <TableCell>{c.client_name || "—"}</TableCell>
-                  <TableCell>{c.duration_months ? `${c.duration_months} meses` : <Chip size="small" label="Indeterminado" />}</TableCell>
-                  <TableCell>{formatDate(c.first_due_date)}</TableCell>
-                  <TableCell>
-                    {c.integridade === "alterado" && (
-                      <Chip size="small" color="error" label="⚠ texto alterado após assinar"
-                        title="O texto deste contrato não é mais o que foi assinado. A assinatura não vale para este texto." />
-                    )}
-                    {c.signed_at
-                      ? <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Assinado" />
-                      : <Chip size="small" variant="outlined" label="Pendente" />}
-                  </TableCell>
-                  <TableCell align="right">{currency(c.value)}</TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="Ver / imprimir">
-                      <IconButton size="small" onClick={() => setVer(c)}><VisibilityIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <IconButton size="small" onClick={() => { setDraft({ ...c, client_id: c.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
-                  </TableCell>
+          <TableContainer>
+            {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                aqui dentro, em vez de arrastar a página inteira para o lado. */}
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Contrato</TableCell>
+                  <TableCell>Cliente</TableCell>
+                  <TableCell>Duração</TableCell>
+                  <TableCell>1º vencimento</TableCell>
+                  <TableCell>Assinatura</TableCell>
+                  <TableCell align="right">Valor</TableCell>
+                  <TableCell align="right">Ações</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {filtrados.map((c) => (
+                  <TableRow key={c.id} hover>
+                    <TableCell>{c.title}</TableCell>
+                    <TableCell>{c.client_name || "—"}</TableCell>
+                    <TableCell>{c.duration_months ? `${c.duration_months} meses` : <Chip size="small" label="Indeterminado" />}</TableCell>
+                    <TableCell>{formatDate(c.first_due_date)}</TableCell>
+                    <TableCell>
+                      {c.integridade === "alterado" && (
+                        <Chip size="small" color="error" label="⚠ texto alterado após assinar"
+                          title="O texto deste contrato não é mais o que foi assinado. A assinatura não vale para este texto." />
+                      )}
+                      {c.signed_at
+                        ? <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Assinado" />
+                        : <Chip size="small" variant="outlined" label="Pendente" />}
+                    </TableCell>
+                    <TableCell align="right">{currency(c.value)}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Ver / imprimir">
+                        <IconButton size="small" onClick={() => setVer(c)}><VisibilityIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                      <IconButton size="small" onClick={() => { setDraft({ ...c, client_id: c.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Card>
       )}
 

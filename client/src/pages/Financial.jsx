@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Card, Grid, Table, TableBody, TableCell, TableHead, TableRow, IconButton,
+  Button, Card, Grid, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Tabs, Tab, Divider,
   FormControlLabel, Switch, Typography, Box,
 } from "@mui/material";
@@ -262,75 +262,79 @@ export default function Financial() {
           <Tab value="income" label="Receitas" />
           <Tab value="expense" label="Despesas" />
         </Tabs>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Descrição</TableCell>
-              <TableCell>Cliente</TableCell>
-              <TableCell>Vencimento</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Valor</TableCell>
-              <TableCell align="right">Ações</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filtered.map((f) => (
-              <TableRow key={f.id} hover>
-                <TableCell>
-                  {f.description}
-                  {f.recurring ? (
-                    <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
-                      label="Mensal" sx={{ ml: 1, height: 20 }} />
-                  ) : null}
-                  {f.card ? (
-                    <Chip size="small" variant="outlined" label={`💳 ${f.card}`} sx={{ ml: 1, height: 20 }} />
-                  ) : null}
-                </TableCell>
-                <TableCell>{f.client_name || "—"}</TableCell>
-                <TableCell>{formatDate(f.due_date)}</TableCell>
-                <TableCell>
-                  {f.status === "paid"
-                    ? <Chip size="small" label="Pago" color="success" />
-                    : f.status === "partial"
-                      ? <Chip size="small" color="info" label={`Parcial · ${currency(f.paid_amount || 0)}/${currency(f.amount)}`} />
-                      : <Chip size="small" label="Pendente" color="warning" />}
-                </TableCell>
-                <TableCell align="right" sx={{ color: f.type === "income" ? "primary.main" : "text.secondary", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                  {f.type === "income" ? "+" : "−"} {currency(f.amount)}
-                </TableCell>
-                <TableCell align="right">
-                  {f.status !== "paid" && (
-                    <Tooltip title={f.type === "income" ? "Marcar como recebido" : "Marcar como pago"}>
-                      <IconButton size="small" color="success" onClick={() => markPaid(f)}>
-                        <CheckCircleIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                  {/* Recibo — só de receita, e só depois de marcada como paga. */}
-                  {f.type === "income" && (
-                    <Tooltip title={
-                      f.status !== "paid"
-                        ? "Disponível depois de marcar como pago"
-                        : f.receipt_id ? `Ver / baixar recibo ${f.receipt_number || ""}` : "Gerar recibo"
-                    }>
-                      <span>
-                        <IconButton size="small" color={f.receipt_id ? "primary" : "default"}
-                          disabled={f.status !== "paid"} onClick={() => abrirRecibo(f)}>
-                          <ReceiptLongIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  )}
-                  <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" color="error" onClick={() => remove(f.id)}><DeleteIcon fontSize="small" /></IconButton>
-                </TableCell>
+        <TableContainer>
+          {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+              aqui dentro, em vez de arrastar a página inteira para o lado. */}
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Descrição</TableCell>
+                <TableCell>Cliente</TableCell>
+                <TableCell>Vencimento</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell align="right">Valor</TableCell>
+                <TableCell align="right">Ações</TableCell>
               </TableRow>
-            ))}
-            {filtered.length === 0 && (
-              <TableRow><TableCell colSpan={6} align="center" style={{ padding: 32, color: "#888" }}>Nenhum lançamento.</TableCell></TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {filtered.map((f) => (
+                <TableRow key={f.id} hover>
+                  <TableCell>
+                    {f.description}
+                    {f.recurring ? (
+                      <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
+                        label="Mensal" sx={{ ml: 1, height: 20 }} />
+                    ) : null}
+                    {f.card ? (
+                      <Chip size="small" variant="outlined" label={`💳 ${f.card}`} sx={{ ml: 1, height: 20 }} />
+                    ) : null}
+                  </TableCell>
+                  <TableCell>{f.client_name || "—"}</TableCell>
+                  <TableCell>{formatDate(f.due_date)}</TableCell>
+                  <TableCell>
+                    {f.status === "paid"
+                      ? <Chip size="small" label="Pago" color="success" />
+                      : f.status === "partial"
+                        ? <Chip size="small" color="info" label={`Parcial · ${currency(f.paid_amount || 0)}/${currency(f.amount)}`} />
+                        : <Chip size="small" label="Pendente" color="warning" />}
+                  </TableCell>
+                  <TableCell align="right" sx={{ color: f.type === "income" ? "primary.main" : "text.secondary", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                    {f.type === "income" ? "+" : "−"} {currency(f.amount)}
+                  </TableCell>
+                  <TableCell align="right">
+                    {f.status !== "paid" && (
+                      <Tooltip title={f.type === "income" ? "Marcar como recebido" : "Marcar como pago"}>
+                        <IconButton size="small" color="success" onClick={() => markPaid(f)}>
+                          <CheckCircleIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {/* Recibo — só de receita, e só depois de marcada como paga. */}
+                    {f.type === "income" && (
+                      <Tooltip title={
+                        f.status !== "paid"
+                          ? "Disponível depois de marcar como pago"
+                          : f.receipt_id ? `Ver / baixar recibo ${f.receipt_number || ""}` : "Gerar recibo"
+                      }>
+                        <span>
+                          <IconButton size="small" color={f.receipt_id ? "primary" : "default"}
+                            disabled={f.status !== "paid"} onClick={() => abrirRecibo(f)}>
+                            <ReceiptLongIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
+                    <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
+                    <IconButton size="small" color="error" onClick={() => remove(f.id)}><DeleteIcon fontSize="small" /></IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {filtered.length === 0 && (
+                <TableRow><TableCell colSpan={6} align="center" style={{ padding: 32, color: "#888" }}>Nenhum lançamento.</TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Card>
 
       {/* Gerar mensalidades recorrentes a partir dos clientes cadastrados */}

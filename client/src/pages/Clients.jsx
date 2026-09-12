@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Card, Table, TableBody, TableCell, TableHead, TableRow, IconButton,
+  Button, Card, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack,
   MenuItem, Link, Tooltip, Divider, Autocomplete, Box, Typography,
   FormControlLabel, Switch, Alert, Grid,
@@ -245,90 +245,94 @@ export default function Clients() {
         <EmptyState message="Nenhum cliente encontrado com esse filtro." />
       ) : (
         <Card>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Cliente</TableCell>
-                <TableCell>Segmento</TableCell>
-                <TableCell>Serviços</TableCell>
-                <TableCell>Contrato</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="right">Ações</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filtrados.map((c) => (
-                <TableRow key={c.id} hover>
-                  <TableCell>
-                    <strong>{c.name}</strong>
-                    {c.company && <div style={{ fontSize: 12, color: "#888" }}>{c.company}</div>}
-                  </TableCell>
-                  <TableCell>{c.segment || "—"}</TableCell>
-                  <TableCell>
-                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
-                      {(c.services || []).map((s) => (
-                        <Tooltip key={s.service_id} title={currency(s.price)}>
-                          <Chip size="small" variant="outlined" label={s.name} />
-                        </Tooltip>
-                      ))}
-                      {(c.services || []).length === 0 && "—"}
-                    </Stack>
-                  </TableCell>
-                  <TableCell>
-                    {(() => {
-                      const valor = (c.services || []).reduce((s, x) => s + (Number(x.price) || 0), 0);
-                      const encerraMesQueVem = c.work_end && (() => {
-                        const fim = new Date(c.work_end + "T00:00:00");
-                        const alvo = new Date(); alvo.setMonth(alvo.getMonth() + 1);
-                        return fim.getFullYear() === alvo.getFullYear() && fim.getMonth() === alvo.getMonth();
-                      })();
-                      return (
-                        <>
-                          {valor > 0 && <div style={{ fontWeight: 600 }}>{currency(valor)}/mês</div>}
-                          <div style={{ fontSize: 12, color: encerraMesQueVem ? "#D97706" : "#888", fontWeight: encerraMesQueVem ? 700 : 400 }}>
-                            {c.work_end
-                              ? `até ${formatDate(c.work_end)}${encerraMesQueVem ? " ⚠ renovar" : ""}`
-                              : "prazo indeterminado"}
-                          </div>
-                          {c.billing_type && c.billing_type !== "pagante" ? (
-                            <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 700 }}>
-                              {c.billing_type === "permuta" ? "Permuta"
-                                : c.billing_type === "trabalho_proprio" ? "Trabalho próprio"
-                                : "Cortesia"} · não pagante
-                            </div>
-                          ) : c.payment_day && (
-                            <div style={{ fontSize: 12, color: "#888" }}>Pgto dia {c.payment_day}</div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell>
-                    <Chip size="small" label={c.status === "active" ? "Ativo" : "Inativo"}
-                      color={c.status === "active" ? "success" : "default"} />
-                  </TableCell>
-                  <TableCell align="right">
-                    {c.drive_url && (
-                      <Tooltip title="Abrir Google Drive do cliente">
-                        <IconButton size="small" component={Link} href={c.drive_url} target="_blank"><DriveIcon fontSize="small" /></IconButton>
-                      </Tooltip>
-                    )}
-                    <Tooltip title="Projetos e entregas do cliente">
-                      <IconButton size="small" onClick={() => abrirProjetos(c)}><FolderIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <Tooltip title="Contratos do cliente">
-                      <IconButton size="small" onClick={() => abrirContratos(c)}><DescriptionIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <Tooltip title="Inteligência da IA — o que a IA sabe deste cliente">
-                      <IconButton size="small" onClick={() => setCerebro(c)}><PsychologyIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <IconButton size="small" onClick={() => openEdit(c)}><EditIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
-                  </TableCell>
+          <TableContainer>
+            {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                aqui dentro, em vez de arrastar a página inteira para o lado. */}
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Cliente</TableCell>
+                  <TableCell>Segmento</TableCell>
+                  <TableCell>Serviços</TableCell>
+                  <TableCell>Contrato</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">Ações</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {filtrados.map((c) => (
+                  <TableRow key={c.id} hover>
+                    <TableCell>
+                      <strong>{c.name}</strong>
+                      {c.company && <div style={{ fontSize: 12, color: "#888" }}>{c.company}</div>}
+                    </TableCell>
+                    <TableCell>{c.segment || "—"}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                        {(c.services || []).map((s) => (
+                          <Tooltip key={s.service_id} title={currency(s.price)}>
+                            <Chip size="small" variant="outlined" label={s.name} />
+                          </Tooltip>
+                        ))}
+                        {(c.services || []).length === 0 && "—"}
+                      </Stack>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const valor = (c.services || []).reduce((s, x) => s + (Number(x.price) || 0), 0);
+                        const encerraMesQueVem = c.work_end && (() => {
+                          const fim = new Date(c.work_end + "T00:00:00");
+                          const alvo = new Date(); alvo.setMonth(alvo.getMonth() + 1);
+                          return fim.getFullYear() === alvo.getFullYear() && fim.getMonth() === alvo.getMonth();
+                        })();
+                        return (
+                          <>
+                            {valor > 0 && <div style={{ fontWeight: 600 }}>{currency(valor)}/mês</div>}
+                            <div style={{ fontSize: 12, color: encerraMesQueVem ? "#D97706" : "#888", fontWeight: encerraMesQueVem ? 700 : 400 }}>
+                              {c.work_end
+                                ? `até ${formatDate(c.work_end)}${encerraMesQueVem ? " ⚠ renovar" : ""}`
+                                : "prazo indeterminado"}
+                            </div>
+                            {c.billing_type && c.billing_type !== "pagante" ? (
+                              <div style={{ fontSize: 12, color: "#7C3AED", fontWeight: 700 }}>
+                                {c.billing_type === "permuta" ? "Permuta"
+                                  : c.billing_type === "trabalho_proprio" ? "Trabalho próprio"
+                                  : "Cortesia"} · não pagante
+                              </div>
+                            ) : c.payment_day && (
+                              <div style={{ fontSize: 12, color: "#888" }}>Pgto dia {c.payment_day}</div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      <Chip size="small" label={c.status === "active" ? "Ativo" : "Inativo"}
+                        color={c.status === "active" ? "success" : "default"} />
+                    </TableCell>
+                    <TableCell align="right">
+                      {c.drive_url && (
+                        <Tooltip title="Abrir Google Drive do cliente">
+                          <IconButton size="small" component={Link} href={c.drive_url} target="_blank"><DriveIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                      )}
+                      <Tooltip title="Projetos e entregas do cliente">
+                        <IconButton size="small" onClick={() => abrirProjetos(c)}><FolderIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="Contratos do cliente">
+                        <IconButton size="small" onClick={() => abrirContratos(c)}><DescriptionIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="Inteligência da IA — o que a IA sabe deste cliente">
+                        <IconButton size="small" onClick={() => setCerebro(c)}><PsychologyIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                      <IconButton size="small" onClick={() => openEdit(c)}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Card>
       )}
 
