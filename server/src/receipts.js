@@ -87,7 +87,10 @@ const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
 export function dataExtenso(iso) {
   const d = new Date(`${String(iso || "").slice(0, 10)}T12:00:00`);
   if (Number.isNaN(d.getTime())) return "";
-  return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
+  // O primeiro dia do mês se escreve "1º" em português — num contrato,
+  // "iniciando-se em 1 de setembro" fica errado.
+  const dia = d.getDate() === 1 ? "1º" : String(d.getDate());
+  return `${dia} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
 /** "agosto de 2026" — o mês a que a cobrança se refere. */

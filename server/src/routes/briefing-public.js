@@ -277,6 +277,11 @@ briefingPublicRouter.post("/:token/enviar", (req, res) => {
     ? `📝 ${nome} respondeu o onboarding. O contrato já está pronto para ele assinar.`
     : `📝 ${nome} respondeu o onboarding. Aplique na inteligência da IA.`);
   if (fim.erroContrato) aviso(`⚠️ Não deu para gerar o contrato de ${nome}: ${fim.erroContrato}`);
+  // Contrato com buraco não pode sair calado: quem vai ler é um advogado.
+  if (fim.faltandoNoContrato.length) {
+    aviso(`⚠️ O contrato de ${nome} saiu sem: ${fim.faltandoNoContrato.join(", ")}. `
+      + "Complete no cadastro e gere de novo antes de mandar para assinar.");
+  }
 
   res.json({ ok: true, contrato: Boolean(fim.contrato) });
 });
