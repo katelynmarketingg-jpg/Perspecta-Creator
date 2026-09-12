@@ -723,7 +723,27 @@ function PieceCard({ item, onChanged, flash }) {
     try { await api.put(`/distribution/${item.id}`, { media_ids: next }); }
     catch (err) { flash(err.response?.data?.error || "Não foi possível salvar as slides.", "error"); }
   }
-  const addSlide = (id) => { if (id && !slides.includes(id)) saveSlides([...slides, id]); };
+  // Escolher da GALERIA agora passa pela mesma medição do upload: se a arte é
+  // uma tira larga, pergunta em quantas slides cortar em vez de enfiar a tira
+  // inteira como uma slide só. Antes o corte só existia ao subir arquivo novo —
+  // quem já tinha a arte na galeria não tinha como cortar.
+  async function addSlide(id) {
+    if (!id || slides.includes(id)) return;
+    try {
+      const blob = (await api.get(`/files/${id}/download`, { responseType: "blob" })).data;
+      const file = new File([blob], `slide-${id}.${(blob.type || "").includes("png") ? "png" : "jpg"}`,
+        { type: blob.type || "image/jpeg" });
+      const medida = await medirImagem(file);
+      if (medida?.fatiavel) {
+        // daGaleria: ao cortar, a tira não vira slide — só as partes entram.
+        setSlicer({ file, largura: medida.largura, altura: medida.altura, formato: medida.formato,
+                    confianca: medida.confianca, sugestaoFormato: medida.sugestao,
+                    texto: String(dentroDaFaixa(medida.sugestao)), daGaleria: id });
+        return;
+      }
+    } catch { /* não deu para medir: entra como slide normal, como antes */ }
+    saveSlides([...slides, id]);
+  }
   const removeSlide = (id) => saveSlides(slides.filter((s) => s !== id));
   // Mover uma slide de lugar. Num carrossel a ordem É o post: a 1ª é a capa que
   // aparece no perfil, e as outras seguem na ordem em que a pessoa desliza.
@@ -751,7 +771,9 @@ function PieceCard({ item, onChanged, flash }) {
     // um bloco só — a pessoa vê o carrossel montado, deslizando com a setinha.
     try {
       const medida = await medirImagem(file);
-      if (medida?.fatiavel) { setSlicer({ file, largura: medida.largura, altura: medida.altura, texto: String(dentroDaFaixa(medida.sugestao)) }); return; }
+      if (medida?.fatiavel) { setSlicer({ file, largura: medida.largura, altura: medida.altura, formato: medida.formato,
+                     confianca: medida.confianca, sugestaoFormato: medida.sugestao,
+                     texto: String(dentroDaFaixa(medida.sugestao)) }); return; }
     } catch { /* segue como slide única */ }
     setSlideUploading(true);
     try {
@@ -769,11 +791,13 @@ function PieceCard({ item, onChanged, flash }) {
     setSlideUploading(true);
     try {
       const partes = await fatiarEmSlides(slicer.file, dentroDaFaixa(slicer.texto));
-      const novos = [];
-      for (const parte of partes) {
-        // eslint-disable-next-line no-await-in-loop
-        const id = await subirArquivo(parte);
-        if (id) novos.push(id);
+      // As slides sobem JUNTAS, não uma esperando a outra. Em fila, seis slides
+      // eram seis idas e voltas somadas; em paralelo o tempo é o da mais lenta.
+      // A ORDEM é preservada porque cada uma guarda o seu lugar no resultado.
+      const ids = await Promise.all(partes.map((parte) => subirArquivo(parte).catch(() => null)));
+      const novos = ids.filter(Boolean);
+      if (novos.length < partes.length) {
+        flash(`${partes.length - novos.length} slide(s) não subiram. Tente de novo.`, "error");
       }
       if (novos.length) {
         let next;
@@ -808,7 +832,9 @@ function PieceCard({ item, onChanged, flash }) {
         flash("Essa arte não é larga o bastante para virar um carrossel de várias slides.", "error");
         return;
       }
-      setSlicer({ file, largura: medida.largura, altura: medida.altura, texto: String(dentroDaFaixa(medida.sugestao)), substituir: id });
+      setSlicer({ file, largura: medida.largura, altura: medida.altura, formato: medida.formato,
+                  confianca: medida.confianca, sugestaoFormato: medida.sugestao,
+                  texto: String(dentroDaFaixa(medida.sugestao)), substituir: id });
     } catch { flash("Não consegui abrir a arte para cortar.", "error"); }
   }
 
@@ -1079,9 +1105,12 @@ function PieceCard({ item, onChanged, flash }) {
             <DialogTitle>Cortar em carrossel</DialogTitle>
             <DialogContent>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Essa arte tem <b>{slicer?.largura}px</b> de largura — dá para cortar em várias slides
-                de <b>~1080px</b>. Em quantas partes você quer dividir? A 1ª vira a capa, e no card você
-                desliza pelas slides com a setinha.
+                Essa arte tem <b>{slicer?.largura}×{slicer?.altura}px</b>.
+                {slicer?.formato
+                  ? <> Pelo formato, parece uma tira de <b>{dentroDaFaixa(slicer.sugestaoFormato ?? slicer.texto)}</b> slides
+                      em <b>{slicer.formato}</b>.</>
+                  : <> Não deu para reconhecer o formato das slides — confira o número abaixo.</>}
+                {" "}A 1ª vira a capa, e no card você desliza pelas slides com a setinha.
               </Typography>
               {/* O campo guarda o que foi DIGITADO, e só arredonda para a faixa
                   quando a pessoa sai dele.
@@ -1102,13 +1131,13 @@ function PieceCard({ item, onChanged, flash }) {
                   {(() => {
                     const n = dentroDaFaixa(slicer.texto);
                     const larguraSlide = Math.round(slicer.largura / n);
-                    const sugestao = dentroDaFaixa(Math.round(slicer.largura / 1080));
+                    const proporcao = (larguraSlide / slicer.altura).toFixed(2);
+                    const sugerido = dentroDaFaixa(slicer.sugestaoFormato ?? n);
                     return (
                       <>
-                        Cada slide fica com ~<b>{larguraSlide}px</b> de largura.
-                        {n !== sugestao && (
-                          <> Pela largura da arte, o corte certinho seria em <b>{sugestao}</b>{" "}
-                          (slides de ~1080px, o tamanho do Instagram).</>
+                        Cada slide fica <b>{larguraSlide}×{slicer.altura}px</b> (proporção {proporcao}).
+                        {slicer.formato && n !== sugerido && (
+                          <> Pelo formato da arte, o corte que fecha certinho é em <b>{sugerido}</b>.</>
                         )}
                       </>
                     );
@@ -1122,10 +1151,17 @@ function PieceCard({ item, onChanged, flash }) {
                   arte que já está na peça, manter inteira é simplesmente cancelar. */}
               {!slicer?.substituir && (
                 <Button variant="outlined" disabled={slideUploading}
-                  onClick={async () => { const f = slicer.file; setSlicer(null); setSlideUploading(true);
+                  onClick={async () => {
+                    const { file: f, daGaleria } = slicer;
+                    setSlicer(null);
+                    // Vindo da galeria o arquivo JÁ existe: manter inteira é só
+                    // usá-lo, sem subir uma cópia.
+                    if (daGaleria) { saveSlides([...slides, daGaleria]); return; }
+                    setSlideUploading(true);
                     try { const id = await subirArquivo(f); if (id) saveSlides([...slides, id]); }
                     catch (err) { flash(err.response?.data?.error || "Falha no upload.", "error"); }
-                    setSlideUploading(false); }}>
+                    setSlideUploading(false);
+                  }}>
                   Manter inteira
                 </Button>
               )}
