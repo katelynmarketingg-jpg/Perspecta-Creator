@@ -446,9 +446,10 @@ export default function Settings() {
               <TextField label="Senha atual" type="password" size="small" value={pwd.atual}
                 onChange={(e) => setPwd((p) => ({ ...p, atual: e.target.value }))} />
               <TextField label="Nova senha" type="password" size="small" value={pwd.nova}
+                helperText="Pelo menos 6 caracteres"
                 onChange={(e) => setPwd((p) => ({ ...p, nova: e.target.value }))} />
               <Box>
-                <Button variant="outlined" onClick={trocarSenha} disabled={!pwd.atual || !pwd.nova}>
+                <Button variant="outlined" onClick={trocarSenha} disabled={!pwd.atual || (pwd.nova || "").length < 6}>
                   Trocar senha
                 </Button>
               </Box>

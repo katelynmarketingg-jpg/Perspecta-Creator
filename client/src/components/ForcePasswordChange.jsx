@@ -19,7 +19,9 @@ export default function ForcePasswordChange() {
 
   async function salvar() {
     setErro("");
-    if (nova.length < 4) return setErro("A nova senha precisa ter ao menos 4 caracteres.");
+    // Mesma regra do servidor (server/src/auth.js, SENHA_MINIMA): dizer 4 aqui
+    // só faria a pessoa digitar, enviar e levar erro.
+    if (nova.length < 6) return setErro("A nova senha precisa ter ao menos 6 caracteres.");
     if (nova !== conf) return setErro("A confirmação não bate com a nova senha.");
     if (nova === "001") return setErro("Escolha uma senha diferente de '001'.");
     setSalvando(true);

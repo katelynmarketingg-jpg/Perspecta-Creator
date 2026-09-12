@@ -134,7 +134,9 @@ export default function Users() {
             <TextField label="Nome de acesso *" value={draft.username || ""} onChange={set("username")} fullWidth
               placeholder="Ex: bruno"
               helperText={`É o que a pessoa digita no login, junto com o escritório "${orgName}".`} />
-            <TextField label={draft.id ? "Nova senha (deixe vazio p/ manter)" : "Senha *"} type="password" value={draft.password} onChange={set("password")} fullWidth />
+            <TextField label={draft.id ? "Nova senha (deixe vazio p/ manter)" : "Senha *"} type="password"
+              value={draft.password} onChange={set("password")} fullWidth
+              helperText="Pelo menos 6 caracteres" />
             <TextField select label="Papel" value={draft.role} onChange={set("role")} fullWidth
               helperText="Administrador vê tudo e gerencia a equipe. Colaborador vê o que você liberar em Permissões.">
               <MenuItem value="member">Colaborador</MenuItem>

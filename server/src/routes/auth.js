@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { verifyPassword, hashPassword, signToken, authRequired } from "../auth.js";
+import { verifyPassword, hashPassword, signToken, authRequired, conferirSenha } from "../auth.js";
 import { emitirEventoPerspecta } from "../perspecta-webhook.js";
 import { chaveDaPorta, trancada, registraErro, registraAcerto } from "../tranca.js";
 
@@ -74,9 +74,8 @@ router.get("/me", authRequired, (req, res) => {
 // PUT /api/auth/password — cada um troca a própria senha.
 router.put("/password", authRequired, (req, res) => {
   const { current_password, new_password } = req.body || {};
-  if (!new_password || new_password.length < 3) {
-    return res.status(400).json({ error: "A nova senha precisa ter ao menos 3 caracteres." });
-  }
+  const problema = conferirSenha(new_password);
+  if (problema) return res.status(400).json({ error: problema });
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
   if (!user || !verifyPassword(current_password || "", user.password_hash)) {
     return res.status(401).json({ error: "Senha atual incorreta." });
