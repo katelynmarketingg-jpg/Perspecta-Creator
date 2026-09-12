@@ -31,15 +31,36 @@ function fileToDataUrl(file) {
 function Armazenamento() {
   const [d, setD] = useState(null);
   const [erro, setErro] = useState(false);
+  // O diagnóstico é o que responde "sumiram todas as fotos, por quê?" — ele vai
+  // até a Cloudflare e volta, então demora um pouco mais que o resto.
+  const [diag, setDiag] = useState(null);
+  const [conferindo, setConferindo] = useState(false);
   useEffect(() => {
     api.get("/files/armazenamento").then((r) => setD(r.data)).catch(() => setErro(true));
+    api.get("/files/diagnostico").then((r) => setDiag(r.data)).catch(() => {});
   }, []);
+  async function conferirAgora() {
+    setConferindo(true);
+    try { setDiag((await api.get("/files/diagnostico")).data); } catch { /* deixa o que já tinha */ }
+    setConferindo(false);
+  }
   if (erro) return null;
 
   return (
     <Card>
       <CardContent>
         <Typography variant="h6" sx={{ mb: 0.5 }}>Onde os arquivos ficam guardados</Typography>
+        {/* O veredito vem primeiro e em cima de tudo: quando as fotos somem, é a
+            única coisa que interessa ler. */}
+        {diag && (
+          <Alert severity={diag.r2?.ok && !diag.sumiram_do_disco ? "success" : "error"}
+            sx={{ mb: 2 }}
+            action={<Button size="small" onClick={conferirAgora} disabled={conferindo}>
+              {conferindo ? "Conferindo…" : "Conferir de novo"}
+            </Button>}>
+            {diag.veredito}
+          </Alert>
+        )}
         {!d ? (
           <Typography variant="body2" color="text.secondary">Conferindo…</Typography>
         ) : (

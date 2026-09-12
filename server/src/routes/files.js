@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
-import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca } from "../storage.js";
+import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2 } from "../storage.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -345,6 +345,54 @@ router.get("/armazenamento", (req, res) => {
     videos_total: videos.total || 0,
     videos_no_r2: videos.no_r2 || 0,
   });
+});
+
+// GET /api/files/diagnostico — "as fotos sumiram, por quê?" em uma resposta.
+//
+// Existe porque a falha mais assustadora deste sistema é silenciosa: se o
+// acesso ao R2 quebra (chave trocada, variável perdida num deploy, permissão
+// removida), TODA foto e TODO vídeo somem de uma vez, sem erro nenhum na tela
+// e sem nada de errado no banco. Os arquivos continuam guardados; é o acesso
+// que caiu. Esta rota diz isso com todas as letras, em vez de deixar a pessoa
+// achando que perdeu o trabalho.
+router.get("/diagnostico", async (req, res) => {
+  const noR2 = db.prepare(
+    "SELECT stored_path FROM files WHERE org_id = ? AND stored_path LIKE 'r2:%' ORDER BY id DESC LIMIT 1"
+  ).get(req.orgId);
+
+  const emDisco = db.prepare(
+    "SELECT stored_path FROM files WHERE org_id = ? AND stored_path NOT LIKE 'r2:%' ORDER BY id DESC LIMIT 20"
+  ).all(req.orgId);
+  const sumiramDoDisco = emDisco.filter((f) => !existsSync(f.stored_path)).length;
+
+  const r2 = await testarR2(noR2 ? r2Key(noR2.stored_path) : null);
+
+  const conta = db.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN stored_path LIKE 'r2:%' THEN 1 ELSE 0 END) AS no_r2
+       FROM files WHERE org_id = ?`
+  ).get(req.orgId);
+
+  // O veredito em uma frase — é o que a pessoa precisa ler primeiro.
+  let veredito;
+  if (!r2.ok && conta.no_r2 > 0) {
+    veredito = `${conta.no_r2} de ${conta.total} arquivos estão no R2 e NENHUM deles consegue ser mostrado agora. ${r2.mensagem}`;
+  } else if (sumiramDoDisco > 0) {
+    veredito = `Pelo menos ${sumiramDoDisco} arquivos guardados no disco deste servidor não estão mais lá. `
+      + "Disco de servidor é apagado a cada troca de máquina — é para isso que serve o R2.";
+  } else if (conta.no_r2 === 0) {
+    // R2 desligado sem nenhum arquivo lá não é problema nenhum: dizer
+    // "DESLIGADO" aqui só assusta quem não tem nada para perder.
+    veredito = "Nada errado com o armazenamento: os arquivos estão acessíveis."
+      + (r2.ok ? "" : " (A nuvem R2 não está ligada, mas nenhum arquivo depende dela.)");
+  } else if (r2.ok) {
+    veredito = "Nada errado com o armazenamento: os arquivos estão acessíveis.";
+  } else {
+    veredito = r2.mensagem;
+  }
+
+  res.json({ veredito, r2, total: conta.total, no_r2: conta.no_r2,
+             amostra_disco: emDisco.length, sumiram_do_disco: sumiramDoDisco });
 });
 
 router.get("/:id/thumb", (req, res) => {
