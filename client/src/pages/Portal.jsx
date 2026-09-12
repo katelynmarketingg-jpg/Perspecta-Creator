@@ -273,7 +273,66 @@ function Foto({ file }) {
   );
 }
 
-function ApprovalMedia({ file }) {
+// Carrossel salvo como UMA arte larga (a tira inteira): mostra na proporção de
+// UMA slide (igual a um post) e desliza em janelas de 1080px com a setinha — a
+// 1ª janela são os primeiros 1080px da esquerda. Recorte por CSS sobre a arte
+// cheia, sem perder qualidade.
+function CarrosselLargoPortal({ file }) {
+  const [src, setSrc] = useState(file.media_url || null);
+  const [dim, setDim] = useState(null);   // { w, h, n, slideW }
+  const [idx, setIdx] = useState(0);
+  const [erro, setErro] = useState(false);
+  useEffect(() => {
+    setSrc(file.media_url || null); setDim(null); setIdx(0); setErro(false);
+    if (file.media_url) return undefined;
+    let vivo = true;
+    portalApi.get(`/files/${file.id}/download`, { responseType: "blob" })
+      .then((r) => { if (vivo) setSrc(URL.createObjectURL(r.data)); })
+      .catch(() => { if (vivo) setErro(true); });
+    return () => { vivo = false; };
+  }, [file.id, file.media_url]);
+  function medir(e) {
+    const w = e.currentTarget.naturalWidth, h = e.currentTarget.naturalHeight;
+    if (!w || !h) return;
+    const n = Math.max(1, Math.round(w / 1080));
+    setDim({ w, h, n, slideW: w / n });
+  }
+  const n = dim?.n || 1;
+  const cur = Math.min(idx, n - 1);
+  const box = {
+    position: "relative", width: "100%", overflow: "hidden", borderRadius: 2, bgcolor: "action.hover",
+    aspectRatio: dim ? `${dim.slideW} / ${dim.h}` : "4 / 5",
+  };
+  const imgSx = dim
+    ? { position: "absolute", top: 0, left: 0, height: "100%", width: `${n * 100}%`, maxWidth: "none",
+        transform: `translateX(-${cur * (100 / n)}%)`, transition: "transform .2s ease", display: "block" }
+    : { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "left center", display: "block" };
+  if (erro) return <Box sx={{ ...box, display: "grid", placeItems: "center", color: "error.main", fontSize: 13 }}>A arte não carregou</Box>;
+  return (
+    <Box sx={box}>
+      {src
+        ? <Box component="img" src={src} alt="" onLoad={medir} onError={() => setErro(true)} sx={imgSx} />
+        : <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}
+      {n > 1 && (
+        <>
+          <IconButton size="small" onClick={() => setIdx((i) => (Math.min(i, n - 1) - 1 + n) % n)}
+            sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+            <ChevronLeftIcon />
+          </IconButton>
+          <IconButton size="small" onClick={() => setIdx((i) => (Math.min(i, n - 1) + 1) % n)}
+            sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+            <ChevronRightIcon />
+          </IconButton>
+          <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", px: 1, py: 0.25, borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11, fontWeight: 700 }}>
+            {cur + 1} / {n}
+          </Box>
+        </>
+      )}
+    </Box>
+  );
+}
+
+function ApprovalMedia({ file, carrossel = false }) {
   // Vídeo quando o tipo diz vídeo OU quando é indefinido (o Reel costuma subir
   // sem mime) — nesse caso tentamos o <video> e, se ele falhar, caímos para
   // <img>. Assim o vídeo aparece de um jeito ou de outro.
@@ -299,6 +358,9 @@ function ApprovalMedia({ file }) {
           onError={() => setComoVideo(false)}
           sx={{ width: "100%", maxHeight: 520, borderRadius: 2, objectFit: "contain",
                 bgcolor: "action.hover", display: "block" }} />
+      ) : carrossel ? (
+        // Carrossel numa arte larga só → mostra em janelas de 1080px, deslizando.
+        <CarrosselLargoPortal file={file} />
       ) : (
         <Foto file={file} />
       )}
@@ -361,7 +423,7 @@ function ApprovalCard({ post, onDone }) {
 
         {midias.length > 0 && (
           <Stack spacing={1.5} sx={{ mb: 2 }}>
-            {midias.map((m) => <ApprovalMedia key={m.id} file={m} />)}
+            {midias.map((m) => <ApprovalMedia key={m.id} file={m} carrossel={post.content_type === "carrossel"} />)}
           </Stack>
         )}
 

@@ -122,25 +122,12 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 
 // Mostra a arte (foto ou vídeo), carregada em alta qualidade.
 // fit="cover" (padrão) preenche o quadrado (para grades/miniaturas);
+// fit="contain" mostra a IMAGEM INTEIRA na proporção real (para a prévia do
+// post), sem cortar nada — sobra uma faixa neutra ao redor quando não é quadrada.
+// Reel e stories são sempre vídeo; fora isso, o tipo do arquivo decide.
 const pecaEhVideo = (p) => ["reel", "stories"].includes(p?.content_type) || /^video\//.test(p?.mime || "");
 
-// ---------------------------------------------------------------------------
-// O VISOR DA ARTE — sempre no formato do post: vertical 1080x1440 (4:5).
-//
-// Antes cada arte aparecia na proporção do arquivo, com tarja preta em volta
-// para completar o retângulo. Vídeo em pé virava uma faixa fina no meio de dois
-// tapumes pretos, e post e vídeo tinham alturas diferentes: a tela ficava
-// remendada e não dava para julgar o conteúdo.
-//
-// Agora o quadro é sempre o do post e a arte preenche (sem esticar, cortando o
-// que sobra) — igual ao que o Instagram faz na grade.
-// ---------------------------------------------------------------------------
-const FORMATO_POST = "1080 / 1440";
-
-function Media({
-  fileId, capaId, height = null, aspecto = FORMATO_POST, streamUrl = null,
-  ehVideoDica = false, comecoDaTira = false, controles = false,
-}) {
+function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false, comecoDaTira = false, natural = false }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [capa, setCapa] = useState(null);
@@ -148,7 +135,9 @@ function Media({
   const [erro, setErro] = useState(false);
 
   // VÍDEO não é baixado: toca pelo endereço de streaming, em que o navegador
-  // pede só o começo do arquivo e já mostra o 1º quadro.
+  // pede só o começo do arquivo e já mostra o 1º quadro. Baixar um reel de
+  // 200 MB inteiro antes de aparecer qualquer coisa fazia a peça parecer
+  // travada — e em internet de celular, nunca terminava.
   const transmite = Boolean(streamUrl && ehVideoDica);
 
   useEffect(() => {
@@ -166,7 +155,8 @@ function Media({
     return () => { alive = false; };  // não revoga: o cache é dono da URL
   }, [fileId, transmite]);
 
-  // A CAPA escolhida vira o quadro parado do vídeo.
+  // A CAPA escolhida vira o quadro parado do vídeo: o post aparece com a arte
+  // certa e continua dando para dar play — antes era um ou outro.
   useEffect(() => {
     if (!capaId || capaId === fileId) return undefined;
     let alive = true;
@@ -177,24 +167,36 @@ function Media({
     return () => { alive = false; };
   }, [capaId, fileId]);
 
-  // O quadro: ou uma altura fixa (miniaturas de lista e calendário), ou a
-  // proporção do post, que é o caso normal.
-  const quadro = height
-    ? { width: "100%", height }
-    : { width: "100%", aspectRatio: aspecto };
-  const sx = {
-    ...quadro, objectFit: "cover", borderRadius: 2, display: "block",
-    objectPosition: comecoDaTira ? "left center" : "center",
-    bgcolor: "action.hover",
-  };
-  const pequeno = height && height <= 90;
+  const contain = fit === "contain";
+  // Modo NATURAL: a arte aparece na proporção REAL, preenchendo a largura do
+  // card, com altura automática — sem cortar e sem tarja preta em volta. É o
+  // jeito certo de ver o post (retrato 4:5, reel 9:16, etc.) na Distribuição.
+  // Carrossel salvo como UMA imagem larga: onde o quadro representa a CAPA, o
+  // que tem de aparecer é o começo da tira — os primeiros 1080px da esquerda.
+  const sx = natural
+    ? {
+        width: "100%", height: "auto", display: "block", borderRadius: 2,
+        objectPosition: comecoDaTira ? "left center" : "center",
+      }
+    : {
+        width: "100%", height, objectFit: fit, borderRadius: 2,
+        objectPosition: comecoDaTira && !contain ? "left center" : "center",
+        bgcolor: contain ? "#000" : "action.hover", display: "block",
+      };
+  const pequeno = !natural && height <= 90;
+  // Caixa de aviso/carregando: no modo natural usa uma proporção retrato padrão
+  // só para não "colapsar" a altura enquanto nada carregou.
+  const molduraVazia = natural
+    ? { width: "100%", aspectRatio: "4 / 5", borderRadius: 2 }
+    : { width: "100%", height, borderRadius: 2 };
   const aviso = (texto, cor, tracejado = false) => (
     <Box sx={{
-      ...quadro, borderRadius: 2, display: "grid", placeItems: "center", textAlign: "center",
+      ...molduraVazia, display: "grid", placeItems: "center", textAlign: "center",
       color: cor, fontSize: pequeno ? 9 : 13, lineHeight: 1.3, p: 1,
       // Falta de arte NÃO é erro: fundo claro e borda tracejada, como um espaço
-      // esperando ser preenchido.
-      bgcolor: "action.hover",
+      // esperando ser preenchido. Antes era um retângulo preto com "Sem mídia",
+      // que parecia exatamente uma imagem quebrada.
+      bgcolor: tracejado ? "action.hover" : (contain && !natural ? "#000" : "action.hover"),
       border: tracejado ? "2px dashed" : 0, borderColor: "divider",
     }}>{texto}</Box>
   );
@@ -204,129 +206,103 @@ function Media({
       "text.secondary", true);
   }
   if (erro) return aviso(<>Arte não carregou<br />(reenvie)</>, "error.main");
+  const mostraControles = natural || height > 120;
+  // No modo natural o vídeo também aparece na proporção real (altura automática);
+  // fora dele, mantém a caixa de altura fixa com o vídeo contido em fundo preto.
+  const sxVideo = natural ? { ...sx, bgcolor: "#000" } : { ...sx, objectFit: "contain", bgcolor: "#000" };
   if (transmite) {
-    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={controles}
-      muted playsInline preload="metadata" sx={sx} onError={() => setErro(true)} />;
+    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={mostraControles}
+      muted playsInline preload="metadata" sx={sxVideo}
+      onError={() => setErro(true)} />;
   }
   // Ainda baixando a arte cheia: mostra a miniatura (se já veio) como rascunho;
   // senão, o spinner. A qualidade final entra por cima quando o arquivo chega.
   if (!src) {
     if (ph) return <Box component="img" src={ph} alt="" sx={sx} />;
-    return <Box sx={{ ...sx, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
+    return <Box sx={{ ...molduraVazia, bgcolor: "action.hover", display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
   }
   return video
-    ? <Box component="video" src={src} poster={capa || ph || undefined} controls={controles} muted playsInline
-        preload="metadata" sx={sx} onError={() => setErro(true)} />
+    ? <Box component="video" src={src} poster={capa || ph || undefined} controls={mostraControles} muted playsInline
+        preload="metadata" sx={sxVideo}
+        onError={() => setErro(true)} />
     : <Box component="img" src={src} alt="" sx={sx} onError={() => setErro(true)} />;
 }
 
-// ---------------------------------------------------------------------------
-// CARROSSEL: a peça toda, no formato do post, para ARRASTAR DE LADO.
-//
-// A casa exporta o carrossel como UMA imagem larga, com as partes lado a lado.
-// Mostrar a tira inteira num quadro só espremia tudo. Aqui a tira é aberta em
-// janelas do tamanho do post — quantas couberem na largura da arte — e cada
-// arrasto encaixa na parte seguinte, como deslizar o carrossel no Instagram.
-//
-// Quando o carrossel foi montado com slides separadas, são elas as janelas.
-// ---------------------------------------------------------------------------
-function CarrosselDeslizante({ fileId, slides = [], comecoDaTira = true }) {
-  const [src, setSrc] = useState(null);
-  const [partes, setPartes] = useState(1);
+// CARROSSEL salvo como UMA arte larga (a tira inteira: várias slides de ~1080px
+// lado a lado num só arquivo). Mostra na proporção de UMA slide (igual a um
+// post) e desliza em JANELAS de 1080px com a setinha — a 1ª janela são os
+// primeiros 1080px da esquerda (a capa). É recorte por CSS sobre o arquivo
+// cheio (qualidade real), sem cortar nada em disco.
+function CarrosselLargo({ fileId, streamUrl = null }) {
+  const [full, setFull] = useState(null);
+  const [dim, setDim] = useState(null);   // { w, h, n, slideW }
+  const [idx, setIdx] = useState(0);
   const [erro, setErro] = useState(false);
-  const tiraRef = useRef(null);
-  const [emQual, setEmQual] = useState(0);
-  const temSlides = slides.length > 1;
-  const quantas = temSlides ? slides.length : partes;
-
-  // No computador não existe arrastar com o dedo: as setas fazem o mesmo papel.
-  const anda = (d) => {
-    const el = tiraRef.current;
-    if (!el) return;
-    const alvo = Math.min(Math.max(emQual + d, 0), quantas - 1);
-    el.scrollTo({ left: alvo * el.clientWidth, behavior: "smooth" });
-  };
-  const acompanha = (e) => {
-    const el = e.currentTarget;
-    if (el.clientWidth) setEmQual(Math.round(el.scrollLeft / el.clientWidth));
-  };
 
   useEffect(() => {
-    setSrc(null); setErro(false); setPartes(1);
-    if (temSlides || !fileId) return undefined;
+    setDim(null); setIdx(0); setErro(false);
+    // Preferimos o LINK DIRETO do Cloudflare (media_url): a imagem em qualidade
+    // real carrega direto do CDN, sem baixar o arquivo pelo servidor — rápido e
+    // nítido. Sem ele, cai no download pelo servidor.
+    if (streamUrl) { setFull(streamUrl); return undefined; }
+    setFull(null);
+    if (!fileId) return undefined;
     let alive = true;
-    loadMedia(fileId)
-      .then((m) => { if (alive && m) setSrc(m.url); })
-      .catch(() => { if (alive) setErro(true); });
+    loadMedia(fileId).then((m) => { if (alive && m) setFull(m.url); }).catch(() => { if (alive) setErro(true); });
     return () => { alive = false; };
-  }, [fileId, temSlides]);
+  }, [fileId, streamUrl]);
 
-  // Quantas partes cabem na tira: cada uma tem 0,75 da altura de largura.
-  const medir = (e) => {
-    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+  // Se o link direto falhar, tenta baixar pelo servidor antes de desistir.
+  function aoFalhar() {
+    if (streamUrl && full === streamUrl && fileId) {
+      loadMedia(fileId).then((m) => { if (m) setFull(m.url); else setErro(true); }).catch(() => setErro(true));
+    } else { setErro(true); }
+  }
+
+  function medir(e) {
+    const w = e.currentTarget.naturalWidth, h = e.currentTarget.naturalHeight;
     if (!w || !h) return;
-    setPartes(Math.max(1, Math.round(w / (h * 0.75))));
-  };
+    const n = Math.max(1, Math.round(w / 1080));   // quantas slides de ~1080px cabem
+    setDim({ w, h, n, slideW: w / n });
+  }
 
-  const janela = {
-    flex: "0 0 100%", scrollSnapAlign: "start", aspectRatio: FORMATO_POST,
-    overflow: "hidden", position: "relative", bgcolor: "action.hover",
+  const n = dim?.n || 1;
+  const cur = Math.min(idx, n - 1);
+  // Caixa na proporção de UMA slide (≈ 4:5). Enquanto não mediu, usa 4:5 padrão.
+  const box = {
+    position: "relative", width: "100%", overflow: "hidden", borderRadius: 2, bgcolor: "action.hover",
+    aspectRatio: dim ? `${dim.slideW} / ${dim.h}` : "4 / 5",
   };
-  const tira = {
-    display: "flex", overflowX: "auto", scrollSnapType: "x mandatory",
-    borderRadius: 2, scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" },
-    cursor: "grab",
-  };
+  // A arte cheia tem N slides de largura; a janela mostra uma por vez e desliza.
+  const imgSx = dim
+    ? { position: "absolute", top: 0, left: 0, height: "100%", width: `${n * 100}%`, maxWidth: "none",
+        transform: `translateX(-${cur * (100 / n)}%)`, transition: "transform .2s ease", display: "block" }
+    : { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "left center", display: "block" };
 
-  // As setas e o contador ficam por cima da tira, sem atrapalhar o arrasto.
-  const comSetas = (conteudo) => (
-    <Box sx={{ position: "relative" }}>
-      <Box ref={tiraRef} onScroll={acompanha} sx={tira}>{conteudo}</Box>
-      {quantas > 1 && (
+  if (erro) return <Box sx={{ ...box, display: "grid", placeItems: "center", color: "error.main", fontSize: 13 }}>Arte não carregou</Box>;
+  return (
+    <Box sx={box}>
+      {/* Só a arte em qualidade real; enquanto baixa, o carregando. */}
+      {full
+        ? <Box component="img" src={full} alt="" onLoad={medir} onError={aoFalhar} sx={imgSx} />
+        : <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}
+      {n > 1 && (
         <>
-          <IconButton size="small" onClick={() => anda(-1)} disabled={emQual === 0}
-            sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff",
-                  bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" },
-                  "&.Mui-disabled": { color: "rgba(255,255,255,.35)", bgcolor: "rgba(0,0,0,0.25)" } }}>
+          <IconButton size="small" onClick={() => setIdx((i) => (Math.min(i, n - 1) - 1 + n) % n)}
+            sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
             <ChevronLeftIcon />
           </IconButton>
-          <IconButton size="small" onClick={() => anda(1)} disabled={emQual >= quantas - 1}
-            sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff",
-                  bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" },
-                  "&.Mui-disabled": { color: "rgba(255,255,255,.35)", bgcolor: "rgba(0,0,0,0.25)" } }}>
+          <IconButton size="small" onClick={() => setIdx((i) => (Math.min(i, n - 1) + 1) % n)}
+            sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
             <ChevronRightIcon />
           </IconButton>
-          <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)",
-                     px: 1, py: 0.25, borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff",
-                     fontSize: 11, fontWeight: 700 }}>
-            {Math.min(emQual, quantas - 1) + 1} / {quantas}
+          <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", px: 1, py: 0.25, borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11, fontWeight: 700 }}>
+            {cur + 1} / {n}
           </Box>
         </>
       )}
     </Box>
   );
-
-  if (temSlides) {
-    return comSetas(slides.map((id) => (
-      <Box key={id} sx={janela}><Media fileId={id} /></Box>
-    )));
-  }
-  if (erro) return <Media fileId={null} />;
-  if (!src) {
-    return <Box sx={{ ...janela, borderRadius: 2, display: "grid", placeItems: "center" }}>
-      <CircularProgress size={22} />
-    </Box>;
-  }
-  return comSetas(Array.from({ length: partes }).map((_, i) => (
-    <Box key={i} sx={janela}>
-      <Box component="img" src={src} alt="" onLoad={medir}
-        sx={{
-          width: "100%", height: "100%", objectFit: "cover", display: "block",
-          // 0% = 1ª parte, 100% = última. O navegador interpola no meio.
-          objectPosition: `${partes > 1 ? (i / (partes - 1)) * 100 : (comecoDaTira ? 0 : 50)}% 50%`,
-        }} />
-    </Box>
-  )));
 }
 
 // Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
@@ -708,6 +684,8 @@ function PieceCard({ item, onChanged, flash }) {
   }
 
   // Corta a arte em N fatias (no navegador) e sobe cada uma como slide, na ordem.
+  // Se `substituir` estiver setado (arte larga que já estava), as fatias tomam o
+  // LUGAR dela na sequência — é assim que "arrumamos" um carrossel antigo.
   async function confirmarFatiar() {
     if (!slicer) return;
     setSlideUploading(true);
@@ -719,10 +697,41 @@ function PieceCard({ item, onChanged, flash }) {
         const id = await subirArquivo(parte);
         if (id) novos.push(id);
       }
-      if (novos.length) { saveSlides([...slides, ...novos]); flash(`Carrossel montado com ${novos.length} slides. ✅`, "success"); }
+      if (novos.length) {
+        let next;
+        const sub = slicer.substituir;
+        if (sub) {
+          const base = slides.length ? slides : [sub];
+          const i = base.indexOf(sub);
+          next = i >= 0 ? [...base.slice(0, i), ...novos, ...base.slice(i + 1)] : novos;
+        } else {
+          next = [...slides, ...novos];
+        }
+        saveSlides(next);
+        setViewIdx(0);
+        flash(`Carrossel montado com ${novos.length} slides. ✅`, "success");
+      }
       setSlicer(null);
     } catch (err) { flash(err.response?.data?.error || "Não consegui fatiar a arte.", "error"); }
     setSlideUploading(false);
+  }
+
+  // "Arrumar" um carrossel que já existe: pega a arte larga atual (uma tira com
+  // várias slides lado a lado) e abre o corte, para trocá-la pelas slides.
+  async function cortarArteExistente() {
+    const id = slides[0] || fileId || coverId;
+    if (!id) { flash("Não há arte para cortar aqui.", "error"); return; }
+    try {
+      const blob = (await api.get(`/files/${id}/download`, { responseType: "blob" })).data;
+      const file = new File([blob], `${(item.title || "carrossel").replace(/[^\w.-]+/g, "_")}.jpg`,
+        { type: blob.type || "image/jpeg" });
+      const medida = await medirImagem(file);
+      if (!medida?.fatiavel) {
+        flash("Essa arte não é larga o bastante para virar um carrossel de várias slides.", "error");
+        return;
+      }
+      setSlicer({ file, largura: medida.largura, altura: medida.altura, n: medida.sugestao, substituir: id });
+    } catch { flash("Não consegui abrir a arte para cortar.", "error"); }
   }
 
   async function upload(e) {
@@ -792,13 +801,35 @@ function PieceCard({ item, onChanged, flash }) {
             </Alert>
           )}
 
-          {/* Arte da peça. No carrossel vira um visualizador: as partes ficam
-              lado a lado, no formato do post, e a pessoa desliza — arrastando
-              ou pelas setas. Fora do carrossel, mostra a capa/arte escolhida. */}
-          {isCarousel
-            ? <CarrosselDeslizante fileId={fileId || coverId || slides[0]} slides={slides} />
-            : <Media fileId={fileId || coverId || slides[0]} capaId={coverId} controles
-                streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />}
+          {/* Arte da peça. No carrossel vira um visualizador: a 1ª slide fica na
+              frente e a pessoa desliza com a setinha. Fora do carrossel, mostra
+              a capa/arte escolhida. */}
+          {isCarousel && slides.length > 1 ? (
+            // Carrossel já em slides SEPARADAS (um arquivo por slide): desliza
+            // arquivo por arquivo.
+            <Box sx={{ position: "relative" }}>
+              <Media fileId={slides[Math.min(viewIdx, slides.length - 1)]} natural />
+              <IconButton size="small" onClick={() => setViewIdx((i) => (i - 1 + slides.length) % slides.length)}
+                sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+                <ChevronLeftIcon />
+              </IconButton>
+              <IconButton size="small" onClick={() => setViewIdx((i) => (i + 1) % slides.length)}
+                sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+                <ChevronRightIcon />
+              </IconButton>
+              <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", px: 1, py: 0.25, borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11, fontWeight: 700 }}>
+                {Math.min(viewIdx, slides.length - 1) + 1} / {slides.length}
+              </Box>
+            </Box>
+          ) : isCarousel ? (
+            // Carrossel salvo como UMA arte larga: mostra em janelas de 1080px na
+            // proporção de um post e desliza a janela com a setinha.
+            <CarrosselLargo fileId={slides[0] || fileId || coverId}
+              streamUrl={(slides[0] || fileId) === item.file_id ? item.media_url : null} />
+          ) : (
+            <Media fileId={fileId || coverId || slides[0]} capaId={coverId} natural
+              streamUrl={item.media_url} ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
+          )}
 
           {isCarousel ? (
             <Box>
@@ -848,6 +879,14 @@ function PieceCard({ item, onChanged, flash }) {
                   + Da galeria
                 </Button>
               </Stack>
+              {/* Carrossel antigo que veio como UMA arte larga → cortar em slides.
+                  Aparece quando ainda há no máximo 1 slide (a tira inteira). */}
+              {slides.length <= 1 && (fileId || slides[0]) && (
+                <Button fullWidth variant="text" size="small" startIcon={<GridOnIcon />}
+                  disabled={slideUploading} onClick={cortarArteExistente} sx={{ mt: 0.5 }}>
+                  {slideUploading ? "Cortando…" : "Cortar arte larga em slides"}
+                </Button>
+              )}
             </Box>
           ) : (
             <>
@@ -973,13 +1012,17 @@ function PieceCard({ item, onChanged, flash }) {
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setSlicer(null)} disabled={slideUploading}>Cancelar</Button>
-              <Button variant="outlined" disabled={slideUploading}
-                onClick={async () => { const f = slicer.file; setSlicer(null); setSlideUploading(true);
-                  try { const id = await subirArquivo(f); if (id) saveSlides([...slides, id]); }
-                  catch (err) { flash(err.response?.data?.error || "Falha no upload.", "error"); }
-                  setSlideUploading(false); }}>
-                Manter inteira
-              </Button>
+              {/* "Manter inteira" só faz sentido ao SUBIR uma arte nova; para
+                  arte que já está na peça, manter inteira é simplesmente cancelar. */}
+              {!slicer?.substituir && (
+                <Button variant="outlined" disabled={slideUploading}
+                  onClick={async () => { const f = slicer.file; setSlicer(null); setSlideUploading(true);
+                    try { const id = await subirArquivo(f); if (id) saveSlides([...slides, id]); }
+                    catch (err) { flash(err.response?.data?.error || "Falha no upload.", "error"); }
+                    setSlideUploading(false); }}>
+                  Manter inteira
+                </Button>
+              )}
               <Button variant="contained" onClick={confirmarFatiar} disabled={slideUploading}>
                 {slideUploading ? "Cortando…" : `Cortar em ${slicer?.n ?? 2}`}
               </Button>
@@ -1272,29 +1315,44 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
       </Typography>
       <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
-          {order.map((p, i) => (
-            <Box key={p.id} draggable
-              onDragStart={() => { dragIndex.current = i; movedRef.current = false; setDragId(p.id); }}
-              onDragEnter={() => onEnter(i)}
-              onDragOver={(e) => e.preventDefault()}
-              onDragEnd={fim}
-              onDrop={(e) => { e.preventDefault(); fim(); }}
-              onClick={() => onSelect(p)}
-              sx={{
-                position: "relative", aspectRatio: "1080 / 1440", cursor: "grab", bgcolor: "action.hover", overflow: "hidden",
-                opacity: dragId === p.id ? 0.35 : 1, transition: "opacity .12s ease",
-                outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
-              }}>
-              <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
-                comecoDaTira={p.content_type === "carrossel"} />
-              <Box sx={{
-                position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
-                bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
-              }}>
-                {p.scheduled_at ? dtISO(p.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "sem data"}
+          {(() => {
+            // Igual ao perfil real (e à Área do Cliente): a folga (quando o total
+            // não fecha múltiplo de 3) sobra EM CIMA, à direita do mais recente —
+            // as linhas de baixo ficam completas. O `i` do arrasto continua sendo
+            // o índice na ordem salva, então as células vazias não atrapalham.
+            const resto = order.length % 3;
+            const folga = resto === 0 ? 0 : 3 - resto;
+            const celula = (p, i) => (
+              <Box key={p.id} draggable
+                onDragStart={() => { dragIndex.current = i; movedRef.current = false; setDragId(p.id); }}
+                onDragEnter={() => onEnter(i)}
+                onDragOver={(e) => e.preventDefault()}
+                onDragEnd={fim}
+                onDrop={(e) => { e.preventDefault(); fim(); }}
+                onClick={() => onSelect(p)}
+                sx={{
+                  position: "relative", aspectRatio: "1080 / 1440", cursor: "grab", bgcolor: "action.hover", overflow: "hidden",
+                  opacity: dragId === p.id ? 0.35 : 1, transition: "opacity .12s ease",
+                  outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
+                }}>
+                <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
+                  comecoDaTira={p.content_type === "carrossel"} />
+                <Box sx={{
+                  position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
+                  bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
+                }}>
+                  {p.scheduled_at ? dtISO(p.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "sem data"}
+                </Box>
               </Box>
-            </Box>
-          ))}
+            );
+            return [
+              ...order.slice(0, resto).map((p, j) => celula(p, j)),
+              ...Array.from({ length: folga }, (_, k) => (
+                <Box key={`gap-${k}`} sx={{ aspectRatio: "1080 / 1440", bgcolor: "background.paper" }} />
+              )),
+              ...order.slice(resto).map((p, j) => celula(p, resto + j)),
+            ];
+          })()}
         </Box>
       </Box>
     </Box>
@@ -1468,8 +1526,8 @@ export default function Distribution() {
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
                           {p.content_type === "carrossel"
-                            ? <CarrosselDeslizante fileId={p.cover_file_id || p.file_id} slides={p.media_ids || []} />
-                            : <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id}
+                            ? <CarrosselLargo fileId={p.cover_file_id || p.file_id} streamUrl={p.media_url} />
+                            : <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} natural
                                 streamUrl={p.media_url} ehVideoDica={pecaEhVideo(p)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
@@ -1506,8 +1564,8 @@ export default function Distribution() {
                           </Stack>
                           {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
                           {w.content_type === "carrossel"
-                            ? <CarrosselDeslizante fileId={w.cover_file_id || w.file_id} slides={w.media_ids || []} />
-                            : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id}
+                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} streamUrl={w.media_url} />
+                            : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural
                                 streamUrl={w.media_url} ehVideoDica={pecaEhVideo(w)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
                           <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
@@ -1545,8 +1603,8 @@ export default function Distribution() {
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
                           {a.content_type === "carrossel"
-                            ? <CarrosselDeslizante fileId={a.cover_file_id || a.file_id} slides={a.media_ids || []} />
-                            : <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id}
+                            ? <CarrosselLargo fileId={a.cover_file_id || a.file_id} streamUrl={a.media_url} />
+                            : <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} natural
                                 streamUrl={a.media_url} ehVideoDica={pecaEhVideo(a)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
