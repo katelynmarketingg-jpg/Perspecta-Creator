@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, TextField, Button, Tabs, Tab, Chip,
   Alert, IconButton, Tooltip, MenuItem, Divider, Accordion, AccordionSummary,
-  AccordionDetails, Switch, FormControlLabel, Table, TableHead, TableRow, TableCell,
+  AccordionDetails, Switch, FormControlLabel, Table, TableContainer, TableHead, TableRow, TableCell,
   TableBody, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -211,69 +211,73 @@ export default function Onboarding() {
             terminar de responder, o <b>cadastro</b> e o <b>contrato</b> já saem prontos, e as
             respostas ficam aqui esperando você levar para a <b>inteligência da IA</b>.
           </Typography>
-          <Table size="small">
-            <TableHead><TableRow>
-              <TableCell>Cliente</TableCell><TableCell>Onboarding</TableCell>
-              <TableCell>O que foi combinado</TableCell><TableCell align="right">Ações</TableCell>
-            </TableRow></TableHead>
-            <TableBody>
-              {clients.map((c) => {
-                const b = porCliente[c.id];
-                const est = b ? ESTADO[b.status] : null;
-                return (
-                  <TableRow key={c.id} hover>
-                    <TableCell sx={{ fontWeight: 600 }}>{c.name}</TableCell>
-                    <TableCell>
-                      {b ? (
-                        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
-                          <Chip size="small" label={est.label} color={est.cor} />
+          <TableContainer>
+            {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                aqui dentro, em vez de arrastar a página inteira para o lado. */}
+            <Table size="small">
+              <TableHead><TableRow>
+                <TableCell>Cliente</TableCell><TableCell>Onboarding</TableCell>
+                <TableCell>O que foi combinado</TableCell><TableCell align="right">Ações</TableCell>
+              </TableRow></TableHead>
+              <TableBody>
+                {clients.map((c) => {
+                  const b = porCliente[c.id];
+                  const est = b ? ESTADO[b.status] : null;
+                  return (
+                    <TableRow key={c.id} hover>
+                      <TableCell sx={{ fontWeight: 600 }}>{c.name}</TableCell>
+                      <TableCell>
+                        {b ? (
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                            <Chip size="small" label={est.label} color={est.cor} />
+                            <Typography variant="caption" color="text.secondary">
+                              {b.respondidas}/{b.total} perguntas
+                            </Typography>
+                          </Stack>
+                        ) : <Typography variant="caption" color="text.secondary">não começou</Typography>}
+                      </TableCell>
+                      <TableCell>
+                        {b?.termos ? (
                           <Typography variant="caption" color="text.secondary">
-                            {b.respondidas}/{b.total} perguntas
+                            {[b.termos.servico, b.termos.value ? currency(b.termos.value) + "/mês" : null,
+                              b.termos.duration_months ? `${b.termos.duration_months} meses` : null]
+                              .filter(Boolean).join(" · ") || "—"}
                           </Typography>
-                        </Stack>
-                      ) : <Typography variant="caption" color="text.secondary">não começou</Typography>}
-                    </TableCell>
-                    <TableCell>
-                      {b?.termos ? (
-                        <Typography variant="caption" color="text.secondary">
-                          {[b.termos.servico, b.termos.value ? currency(b.termos.value) + "/mês" : null,
-                            b.termos.duration_months ? `${b.termos.duration_months} meses` : null]
-                            .filter(Boolean).join(" · ") || "—"}
-                        </Typography>
-                      ) : b ? (
-                        <Tooltip title="Sem isto o contrato não tem como sair sozinho">
-                          <Chip size="small" variant="outlined" color="warning" label="faltam os termos" />
-                        </Tooltip>
-                      ) : <Typography variant="caption" color="text.secondary">—</Typography>}
-                    </TableCell>
-                    <TableCell align="right">
-                      {b ? (
-                        <>
-                          <Tooltip title="Ver e copiar o link">
-                            <IconButton size="small" onClick={() => setLink({ url: b.url, client_name: c.name })}>
-                              <LinkRoundedIcon fontSize="small" />
-                            </IconButton>
+                        ) : b ? (
+                          <Tooltip title="Sem isto o contrato não tem como sair sozinho">
+                            <Chip size="small" variant="outlined" color="warning" label="faltam os termos" />
                           </Tooltip>
-                          <Tooltip title="Ver as respostas">
-                            <IconButton size="small" onClick={() => abrir(b)}><VisibilityIcon fontSize="small" /></IconButton>
-                          </Tooltip>
-                          <Tooltip title="Corrigir o que foi combinado">
-                            <IconButton size="small" onClick={() => setAbrindo({ cliente: c, briefing: b })}>
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </>
-                      ) : (
-                        <Button size="small" variant="outlined" onClick={() => setAbrindo({ cliente: c })}>
-                          Abrir onboarding
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                        ) : <Typography variant="caption" color="text.secondary">—</Typography>}
+                      </TableCell>
+                      <TableCell align="right">
+                        {b ? (
+                          <>
+                            <Tooltip title="Ver e copiar o link">
+                              <IconButton size="small" onClick={() => setLink({ url: b.url, client_name: c.name })}>
+                                <LinkRoundedIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Ver as respostas">
+                              <IconButton size="small" onClick={() => abrir(b)}><VisibilityIcon fontSize="small" /></IconButton>
+                            </Tooltip>
+                            <Tooltip title="Corrigir o que foi combinado">
+                              <IconButton size="small" onClick={() => setAbrindo({ cliente: c, briefing: b })}>
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        ) : (
+                          <Button size="small" variant="outlined" onClick={() => setAbrindo({ cliente: c })}>
+                            Abrir onboarding
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </CardContent></Card>
       ) : tab === "contrato" ? (
         <AbaContrato modelos={modelos} />

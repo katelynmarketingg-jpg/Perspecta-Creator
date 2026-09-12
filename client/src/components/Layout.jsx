@@ -304,7 +304,12 @@ export default function Layout() {
         </Drawer>
       </Box>
 
-      <Box component="main" sx={{ flexGrow: 1, width: { md: `calc(100% - ${DRAWER_WIDTH}px)` }, p: { xs: 2, md: 3.5 } }}>
+      {/* minWidth: 0 é o que impede a PÁGINA INTEIRA de rolar para o lado no
+          celular. Sem isso, esta caixa (que é um item de flex) se recusa a
+          ficar menor que o conteúdo mais largo dentro dela — uma tabela, o
+          quadro da prospecção — e arrasta o cabeçalho e o menu junto. Com isso,
+          quem rola é só a tabela, dentro do próprio quadro. */}
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, width: { md: `calc(100% - ${DRAWER_WIDTH}px)` }, p: { xs: 2, md: 3.5 } }}>
         <Toolbar />
         <Outlet />
       </Box>

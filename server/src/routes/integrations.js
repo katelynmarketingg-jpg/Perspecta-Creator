@@ -11,14 +11,35 @@ import {
 
 const router = Router();
 
+/**
+ * Texto que vai PARA DENTRO de uma página HTML, sem poder virar código.
+ *
+ * Esta tela montava o HTML colando direto o que vinha no endereço. Quem
+ * mandasse para a Katy um link com um script no lugar da mensagem de erro
+ * (".../meta/callback?error_description=<script>...") executava esse script no
+ * endereço do sistema dela — e é ali que o navegador guarda o crachá de quem
+ * está logado. Ou seja: um link no WhatsApp virava a conta inteira na mão de
+ * outra pessoa (clientes, contratos, financeiro e a Central de senhas).
+ *
+ * A página é aberta pelo navegador, não pela API, então não dá para responder
+ * JSON: o jeito é montar HTML — e tudo que entra nele passa por aqui.
+ */
+function textoSeguro(v) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 // GET /api/integrations/meta/callback — a Meta redireciona para cá depois do
 // login do cliente. Fica antes do authRequired porque quem chega é o navegador.
 router.get("/meta/callback", async (req, res) => {
   const { code, state, error_description } = req.query;
+  // O escape acontece AQUI, não em cada chamada: assim nenhum caso novo desta
+  // tela pode esquecer dele.
   const fecha = (msg, ok = false) => res.send(
     `<html><body style="font-family:system-ui;background:#0C0A09;color:#FAFAF9;
       display:grid;place-items:center;height:100vh;margin:0;text-align:center">
-      <div><h2 style="color:${ok ? "#4ADE80" : "#F87171"}">${msg}</h2>
+      <div><h2 style="color:${ok ? "#4ADE80" : "#F87171"}">${textoSeguro(msg)}</h2>
       <p style="color:#A8A29E">Pode fechar esta janela.</p></div>
       <script>setTimeout(()=>window.close(),2500)</script></body></html>`
   );
@@ -200,3 +221,4 @@ export async function publishTask(task, orgId, host, protocol = "https") {
 }
 
 export default router;
+export { textoSeguro };

@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { ensureReceiptForEntry, cancelReceiptForEntry } from "../receipts.js";
 import { sincronizaAvisoDeAberto } from "../overdue.js";
+import { confere } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("financeiro"));
@@ -154,6 +155,12 @@ router.post("/", (req, res) => {
     return res.status(400).json({ error: "Descrição e valor são obrigatórios." });
   }
 
+  // Cliente vindo do corpo do pedido: tem que ser desta casa. Ver pertence.js —
+  // sem isto, uma agência amarrava uma cobrança ao cliente de OUTRA agência, e a
+  // coisa aparecia na Área do Cliente dela.
+  const naoEhDaCasa = confere(req.orgId, { clients: b.client_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
+
   const base = {
     type: b.type ?? "income",
     description: b.description,
@@ -228,6 +235,10 @@ router.post("/", (req, res) => {
 router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM financial_entries WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Lançamento não encontrado." });
+  // Reapontar um registro existente para o cliente de outra agência é o mesmo
+  // buraco da criação — a trava vale nos dois (pertence.js).
+  const naoEhDaCasaEdit = confere(req.orgId, { clients: req.body?.client_id });
+  if (naoEhDaCasaEdit) return res.status(400).json({ error: naoEhDaCasaEdit });
   const b = req.body || {};
   const merged = { ...cur, ...b, id: req.params.id, org_id: req.orgId };
   const amount = Number(merged.amount) || 0;

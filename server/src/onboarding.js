@@ -40,6 +40,11 @@ export function aplicaCadastro(clientId, secoes, respostas, { sobrescrever = fal
   return mudou;
 }
 
+// O que fica no lugar da senha, dentro das respostas do formulário. Tem nome
+// próprio porque precisa ser RECONHECIDO depois: se este texto voltar como se
+// fosse uma resposta, ele não pode virar senha.
+export const GUARDADO = "(guardado na Central)";
+
 /**
  * Manda para a Central o que é acesso/senha. A senha SAI da resposta do
  * briefing: não pode ficar em texto puro à vista de quem abrir o formulário.
@@ -51,9 +56,14 @@ export function aplicaCentral(orgId, clientId, secoes, respostas) {
   const novas = { ...respostas };
   let mexeu = false;
   for (const item of paraCentral) {
+    // A senha já saiu daqui numa passagem anterior: o que sobrou é o aviso, não
+    // a senha. Gravar isso na Central escreveria "(guardado na Central)" por
+    // cima da senha de verdade — o cliente perderia o acesso e ninguém ficaria
+    // sabendo. Era o que acontecia quando ele reenviava o onboarding.
+    if (item.kind === "credential" && item.valor === GUARDADO) continue;
     guardaNaCentral(orgId, clientId, item);
     titulos.push(item.title);
-    if (item.kind === "credential") { novas[item.pergunta] = "(guardado na Central)"; mexeu = true; }
+    if (item.kind === "credential") { novas[item.pergunta] = GUARDADO; mexeu = true; }
   }
   return { titulos, respostas: novas, mexeu };
 }

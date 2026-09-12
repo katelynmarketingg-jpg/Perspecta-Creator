@@ -9,7 +9,7 @@ import {
   getTemplate, saveTemplate, resetTemplate,
 } from "../briefing.js";
 import { guardaNaCentral } from "../central.js";
-import { modelosDisponiveis, mesesDeVigencia } from "../contract-gen.js";
+import { modelosDisponiveis, mesesDeVigencia, numeroBR } from "../contract-gen.js";
 import { PERSONA_FIELDS } from "../ai.js";
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,9 @@ function leTermos(b) {
  */
 function saneiaTermos(entrada = {}) {
   const data = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null);
-  const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v) || 0);
+  // numeroBR e não Number: quem preenche escreve "1.500,50", do jeito daqui.
+  // Com Number, isso virava 0 e o contrato saía valendo zero, sem aviso.
+  const num = (v) => (v === "" || v === null || v === undefined ? null : numeroBR(v));
   const itens = Array.isArray(entrada.itens)
     ? entrada.itens
         .map((i) => ({ label: String(i.label || "").trim().slice(0, 80), unit: String(i.unit || "").trim().slice(0, 40), quantidade: num(i.quantidade) }))

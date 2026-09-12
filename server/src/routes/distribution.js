@@ -248,6 +248,19 @@ router.put("/:id", (req, res) => {
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });
 
   const { caption, description, scheduled_at, file_id, cover_file_id, media_ids } = req.body || {};
+
+  // Arquivo pendurado na peça tem que ser DESTA casa. Não era conferido: dava
+  // para gravar aqui o id de um arquivo de outra agência. Ler esse arquivo
+  // continua impossível (toda rota que serve mídia confere o org_id, conferido),
+  // então não vazava nada — o que acontecia era pior de outro jeito: a peça
+  // ficava com uma mídia que NUNCA desenha, e ninguém entendia por quê.
+  const daCasa = (id) => db.prepare("SELECT id FROM files WHERE id = ? AND org_id = ?").get(id, req.orgId);
+  const foraDeCasa = [
+    file_id, cover_file_id, ...(Array.isArray(media_ids) ? media_ids : []),
+  ].filter((v) => v !== undefined && v !== null && v !== "").filter((v) => !daCasa(Number(v)));
+  if (foraDeCasa.length) {
+    return res.status(400).json({ error: "Essa mídia não é desta agência." });
+  }
   db.prepare(
     `UPDATE tasks SET
        caption      = COALESCE(?, caption),

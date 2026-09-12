@@ -11,6 +11,7 @@ import { remindOverdue } from "../overdue.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
 import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca, storageConfigured, uploadFileToR2, enderecoAssinado } from "../storage.js";
 import { receiptView, ensureReceiptForEntry } from "../receipts.js";
+import { chaveDaPorta, trancada, registraErro, registraAcerto } from "../tranca.js";
 
 const router = Router();
 
@@ -43,6 +44,10 @@ router.post("/login", (req, res) => {
   // O cliente entra pelo NOME DE ACESSO (ou, para compatibilidade, pelo e-mail).
   // O front manda o que foi digitado em 'username'; aceitamos os dois campos.
   const identifier = (username ?? email ?? "").trim();
+  // Trava de tentativas: a porta do cliente aceitava senhas erradas sem fim, e
+  // a senha dele tem só 6 caracteres de mínimo. Ver server/src/tranca.js.
+  const porta = chaveDaPorta(req, `portal:${identifier}`);
+  if (trancada(req, res, porta)) return;
   // Vários clientes podem ter o mesmo nome de acesso: confere a senha em cada
   // candidato em vez de assumir o primeiro (o par nome+senha é o que decide).
   const candidates = db
@@ -56,8 +61,10 @@ router.post("/login", (req, res) => {
     (c) => c.portal_password_hash && verifyPassword(password || "", c.portal_password_hash)
   );
   if (!client) {
+    registraErro(porta);
     return res.status(401).json({ error: "Nome de acesso ou senha inválidos." });
   }
+  registraAcerto(porta);
   const token = jwt.sign(
     { portal: true, client_id: client.id, name: client.name, org_id: client.org_id },
     JWT_SECRET,

@@ -85,6 +85,59 @@ export async function enderecoAssinado(key, { segundos = 3600, tipo, baixarComoN
   }
 }
 
+/**
+ * O R2 está mesmo RESPONDENDO? Não basta "as variáveis existem".
+ *
+ * Assinar um endereço é conta matemática feita aqui dentro, sem tocar na rede:
+ * com a chave errada, expirada ou apagada, a assinatura sai perfeita e o
+ * navegador é mandado para um endereço que a Cloudflare recusa. O sistema
+ * acha que serviu; a pessoa vê a tela vazia. É assim que TODAS as fotos somem
+ * de uma vez, sem nenhum erro aparecer em lugar nenhum.
+ *
+ * Por isso este teste vai até o fim: pede 1 byte de um arquivo de verdade.
+ */
+export async function testarR2(key) {
+  if (!configured) {
+    const faltando = Object.entries({ R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET })
+      .filter(([, v]) => !v).map(([k]) => k);
+    return { ok: false, etapa: "configuracao", faltando,
+      mensagem: `O R2 está DESLIGADO neste servidor: faltam ${faltando.join(", ")}. `
+        + "Todo arquivo guardado no R2 fica invisível enquanto isso — os arquivos não foram perdidos." };
+  }
+  if (!key) return { ok: true, etapa: "sem_arquivo", mensagem: "R2 ligado. Nenhum arquivo no R2 para testar." };
+
+  try {
+    await client.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key, Range: "bytes=0-0" }));
+  } catch (e) {
+    const nome = e?.name || e?.Code || "erro";
+    const dicas = {
+      NoSuchBucket: `O balde "${R2_BUCKET}" não existe nesta conta. Confira R2_BUCKET.`,
+      NoSuchKey: "O R2 respondeu, mas este arquivo não está lá dentro.",
+      AccessDenied: "A chave do R2 não tem permissão de leitura neste balde. Gere uma chave nova com acesso de leitura.",
+      InvalidAccessKeyId: "A chave do R2 não vale mais (apagada ou trocada). Gere outra e atualize R2_ACCESS_KEY_ID.",
+      SignatureDoesNotMatch: "O segredo do R2 está errado. Confira R2_SECRET_ACCESS_KEY.",
+    };
+    return { ok: false, etapa: "leitura", erro: nome,
+      mensagem: dicas[nome] || `O R2 recusou a leitura (${nome}). Os arquivos continuam lá; é o acesso que está quebrado.` };
+  }
+
+  // Ler daqui funciona. Falta o que o NAVEGADOR faz: seguir o endereço assinado.
+  const url = await enderecoAssinado(key, { segundos: 120 });
+  if (!url) return { ok: false, etapa: "assinatura", mensagem: "Não foi possível assinar o endereço do arquivo." };
+  try {
+    const r = await fetch(url, { headers: { Range: "bytes=0-0" } });
+    if (!r.ok && r.status !== 206) {
+      return { ok: false, etapa: "endereco_assinado", status: r.status,
+        mensagem: `O servidor lê o arquivo, mas o endereço que vai para o navegador é recusado pela Cloudflare (${r.status}). `
+          + "É por isso que as fotos aparecem vazias mesmo com tudo 'ligado'." };
+    }
+  } catch (e) {
+    return { ok: false, etapa: "endereco_assinado",
+      mensagem: `Não deu para alcançar a Cloudflare a partir daqui: ${e?.message || e}.` };
+  }
+  return { ok: true, etapa: "completo", mensagem: "R2 respondendo: leitura e endereço assinado funcionando." };
+}
+
 export async function deleteR2Object(key) {
   await client.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
 }

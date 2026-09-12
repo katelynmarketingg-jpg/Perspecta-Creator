@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Grid, Card, CardContent, Typography, Box, Table, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField, Chip, Divider, MenuItem, Button, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
+import { Grid, Card, CardContent, Typography, Box, Table, TableContainer, TableHead, TableRow, TableCell, TableBody, LinearProgress, Stack, TextField, Chip, Divider, MenuItem, Button, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -174,16 +174,20 @@ export default function Reports() {
                   </Typography>
                 </Stack>
                 {receivables?.atrasadas?.length ? (
-                  <Table size="small">
-                    <TableBody>
-                      {receivables.atrasadas.slice(0, 5).map((r) => (
-                        <TableRow key={r.id}>
-                          <TableCell sx={{ px: 0 }}>{r.client_name || r.description}</TableCell>
-                          <TableCell align="right" sx={{ px: 0, fontVariantNumeric: "tabular-nums" }}>{currency(r.amount)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <TableContainer>
+                    {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                        aqui dentro, em vez de arrastar a página inteira para o lado. */}
+                    <Table size="small">
+                      <TableBody>
+                        {receivables.atrasadas.slice(0, 5).map((r) => (
+                          <TableRow key={r.id}>
+                            <TableCell sx={{ px: 0 }}>{r.client_name || r.description}</TableCell>
+                            <TableCell align="right" sx={{ px: 0, fontVariantNumeric: "tabular-nums" }}>{currency(r.amount)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 ) : (
                   <Typography variant="body2" color="text.secondary">Nada em atraso. 🎉</Typography>
                 )}
@@ -321,28 +325,32 @@ export default function Reports() {
                   Nenhuma hora apontada. Aponte o tempo dentro de cada tarefa.
                 </Typography>
               ) : (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Cliente</TableCell>
-                      <TableCell align="right">Horas</TableCell>
-                      <TableCell align="right">Mensalidade</TableCell>
-                      <TableCell align="right">Por hora</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {tempo.porCliente.filter((c) => c.minutos > 0).map((c) => (
-                      <TableRow key={c.id} hover>
-                        <TableCell>{c.client_name}</TableCell>
-                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{c.horas}h</TableCell>
-                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{currency(c.mensalidade)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                          {c.valorHora ? currency(c.valorHora) : "—"}
-                        </TableCell>
+                <TableContainer>
+                  {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                      aqui dentro, em vez de arrastar a página inteira para o lado. */}
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Cliente</TableCell>
+                        <TableCell align="right">Horas</TableCell>
+                        <TableCell align="right">Mensalidade</TableCell>
+                        <TableCell align="right">Por hora</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {tempo.porCliente.filter((c) => c.minutos > 0).map((c) => (
+                        <TableRow key={c.id} hover>
+                          <TableCell>{c.client_name}</TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{c.horas}h</TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{currency(c.mensalidade)}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                            {c.valorHora ? currency(c.valorHora) : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </CardContent>
           </Card>
@@ -405,43 +413,47 @@ export default function Reports() {
                   Nenhum cliente com plano mensal definido. Defina posts e vídeos por mês no cadastro do cliente.
                 </Typography>
               ) : (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Cliente</TableCell>
-                      <TableCell align="right">Posts</TableCell>
-                      <TableCell align="right">Vídeos</TableCell>
-                      <TableCell align="right">Total</TableCell>
-                      <TableCell sx={{ width: "30%" }}>Andamento</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {entregas.map((e) => (
-                      <TableRow key={e.id} hover>
-                        <TableCell>{e.client_name}</TableCell>
-                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                          {e.posts_entregues}/{e.posts_planejados}
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                          {e.videos_entregues}/{e.videos_planejados}
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                          {e.entregue}/{e.planejado}
-                        </TableCell>
-                        <TableCell>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <LinearProgress variant="determinate" value={Math.min(e.percentual, 100)}
-                              color={e.percentual >= 100 ? "success" : e.percentual >= 60 ? "primary" : "warning"}
-                              sx={{ flex: 1, height: 8, borderRadius: 4 }} />
-                            <Typography variant="caption" sx={{ minWidth: 78, textAlign: "right" }}>
-                              {e.percentual}%{e.falta ? ` · faltam ${e.falta}` : " ✓"}
-                            </Typography>
-                          </Stack>
-                        </TableCell>
+                <TableContainer>
+                  {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                      aqui dentro, em vez de arrastar a página inteira para o lado. */}
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Cliente</TableCell>
+                        <TableCell align="right">Posts</TableCell>
+                        <TableCell align="right">Vídeos</TableCell>
+                        <TableCell align="right">Total</TableCell>
+                        <TableCell sx={{ width: "30%" }}>Andamento</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {entregas.map((e) => (
+                        <TableRow key={e.id} hover>
+                          <TableCell>{e.client_name}</TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                            {e.posts_entregues}/{e.posts_planejados}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                            {e.videos_entregues}/{e.videos_planejados}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                            {e.entregue}/{e.planejado}
+                          </TableCell>
+                          <TableCell>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <LinearProgress variant="determinate" value={Math.min(e.percentual, 100)}
+                                color={e.percentual >= 100 ? "success" : e.percentual >= 60 ? "primary" : "warning"}
+                                sx={{ flex: 1, height: 8, borderRadius: 4 }} />
+                              <Typography variant="caption" sx={{ minWidth: 78, textAlign: "right" }}>
+                                {e.percentual}%{e.falta ? ` · faltam ${e.falta}` : " ✓"}
+                              </Typography>
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </CardContent>
           </Card>
@@ -555,37 +567,41 @@ export default function Reports() {
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 1 }}>Tarefas por usuário</Typography>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Usuário</TableCell>
-                    <TableCell align="center">Total</TableCell>
-                    <TableCell align="center">Concluídas</TableCell>
-                    <TableCell align="center">Pendentes</TableCell>
-                    <TableCell width="30%">Progresso</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {byUser.map((u) => {
-                    const pct = u.total > 0 ? Math.round((u.done / u.total) * 100) : 0;
-                    return (
-                      <TableRow key={u.user_name}>
-                        <TableCell>{u.user_name}</TableCell>
-                        <TableCell align="center">{u.total}</TableCell>
-                        <TableCell align="center">{u.done}</TableCell>
-                        <TableCell align="center">{u.pending}</TableCell>
-                        <TableCell>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <LinearProgress variant="determinate" value={pct} sx={{ flex: 1, height: 8, borderRadius: 4 }} />
-                            <Typography variant="caption">{pct}%</Typography>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {byUser.length === 0 && <TableRow><TableCell colSpan={5} align="center" style={{ color: "#888", padding: 24 }}>Sem dados.</TableCell></TableRow>}
-                </TableBody>
-              </Table>
+              <TableContainer>
+                {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                    aqui dentro, em vez de arrastar a página inteira para o lado. */}
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Usuário</TableCell>
+                      <TableCell align="center">Total</TableCell>
+                      <TableCell align="center">Concluídas</TableCell>
+                      <TableCell align="center">Pendentes</TableCell>
+                      <TableCell width="30%">Progresso</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {byUser.map((u) => {
+                      const pct = u.total > 0 ? Math.round((u.done / u.total) * 100) : 0;
+                      return (
+                        <TableRow key={u.user_name}>
+                          <TableCell>{u.user_name}</TableCell>
+                          <TableCell align="center">{u.total}</TableCell>
+                          <TableCell align="center">{u.done}</TableCell>
+                          <TableCell align="center">{u.pending}</TableCell>
+                          <TableCell>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                              <LinearProgress variant="determinate" value={pct} sx={{ flex: 1, height: 8, borderRadius: 4 }} />
+                              <Typography variant="caption">{pct}%</Typography>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {byUser.length === 0 && <TableRow><TableCell colSpan={5} align="center" style={{ color: "#888", padding: 24 }}>Sem dados.</TableCell></TableRow>}
+                  </TableBody>
+                </Table>
+              </TableContainer>
             </CardContent>
           </Card>
         </Grid>

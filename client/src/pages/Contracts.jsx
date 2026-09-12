@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Card, Table, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
+  Button, Card, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -65,7 +65,10 @@ export default function Contracts() {
     try {
       const { data } = await api.post(`/contract-templates/${gen.template_id}/generate`, {
         client_id: gen.client_id,
-        value: Number(gen.value) || 0,
+        // Manda como foi digitado: quem preenche escreve "1.500,50", e é o
+        // servidor que entende o número do jeito daqui. Com Number() aqui,
+        // a vírgula virava 0 e o contrato saía valendo zero.
+        value: gen.value,
         duration_months: gen.duration_months ? Number(gen.duration_months) : null,
         start_date: gen.start_date || null,
       });
@@ -179,46 +182,50 @@ export default function Contracts() {
       {rows.length === 0 ? <EmptyState message="Nenhum contrato cadastrado." /> :
        filtrados.length === 0 ? <EmptyState message="Nenhum contrato com esse filtro." /> : (
         <Card>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Contrato</TableCell>
-                <TableCell>Cliente</TableCell>
-                <TableCell>Duração</TableCell>
-                <TableCell>1º vencimento</TableCell>
-                <TableCell>Assinatura</TableCell>
-                <TableCell align="right">Valor</TableCell>
-                <TableCell align="right">Ações</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filtrados.map((c) => (
-                <TableRow key={c.id} hover>
-                  <TableCell>{c.title}</TableCell>
-                  <TableCell>{c.client_name || "—"}</TableCell>
-                  <TableCell>{c.duration_months ? `${c.duration_months} meses` : <Chip size="small" label="Indeterminado" />}</TableCell>
-                  <TableCell>{formatDate(c.first_due_date)}</TableCell>
-                  <TableCell>
-                    {c.integridade === "alterado" && (
-                      <Chip size="small" color="error" label="⚠ texto alterado após assinar"
-                        title="O texto deste contrato não é mais o que foi assinado. A assinatura não vale para este texto." />
-                    )}
-                    {c.signed_at
-                      ? <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Assinado" />
-                      : <Chip size="small" variant="outlined" label="Pendente" />}
-                  </TableCell>
-                  <TableCell align="right">{currency(c.value)}</TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="Ver / imprimir">
-                      <IconButton size="small" onClick={() => setVer(c)}><VisibilityIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <IconButton size="small" onClick={() => { setDraft({ ...c, client_id: c.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
-                  </TableCell>
+          <TableContainer>
+            {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                aqui dentro, em vez de arrastar a página inteira para o lado. */}
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Contrato</TableCell>
+                  <TableCell>Cliente</TableCell>
+                  <TableCell>Duração</TableCell>
+                  <TableCell>1º vencimento</TableCell>
+                  <TableCell>Assinatura</TableCell>
+                  <TableCell align="right">Valor</TableCell>
+                  <TableCell align="right">Ações</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {filtrados.map((c) => (
+                  <TableRow key={c.id} hover>
+                    <TableCell>{c.title}</TableCell>
+                    <TableCell>{c.client_name || "—"}</TableCell>
+                    <TableCell>{c.duration_months ? `${c.duration_months} meses` : <Chip size="small" label="Indeterminado" />}</TableCell>
+                    <TableCell>{formatDate(c.first_due_date)}</TableCell>
+                    <TableCell>
+                      {c.integridade === "alterado" && (
+                        <Chip size="small" color="error" label="⚠ texto alterado após assinar"
+                          title="O texto deste contrato não é mais o que foi assinado. A assinatura não vale para este texto." />
+                      )}
+                      {c.signed_at
+                        ? <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Assinado" />
+                        : <Chip size="small" variant="outlined" label="Pendente" />}
+                    </TableCell>
+                    <TableCell align="right">{currency(c.value)}</TableCell>
+                    <TableCell align="right">
+                      <Tooltip title="Ver / imprimir">
+                        <IconButton size="small" onClick={() => setVer(c)}><VisibilityIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                      <IconButton size="small" onClick={() => { setDraft({ ...c, client_id: c.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Card>
       )}
 
@@ -231,6 +238,15 @@ export default function Contracts() {
               <b>O texto deste contrato mudou depois da assinatura.</b> A assinatura registrada vale
               para o texto que a pessoa leu — não para este. Se o acordo mudou, faça um aditivo ou um
               contrato novo, e colha uma assinatura nova.
+            </Alert>
+          )}
+          {/* O contrato saiu, mas com buraco: quem vai ler é advogado, então o
+              aviso tem que estar na frente de quem gerou — não só no sininho. */}
+          {ver?.faltando?.length > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              O contrato saiu sem: <strong>{ver.faltando.join(", ")}</strong>.
+              Complete no cadastro (ou em Configurações, se for dado da agência) e gere de novo
+              antes de mandar para assinar.
             </Alert>
           )}
           {ver?.signed_at && (
@@ -395,7 +411,10 @@ export default function Contracts() {
               {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </TextField>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField label="Valor" type="number" value={gen?.value || ""} fullWidth
+              {/* Campo de texto, não "number": o campo numérico do navegador
+                  descarta a vírgula, que é como se escreve valor no Brasil. */}
+              <TextField label="Valor" inputProps={{ inputMode: "decimal" }} placeholder="1.500,00"
+                value={gen?.value || ""} fullWidth
                 onChange={(e) => setGen((g) => ({ ...g, value: e.target.value }))} />
               <TextField label="Duração (meses)" type="number" value={gen?.duration_months || ""} fullWidth
                 onChange={(e) => setGen((g) => ({ ...g, duration_months: e.target.value }))}

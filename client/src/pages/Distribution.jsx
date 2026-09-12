@@ -134,21 +134,36 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   const [ph, setPh] = useState(null);   // miniatura leve como placeholder instantâneo
   const [erro, setErro] = useState(false);
 
-  // VÍDEO não é baixado: toca pelo endereço de streaming, em que o navegador
-  // pede só o começo do arquivo e já mostra o 1º quadro. Baixar um reel de
-  // 200 MB inteiro antes de aparecer qualquer coisa fazia a peça parecer
-  // travada — e em internet de celular, nunca terminava.
-  const transmite = Boolean(streamUrl && ehVideoDica);
+  // POR QUE ISTO É ASSIM, medido numa tela com 12 peças de 1 a 6,5 MB:
+  //
+  // A tela baixava a ARTE INTEIRA de cada peça por JavaScript para mostrar um
+  // quadradinho. Resultado medido: 55 MB baixados e, aos 13 segundos, 7 quadros
+  // ainda rodando em branco. Era exatamente isso que fazia "sumir todas as
+  // fotos" da Distribuição enquanto a Galeria mostrava tudo — a Galeria sempre
+  // usou o endereço direto num <img>, que o navegador carrega sozinho, só o que
+  // está à vista, e guarda no cache dele.
+  //
+  // A ordem agora é a mais barata primeiro:
+  //   1. tem MINIATURA guardada? mostra ela e para por aí (uns 100 KB);
+  //   2. não tem? usa o endereço direto, com loading="lazy" — só carrega o que
+  //      está na tela — e GUARDA a miniatura a partir do que desenhou, para a
+  //      próxima vez ser instantânea. Isso faltava: a miniatura nunca era
+  //      guardada por esta tela, então era arte cheia toda vez, para sempre;
+  //   3. só se o endereço direto falhar (.HEIC de iPhone, que navegador nenhum
+  //      desenha) é que cai no download antigo, que sabe converter.
+  const [semStream, setSemStream] = useState(false);
+  const [buscouThumb, setBuscouThumb] = useState(false);
+  const transmite = Boolean(streamUrl) && !semStream;
 
   useEffect(() => {
-    setSrc(null); setErro(false); setCapa(null); setPh(null);
-    if (!fileId || transmite) return undefined;
+    setSrc(null); setErro(false); setCapa(null); setPh(null); setBuscouThumb(false);
+    if (!fileId) return undefined;
     let alive = true;
-    // Carregamento PROGRESSIVO, sem perder qualidade: a miniatura leve (~640px)
-    // entra na hora como rascunho, e a ARTE EM QUALIDADE REAL desenha por cima
-    // assim que baixa. A pessoa vê algo na hora (tela não fica "carregando uma
-    // década") e a qualidade final é sempre a do arquivo original.
-    loadThumb(fileId).then((t) => { if (alive && t) setPh(t); }).catch(() => {});
+    loadThumb(fileId)
+      .then((t) => { if (alive) { if (t) setPh(t); setBuscouThumb(true); } })
+      .catch(() => { if (alive) setBuscouThumb(true); });
+    // O download só entra em cena quando não há endereço direto (ou ele falhou).
+    if (transmite) return () => { alive = false; };
     loadMedia(fileId)
       .then((m) => { if (alive && m) { setSrc(m.url); setVideo((m.type || "").startsWith("video")); } })
       .catch(() => { if (alive) setErro(true); });
@@ -211,9 +226,26 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   // fora dele, mantém a caixa de altura fixa com o vídeo contido em fundo preto.
   const sxVideo = natural ? { ...sx, bgcolor: "#000" } : { ...sx, objectFit: "contain", bgcolor: "#000" };
   if (transmite) {
-    return <Box component="video" src={streamUrl} poster={capa || undefined} controls={mostraControles}
-      muted playsInline preload="metadata" sx={sxVideo}
-      onError={() => setErro(true)} />;
+    // Se o endereço direto não desenhar (.HEIC de iPhone, arquivo estranho),
+    // cai para o download antigo em vez de mostrar erro.
+    const cair = () => setSemStream(true);
+    if (ehVideoDica) {
+      return <Box component="video" src={streamUrl} poster={capa || ph || undefined} controls={mostraControles}
+        muted playsInline preload="metadata" sx={sxVideo}
+        onError={cair}
+        onLoadedData={(e) => guardarMiniatura(fileId, e.currentTarget)} />;
+    }
+    // Miniatura guardada: é ela que aparece. 100 KB no lugar de 6 MB, e a tela
+    // inteira desenha de uma vez.
+    if (ph) return <Box component="img" src={ph} alt="" sx={sx} />;
+    // Ainda esperando a resposta da miniatura: não dispara a arte cheia agora,
+    // senão baixa os dois. É rápido — a resposta é minúscula.
+    if (!buscouThumb) {
+      return <Box sx={{ ...molduraVazia, bgcolor: "action.hover", display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
+    }
+    return <Box component="img" src={streamUrl} alt="" loading="lazy" decoding="async" sx={sx}
+      onError={cair}
+      onLoad={(e) => guardarMiniatura(fileId, e.currentTarget)} />;
   }
   // Ainda baixando a arte cheia: mostra a miniatura (se já veio) como rascunho;
   // senão, o spinner. A qualidade final entra por cima quando o arquivo chega.
@@ -283,8 +315,15 @@ function CarrosselLargo({ fileId, streamUrl = null }) {
   return (
     <Box sx={box}>
       {/* Só a arte em qualidade real; enquanto baixa, o carregando. */}
+      {/* loading="lazy": a tira de um carrossel é a arte MAIS PESADA do sistema
+          (várias slides num arquivo só, 8 MB não é raro). Sem isto, abrir a aba
+          puxava a tira de TODOS os carrosséis de uma vez, mesmo os que estão
+          lá embaixo, fora da tela — e nada terminava de carregar. E, ao
+          desenhar, guarda a miniatura: da próxima vez o quadradinho é leve. */}
       {full
-        ? <Box component="img" src={full} alt="" onLoad={medir} onError={aoFalhar} sx={imgSx} />
+        ? <Box component="img" src={full} alt="" loading="lazy" decoding="async"
+            onLoad={(e) => { medir(e); guardarMiniatura(fileId, e.currentTarget); }}
+            onError={aoFalhar} sx={imgSx} />
         : <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>}
       {n > 1 && (
         <>

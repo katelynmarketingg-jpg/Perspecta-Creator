@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { authRequired, adminRequired, hashPassword } from "../auth.js";
+import { authRequired, adminRequired, hashPassword, conferirSenha } from "../auth.js";
 import { publicUser } from "./auth.js";
 
 const router = Router();
@@ -26,6 +26,10 @@ router.post("/", adminRequired, (req, res) => {
   if (!name || !username || !password) {
     return res.status(400).json({ error: "Nome, usuário e senha são obrigatórios." });
   }
+  // Mesma regra de senha da casa inteira: quem entra aqui vê o financeiro, os
+  // contratos e as senhas dos clientes. Não pode ser mais frouxo que o portal.
+  const problema = conferirSenha(password);
+  if (problema) return res.status(400).json({ error: problema });
   const exists = db
     .prepare("SELECT id FROM users WHERE lower(username) = lower(?) AND org_id = ?")
     .get(username.trim(), req.orgId);
@@ -54,6 +58,10 @@ router.put("/:id", adminRequired, (req, res) => {
   const { name, username, email, role, active, password } = req.body || {};
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
+  if (password !== undefined && password !== null && password !== "") {
+    const problema = conferirSenha(password);
+    if (problema) return res.status(400).json({ error: problema });
+  }
 
   const b = req.body || {};
   const next = {

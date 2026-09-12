@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Button, Card, Table, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
+  Button, Card, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Box, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -73,31 +73,35 @@ export default function Events() {
 
       {rows.length === 0 ? <EmptyState message="Nenhum evento cadastrado." /> : (
         <Card>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Evento</TableCell>
-                <TableCell>Tipo</TableCell>
-                <TableCell>Cliente</TableCell>
-                <TableCell>Início</TableCell>
-                <TableCell align="right">Ações</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((e) => (
-                <TableRow key={e.id} hover>
-                  <TableCell>{e.title}</TableCell>
-                  <TableCell>{e.type_name ? <Chip size="small" label={e.type_name} sx={{ bgcolor: e.type_color, color: "#fff" }} /> : "—"}</TableCell>
-                  <TableCell>{e.client_name || "—"}</TableCell>
-                  <TableCell>{fmt(e.start_at)}</TableCell>
-                  <TableCell align="right">
-                    <IconButton size="small" onClick={() => { setDraft({ ...e, type_id: e.type_id || "", client_id: e.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => remove(e.id)}><DeleteIcon fontSize="small" /></IconButton>
-                  </TableCell>
+          <TableContainer>
+            {/* No celular a tabela é mais larga que a tela: ela rola sozinha
+                aqui dentro, em vez de arrastar a página inteira para o lado. */}
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Evento</TableCell>
+                  <TableCell>Tipo</TableCell>
+                  <TableCell>Cliente</TableCell>
+                  <TableCell>Início</TableCell>
+                  <TableCell align="right">Ações</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {rows.map((e) => (
+                  <TableRow key={e.id} hover>
+                    <TableCell>{e.title}</TableCell>
+                    <TableCell>{e.type_name ? <Chip size="small" label={e.type_name} sx={{ bgcolor: e.type_color, color: "#fff" }} /> : "—"}</TableCell>
+                    <TableCell>{e.client_name || "—"}</TableCell>
+                    <TableCell>{fmt(e.start_at)}</TableCell>
+                    <TableCell align="right">
+                      <IconButton size="small" onClick={() => { setDraft({ ...e, type_id: e.type_id || "", client_id: e.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
+                      <IconButton size="small" color="error" onClick={() => remove(e.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Card>
       )}
 

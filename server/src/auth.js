@@ -17,6 +17,29 @@ if (!process.env.JWT_SECRET) {
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 const TOKEN_TTL = "12h";
 
+// ---------------------------------------------------------------------------
+// A REGRA DA SENHA — uma só, para a casa inteira.
+//
+// Estava ao contrário: o CLIENTE era obrigado a 6 caracteres, e a EQUIPE — que
+// vê o financeiro, os contratos e as senhas de todos os clientes — podia trocar
+// a própria senha por 3 caracteres, e o admin podia criar gente com senha de 1.
+// Quem tem mais acesso não pode ter a regra mais frouxa.
+//
+// Seis é o mínimo de propósito: é o que o cliente já cumpre e não tranca
+// ninguém para fora. A trava de tentativas (server/src/tranca.js) é o que
+// segura o resto.
+// ---------------------------------------------------------------------------
+export const SENHA_MINIMA = 6;
+
+/** Devolve a mensagem do problema, ou null se a senha serve. */
+export function conferirSenha(senha) {
+  const s = String(senha ?? "");
+  if (!s) return "Escolha uma senha.";
+  if (s.length < SENHA_MINIMA) return `A senha precisa de pelo menos ${SENHA_MINIMA} caracteres.`;
+  if (!s.trim()) return "A senha não pode ser só espaços.";
+  return null;
+}
+
 export function hashPassword(plain) {
   return bcrypt.hashSync(plain, 10);
 }

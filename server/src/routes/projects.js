@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { responsibleForType } from "./task-types.js";
+import { confere } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("projetos"));
@@ -39,6 +40,9 @@ router.get("/:id", (req, res) => {
 
 router.post("/", (req, res) => {
   const b = req.body || {};
+  // Cliente vindo do corpo do pedido: tem que ser desta casa (pertence.js).
+  const naoEhDaCasa = confere(req.orgId, { clients: b.client_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   if (!b.name) return res.status(400).json({ error: "Nome é obrigatório." });
   const info = db
     .prepare(
@@ -60,6 +64,10 @@ router.post("/", (req, res) => {
 router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM projects WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cur) return res.status(404).json({ error: "Projeto não encontrado." });
+  // Reapontar um registro existente para o cliente de outra agência é o mesmo
+  // buraco da criação — a trava vale nos dois (pertence.js).
+  const naoEhDaCasaEdit = confere(req.orgId, { clients: req.body?.client_id });
+  if (naoEhDaCasaEdit) return res.status(400).json({ error: naoEhDaCasaEdit });
   const merged = { ...cur, ...req.body, id: req.params.id, org_id: req.orgId };
   // Dia-limite de lançamento: número 1..31 ou vazio.
   merged.launch_by_day = merged.launch_by_day ? Math.min(31, Math.max(1, Number(merged.launch_by_day))) : null;

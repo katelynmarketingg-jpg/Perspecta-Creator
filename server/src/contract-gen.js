@@ -75,8 +75,34 @@ function porNome(itens, padrao) {
  * E português tem gênero no 1 e no 2: é "01 (uma) captação" e "02 (duas)
  * captações", mas "01 (um) post". Por isso o `genero`.
  */
+/**
+ * Número escrito do jeito de quem fala português: "1.500,50" e "1500,50" são
+ * mil e quinhentos e cinquenta centavos, não lixo.
+ *
+ * Era um buraco calado e caro: Number("1500,50") não é número, e o contrato
+ * saía com "R$ 0,00 (zero real)" — contrato de valor ZERO, sem um aviso
+ * sequer, só porque a pessoa digitou a vírgula que se usa no Brasil.
+ */
+export function numeroBR(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  let t = String(v ?? "").trim().replace(/\s|R\$/gi, "");
+  if (!t) return 0;
+  // "1.500,50" (ponto de milhar + vírgula decimal) -> "1500.50"
+  if (/,/.test(t)) t = t.replace(/\./g, "").replace(",", ".");
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Quantidade de entrega é coisa inteira: não existe 2,7 posts por mês. */
+function inteiro(v) {
+  const n = numeroBR(v);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
 function quantia(n, genero = "m") {
-  const v = Number(n);
+  // Arredonda de propósito: o número e o extenso saíam brigando dentro do mesmo
+  // parêntese — "2.7 (dois) posts" — e é a primeira coisa que um advogado pega.
+  const v = inteiro(n);
   if (!Number.isFinite(v) || v <= 0) return "";
   let extenso = valorPorExtenso(v).replace(/\s+(reais|real)\b.*/i, "").trim();
   if (genero === "f") {
@@ -154,7 +180,26 @@ const LINHA = "_______________";
  * é conferido: o que estiver vazio entra na lista `faltando`, que sobe até a
  * tela — antes o contrato saía com "sob o n.º ," e só um advogado ia notar.
  */
-function confereEssenciais(client) {
+/**
+ * Termos que a agência preencheu de um jeito que o contrato não consegue honrar
+ * — e que, calados, viram contrato errado assinado.
+ */
+function confereTermos(termos = {}) {
+  const avisos = [];
+  const { start_date: ini, end_date: fim } = termos;
+  // Fim antes do início: a vigência não fecha e o contrato saía com "prazo
+  // indeterminado", sem uma palavra — um contrato mensal virava sem prazo.
+  if (ini && fim && new Date(`${fim}T12:00:00`) < new Date(`${ini}T12:00:00`)) {
+    avisos.push("vigência invertida (a data de fim é anterior à de início)");
+  }
+  if (numeroBR(termos.value) <= 0) avisos.push("valor mensal");
+  for (const i of (Array.isArray(termos.itens) ? termos.itens : [])) {
+    if (numeroBR(i?.quantidade) < 0) avisos.push(`quantidade negativa em "${i.label}"`);
+  }
+  return avisos;
+}
+
+function confereEssenciais(client, org = {}) {
   const essenciais = [
     ["razão social", client.legal_name || client.company || client.name],
     ["CNPJ/CPF", client.document],
@@ -162,8 +207,28 @@ function confereEssenciais(client) {
     ["quem assina", client.rep_name],
     ["documento de quem assina", client.rep_document],
     ["dia do pagamento", client.payment_day],
+    // Os dados da PRÓPRIA CASA também. Antes só o cliente era conferido, e o
+    // contrato saía com a qualificação da agência em branco — "inscrita no CNPJ
+    // sob o n.º , com sede em , representada por sua titular, ," — sem que
+    // ninguém fosse avisado. Preenche em Configurações.
+    ["CNPJ da agência", org.document],
+    ["endereço da agência", org.address],
+    ["quem assina pela agência", org.signer_name],
+    ["documento de quem assina pela agência", org.signer_document],
+    ["cidade da agência (para o foro)", org.city],
   ];
   return essenciais.filter(([, v]) => !String(v ?? "").trim()).map(([nome]) => nome);
+}
+
+/**
+ * "no CPF", "no CNPJ", "na OAB" — o artigo TEM que concordar com o documento.
+ * O contrato saía "inscrito(a) na CPF sob o n.º ...", porque o modelo trazia o
+ * "na" fixo (que só serve para OAB) e o marcador só devolvia a sigla. Erro de
+ * português num documento que um advogado vai ler.
+ */
+function documentoComArtigo(tipo) {
+  const t = String(tipo || "cpf").trim().toUpperCase();
+  return t === "OAB" ? "na OAB" : `no ${t}`;
 }
 
 /** CPF tem 11 dígitos; CNPJ tem 14. O contrato precisa chamar pelo nome certo. */
@@ -181,7 +246,7 @@ export function geraContrato(orgId, termos = {}) {
   if (!client) { const e = new Error("Cliente não encontrado."); e.code = "SEM_CLIENTE"; throw e; }
 
   const org = db.prepare("SELECT * FROM organizations WHERE id = ?").get(orgId) || {};
-  const valor = Number(termos.value) || 0;
+  const valor = numeroBR(termos.value);
   const duracao = termos.duration_months
     ? Number(termos.duration_months)
     : mesesDeVigencia(termos.start_date, termos.end_date);
@@ -202,7 +267,7 @@ export function geraContrato(orgId, termos = {}) {
     endereco: client.address || LINHA,
     valor: brl(valor),
     valor_extenso: valorPorExtenso(valor),
-    duracao: duracao ? `${duracao} meses` : "prazo indeterminado",
+    duracao: duracao ? `${duracao} ${duracao === 1 ? "mês" : "meses"}` : "prazo indeterminado",
     // A data que a agência quer que conste (senão, a de hoje).
     data: termos.contract_date ? dataExtenso(termos.contract_date) : hoje(),
     servico: termos.servico || tpl.name || "",
@@ -223,15 +288,18 @@ export function geraContrato(orgId, termos = {}) {
     // Também formatado: um CPF de quem assina saía "04009664096" no contrato.
     documento_representante: (formataDocumento(client.rep_document || "") || client.rep_document || LINHA),
     tipo_documento_representante: (client.rep_doc_type || "cpf").toUpperCase(),
+    // Este já vem com o artigo certo ("no CPF", "na OAB"): use ESTE no modelo,
+    // sem escrever "na" antes. O de cima fica para quem já tinha modelo pronto.
+    documento_representante_rotulo: documentoComArtigo(client.rep_doc_type),
     // --- cobrança ---
     dia_pagamento: diaPgto ? String(diaPgto) : LINHA,
     vencimento: diaPgto ? `todo dia ${diaPgto} de cada mês` : "conforme combinado",
     // --- a agência (contratada) ---
     agencia: org.name || "",
-    cnpj_agencia: formataDocumento(org.document || ""),
-    endereco_agencia: org.address || "",
-    representante_agencia: org.signer_name || "",
-    documento_representante_agencia: org.signer_document || "",
+    cnpj_agencia: formataDocumento(org.document || "") || LINHA,
+    endereco_agencia: org.address || LINHA,
+    representante_agencia: org.signer_name || LINHA,
+    documento_representante_agencia: org.signer_document || LINHA,
     cargo_representante_agencia: org.signer_role || "",
     // --- lugar e prazos ---
     cidade: org.city || "",
@@ -239,7 +307,7 @@ export function geraContrato(orgId, termos = {}) {
     inicio: termos.start_date ? dataExtenso(termos.start_date) : hoje(),
     inicio_curto: termos.start_date ? dataCurta(termos.start_date) : "",
     fim: termos.end_date ? dataExtenso(termos.end_date) : "prazo indeterminado",
-    prazo: duracao ? quantia(duracao) + " meses" : "prazo indeterminado",
+    prazo: duracao ? `${quantia(duracao)} ${duracao === 1 ? "mês" : "meses"}` : "prazo indeterminado",
     // --- o que está contratado ---
     // Os três marcadores que o contrato da casa já usa saem das entregas que a
     // agência definiu ("Posts", "Vídeos", "Captações"), não importa como ela
@@ -278,5 +346,5 @@ export function geraContrato(orgId, termos = {}) {
   ).get(info.lastInsertRowid);
   // A lista sobe junto: é ela que faz a tela avisar "este contrato saiu sem
   // endereço e sem quem assina" em vez de deixar a agência descobrir depois.
-  return { ...criado, faltando: confereEssenciais(client) };
+  return { ...criado, faltando: [...confereEssenciais(client, org), ...confereTermos(termos)] };
 }
