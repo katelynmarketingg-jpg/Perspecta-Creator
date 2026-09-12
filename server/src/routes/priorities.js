@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { broadcast } from "../live.js";
+import { confere } from "../pertence.js";
 
 // ---------------------------------------------------------------------------
 // Prioridades / recados internos — o canal da equipe.
@@ -44,6 +45,8 @@ router.get("/", (req, res) => {
 // POST /api/priorities { client_id, message, level, assignee_id }
 router.post("/", (req, res) => {
   const b = req.body || {};
+  const naoEhDaCasa = confere(req.orgId, { clients: b.client_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   if (!b.message?.trim()) return res.status(400).json({ error: "Escreva o recado." });
   const level = LEVELS.includes(b.level) ? b.level : "media";
   const info = db.prepare(
@@ -53,7 +56,9 @@ router.post("/", (req, res) => {
 
   // Avisa a equipe (ainda sem mira por pessoa): mostra pra quem é.
   const alvo = b.assignee_id ? db.prepare("SELECT name FROM users WHERE id = ?").get(b.assignee_id)?.name : null;
-  const cli = b.client_id ? db.prepare("SELECT name FROM clients WHERE id = ?").get(b.client_id)?.name : null;
+  // Filtra pela agência: sem isso, o nome do cliente de OUTRA casa entrava no
+  // texto do aviso desta.
+  const cli = b.client_id ? db.prepare("SELECT name FROM clients WHERE id = ? AND org_id = ?").get(b.client_id, req.orgId)?.name : null;
   // Mirada: se tem responsável, o aviso vai só para ele; senão, para a equipe.
   db.prepare("INSERT INTO notifications (audience, client_id, message, org_id, user_id) VALUES ('agency', ?, ?, ?, ?)")
     .run(b.client_id || null,

@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2 } from "../storage.js";
+import { confere } from "../pertence.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -144,6 +145,8 @@ router.get("/folders", (req, res) => {
 });
 
 router.post("/folders", (req, res) => {
+  const naoEhDaCasa = confere(req.orgId, { clients: req.body?.client_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   const { name, client_id, parent_id } = req.body || {};
   if (!name) return res.status(400).json({ error: "Nome da pasta é obrigatório." });
   const info = db
@@ -159,6 +162,8 @@ const DEFAULT_FOLDERS = ["Originais", "Editados", "Para aprovação", "Aprovados
 // POST /api/files/folders/ensure-defaults { client_id }
 // Garante as pastas padrão na raiz do cliente (cria só as que faltam). Idempotente.
 router.post("/folders/ensure-defaults", (req, res) => {
+  const naoEhDaCasa = confere(req.orgId, { clients: req.body?.client_id });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
   const clientId = req.body?.client_id;
   if (!clientId) return res.status(400).json({ error: "Informe o cliente." });
   const existentes = db
