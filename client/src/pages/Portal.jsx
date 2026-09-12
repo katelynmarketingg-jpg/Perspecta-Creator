@@ -90,7 +90,7 @@ function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
       sx={{ ...moldura, objectFit: "contain", bgcolor: "action.hover" }} onError={naoDesenhou} />;
   }
   return (
-    <Box component="img" src={src} alt={alt}
+    <Box component="img" src={src} alt={alt} loading="lazy" decoding="async"
       sx={{ ...moldura, objectFit: "contain", bgcolor: "action.hover" }} onError={naoDesenhou} />
   );
 }
@@ -99,11 +99,18 @@ function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
 function PortalThumb({ fileId, size = 56, mime, thumb, mediaUrl }) {
   const [src, setSrc] = useState(null);
   const [isVideo, setIsVideo] = useState(false);
+  const [semStream, setSemStream] = useState(false);
   useEffect(() => {
+    setSemStream(false);
     if (thumb) { setSrc(thumb); setIsVideo(false); return undefined; }
     // Vídeo com link inline: NÃO baixa (usa media_url no <video>); evita puxar
     // um arquivo gigante só para a miniatura, que antes deixava o tile em branco.
     if ((mime || "").startsWith("video/") && mediaUrl) { setIsVideo(true); setSrc(null); return undefined; }
+    // FOTO com link inline: idem. Só o vídeo tinha esse cuidado — a foto era
+    // baixada INTEIRA (6 MB não é raro) para desenhar um quadradinho de 56px,
+    // e numa lista cheia isso trava tudo, que é o que deixava os quadros em
+    // branco na área do cliente. Ver Distribution.jsx, mesmo defeito.
+    if (mediaUrl) { setIsVideo(false); setSrc(null); return undefined; }
     if (!fileId) return undefined;
     let vivo = true;
     carregarArte(`portal:${fileId}`,
@@ -113,11 +120,30 @@ function PortalThumb({ fileId, size = 56, mime, thumb, mediaUrl }) {
       .catch(() => {});
     return () => { vivo = false; };   // não revoga: o cache é dono da URL
   }, [fileId, thumb, mediaUrl, mime]);
+  // O link direto não desenhou (.HEIC de iPhone): baixa e converte, uma vez só.
+  // Tem que ser num efeito — chamada dentro do render roda a cada desenho.
+  useEffect(() => {
+    if (!semStream || !fileId) return undefined;
+    let vivo = true;
+    carregarArte(`portal:${fileId}`,
+      () => portalApi.get(`/files/${fileId}/download`, { responseType: "blob" }).then((r) => r.data),
+      { mime })
+      .then((m) => { if (vivo) { setSrc(m.url); setIsVideo((m.tipo || "").startsWith("video")); } })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [semStream, fileId, mime]);
+
   const sx = { width: size, height: size, borderRadius: 1.5, objectFit: "cover", flexShrink: 0, bgcolor: isVideo ? "#000" : "action.hover" };
   if (src) return isVideo
     ? <Box component="video" src={src} muted sx={sx} />
     : <Box component="img" src={src} alt="" sx={sx} />;
   if ((mime || "").startsWith("video/") && mediaUrl) return <Box component="video" src={`${mediaUrl}#t=0.1`} preload="metadata" muted sx={sx} />;
+  // Foto pelo link direto: o navegador carrega só o que está à vista. Se não
+  // desenhar (.HEIC de iPhone), aí sim baixa e converte — uma vez só.
+  if (mediaUrl && !semStream) {
+    return <Box component="img" src={mediaUrl} alt="" loading="lazy" decoding="async" sx={sx}
+      onError={() => setSemStream(true)} />;
+  }
   return <Box sx={sx} />;
 }
 
