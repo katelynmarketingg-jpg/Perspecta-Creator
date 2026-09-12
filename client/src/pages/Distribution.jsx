@@ -856,7 +856,11 @@ function PieceCard({ item, onChanged, flash }) {
             // Carrossel já em slides SEPARADAS (um arquivo por slide): desliza
             // arquivo por arquivo.
             <Box sx={{ position: "relative" }}>
-              <Media fileId={slides[Math.min(viewIdx, slides.length - 1)]} natural />
+              {/* O endereço direto de CADA slide vem do servidor (media_urls, na
+                  mesma ordem). Sem ele, esta prévia baixava a arte inteira da
+                  slide — e com arte de vários MB ficava rodando sem fim. */}
+              <Media fileId={slides[Math.min(viewIdx, slides.length - 1)]} natural
+                streamUrl={item.media_urls?.[Math.min(viewIdx, slides.length - 1)] || null} />
               <IconButton size="small" onClick={() => setViewIdx((i) => (i - 1 + slides.length) % slides.length)}
                 sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
                 <ChevronLeftIcon />

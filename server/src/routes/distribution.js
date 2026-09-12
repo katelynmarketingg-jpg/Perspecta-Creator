@@ -21,6 +21,10 @@ function comMidia(linhas, orgId) {
     media_ids: parseMediaIds(it.media_ids),
     media_url: mediaUrl(it.file_id, orgId),
     cover_url: mediaUrl(it.cover_file_id, orgId),
+    // Um endereço por SLIDE, na ordem. Carrossel montado com um arquivo por
+    // slide não tinha endereço nenhum para as slides: a tela de editar caía no
+    // download da arte inteira de cada uma e ficava rodando para sempre.
+    media_urls: parseMediaIds(it.media_ids).map((id) => mediaUrl(id, orgId)),
   }));
 }
 
