@@ -65,7 +65,10 @@ export default function Contracts() {
     try {
       const { data } = await api.post(`/contract-templates/${gen.template_id}/generate`, {
         client_id: gen.client_id,
-        value: Number(gen.value) || 0,
+        // Manda como foi digitado: quem preenche escreve "1.500,50", e é o
+        // servidor que entende o número do jeito daqui. Com Number() aqui,
+        // a vírgula virava 0 e o contrato saía valendo zero.
+        value: gen.value,
         duration_months: gen.duration_months ? Number(gen.duration_months) : null,
         start_date: gen.start_date || null,
       });
@@ -237,6 +240,15 @@ export default function Contracts() {
               contrato novo, e colha uma assinatura nova.
             </Alert>
           )}
+          {/* O contrato saiu, mas com buraco: quem vai ler é advogado, então o
+              aviso tem que estar na frente de quem gerou — não só no sininho. */}
+          {ver?.faltando?.length > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              O contrato saiu sem: <strong>{ver.faltando.join(", ")}</strong>.
+              Complete no cadastro (ou em Configurações, se for dado da agência) e gere de novo
+              antes de mandar para assinar.
+            </Alert>
+          )}
           {ver?.signed_at && (
             <Alert severity="success" sx={{ mb: 2 }}>
               Assinado por <strong>{ver.signer_name}</strong>
@@ -399,7 +411,10 @@ export default function Contracts() {
               {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </TextField>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField label="Valor" type="number" value={gen?.value || ""} fullWidth
+              {/* Campo de texto, não "number": o campo numérico do navegador
+                  descarta a vírgula, que é como se escreve valor no Brasil. */}
+              <TextField label="Valor" inputProps={{ inputMode: "decimal" }} placeholder="1.500,00"
+                value={gen?.value || ""} fullWidth
                 onChange={(e) => setGen((g) => ({ ...g, value: e.target.value }))} />
               <TextField label="Duração (meses)" type="number" value={gen?.duration_months || ""} fullWidth
                 onChange={(e) => setGen((g) => ({ ...g, duration_months: e.target.value }))}
