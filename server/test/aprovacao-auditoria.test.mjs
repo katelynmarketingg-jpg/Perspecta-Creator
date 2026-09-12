@@ -182,3 +182,67 @@ test("programar sem data é recusado", async () => {
   const r = await req("POST", `/distribution/${id}/schedule`, {}, H);
   assert.equal(r.st, 400);
 });
+
+// ---------------------------------------------------------------------------
+// A VOLTA INTEIRA — é isso que acontece toda semana, não o caso feliz:
+// manda, o cliente pede ajuste, a agência conserta e manda de novo, ele aprova.
+// Se algum estado ficar preso no meio, a peça some da vista de alguém.
+// ---------------------------------------------------------------------------
+
+test("manda, pede ajuste, manda de novo, aprova — sem ficar preso no caminho", async () => {
+  const id = novaPeca();
+  const estado = () => db.prepare("SELECT approval_status, client_note FROM tasks WHERE id=?").get(id);
+
+  assert.equal((await req("POST", `/distribution/${id}/send`, null, H)).st, 200);
+  assert.equal(estado().approval_status, "sent");
+
+  const ajuste = await req("POST", `/portal/approvals/${id}/request-changes`, { client_note: "A legenda está errada." }, P);
+  assert.equal(ajuste.st, 200);
+  assert.equal(estado().approval_status, "changes_requested");
+
+  // A agência conserta e manda de novo. Este é o passo que costuma faltar:
+  // reenviar uma peça que voltou com pedido de ajuste tem que ser permitido.
+  const reenvio = await req("POST", `/distribution/${id}/send`, null, H);
+  assert.equal(reenvio.st, 200, `não deu para reenviar depois do ajuste: ${JSON.stringify(reenvio)}`);
+  assert.equal(estado().approval_status, "sent", "reenviada, volta a esperar o cliente");
+
+  const aprovada = await req("POST", `/portal/approvals/${id}/approve`, {}, P);
+  assert.equal(aprovada.st, 200);
+  assert.equal(estado().approval_status, "approved");
+
+  const d = await fetch(`${B}/distribution`, { headers: H }).then((x) => x.json());
+  assert.ok((d.approved || []).some((x) => x.id === id), "termina na fila de aprovados");
+});
+
+test("na volta, o cliente vê a peça de novo na fila dele", async () => {
+  const id = novaPeca();
+  await req("POST", `/distribution/${id}/send`, null, H);
+  await req("POST", `/portal/approvals/${id}/request-changes`, { client_note: "ajustar" }, P);
+  const fila = () => fetch(`${B}/portal/approvals`, { headers: P }).then((r) => r.json());
+
+  await req("POST", `/distribution/${id}/send`, null, H);
+  const depois = await fila();
+  assert.ok((depois || []).some((x) => x.id === id), "reenviada, tem que reaparecer para ele aprovar");
+});
+
+test("depois de aprovada, o cliente não consegue mais pedir ajuste", async () => {
+  const id = novaPeca();
+  await req("POST", `/distribution/${id}/send`, null, H);
+  await req("POST", `/portal/approvals/${id}/approve`, {}, P);
+  const r = await req("POST", `/portal/approvals/${id}/request-changes`, { client_note: "mudei de ideia" }, P);
+  assert.equal(r.st, 409, "peça já aprovada não volta sozinha — a agência é que reabre");
+  assert.equal(db.prepare("SELECT approval_status FROM tasks WHERE id=?").get(id).approval_status, "approved");
+});
+
+test("pedir ajuste duas vezes seguidas guarda o recado mais novo", async () => {
+  const id = novaPeca();
+  await req("POST", `/distribution/${id}/send`, null, H);
+  await req("POST", `/portal/approvals/${id}/request-changes`, { client_note: "primeiro recado" }, P);
+  const r = await req("POST", `/portal/approvals/${id}/request-changes`, { client_note: "na verdade, outra coisa" }, P);
+  const t = db.prepare("SELECT approval_status, client_note FROM tasks WHERE id=?").get(id);
+  // Ou recusa (já não está mais "enviada"), ou aceita e guarda o recado novo —
+  // o que não pode é aceitar e guardar o recado ANTIGO.
+  if (r.st === 200) assert.match(t.client_note, /outra coisa/);
+  else assert.match(t.client_note, /primeiro recado/);
+  assert.equal(t.approval_status, "changes_requested");
+});
