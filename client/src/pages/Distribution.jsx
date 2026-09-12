@@ -105,8 +105,15 @@ const dentroDaFaixa = (v) => {
 // quadro em branco: carrossel sem anexo, carrossel de várias slides, carrossel
 // de UMA slide. Aqui a pergunta é uma só: "qual o endereço DESTE arquivo?".
 // Se não houver, devolve null e quem chamou baixa como antes.
+// Endereços de arquivos que subiram AGORA, antes de a lista da tela recarregar.
+const _enderecosNovos = new Map();
+export function guardarEndereco(id, url) { if (id && url) _enderecosNovos.set(Number(id), url); }
+
 function enderecoDoArquivo(p, fileId) {
-  if (!p || !fileId) return null;
+  if (!fileId) return null;
+  const recem = _enderecosNovos.get(Number(fileId));
+  if (recem) return recem;
+  if (!p) return null;
   const id = Number(fileId);
   const ids = Array.isArray(p.media_ids) ? p.media_ids.map(Number) : [];
   const i = ids.indexOf(id);
@@ -761,7 +768,13 @@ function PieceCard({ item, onChanged, flash }) {
     if (item.client_id) fd.append("client_id", item.client_id);
     fd.append("stage", "editados");
     const { data } = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-    return data?.[0]?.id || null;
+    const novo = data?.[0];
+    // Guarda o endereço direto do arquivo que ACABOU de subir. A lista da tela
+    // só traz esses endereços no próximo carregamento, e até lá as slides
+    // recém-cortadas ficavam baixando o arquivo inteiro para desenhar um
+    // quadradinho — rodando sem fim mesmo sendo pequenas.
+    if (novo?.id && novo?.media_url) guardarEndereco(novo.id, novo.media_url);
+    return novo?.id || null;
   }
 
   async function uploadSlide(e) {
@@ -935,9 +948,13 @@ function PieceCard({ item, onChanged, flash }) {
             <CarrosselLargo fileId={slides[0] || fileId || coverId}
               streamUrl={enderecoDoArquivo(item, slides[0] || fileId || coverId)} />
           ) : (
+            // Se a PEÇA é vídeo, a arte dela é vídeo — não importa se o id bate
+            // com o anexo. A comparação antiga fazia um reel ser desenhado como
+            // <img>, que não toca vídeo: falhava e caía no download, e por isso
+            // vídeo "não rodava" em peça cujo anexo tinha sido trocado.
             <Media fileId={fileId || coverId || slides[0]} capaId={coverId} natural
               streamUrl={enderecoDoArquivo(item, fileId || coverId || slides[0])}
-              ehVideoDica={pecaEhVideo(item) && fileId === item.file_id} />
+              ehVideoDica={pecaEhVideo(item)} />
           )}
 
           {isCarousel ? (
@@ -952,7 +969,11 @@ function PieceCard({ item, onChanged, flash }) {
                   <Box key={id} sx={{ width: 84, flex: "0 0 auto" }}>
                     <Box sx={{ position: "relative" }}>
                       <Box sx={{ borderRadius: 1, overflow: "hidden", border: 2, borderColor: i === 0 ? "primary.main" : "divider" }}>
-                        <Media fileId={id} height={110} comecoDaTira={isCarousel} />
+                        {/* Sem o endereço direto, cada quadradinho de slide
+                            baixava o arquivo inteiro — seis downloads de uma vez
+                            só para desenhar seis miniaturas de 84px. */}
+                        <Media fileId={id} height={110} comecoDaTira={isCarousel}
+                          streamUrl={enderecoDoArquivo(item, id)} />
                       </Box>
                       <Chip size="small" color={i === 0 ? "primary" : "default"}
                         label={i === 0 ? "★ capa" : i + 1}
