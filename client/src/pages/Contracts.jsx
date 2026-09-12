@@ -191,6 +191,10 @@ export default function Contracts() {
                   <TableCell>{c.duration_months ? `${c.duration_months} meses` : <Chip size="small" label="Indeterminado" />}</TableCell>
                   <TableCell>{formatDate(c.first_due_date)}</TableCell>
                   <TableCell>
+                    {c.integridade === "alterado" && (
+                      <Chip size="small" color="error" label="⚠ texto alterado após assinar"
+                        title="O texto deste contrato não é mais o que foi assinado. A assinatura não vale para este texto." />
+                    )}
                     {c.signed_at
                       ? <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Assinado" />
                       : <Chip size="small" variant="outlined" label="Pendente" />}
@@ -214,6 +218,13 @@ export default function Contracts() {
       <Dialog open={Boolean(ver)} onClose={() => setVer(null)} fullWidth maxWidth="md">
         <DialogTitle>{ver?.title}</DialogTitle>
         <DialogContent>
+          {ver?.integridade === "alterado" && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              <b>O texto deste contrato mudou depois da assinatura.</b> A assinatura registrada vale
+              para o texto que a pessoa leu — não para este. Se o acordo mudou, faça um aditivo ou um
+              contrato novo, e colha uma assinatura nova.
+            </Alert>
+          )}
           {ver?.signed_at && (
             <Alert severity="success" sx={{ mb: 2 }}>
               Assinado por <strong>{ver.signer_name}</strong>

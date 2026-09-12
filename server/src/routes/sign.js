@@ -8,10 +8,30 @@ import { JWT_SECRET } from "../auth.js";
 // WhatsApp) abre e assina, sem precisar de conta. O link é um token assinado.
 export const signRouter = Router();
 
-function contractHash(c) {
+// A impressão digital do que foi assinado: id, título, valor e o TEXTO. Se
+// qualquer um mudar depois, a conta dá diferente — e é assim que se prova que
+// o documento não é mais o que a pessoa leu.
+export function contractHash(c) {
   return createHash("sha256")
     .update(`${c.id}|${c.title}|${c.value}|${c.notes || ""}`)
     .digest("hex");
+}
+
+/**
+ * O contrato assinado ainda é o mesmo que a pessoa assinou?
+ *
+ * O hash era gravado na assinatura e NUNCA MAIS conferido. Bastava alguém
+ * editar o texto depois para a tela continuar dizendo "assinado por Fulano em
+ * tal data" sobre um documento que Fulano nunca viu. Agora a conferência é
+ * feita toda vez que o contrato é lido.
+ *
+ * Devolve: "ok" | "alterado" | null (não assinado / assinado antes desta
+ * verificação existir, quando não há hash guardado).
+ */
+export function conferirAssinatura(c) {
+  if (!c?.signed_at) return null;
+  if (!c.signed_hash) return null;
+  return contractHash(c) === c.signed_hash ? "ok" : "alterado";
 }
 
 // GET /api/sign/:token — mostra o contrato para assinar.
@@ -36,6 +56,7 @@ signRouter.get("/:token", (req, res) => {
     agency_name: org?.name || "",
     signed_at: c.signed_at,
     signer_name: c.signer_name,
+    integridade: conferirAssinatura(c),
   });
 });
 
