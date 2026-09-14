@@ -499,12 +499,26 @@ function VideoCoverDialog({ fileId, streamUrl, clientId, open, onClose, onCaptur
 
   useEffect(() => {
     if (!open || !fileId) { setSrc(null); setDur(0); setCur(0); setTira([]); return undefined; }
-    // Endereço de streaming: abre na hora, sem baixar o arquivo.
-    if (streamUrl) { setSrc(streamUrl); setIsVideo(true); return undefined; }
+    // AQUI o endereço tem que ser do NOSSO domínio, mesmo quando o arquivo está
+    // na nuvem. Esta tela não só mostra o vídeo: ela CAPTURA um quadro dele
+    // desenhando num canvas — e o navegador proíbe capturar de um vídeo que
+    // veio de outro domínio. Com o endereço direto da Cloudflare, a captura
+    // passou a falhar com "Não foi possível capturar o quadro".
+    //
+    // O endereço pelo nosso servidor é um pouco mais lento para começar, mas é
+    // o único que deixa capturar — e é um vídeo só, nesta tela só.
+    if (streamUrl && streamUrl.startsWith("/api/")) { setSrc(streamUrl); setIsVideo(true); return undefined; }
     let alive = true;
-    loadMedia(fileId)
-      .then((m) => { if (alive && m) { setSrc(m.url); setIsVideo((m.type || "").startsWith("video")); } })
-      .catch(() => {});
+    api.get(`/files/${fileId}/link`)
+      .then((r) => { if (alive && r.data?.url) { setSrc(r.data.url); setIsVideo(true); } })
+      .catch(() => {
+        // Sem o endereço do nosso servidor, baixa e usa o arquivo local — que
+        // também é do nosso domínio, então a captura funciona.
+        if (!alive) return;
+        loadMedia(fileId)
+          .then((m) => { if (alive && m) { setSrc(m.url); setIsVideo((m.type || "").startsWith("video")); } })
+          .catch(() => {});
+      });
     return () => { alive = false; };
   }, [open, fileId, streamUrl]);
 
@@ -1401,13 +1415,16 @@ function MonthGrid({ items, onSelect }) {
 // desenhado com <video> mostrando o 1º quadro, porque <img> não toca vídeo (era
 // por isso que os vídeos não apareciam aqui).
 function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, ehVideo = false }) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const [thumb, setThumb] = useState(null);
   const [midia, setMidia] = useState(null);   // { url, type } quando não há miniatura
   const [erro, setErro] = useState(false);
   const [faltouStream, setFaltouStream] = useState(false);
+  // Arquivo novo recomeça do zero (inclusive a marca de "o direto falhou").
+  useEffect(() => { setFaltouStream(false); }, [fileId, streamUrl]);
 
   useEffect(() => {
-    setThumb(null); setMidia(null); setErro(false); setFaltouStream(false);
+    setThumb(null); setMidia(null); setErro(false);
     if (!fileId) return;
     let alive = true;
     // A miniatura entra como RASCUNHO instantâneo. Quando há endereço direto, a
@@ -1417,14 +1434,18 @@ function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, ehVideo = f
     loadThumb(fileId).then((t) => {
       if (!alive) return;
       if (t) setThumb(t);
-      if (!t && !streamUrl) {
+      // Baixa a arte quando NÃO há endereço direto, ou quando ele já falhou.
+      // Sem a segunda parte, um endereço direto que não desenha (arquivo que
+      // mudou de lugar, foto de iPhone) não tinha caminho de volta: o quadro
+      // escrevia "sem arte" numa peça que TEM arte.
+      if (!t && (!streamUrl || faltouStream)) {
         loadMedia(fileId)
           .then((m) => { if (alive && m) setMidia(m); })
           .catch(() => { if (alive) setErro(true); });
       }
     });
     return () => { alive = false; };  // não revoga: o cache é dono da URL
-  }, [fileId, streamUrl]);
+  }, [fileId, streamUrl, faltouStream]);
 
   // Carrossel salvo como UMA imagem larga: a capa é o começo da tira (os
   // primeiros 1080px da esquerda), nunca o meio. Ver FeedPreview.jsx.
