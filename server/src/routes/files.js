@@ -26,12 +26,15 @@ const router = Router();
 // é H.264 por dentro — que é o caso dos vídeos de iPhone. Rotulando como mp4,
 // ele toca normalmente. O arquivo não é convertido: só o rótulo muda.
 
-async function serveFile(res, file, asAttachment, range) {
+async function serveFile(res, file, asAttachment, range, paraCapturar = false) {
   if (isR2Path(file.stored_path)) {
     // CAMINHO RÁPIDO: manda o navegador buscar direto na Cloudflare. O arquivo
     // deixa de atravessar esta máquina — é o que faz vídeo grande abrir rápido,
     // porque a Cloudflare tem servidor perto de quem está assistindo.
-    const direto = await enderecoAssinado(r2Key(file.stored_path), {
+    // paraCapturar: NÃO redireciona. O navegador vai desenhar isto num canvas e
+    // um redirecionamento para outro domínio sujaria o canvas (ver
+    // bilheteDeMidia). Aqui os bytes passam por dentro do servidor.
+    const direto = paraCapturar ? null : await enderecoAssinado(r2Key(file.stored_path), {
       tipo: asAttachment ? undefined : tipoQueONavegadorToca(file),
       baixarComoNome: asAttachment ? file.original_name : undefined,
     });
@@ -146,7 +149,9 @@ sharedRouter.get("/shared/:ticket", async (req, res) => {
     .prepare("SELECT * FROM files WHERE id = ? AND org_id = ?")
     .get(payload.file_id, payload.org_id);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
-  await serveFile(res, file, false, req.headers.range);
+  // payload.capturar: o navegador vai desenhar isto num canvas, então o arquivo
+  // tem que vir por dentro do nosso servidor (ver bilheteDeMidia).
+  await serveFile(res, file, false, req.headers.range, Boolean(payload.capturar));
 });
 
 router.use(authRequired, moduleAllowed("arquivos"));
@@ -515,7 +520,11 @@ router.get("/diagnostico", async (req, res) => {
 router.get("/:id/link", (req, res) => {
   const f = db.prepare("SELECT id FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!f) return res.status(404).json({ error: "Arquivo não encontrado." });
-  res.json({ url: bilheteDeMidia(f.id, req.orgId) });
+  // Esta rota existe para as telas que CAPTURAM o arquivo num canvas (o quadro
+  // de capa do vídeo, a prévia de uma arte antiga). Por isso o bilhete vem
+  // marcado: o arquivo passa por dentro do servidor em vez de terminar num
+  // redirecionamento para a Cloudflare, que sujaria o canvas.
+  res.json({ url: bilheteDeMidia(f.id, req.orgId, { paraCapturar: true }) });
 });
 
 router.get("/:id/thumb", (req, res) => {

@@ -22,10 +22,25 @@ import { isR2Path, r2Key, enderecoAssinado, tipoQueONavegadorToca } from "./stor
 
 const HORAS = 6;
 
-/** O endereço pelo nosso servidor — o caminho de sempre. */
-export function bilheteDeMidia(fileId, orgId) {
+/**
+ * O endereço pelo nosso servidor — o caminho de sempre.
+ *
+ * `paraCapturar` é para quando o navegador vai DESENHAR o arquivo num canvas
+ * (tirar o quadro de capa de um vídeo, gerar a prévia de uma arte antiga).
+ * Nesses casos o endereço não pode terminar na Cloudflare: um <img>/<video> que
+ * segue um redirecionamento para OUTRO domínio "suja" o canvas, e o navegador
+ * proíbe ler o que foi desenhado (medido no Chromium: SecurityError, mesmo com
+ * o endereço começando no nosso domínio). Com esta marca, o arquivo passa por
+ * dentro do nosso servidor do começo ao fim — mais lento, mas é o único jeito
+ * de capturar. Vale para um arquivo por vez, nessas duas telas; a grade
+ * continua indo direto na Cloudflare.
+ */
+export function bilheteDeMidia(fileId, orgId, { paraCapturar = false } = {}) {
   if (!fileId) return null;
-  const ticket = jwt.sign({ file_id: fileId, org_id: orgId, inline: true }, JWT_SECRET, { expiresIn: "12h" });
+  const ticket = jwt.sign(
+    { file_id: fileId, org_id: orgId, inline: true, ...(paraCapturar ? { capturar: true } : {}) },
+    JWT_SECRET, { expiresIn: "12h" },
+  );
   return `/api/files/shared/${ticket}`;
 }
 
