@@ -599,8 +599,19 @@ export default function Portal() {
     portalApi.get("/events", { params: { days: 90 } }).then((r) => setEvents(r.data)).catch(() => {});
     portalApi.get("/notifications").then((r) => setAvisos(r.data.filter((n) => !n.is_read))).catch(() => {});
     portalApi.get("/feed").then((r) => setFeed(r.data)).catch(() => {});
-    portalApi.get("/gallery").then((r) => setGaleria(r.data)).catch(() => {});
+    // A galeria NÃO entra aqui de propósito — veja o efeito logo abaixo.
   }, []);
+
+  // A GALERIA SÓ QUANDO ELE ABRIR A GALERIA.
+  //
+  // Essa lista vem com a miniatura de cada arquivo embutida: medido, 1,26 MB
+  // num cliente com 120 arquivos. Baixar isso no login significa o Marcelo
+  // pagando esse megabyte de dados móveis para ver a tela de aprovações — que
+  // nem usa a galeria. Agora ela chega quando a aba é aberta, e uma vez só.
+  useEffect(() => {
+    if (tab !== "gallery" || galeria !== null) return;
+    portalApi.get("/gallery").then((r) => setGaleria(r.data)).catch(() => setGaleria({}));
+  }, [tab, galeria]);
 
   // O cliente mandando material de volta: cai em Originais, na pasta dele, e a
   // equipe é avisada. Recarrega a galeria para ele ver o que acabou de subir.
@@ -608,6 +619,8 @@ export default function Portal() {
     const form = new FormData();
     arquivos.forEach((f) => form.append("files", f));
     await portalApi.post("/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
+    // Quem envia está na aba Galeria, então recarregar aqui é o certo: ele
+    // precisa ver na hora o que acabou de mandar.
     const { data } = await portalApi.get("/gallery");
     setGaleria(data);
   }, []);

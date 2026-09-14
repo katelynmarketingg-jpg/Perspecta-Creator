@@ -13,10 +13,31 @@
     <meta name="apple-mobile-web-app-title" content="Perspecta" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      A FONTE NÃO PODE SEGURAR A TELA.
+
+      Um <link rel="stylesheet"> no <head> BLOQUEIA o desenho: o navegador não
+      pinta um pixel enquanto esse arquivo não chega. Como ele mora em outro
+      domínio (fonts.googleapis.com), o celular do cliente precisa resolver DNS,
+      abrir TLS e baixar tudo isso ANTES de ver qualquer coisa — e se a rede
+      dele estiver ruim, a tela fica branca esperando. Medido aqui com a rede
+      fora do ar: 14,9 segundos de tela branca até aparecer o campo de login.
+
+      Com media="print", o navegador baixa mas não trata como estilo da tela,
+      então não bloqueia nada; quando termina, o onload troca para "all" e a
+      fonte entra. Enquanto isso o texto aparece na fonte do sistema, que está
+      na lista de reserva do tema. O <noscript> cobre quem desligou o script.
+    -->
     <link
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap"
-      rel="stylesheet"
+      rel="stylesheet" media="print" onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
   </head>
   <body>
     <div id="root"></div>
