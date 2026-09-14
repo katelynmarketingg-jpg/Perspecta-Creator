@@ -117,7 +117,10 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   // Miniatura quando existe (arquivos enviados a partir de agora); senão, o
   // original — assim o que já está lá continua aparecendo. No HEIC o original
   // não serve: usamos a conversão feita no navegador.
-  const previa = f.thumb || (heic ? heicUrl : f.media_url);
+  // A grade usa a miniatura; sem ela, a PRÉVIA (arte reduzida); só em último
+  // caso a arte inteira. Antes um arquivo sem miniatura fazia o quadradinho
+  // baixar os 6 MB do original.
+  const previa = f.thumb || (heic ? heicUrl : (f.preview_url || f.media_url));
   const convertendo = heic && !f.thumb && !heicUrl;
   // Em tela cheia vale a mesma regra: o .HEIC precisa da versão convertida.
   const grandao = heic ? (heicUrl || f.thumb) : f.media_url;

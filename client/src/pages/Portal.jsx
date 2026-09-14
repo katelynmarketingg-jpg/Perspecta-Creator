@@ -96,7 +96,7 @@ function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
 }
 
 // Miniatura pequena da arte (foto ou 1º quadro do vídeo) para as listas.
-function PortalThumb({ fileId, size = 56, mime, thumb, mediaUrl }) {
+function PortalThumb({ fileId, size = 56, mime, thumb, mediaUrl, previaUrl = null }) {
   const [src, setSrc] = useState(null);
   const [isVideo, setIsVideo] = useState(false);
   const [semStream, setSemStream] = useState(false);
@@ -141,7 +141,10 @@ function PortalThumb({ fileId, size = 56, mime, thumb, mediaUrl }) {
   // Foto pelo link direto: o navegador carrega só o que está à vista. Se não
   // desenhar (.HEIC de iPhone), aí sim baixa e converte — uma vez só.
   if (mediaUrl && !semStream) {
-    return <Box component="img" src={mediaUrl} alt="" loading="lazy" decoding="async" sx={sx}
+    // Quando existe PRÉVIA (a arte já reduzida), é ela que vem: o quadradinho
+    // tem 110 px e a arte original pode ter 6 MB. O cliente abre isso no
+    // celular, com dados móveis dele.
+    return <Box component="img" src={previaUrl || mediaUrl} alt="" loading="lazy" decoding="async" sx={sx}
       onError={() => setSemStream(true)} />;
   }
   return <Box sx={sx} />;
@@ -193,7 +196,7 @@ function GalleryBrowser({ onPick }) {
           {files.map((f) => (
             <Box key={`f${f.id}`} onClick={() => (onPick ? onPick(f) : setView(f))}
               sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
-              <PortalThumb fileId={f.id} size={110} mime={f.mime} thumb={f.thumb} mediaUrl={f.media_url} />
+              <PortalThumb fileId={f.id} size={110} mime={f.mime} thumb={f.thumb} mediaUrl={f.media_url} previaUrl={f.preview_url} />
               <Typography variant="caption" noWrap sx={{ display: "block", px: 0.5, py: 0.25 }}>{f.original_name}</Typography>
             </Box>
           ))}

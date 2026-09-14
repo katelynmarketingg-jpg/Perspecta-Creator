@@ -30,6 +30,7 @@ import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
 import PlanningRefDialog from "../components/PlanningRefDialog.jsx";
 import { thumbFromElement } from "../upload/thumbnail.js";
+import { guardarPrevia } from "../upload/previa-envio.js";
 import { carregarArte } from "../media.js";
 
 // Cache de mídias por sessão: cada arquivo é baixado UMA vez e reaproveitado
@@ -109,6 +110,22 @@ const dentroDaFaixa = (v) => {
 const _enderecosNovos = new Map();
 export function guardarEndereco(id, url) { if (id && url) _enderecosNovos.set(Number(id), url); }
 
+/**
+ * O endereço da PRÉVIA daquele arquivo dentro desta peça — mesma lógica do
+ * endereço da arte, só que da versão reduzida. Devolve null quando a peça ainda
+ * não tem prévia (arquivo antigo), e aí a tela usa a arte inteira, como antes.
+ */
+function previaDoArquivo(p, fileId) {
+  if (!fileId || !p) return null;
+  const id = Number(fileId);
+  const ids = Array.isArray(p.media_ids) ? p.media_ids.map(Number) : [];
+  const i = ids.indexOf(id);
+  if (i >= 0 && p.preview_urls?.[i]) return p.preview_urls[i];
+  if (Number(p.file_id) === id && p.preview_url) return p.preview_url;
+  if (Number(p.cover_file_id) === id && p.cover_preview_url) return p.cover_preview_url;
+  return null;
+}
+
 function enderecoDoArquivo(p, fileId) {
   if (!fileId) return null;
   const recem = _enderecosNovos.get(Number(fileId));
@@ -173,7 +190,7 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 // Reel e stories são sempre vídeo; fora isso, o tipo do arquivo decide.
 const pecaEhVideo = (p) => ["reel", "stories"].includes(p?.content_type) || /^video\//.test(p?.mime || "");
 
-function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, ehVideoDica = false, comecoDaTira = false, natural = false }) {
+function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, previaUrl = null, ehVideoDica = false, comecoDaTira = false, natural = false }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [capa, setCapa] = useState(null);
@@ -283,15 +300,37 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
     }
     // Miniatura guardada: é ela que aparece. 100 KB no lugar de 6 MB, e a tela
     // inteira desenha de uma vez.
-    if (ph) return <Box component="img" src={ph} alt="" sx={sx} />;
+    //
+    // MENOS NO CARD GRANDE. No modo natural a arte ocupa a largura inteira do
+    // card — numa tela retina isso passa de 900 px de verdade, e a miniatura
+    // tem 480. Mostrar só ela deixava o post BORRADO justamente onde ela olha
+    // para decidir se a arte está boa. Aqui a miniatura entra por baixo, como
+    // rascunho instantâneo, e a arte de verdade desenha por cima quando chega:
+    // aparece na hora E fica nítido.
+    if (ph && !natural) return <Box component="img" src={ph} alt="" sx={sx} />;
+    if (ph) {
+      // A PRÉVIA no lugar da arte inteira quando ela existe: mesma nitidez na
+      // tela (1080 px de largura), uma fração do peso. Sem prévia, cai na arte
+      // original — que é como era antes, e continua funcionando.
+      const grande = previaUrl || streamUrl;
+      return (
+        <Box sx={{ position: "relative", width: "100%" }}>
+          <Box component="img" src={ph} alt="" aria-hidden sx={sx} />
+          <Box component="img" src={grande} alt="" decoding="async"
+            sx={{ ...sx, position: "absolute", inset: 0, height: "100%" }}
+            onError={cair}
+            onLoad={(e) => { guardarMiniatura(fileId, e.currentTarget); if (!previaUrl) guardarPrevia(fileId, e.currentTarget); }} />
+        </Box>
+      );
+    }
     // Ainda esperando a resposta da miniatura: não dispara a arte cheia agora,
     // senão baixa os dois. É rápido — a resposta é minúscula.
     if (!buscouThumb) {
       return <Box sx={{ ...molduraVazia, bgcolor: "action.hover", display: "grid", placeItems: "center" }}><CircularProgress size={22} /></Box>;
     }
-    return <Box component="img" src={streamUrl} alt="" loading="lazy" decoding="async" sx={sx}
+    return <Box component="img" src={previaUrl || streamUrl} alt="" loading="lazy" decoding="async" sx={sx}
       onError={cair}
-      onLoad={(e) => guardarMiniatura(fileId, e.currentTarget)} />;
+      onLoad={(e) => { guardarMiniatura(fileId, e.currentTarget); if (!previaUrl) guardarPrevia(fileId, e.currentTarget); }} />;
   }
   // Ainda baixando a arte cheia: mostra a miniatura (se já veio) como rascunho;
   // senão, o spinner. A qualidade final entra por cima quando o arquivo chega.
@@ -964,7 +1003,8 @@ function PieceCard({ item, onChanged, flash }) {
                   mesma ordem). Sem ele, esta prévia baixava a arte inteira da
                   slide — e com arte de vários MB ficava rodando sem fim. */}
               <Media fileId={slides[Math.min(viewIdx, slides.length - 1)]} natural
-                streamUrl={enderecoDoArquivo(item, slides[Math.min(viewIdx, slides.length - 1)])} />
+                streamUrl={enderecoDoArquivo(item, slides[Math.min(viewIdx, slides.length - 1)])}
+                previaUrl={previaDoArquivo(item, slides[Math.min(viewIdx, slides.length - 1)])} />
               <IconButton size="small" onClick={() => setViewIdx((i) => (i - 1 + slides.length) % slides.length)}
                 sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff", bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
                 <ChevronLeftIcon />
@@ -989,6 +1029,7 @@ function PieceCard({ item, onChanged, flash }) {
             // vídeo "não rodava" em peça cujo anexo tinha sido trocado.
             <Media fileId={fileId || coverId || slides[0]} capaId={coverId} natural
               streamUrl={enderecoDoArquivo(item, fileId || coverId || slides[0])}
+              previaUrl={previaDoArquivo(item, fileId || coverId || slides[0])}
               ehVideoDica={pecaEhVideo(item)} />
           )}
 
@@ -1008,7 +1049,8 @@ function PieceCard({ item, onChanged, flash }) {
                             baixava o arquivo inteiro — seis downloads de uma vez
                             só para desenhar seis miniaturas de 84px. */}
                         <Media fileId={id} height={110} comecoDaTira={isCarousel}
-                          streamUrl={enderecoDoArquivo(item, id)} />
+                          streamUrl={enderecoDoArquivo(item, id)}
+                          previaUrl={previaDoArquivo(item, id)} />
                       </Box>
                       <Chip size="small" color={i === 0 ? "primary" : "default"}
                         label={i === 0 ? "★ capa" : i + 1}
@@ -1414,7 +1456,7 @@ function MonthGrid({ items, onSelect }) {
 // vídeo); se o arquivo não tiver miniatura, cai na arte inteira — e aí VÍDEO é
 // desenhado com <video> mostrando o 1º quadro, porque <img> não toca vídeo (era
 // por isso que os vídeos não apareciam aqui).
-function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, ehVideo = false }) {
+function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, previaUrl = null, ehVideo = false }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const [thumb, setThumb] = useState(null);
   const [midia, setMidia] = useState(null);   // { url, type } quando não há miniatura
@@ -1469,14 +1511,18 @@ function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, ehVideo = f
         onError={() => setFaltouStream(true)}
         onLoadedData={(e) => guardarMiniatura(fileId, e.currentTarget)} />;
     }
+    // A PRÉVIA no lugar da arte original. O quadradinho do perfil tem uns 350
+    // px de verdade; a prévia tem 1080 e pesa uns 150 KB, contra vários MB da
+    // arte. A nitidez na tela é a mesma — o que muda é o que a internet dela
+    // (e a do cliente) tem que carregar. Sem prévia, cai na arte, como antes.
     return (
       <Box sx={{ width: "100%", height: "100%", position: "relative",
                  backgroundImage: thumb ? `url(${thumb})` : undefined,
                  backgroundSize: "cover",
                  backgroundPosition: comecoDaTira ? "left center" : "center" }}>
-        <Box component="img" src={streamUrl} alt="" loading="lazy" decoding="async" sx={sx}
+        <Box component="img" src={previaUrl || streamUrl} alt="" loading="lazy" decoding="async" sx={sx}
           onError={() => setFaltouStream(true)}
-          onLoad={(e) => guardarMiniatura(fileId, e.currentTarget)} />
+          onLoad={(e) => { guardarMiniatura(fileId, e.currentTarget); if (!previaUrl) guardarPrevia(fileId, e.currentTarget); }} />
       </Box>
     );
   }
@@ -1587,6 +1633,7 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
                 }}>
                 <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
                   streamUrl={enderecoDoArquivo(p, p.cover_file_id || p.file_id) || enderecoDaPeca(p)}
+                  previaUrl={previaDoArquivo(p, p.cover_file_id || p.file_id)}
                   ehVideo={pecaEhVideo(p)}
                   comecoDaTira={p.content_type === "carrossel"} />
                 <Box sx={{

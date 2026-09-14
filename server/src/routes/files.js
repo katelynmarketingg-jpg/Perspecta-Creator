@@ -10,7 +10,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2, enderecoAssinado, nomeParaBaixar } from "../storage.js";
 import { confere } from "../pertence.js";
-import { bilheteDeMidia, enderecoDeMidia } from "../midia-url.js";
+import { bilheteDeMidia, enderecoDeMidia, enderecoDePrevia, previasDe } from "../midia-url.js";
 import { emParalelo } from "../em-paralelo.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
@@ -110,6 +110,31 @@ const upload = multer({
 
 // GET /api/files/shared/:ticket — link assinado e temporário, usado só para a
 // Meta buscar a arte na hora de publicar. Fica antes do authRequired.
+// GET /api/files/previa/:bilhete — a arte reduzida, em bytes.
+//
+// Fica aqui (antes do authRequired) porque <img src> não manda cabeçalho de
+// autenticação: quem entra é o bilhete assinado. Cache longo de propósito —
+// a prévia de um arquivo nunca muda, então na segunda visita não custa nada.
+sharedRouter.get("/previa/:bilhete", (req, res) => {
+  let dados;
+  try {
+    dados = jwt.verify(req.params.bilhete, JWT_SECRET);
+  } catch {
+    return res.status(403).json({ error: "Link expirado ou inválido." });
+  }
+  if (!dados?.previa) return res.status(403).json({ error: "Link inválido." });
+  const linha = db.prepare("SELECT preview FROM files WHERE id = ? AND org_id = ?")
+    .get(dados.file_id, dados.org_id);
+  if (!linha?.preview) return res.status(404).json({ error: "Sem prévia." });
+
+  // A prévia é guardada como data URI ("data:image/jpeg;base64,...").
+  const m = /^data:([\w/+.-]+);base64,(.*)$/s.exec(linha.preview);
+  if (!m) return res.status(404).json({ error: "Sem prévia." });
+  res.setHeader("Content-Type", m[1]);
+  res.setHeader("Cache-Control", "private, max-age=604800, immutable");
+  res.send(Buffer.from(m[2], "base64"));
+});
+
 sharedRouter.get("/shared/:ticket", async (req, res) => {
   let payload;
   try {
@@ -220,15 +245,25 @@ router.get("/", async (req, res) => {
     if (folder_id) params.folder_id = folder_id;
   }
   const rows = db.prepare(
+    // f.stored_path entra aqui só para decidir o endereço (e sai antes de
+    // responder). Sem ele, enderecoDeMidia não tinha como saber que o arquivo
+    // está na nuvem e devolvia SEMPRE o caminho pelo nosso servidor: a galeria
+    // inteira passava por dentro do Render, uma ida por foto, em vez de ir
+    // direto na Cloudflare. O endereço direto existia e não estava sendo usado.
     `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.folder_id, f.client_id,
-            f.expires_at, f.keep_forever, f.stage, f.thumb, c.name AS client_name
+            f.expires_at, f.keep_forever, f.stage, f.thumb, f.stored_path, c.name AS client_name
      FROM files f LEFT JOIN clients c ON c.id = f.client_id
      WHERE ${where.join(" AND ")} ORDER BY f.original_name`
   ).all(params);
   // media_url: o endereço que o <img>/<video> usa. Para arquivo no R2 vai o
   // endereço DIRETO da Cloudflare — assim a galeria não faz o navegador bater
   // no nosso servidor uma vez por foto antes de começar a carregar.
-  await Promise.all(rows.map(async (f) => { f.media_url = await enderecoDeMidia(f, req.orgId); }));
+  const previas = previasDe(db, rows.map((f) => f.id), req.orgId);
+  await Promise.all(rows.map(async (f) => {
+    f.media_url = await enderecoDeMidia(f, req.orgId);
+    f.preview_url = previas.get(f.id) || null;
+    delete f.stored_path;   // caminho interno não sai daqui
+  }));
   res.json(rows);
 });
 
@@ -511,6 +546,27 @@ router.put("/:id/thumb", (req, res) => {
   if (t.length > 300 * 1024) return res.status(400).json({ error: "Miniatura grande demais." });
 
   db.prepare("UPDATE files SET thumb = ? WHERE id = ? AND org_id = ?").run(t, file.id, req.orgId);
+  res.json({ ok: true });
+});
+
+// PUT /api/files/:id/previa — o navegador manda a arte reduzida depois de
+// desenhá-la. Arquivo antigo (enviado antes disso existir) ganha a sua prévia
+// na primeira vez que alguém abre a tela, sem ninguém precisar fazer nada.
+router.put("/:id/previa", (req, res) => {
+  const file = db.prepare("SELECT id, preview FROM files WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (file.preview) return res.json({ ok: true, ja_tinha: true });
+
+  const p = req.body?.previa;
+  if (typeof p !== "string" || !p.startsWith("data:image/")) {
+    return res.status(400).json({ error: "Prévia inválida." });
+  }
+  // 900 KB de folga: a prévia de uma arte cheia de detalhe passa dos 150 KB,
+  // mas nunca chega perto do arquivo original.
+  if (p.length > 900 * 1024) return res.status(400).json({ error: "Prévia grande demais." });
+
+  db.prepare("UPDATE files SET preview = ? WHERE id = ? AND org_id = ?").run(p, file.id, req.orgId);
   res.json({ ok: true });
 });
 

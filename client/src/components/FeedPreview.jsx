@@ -36,7 +36,13 @@ function Celula({ post, fetchFile, onClick }) {
     // tinha esse caminho — a foto era BAIXADA inteira por aqui, o que era lento
     // e, quando o download falhava, deixava a grade parada na miniatura
     // comprimida. Era isso que fazia a prévia do perfil parecer embaçada.
-    if (post.media_url && !baixarMesmo) { setSrc(post.media_url); return undefined; }
+    // E, quando existe, usa a PRÉVIA (a arte já reduzida para 1080 px): mesma
+    // nitidez neste quadro e uma fração do peso — o cliente abre isso no
+    // celular, com dados móveis. Sem prévia, segue na arte inteira.
+    if ((post.preview_url || post.media_url) && !baixarMesmo) {
+      setSrc(post.preview_url || post.media_url);
+      return undefined;
+    }
     let url;
     let vivo = true;
     fetchFile(fileId)
@@ -49,7 +55,7 @@ function Celula({ post, fetchFile, onClick }) {
       // Sem a arte inteira, a miniatura (se houver) continua na tela.
       .catch(() => { if (vivo && !thumb) setErro(true); });
     return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
-  }, [fileId, thumb, post.mime, post.media_url, ehVideo, fetchFile, baixarMesmo]);
+  }, [fileId, thumb, post.mime, post.media_url, post.preview_url, ehVideo, fetchFile, baixarMesmo]);
 
   const aprovado = post.approval_status === "approved" || post.stage_done;
 
@@ -83,7 +89,7 @@ function Celula({ post, fetchFile, onClick }) {
               onError={() => {
                 // Pelo endereço direto não desenhou (.HEIC): baixa e converte.
                 // Só marca erro quando nem isso resolve e não há miniatura.
-                if (src === post.media_url) setBaixarMesmo(true);
+                if (src === post.media_url || src === post.preview_url) setBaixarMesmo(true);
                 else if (!thumb) setErro(true);
               }} />)}
       </>

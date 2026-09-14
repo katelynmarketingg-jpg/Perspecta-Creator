@@ -30,6 +30,23 @@ export function bilheteDeMidia(fileId, orgId) {
 }
 
 /**
+ * O endereço da PRÉVIA — a arte reduzida para o tamanho que a tela usa.
+ *
+ * A grade do perfil desenha quadradinhos de uns 350 px e estava baixando a arte
+ * ORIGINAL de cada peça para isso: medido, 12,6 MB com 9 peças (e 38 MB com
+ * artes pesadas). A prévia tem 1080 px de largura — mais que o triplo do que o
+ * quadradinho precisa, então continua nítida — e pesa uns 150 KB.
+ *
+ * Vai como endereço (não embutida na listagem): assim cada uma fica no cache do
+ * navegador, e a listagem não engorda.
+ */
+export function enderecoDePrevia(fileId, orgId) {
+  if (!fileId) return null;
+  const bilhete = jwt.sign({ file_id: fileId, org_id: orgId, previa: true }, JWT_SECRET, { expiresIn: "12h" });
+  return `/api/files/previa/${bilhete}`;
+}
+
+/**
  * O melhor endereço para UM arquivo já carregado do banco: direto na Cloudflare
  * quando dá, pelo nosso servidor quando não dá.
  */
@@ -62,4 +79,21 @@ export async function enderecosDeMidia(db, ids, orgId) {
   await Promise.all(linhas.map(async (f) => { mapa.set(f.id, await enderecoDeMidia(f, orgId)); }));
   // Arquivo que não é desta agência (ou sumiu) simplesmente não ganha endereço.
   return mapa;
+}
+
+/**
+ * Quais desses arquivos JÁ TÊM prévia — e o endereço de cada uma.
+ *
+ * Uma consulta só, e sem trazer os bytes da prévia junto (é o `preview IS NOT
+ * NULL` que faz o trabalho): a listagem continua leve e quem só quer saber se
+ * existe não paga por ela.
+ */
+export function previasDe(db, ids, orgId) {
+  const limpos = [...new Set((ids || []).map(Number).filter(Boolean))];
+  if (!limpos.length) return new Map();
+  const linhas = db
+    .prepare(`SELECT id FROM files
+               WHERE org_id = ? AND preview IS NOT NULL AND id IN (${limpos.map(() => "?").join(",")})`)
+    .all(orgId, ...limpos);
+  return new Map(linhas.map((f) => [f.id, enderecoDePrevia(f.id, orgId)]));
 }

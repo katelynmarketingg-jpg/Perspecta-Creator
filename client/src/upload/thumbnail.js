@@ -144,3 +144,74 @@ export async function makeThumbnail(file) {
   } catch { /* sem miniatura é aceitável */ }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// A PRÉVIA: a arte no tamanho em que ela APARECE, não no tamanho em que foi
+// exportada.
+//
+// A miniatura acima é o rascunho do quadradinho (480 px, ~20 KB). A arte
+// original é o que vale para publicar (1080x1350, e pode passar de 6 MB). Faltava
+// o meio do caminho: a grade do perfil e o card grande desenham a arte com uns
+// 350 a 900 px na tela e estavam baixando o arquivo INTEIRO para isso — medido,
+// 12,6 MB para nove peças, e 38 MB quando as artes são pesadas.
+//
+// A prévia tem a largura de um post do Instagram (1080 px) e sai em JPEG: a
+// mesma resolução que a Meta publica, com uma fração do peso. É ela que a tela
+// usa; o arquivo original continua intacto para baixar e publicar.
+// ---------------------------------------------------------------------------
+const PREVIA_LADO = 1080;
+const PREVIA_QUALIDADE = 0.82;
+
+function reduzir(fonte, w, h, lado, qualidade) {
+  if (!w || !h) return null;
+  // Arte menor que o alvo não é ampliada — só seria peso a mais, sem ganho.
+  const escala = Math.min(1, lado / Math.max(w, h));
+  const cv = document.createElement("canvas");
+  cv.width = Math.max(1, Math.round(w * escala));
+  cv.height = Math.max(1, Math.round(h * escala));
+  const ctx = cv.getContext("2d");
+  if (!ctx) return null;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(fonte, 0, 0, cv.width, cv.height);
+  try { return cv.toDataURL("image/jpeg", qualidade); } catch { return null; }
+}
+
+/**
+ * Prévia a partir de um elemento QUE JÁ ESTÁ NA TELA (<img>/<video>). É assim
+ * que a arte antiga ganha prévia: ela já foi baixada para aparecer, então gerar
+ * daqui não custa nenhum download a mais — e a PRÓXIMA vez já sai leve.
+ *
+ * Só funciona quando a mídia veio do mesmo domínio ou com CORS liberado; se o
+ * canvas estiver "contaminado", toDataURL lança e devolvemos null, sem quebrar
+ * nada (a tela continua usando a arte inteira, como hoje).
+ */
+export function previaDeElemento(el) {
+  try {
+    if (!el) return null;
+    const w = el.naturalWidth || el.videoWidth;
+    const h = el.naturalHeight || el.videoHeight;
+    // Arte que já é pequena não precisa de prévia: seria um arquivo a mais para
+    // guardar e servir, do mesmo tamanho.
+    if (!w || !h || Math.max(w, h) <= PREVIA_LADO * 1.1) return null;
+    return reduzir(el, w, h, PREVIA_LADO, PREVIA_QUALIDADE);
+  } catch { return null; }
+}
+
+/** Prévia a partir do arquivo escolhido, na hora de enviar. */
+export async function fazerPrevia(file) {
+  try {
+    let fonte = file;
+    if (ehHeic(file?.name, file?.type)) {
+      fonte = await heicParaJpeg(file, 0.9);
+      if (!fonte) return null;
+    } else if (!file?.type?.startsWith("image/")) {
+      return null;  // vídeo não tem prévia: o player já toca por trechos
+    }
+    const bmp = await createImageBitmap(fonte);
+    try {
+      if (Math.max(bmp.width, bmp.height) <= PREVIA_LADO * 1.1) return null;
+      return reduzir(bmp, bmp.width, bmp.height, PREVIA_LADO, PREVIA_QUALIDADE);
+    } finally { bmp.close?.(); }
+  } catch { return null; }
+}

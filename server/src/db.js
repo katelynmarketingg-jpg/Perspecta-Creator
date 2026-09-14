@@ -899,6 +899,11 @@ ensureColumn("clients", "rep_document", "rep_document TEXT"); // documento do re
 // Miniatura leve (data URI ~50 KB) gerada no navegador ao enviar: é ela que a
 // Galeria mostra na grade, em vez de baixar o arquivo original inteiro.
 ensureColumn("files", "thumb", "thumb TEXT");
+// PRÉVIA: a mesma ideia da miniatura, só que no tamanho em que a arte APARECE
+// (1080 px de largura, ~150 KB). A grade do perfil e o card grande baixavam a
+// arte original para desenhar — 12,6 MB com nove peças. Esta não vai embutida
+// na listagem: é servida por endereço, para o navegador guardar no cache dele.
+ensureColumn("files", "preview", "preview TEXT");
 ensureColumn("clients", "rep_doc_type", "rep_doc_type TEXT NOT NULL DEFAULT 'cpf'"); // 'cpf' | 'oab' 
 
 // Toda tabela de dados carrega o escritório dona da linha.

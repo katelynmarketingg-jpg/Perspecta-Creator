@@ -8,7 +8,7 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-import { makeThumbnail } from "./thumbnail.js";
+import { makeThumbnail, fazerPrevia } from "./thumbnail.js";
 
 // ---------------------------------------------------------------------------
 // Envio em SEGUNDO PLANO. Fica montado no topo do app (fora das páginas), então
@@ -72,6 +72,30 @@ async function mandaMiniaturaDepois(fileId, file) {
     } catch { /* sem escritório selecionado */ }
     await fetch(`/api/files/${fileId}/thumb`, { method: "PUT", headers, body: JSON.stringify({ thumb }) });
   } catch { /* sem miniatura a grade ainda funciona, só mais pesada */ }
+}
+
+/**
+ * A PRÉVIA depois de subir — a arte no tamanho em que ela aparece na tela.
+ *
+ * Vai depois, e não junto, por dois motivos: reduzir uma arte de 6 MB leva o
+ * seu tempo, e o envio não pode ficar esperando por isso; e se der errado, o
+ * arquivo já está salvo do mesmo jeito. Sem prévia a tela usa a arte inteira,
+ * como sempre fez.
+ */
+async function mandaPreviaDepois(fileId, file) {
+  if (!fileId) return;
+  try {
+    const previa = await fazerPrevia(file);
+    if (!previa) return;
+    const token = localStorage.getItem("token");
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    try {
+      const viewing = JSON.parse(localStorage.getItem("viewing_org") || "null");
+      if (viewing?.id) headers["X-Org-Id"] = String(viewing.id);
+    } catch { /* sem escritório selecionado */ }
+    await fetch(`/api/files/${fileId}/previa`, { method: "PUT", headers, body: JSON.stringify({ previa }) });
+  } catch { /* sem prévia a tela ainda funciona, só mais pesada */ }
 }
 
 async function uploadOne(file, { clientId, folderId, stage }, onProgress) {
@@ -175,6 +199,7 @@ export function UploadProvider({ children }) {
           // Vídeo: agora que ele já está guardado, a miniatura pode demorar o
           // quanto precisar — não segura mais ninguém na fila.
           if (ehVideo(job._file)) mandaMiniaturaDepois(criados?.[0]?.id, job._file);
+          else mandaPreviaDepois(criados?.[0]?.id, job._file);
           // Dica extra pras telas que não usam SSE (o canal ao vivo já avisa).
           window.dispatchEvent(new CustomEvent("files-uploaded", { detail: opts }));
           removeLater(job.id, criados?.[0]?.repetida ? 10000 : 4000);
