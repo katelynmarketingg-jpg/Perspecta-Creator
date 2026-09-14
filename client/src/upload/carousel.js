@@ -44,22 +44,44 @@ const FORMATOS = [
  * tira de slides iguais e é melhor não fingir que sabemos.
  */
 export function sugerirSlides(largura, altura) {
-  if (!largura || !altura) return { n: 2, confianca: 0, formato: null };
-  let melhor = { n: 2, confianca: 0, formato: null };
+  if (!largura || !altura) return { n: 2, confianca: 0, formato: null, alternativas: [] };
+
+  // Cada formato conhecido dá UMA leitura da mesma arte. n = 1 entra na conta
+  // de propósito: assim um post normal (1080x1350) é reconhecido como UM post,
+  // e não como "duas slides" — antes o 1 era descartado e sobrava a resposta de
+  // outro formato, que saía errada e ainda com cara de certeza (um quadrado
+  // 1080x1080 era anunciado como "9:16 (story), 2 slides").
+  const leituras = [];
   for (const f of FORMATOS) {
     const larguraSlide = altura * f.r;
     const exato = largura / larguraSlide;
     const n = Math.round(exato);
-    if (n < 2 || n > 20) continue;
-    // 1 quando o encaixe é perfeito; cai conforme sobra ou falta pedaço.
-    const confianca = 1 - Math.abs(exato - n) / n;
-    if (confianca > melhor.confianca) melhor = { n, confianca, formato: f.nome };
+    if (n < 1 || n > 20) continue;
+    // O ERRO É EM SLIDES, não em porcentagem do total.
+    //
+    // A conta era `1 - erro / n`, e dividir pelo número de slides fazia um
+    // encaixe porco parecer ótimo quando n era grande: sobrar 1/9 de slide em
+    // 7 slides dava "98% de certeza". Agora conta o que realmente importa —
+    // quanto de UMA slide sobra ou falta. Errar meia slide é o pior caso
+    // possível, então vale zero.
+    const confianca = Math.max(0, 1 - Math.abs(exato - n) * 2);
+    leituras.push({ n, confianca, formato: f.nome });
   }
+
   // Nenhum formato conhecido encaixou: cai no palpite antigo, sem prometer nada.
-  if (!melhor.formato) {
-    return { n: Math.max(2, Math.min(20, Math.round(largura / LARGURA_SLIDE))), confianca: 0, formato: null };
+  if (!leituras.length) {
+    return { n: Math.max(1, Math.min(20, Math.round(largura / LARGURA_SLIDE))), confianca: 0, formato: null, alternativas: [] };
   }
-  return melhor;
+
+  // Empate acontece de verdade: 4320x1080 é "4 quadrados" E "5 slides 4:5",
+  // as duas contas fechando redondas. Fica com a ordem de FORMATOS (4:5 é o
+  // formato de carrossel mais usado) e DEVOLVE as outras leituras exatas, para
+  // a tela poder oferecer "ou 4" em vez de fingir que só existe uma resposta.
+  const melhor = leituras.reduce((a, b) => (b.confianca > a.confianca ? b : a));
+  const alternativas = leituras
+    .filter((l) => l.n !== melhor.n && l.confianca > 0.98)
+    .map((l) => ({ n: l.n, formato: l.formato }));
+  return { ...melhor, alternativas };
 }
 
 // Mede a arte: { largura, altura, fatiavel, sugestao, formato, confianca }.
@@ -71,8 +93,8 @@ export async function medirImagem(file) {
   URL.revokeObjectURL(url);
   // Só vale fatiar se a arte é bem mais larga que alta — uma tira, não um post.
   const fatiavel = largura > altura * 1.2;
-  const { n, confianca, formato } = sugerirSlides(largura, altura);
-  return { largura, altura, fatiavel, sugestao: n, confianca, formato };
+  const { n, confianca, formato, alternativas } = sugerirSlides(largura, altura);
+  return { largura, altura, fatiavel, sugestao: n, confianca, formato, alternativas };
 }
 
 // Corta a arte em `n` slides de largura igual, na ordem (esquerda → direita).

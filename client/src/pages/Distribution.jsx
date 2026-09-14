@@ -24,7 +24,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "../api/client.js";
 import { makeThumbnail } from "../upload/thumbnail.js";
-import { medirImagem, fatiarEmSlides, sugerirSlides } from "../upload/carousel.js";
+import { medirImagem, fatiarEmSlides, sugerirSlides, LARGURA_ALVO } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
@@ -801,7 +801,7 @@ function PieceCard({ item, onChanged, flash }) {
       if (medida?.fatiavel) {
         // daGaleria: ao cortar, a tira não vira slide — só as partes entram.
         setSlicer({ file, largura: medida.largura, altura: medida.altura, formato: medida.formato,
-                    confianca: medida.confianca, sugestaoFormato: medida.sugestao,
+                    confianca: medida.confianca, sugestaoFormato: medida.sugestao, alternativas: medida.alternativas,
                     texto: String(dentroDaFaixa(medida.sugestao)), daGaleria: id });
         return;
       }
@@ -842,7 +842,7 @@ function PieceCard({ item, onChanged, flash }) {
     try {
       const medida = await medirImagem(file);
       if (medida?.fatiavel) { setSlicer({ file, largura: medida.largura, altura: medida.altura, formato: medida.formato,
-                     confianca: medida.confianca, sugestaoFormato: medida.sugestao,
+                     confianca: medida.confianca, sugestaoFormato: medida.sugestao, alternativas: medida.alternativas,
                      texto: String(dentroDaFaixa(medida.sugestao)) }); return; }
     } catch { /* segue como slide única */ }
     setSlideUploading(true);
@@ -903,7 +903,7 @@ function PieceCard({ item, onChanged, flash }) {
         return;
       }
       setSlicer({ file, largura: medida.largura, altura: medida.altura, formato: medida.formato,
-                  confianca: medida.confianca, sugestaoFormato: medida.sugestao,
+                  confianca: medida.confianca, sugestaoFormato: medida.sugestao, alternativas: medida.alternativas,
                   texto: String(dentroDaFaixa(medida.sugestao)), substituir: id });
     } catch { flash("Não consegui abrir a arte para cortar.", "error"); }
   }
@@ -1230,16 +1230,40 @@ function PieceCard({ item, onChanged, flash }) {
                 onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
                 inputProps={{ min: MIN_SLIDES, max: MAX_SLIDES, inputMode: "numeric" }}
                 helperText={`De ${MIN_SLIDES} a ${MAX_SLIDES} slides — é o limite do Instagram.`} />
+              {/* Às vezes a mesma arte fecha redonda de DOIS jeitos: uma tira de
+                  4320×1080 é "4 quadrados" e também "5 slides 4:5". Em vez de
+                  escolher por ela e ficar quieto, a outra leitura aparece aqui
+                  a um clique. */}
+              {slicer?.alternativas?.length > 0 && (
+                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 1, flexWrap: "wrap" }}>
+                  <Typography variant="caption" color="text.secondary">Também encaixa em:</Typography>
+                  {slicer.alternativas.map((a) => (
+                    <Chip key={a.n} size="small" variant="outlined" label={`${a.n} · ${a.formato}`}
+                      onClick={() => setSlicer((st) => st && ({ ...st, texto: String(a.n) }))} />
+                  ))}
+                </Stack>
+              )}
               {slicer && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
                   {(() => {
                     const n = dentroDaFaixa(slicer.texto);
-                    const larguraSlide = Math.round(slicer.largura / n);
-                    const proporcao = (larguraSlide / slicer.altura).toFixed(2);
+                    const larguraNaArte = Math.round(slicer.largura / n);
+                    const proporcao = (larguraNaArte / slicer.altura).toFixed(2);
                     const sugerido = dentroDaFaixa(slicer.sugestaoFormato ?? n);
+                    // O TAMANHO QUE A SLIDE VAI TER DE VERDADE.
+                    //
+                    // Aqui aparecia a medida na resolução do ARQUIVO — mas o
+                    // corte entrega sempre 1080 de largura (é o que o Instagram
+                    // usa). Numa tira exportada em dobro, a tela prometia
+                    // "2160×2700px" e saía 1080×1350: a conta na tela não batia
+                    // com o resultado.
+                    const escala = Math.min(1, LARGURA_ALVO / larguraNaArte);
+                    const larguraFinal = Math.round(larguraNaArte * escala);
+                    const alturaFinal = Math.round(slicer.altura * escala);
                     return (
                       <>
-                        Cada slide fica <b>{larguraSlide}×{slicer.altura}px</b> (proporção {proporcao}).
+                        Cada slide fica <b>{larguraFinal}×{alturaFinal}px</b> (proporção {proporcao}).
+                        {escala < 1 && <> A arte é maior que isso e é reduzida no corte — 1080 é a largura que o Instagram publica.</>}
                         {slicer.formato && n !== sugerido && (
                           <> Pelo formato da arte, o corte que fecha certinho é em <b>{sugerido}</b>.</>
                         )}
