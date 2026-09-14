@@ -17,8 +17,12 @@ import { ehHeic, heicParaJpeg } from "./heic.js";
 // Por isso ela fica pequena de propósito: uma galeria com 200 arquivos devolve
 // 200 miniaturas na mesma resposta — guardar 1080x1440 em cada uma faria a
 // página levar uma eternidade para abrir.
-const LADO_MAX = 720;      // rascunho nítido o bastante em tela retina
-const QUALIDADE = 0.8;     // JPEG: ~110 KB numa arte cheia de texto
+// Medido no Chromium com uma arte de post de verdade (1080x1350, fundo chapado
+// com texto grande): a 720/q0.8 a miniatura sai com 36 KB — 120 arquivos numa
+// galeria viram 4,2 MB de resposta, tudo de uma vez. A 480/q0.78 sai com 20 KB
+// e, no quadradinho da grade (uns 200 px de tela), fica indistinguível.
+const LADO_MAX = 480;      // rascunho nítido o bastante em tela retina
+const QUALIDADE = 0.78;    // JPEG: ~20 KB numa arte cheia de texto
 
 // Desenha respeitando a proporção real — nada de esticar nem cortar.
 export function desenhar(fonte, larguraNatural, alturaNatural) {

@@ -8,9 +8,10 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
-import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2 } from "../storage.js";
+import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2, enderecoAssinado, nomeParaBaixar } from "../storage.js";
 import { confere } from "../pertence.js";
 import { bilheteDeMidia, enderecoDeMidia } from "../midia-url.js";
+import { emParalelo } from "../em-paralelo.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -49,7 +50,7 @@ async function serveFile(res, file, asAttachment, range) {
       if (!asAttachment) res.setHeader("Accept-Ranges", "bytes");
       if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
       if (!asAttachment && obj.ContentRange) { res.status(206); res.setHeader("Content-Range", obj.ContentRange); }
-      if (asAttachment) res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.original_name)}"`);
+      if (asAttachment) res.setHeader("Content-Disposition", nomeParaBaixar(file.original_name));
       else res.setHeader("Cache-Control", "private, max-age=86400");
       // Um erro no meio do envio (R2 caiu, ou o navegador cancelou a imagem)
       // emite 'error' no stream. Sem tratar, o Node derruba o processo inteiro
@@ -231,20 +232,27 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
     const bruto = req.body?.thumbs;
     thumbs = bruto ? JSON.parse(Array.isArray(bruto) ? bruto[0] : bruto) : [];
   } catch { thumbs = []; }
+  // Os arquivos vão para a nuvem em paralelo (alguns de cada vez). Em fila,
+  // 10 fotos eram 10 esperas de rede uma atrás da outra — e quem enviou ficava
+  // vendo a barra parada em 100% esse tempo todo.
+  const AO_MESMO_TEMPO = 4;
+  const guardados = await emParalelo(req.files || [], AO_MESMO_TEMPO, async (f) => {
+    if (!storageConfigured()) return f.path; // sem R2: fica no disco
+    try {
+      const key = `uploads/${req.orgId}/${f.filename}`;
+      const caminho = await uploadFileToR2(f.path, key, f.mimetype);
+      try { unlinkSync(f.path); } catch {} // já está no R2, apaga o local
+      return caminho;
+    } catch {
+      return f.path; // se o R2 falhar, não perde: mantém no disco
+    }
+  });
+
   const created = [];
   for (const [i, f] of (req.files || []).entries()) {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const name = Buffer.from(f.originalname, "latin1").toString("utf8");
-    let storedPath = f.path; // por padrão fica no disco
-    if (storageConfigured()) {
-      try {
-        const key = `uploads/${req.orgId}/${f.filename}`;
-        storedPath = await uploadFileToR2(f.path, key, f.mimetype);
-        try { unlinkSync(f.path); } catch {} // já está no R2, apaga o local
-      } catch {
-        storedPath = f.path; // se o R2 falhar, não perde: mantém no disco
-      }
-    }
+    const storedPath = guardados[i];
     const t = thumbs[i];
     const thumb = typeof t === "string" && t.startsWith("data:image/") && t.length <= LIMITE_THUMB ? t : null;
     const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, storedPath, stage, thumb, req.orgId);
@@ -290,18 +298,28 @@ router.post("/upload-zip", upload.single("zip"), async (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
-  let count = 0, ignorados = 0;
+  let ignorados = 0;
+  // Primeiro separa o que vale (fotos e vídeos); o resto nem é aberto.
+  const aproveitar = [];
   for (const e of entries) {
     if (e.isDirectory) continue;
     const nome = basename(e.entryName);
     if (!nome || nome.startsWith(".") || e.entryName.startsWith("__MACOSX")) continue;
     const mime = MIME_BY_EXT[extname(nome).toLowerCase()];
     if (!mime) { ignorados++; continue; } // só fotos e vídeos
+    aproveitar.push({ e, nome, mime });
+  }
 
-    const buf = e.getData();
+  // Um .zip de 200 fotos era 200 idas à nuvem em fila, dentro de UM pedido só,
+  // sem nada aparecer na tela enquanto isso. Agora alguns sobem juntos. O
+  // limite baixo é de propósito: segurar 200 fotos na memória derruba o
+  // servidor, e aqui no máximo 4 ficam abertas ao mesmo tempo.
+  const AO_MESMO_TEMPO = 4;
+  const prontos = await emParalelo(aproveitar, AO_MESMO_TEMPO, async ({ e, nome, mime }) => {
     const localName = `${Date.now()}-${randomUUID()}`;
     const localPath = join(UPLOADS_DIR, localName);
     try {
+      const buf = e.getData();
       writeFileSync(localPath, buf);
       let storedPath = localPath;
       if (storageConfigured()) {
@@ -310,9 +328,20 @@ router.post("/upload-zip", upload.single("zip"), async (req, res) => {
           try { unlinkSync(localPath); } catch {}
         } catch { storedPath = localPath; }
       }
-      stmt.run(folder_id || null, client_id || null, nome, mime, buf.length, storedPath, stage, req.orgId);
-      count++;
-    } catch { ignorados++; }
+      return { nome, mime, tamanho: buf.length, storedPath };
+    } catch {
+      try { unlinkSync(localPath); } catch {}
+      return null;
+    }
+  });
+
+  let count = 0;
+  // A gravação no banco fica aqui fora, na ordem do .zip — é rápida e mantém a
+  // sequência das fotos igual à da pasta que ela compactou.
+  for (const p of prontos) {
+    if (!p) { ignorados++; continue; }
+    stmt.run(folder_id || null, client_id || null, p.nome, p.mime, p.tamanho, p.storedPath, stage, req.orgId);
+    count++;
   }
   try { unlinkSync(req.file.path); } catch {} // apaga o zip temporário
 
