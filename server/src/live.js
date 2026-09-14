@@ -45,6 +45,12 @@ export function liveNotifier(req, res, next) {
   const m = req.method;
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return next();
   res.on("finish", () => {
+    // res.locals.semAviso: a rota gravou NADA (só conferiu, ou já estava tudo
+    // certo). Avisar mesmo assim faz todas as telas abertas — de todo mundo do
+    // escritório — recarregarem a lista à toa. Foi o que acontecia ao abrir um
+    // cliente na Galeria: a rota que garante as pastas padrão é um POST, então
+    // avisava sempre, e a lista de 1,25 MB vinha duas vezes.
+    if (res.locals?.semAviso) return;
     if (res.statusCode >= 200 && res.statusCode < 300 && req.orgId) {
       const resource = resourceFromPath(req.originalUrl);
       if (resource) broadcast(req.orgId, resource);

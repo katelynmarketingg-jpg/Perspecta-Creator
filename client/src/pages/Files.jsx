@@ -239,16 +239,38 @@ export default function Files() {
 
   useEffect(() => { api.get("/clients").then((r) => setClients(r.data)); }, []);
 
-  const loadDocs = () => {
-    if (!clientId) { setFolders([]); setFiles([]); return; }
-    // Pastas da pasta atual (na raiz, as sem "pai").
+  // A LISTA DE ARQUIVOS É A RESPOSTA MAIS PESADA DO SISTEMA.
+  //
+  // Cada arquivo leva a miniatura embutida, então um cliente com 120 arquivos
+  // devolve 1,25 MB. Medido ao abrir um cliente: essa MESMA lista era pedida
+  // TRÊS vezes seguidas — 3,75 MB para mostrar uma tela só. São três efeitos
+  // disparando quase juntos (o que garante as pastas padrão, o que responde à
+  // troca de cliente/pasta e o do canal ao vivo).
+  //
+  // Esta marca guarda qual lista já foi pedida. Pedido repetido da mesma coisa
+  // não sai de novo; pedido de outra pasta, de outro cliente ou depois de
+  // alguém mexer nos arquivos (vFiles) sai normalmente.
+  const ultimaLista = useRef(null);
+
+  const loadFolders = () => {
+    if (!clientId) { setFolders([]); return; }
     const fParams = { client_id: clientId };
     if (currentFolder) fParams.parent_id = currentFolder;
     api.get("/files/folders", { params: fParams }).then((r) => setFolders(ordenarPastas(r.data))).catch(() => setFolders([]));
+  };
+
+  const loadDocs = (forcar = false) => {
+    if (!clientId) { setFolders([]); setFiles([]); ultimaLista.current = null; return; }
+    loadFolders();
+    const marca = `${clientId}|${currentFolder || ""}|${vFilesRef.current}`;
+    if (!forcar && ultimaLista.current === marca) return;
+    ultimaLista.current = marca;
     // Arquivos da pasta atual (na raiz, os "soltos" sem pasta).
     const aParams = { client_id: clientId };
     if (currentFolder) aParams.folder_id = currentFolder;
-    api.get("/files", { params: aParams }).then((r) => setFiles(r.data)).catch(() => setFiles([]));
+    api.get("/files", { params: aParams })
+      .then((r) => setFiles(r.data))
+      .catch(() => { setFiles([]); ultimaLista.current = null; });
   };
   const loadAllFolders = () => {
     if (!clientId) { setAllFolders([]); return; }
@@ -257,11 +279,16 @@ export default function Files() {
   // Ao abrir um cliente, garante as pastas padrão (Originais, Editados…) dentro dele.
   useEffect(() => {
     if (!clientId) return;
-    api.post("/files/folders/ensure-defaults", { client_id: clientId }).then(loadDocs).catch(() => {});
+    // Só as PASTAS aqui: a lista de arquivos é pedida pelo efeito de baixo.
+    // Antes este ponto pedia a lista inteira também, e ela vinha duas vezes.
+    api.post("/files/folders/ensure-defaults", { client_id: clientId }).then(loadFolders).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
   // Ao vivo: 'vFiles' muda quando alguém envia/move/apaga arquivos.
   const vFiles = useLiveVersion("files");
+  const vFilesRef = useRef(vFiles);
+  vFilesRef.current = vFiles;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadDocs(); }, [clientId, currentFolder, vFiles]);
   useEffect(() => { loadAllFolders(); }, [clientId, vFiles]);
 
@@ -269,11 +296,11 @@ export default function Files() {
   async function salvarNome(id, nome) {
     setFiles((prev) => prev.map((x) => (x.id === id ? { ...x, original_name: nome } : x)));
     try { await api.put(`/files/${id}`, { original_name: nome }); }
-    catch { loadDocs(); }
+    catch { loadDocs(true); }
   }
   async function moverArquivoPasta() {
     await api.put(`/files/${moveTarget.id}`, { folder_id: moveTarget.folder_id || null });
-    setMoveTarget(null); loadDocs();
+    setMoveTarget(null); loadDocs(true);
   }
 
   function selectClient(id) { setClientId(id); setPath([]); }
@@ -282,7 +309,7 @@ export default function Files() {
   async function createFolder() {
     if (!newFolderName.trim()) return;
     await api.post("/files/folders", { name: newFolderName.trim(), client_id: clientId || null, parent_id: currentFolder });
-    setNewFolderName(""); setNewFolderOpen(false); loadDocs();
+    setNewFolderName(""); setNewFolderOpen(false); loadDocs(true);
   }
   async function removeFolder(id, nome) {
     // Apagar pasta apaga TUDO que está dentro dela, inclusive as subpastas, e
@@ -299,7 +326,7 @@ export default function Files() {
     } catch (err) {
       setZipMsg(err.response?.data?.error || "Não consegui excluir a pasta.");
     }
-    loadDocs();
+    loadDocs(true);
   }
   // Envia em SEGUNDO PLANO: solta os arquivos na fila e retorna na hora. A Katelyn
   // pode sair da galeria e seguir usando o sistema; o painel no canto mostra o
@@ -322,7 +349,7 @@ export default function Files() {
       if (currentFolder) form.append("folder_id", currentFolder);
       const { data } = await api.post("/files/upload-zip", form, { headers: { "Content-Type": "multipart/form-data" } });
       setZipMsg(`Importei ${data.count} arquivo(s) do ZIP${data.ignorados ? ` (${data.ignorados} ignorado(s) por não serem foto/vídeo)` : ""}.`);
-      loadDocs();
+      loadDocs(true);
     } catch (e) {
       setZipMsg(e.response?.data?.error || "Não foi possível importar o ZIP.");
     } finally {
@@ -334,7 +361,7 @@ export default function Files() {
 
   async function removeFile(id) {
     if (!confirm("Excluir arquivo?")) return;
-    await api.delete(`/files/${id}`); loadDocs();
+    await api.delete(`/files/${id}`); loadDocs(true);
   }
   function download(file) {
     authFetchBlob(file.id).then((blob) => {

@@ -199,11 +199,17 @@ router.post("/folders/ensure-defaults", (req, res) => {
     .prepare("SELECT name FROM folders WHERE org_id = ? AND client_id = ? AND parent_id IS NULL")
     .all(req.orgId, clientId);
   const tem = new Set(existentes.map((f) => f.name));
+  const faltando = DEFAULT_FOLDERS.filter((nome) => !tem.has(nome));
   const ins = db.prepare("INSERT INTO folders (name, client_id, parent_id, org_id) VALUES (?, ?, NULL, ?)");
   const tx = db.transaction(() => {
-    DEFAULT_FOLDERS.forEach((nome) => { if (!tem.has(nome)) ins.run(nome, clientId, req.orgId); });
+    faltando.forEach((nome) => ins.run(nome, clientId, req.orgId));
   });
   tx();
+  // Não criou nada: não avisa ninguém. Esta rota é chamada toda vez que alguém
+  // abre um cliente na Galeria, e como é um POST, o aviso automático saía
+  // SEMPRE — fazendo todas as telas abertas do escritório recarregarem a lista
+  // de arquivos (1,25 MB num cliente com 120) por nada.
+  if (!faltando.length) res.locals.semAviso = true;
   res.json(
     db.prepare("SELECT * FROM folders WHERE org_id = ? AND client_id = ? AND parent_id IS NULL ORDER BY name")
       .all(req.orgId, clientId)
@@ -546,7 +552,7 @@ router.put("/:id/thumb", (req, res) => {
   const file = db.prepare("SELECT id, thumb FROM files WHERE id = ? AND org_id = ?")
     .get(req.params.id, req.orgId);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
-  if (file.thumb) return res.json({ ok: true, ja_tinha: true });
+  if (file.thumb) { res.locals.semAviso = true; return res.json({ ok: true, ja_tinha: true }); }
 
   const t = req.body?.thumb;
   if (typeof t !== "string" || !t.startsWith("data:image/")) {
@@ -555,6 +561,11 @@ router.put("/:id/thumb", (req, res) => {
   if (t.length > 300 * 1024) return res.status(400).json({ error: "Miniatura grande demais." });
 
   db.prepare("UPDATE files SET thumb = ? WHERE id = ? AND org_id = ?").run(t, file.id, req.orgId);
+  // Miniatura é conserto interno, não mudança de conteúdo: ninguém precisa ser
+  // avisado. Sem isto, cada miniatura guardada por uma grade fazia TODAS as
+  // telas abertas do escritório recarregarem a lista de arquivos — que num
+  // cliente com 120 arquivos são 1,25 MB, vezes o número de quadros da grade.
+  res.locals.semAviso = true;
   res.json({ ok: true });
 });
 
@@ -565,7 +576,7 @@ router.put("/:id/previa", (req, res) => {
   const file = db.prepare("SELECT id, preview FROM files WHERE id = ? AND org_id = ?")
     .get(req.params.id, req.orgId);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
-  if (file.preview) return res.json({ ok: true, ja_tinha: true });
+  if (file.preview) { res.locals.semAviso = true; return res.json({ ok: true, ja_tinha: true }); }
 
   const p = req.body?.previa;
   if (typeof p !== "string" || !p.startsWith("data:image/")) {
@@ -576,6 +587,7 @@ router.put("/:id/previa", (req, res) => {
   if (p.length > 900 * 1024) return res.status(400).json({ error: "Prévia grande demais." });
 
   db.prepare("UPDATE files SET preview = ? WHERE id = ? AND org_id = ?").run(p, file.id, req.orgId);
+  res.locals.semAviso = true;   // conserto interno, igual à miniatura acima
   res.json({ ok: true });
 });
 
