@@ -281,9 +281,22 @@ export default function Files() {
     await api.post("/files/folders", { name: newFolderName.trim(), client_id: clientId || null, parent_id: currentFolder });
     setNewFolderName(""); setNewFolderOpen(false); loadDocs();
   }
-  async function removeFolder(id) {
-    if (!confirm("Excluir pasta e todo o conteúdo dela?")) return;
-    await api.delete(`/files/folders/${id}`); loadDocs();
+  async function removeFolder(id, nome) {
+    // Apagar pasta apaga TUDO que está dentro dela, inclusive as subpastas, e
+    // não tem como desfazer. O aviso diz isso com todas as letras — e depois a
+    // tela conta quantos arquivos foram embora, para não sobrar dúvida.
+    if (!confirm(
+      `Excluir a pasta "${nome || ""}" com TUDO que está dentro (inclusive subpastas)?\n\n`
+      + "Os arquivos são apagados de vez. Não dá para desfazer."
+    )) return;
+    try {
+      const { data } = await api.delete(`/files/folders/${id}`);
+      const n = data?.arquivos || 0;
+      setZipMsg(n ? `Pasta excluída — ${n} arquivo(s) removido(s).` : "Pasta excluída.");
+    } catch (err) {
+      setZipMsg(err.response?.data?.error || "Não consegui excluir a pasta.");
+    }
+    loadDocs();
   }
   // Envia em SEGUNDO PLANO: solta os arquivos na fila e retorna na hora. A Katelyn
   // pode sair da galeria e seguir usando o sistema; o painel no canto mostra o
@@ -396,7 +409,7 @@ export default function Files() {
                     <CardContent sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.5, "&:last-child": { pb: 1.5 } }}>
                       <FolderIcon sx={{ color: "primary.main" }} />
                       <Typography noWrap sx={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{f.name}</Typography>
-                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); removeFolder(f.id); }}>
+                      <IconButton size="small" onClick={(e) => { e.stopPropagation(); removeFolder(f.id, f.name); }}>
                         <DeleteIcon sx={{ fontSize: 16 }} />
                       </IconButton>
                     </CardContent>

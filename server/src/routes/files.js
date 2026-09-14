@@ -180,14 +180,32 @@ router.post("/folders/ensure-defaults", (req, res) => {
   );
 });
 
-router.delete("/folders/:id", (req, res) => {
-  const folder = db.prepare("SELECT id FROM folders WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+router.delete("/folders/:id", async (req, res) => {
+  const folder = db.prepare("SELECT id, name FROM folders WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!folder) return res.status(404).json({ error: "Pasta não encontrada." });
-  // Remove arquivos físicos da pasta (e subpastas ficam por conta do CASCADE).
-  const files = db.prepare("SELECT stored_path FROM files WHERE folder_id = ?").all(req.params.id);
-  files.forEach((f) => { removeStored(f.stored_path); });
+
+  // A PASTA INTEIRA, INCLUSIVE AS DE DENTRO.
+  //
+  // Antes só os arquivos soltos na pasta escolhida eram apagados de verdade.
+  // Os que estavam numa SUBPASTA sumiam do banco (por cascata) e os bytes
+  // ficavam na nuvem para sempre — invisíveis na galeria, impossíveis de
+  // recuperar e cobrados no fim do mês. Aqui a árvore é percorrida inteira.
+  const arvore = [Number(req.params.id)];
+  for (let i = 0; i < arvore.length; i++) {
+    const filhas = db.prepare("SELECT id FROM folders WHERE parent_id = ? AND org_id = ?").all(arvore[i], req.orgId);
+    for (const f of filhas) arvore.push(f.id);
+  }
+  const marcas = arvore.map(() => "?").join(",");
+  const arquivos = db.prepare(
+    `SELECT stored_path FROM files WHERE org_id = ? AND folder_id IN (${marcas})`
+  ).all(req.orgId, ...arvore);
+
+  // `await`: sem ele, a resposta saía antes de a remoção sequer começar, e
+  // qualquer falha da nuvem sumia sem deixar rastro.
+  await emParalelo(arquivos, 4, (f) => removeStored(f.stored_path));
+
   db.prepare("DELETE FROM folders WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
-  res.json({ ok: true });
+  res.json({ ok: true, pastas: arvore.length, arquivos: arquivos.length });
 });
 
 // ---- Arquivos ---------------------------------------------------------------
@@ -248,10 +266,25 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
     }
   });
 
+  // JÁ TEM UMA IGUAL AQUI?
+  //
+  // A galeria dela enche de "1.png", "2.png", "3.png" repetidos: manda o mesmo
+  // arquivo duas vezes e ficam dois, sem ninguém avisar. Bloquear seria pior —
+  // às vezes é de propósito, e perder o envio é imperdoável. Então o arquivo
+  // entra do mesmo jeito, mas a resposta diz que já havia um igual (mesmo nome
+  // e mesmo tamanho, na mesma pasta do mesmo cliente) e a tela mostra o aviso.
+  const jaTinha = db.prepare(
+    `SELECT id FROM files
+      WHERE org_id = ? AND original_name = ? AND size = ?
+        AND client_id IS ? AND folder_id IS ?
+      LIMIT 1`
+  );
+
   const created = [];
   for (const [i, f] of (req.files || []).entries()) {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const name = Buffer.from(f.originalname, "latin1").toString("utf8");
+    const repetida = Boolean(jaTinha.get(req.orgId, name, f.size, client_id || null, folder_id || null));
     const storedPath = guardados[i];
     const t = thumbs[i];
     const thumb = typeof t === "string" && t.startsWith("data:image/") && t.length <= LIMITE_THUMB ? t : null;
@@ -265,6 +298,7 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
       { id: novo.id, mime: novo.mime, original_name: novo.original_name, stored_path: storedPath },
       req.orgId,
     );
+    novo.repetida = repetida;
     created.push(novo);
   }
   res.status(201).json(created);

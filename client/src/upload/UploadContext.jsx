@@ -152,7 +152,7 @@ export function UploadProvider({ children }) {
     if (!files.length) return;
     setOpen(true);
     const novos = files.map((file) => ({
-      id: ++SEQ, name: file.name, progress: 0, status: "aguardando", error: null, _file: file,
+      id: ++SEQ, name: file.name, progress: 0, status: "aguardando", error: null, aviso: null, _file: file,
     }));
     setJobs((prev) => [...novos, ...prev]);
 
@@ -164,13 +164,20 @@ export function UploadProvider({ children }) {
         patch(job.id, { status: "enviando" });
         try {
           const criados = await uploadOne(job._file, opts, (p) => patch(job.id, { progress: p }));
-          patch(job.id, { status: "pronto", progress: 100 });
+          // O servidor avisa quando já havia um arquivo igual (mesmo nome e
+          // mesmo tamanho) naquela pasta. O envio não é bloqueado — às vezes é
+          // de propósito — mas o aviso evita a galeria encher de repetidos sem
+          // ninguém perceber.
+          patch(job.id, {
+            status: "pronto", progress: 100,
+            aviso: criados?.[0]?.repetida ? "já havia uma igual nesta pasta" : null,
+          });
           // Vídeo: agora que ele já está guardado, a miniatura pode demorar o
           // quanto precisar — não segura mais ninguém na fila.
           if (ehVideo(job._file)) mandaMiniaturaDepois(criados?.[0]?.id, job._file);
           // Dica extra pras telas que não usam SSE (o canal ao vivo já avisa).
           window.dispatchEvent(new CustomEvent("files-uploaded", { detail: opts }));
-          removeLater(job.id, 4000);
+          removeLater(job.id, criados?.[0]?.repetida ? 10000 : 4000);
         } catch (err) {
           patch(job.id, { status: "erro", error: err.message || "Falha no envio." });
           removeLater(job.id, 12000);
@@ -226,6 +233,9 @@ export function UploadProvider({ children }) {
                   )}
                   {j.status === "erro" && (
                     <Typography variant="caption" color="error">{j.error}</Typography>
+                  )}
+                  {j.status === "pronto" && j.aviso && (
+                    <Typography variant="caption" color="warning.main">{j.aviso}</Typography>
                   )}
                 </Box>
               ))}
