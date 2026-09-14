@@ -251,8 +251,26 @@ router.post("/reorder", (req, res) => {
 // Recebe a nova ordem (ids) e grava só a posição de cada peça.
 router.post("/reorder-position", (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  // Começa em 1 de propósito: 0 fica reservado para "não arrumado à mão", que é
+  // o padrão da coluna. Antes o primeiro quadro recebia 0 e ficava indistinguível
+  // de uma peça nunca arrastada.
   const upd = db.prepare("UPDATE tasks SET position = ? WHERE id = ? AND org_id = ?");
-  const tx = db.transaction(() => { ids.forEach((id, i) => upd.run(i, id, req.orgId)); });
+  const tx = db.transaction(() => { ids.forEach((id, i) => upd.run(i + 1, id, req.orgId)); });
+  tx();
+  res.json({ ok: true, updated: ids.length });
+});
+
+// POST /api/distribution/reorder-reset — devolve o perfil à ordem POR DATA.
+//
+// A saída para quando a bagunça já aconteceu: uma vez arrastado, o quadro fica
+// preso na posição salva e nenhuma mudança de data o move. Isto apaga as
+// posições e deixa a data mandar de novo. Não mexe em data nenhuma.
+router.post("/reorder-reset", (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  if (!ids.length) return res.json({ ok: true, updated: 0 });
+  // 0 é o "sem ordem manual" desta coluna (ela é NOT NULL DEFAULT 0) — não nulo.
+  const upd = db.prepare("UPDATE tasks SET position = 0 WHERE id = ? AND org_id = ?");
+  const tx = db.transaction(() => { ids.forEach((id) => upd.run(id, req.orgId)); });
   tx();
   res.json({ ok: true, updated: ids.length });
 });
@@ -263,6 +281,7 @@ router.put("/:id", (req, res) => {
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });
 
   const { caption, description, scheduled_at, file_id, cover_file_id, media_ids } = req.body || {};
+
 
   // Arquivo pendurado na peça tem que ser DESTA casa. Não era conferido: dava
   // para gravar aqui o id de um arquivo de outra agência. Ler esse arquivo

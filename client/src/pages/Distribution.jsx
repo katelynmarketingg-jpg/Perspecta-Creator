@@ -1500,7 +1500,7 @@ const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
 // Prévia do perfil ARRASTÁVEL: organiza o feed (salva a ORDEM). As datas ficam
 // paradas — cada peça mantém a sua. Sem data ou no passado aparece em vermelho
 // (clique para ajustar). O 1º fica em cima à esquerda; enche → direita → baixo.
-function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
+function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorData, titulo }) {
   // O PERFIL só tem o que já existe. Peça sem arte não é um quadrado cinza no
   // Instagram — ela simplesmente não está lá. Deixá-la na grade dava um perfil
   // falso, cheio de buracos que ninguém vai ver.
@@ -1546,11 +1546,21 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, titulo }) {
 
   return (
     <Box>
-      <Typography variant="subtitle2">{titulo}</Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ flexWrap: "wrap", gap: 1 }}>
+        <Typography variant="subtitle2">{titulo}</Typography>
+        {/* A saída quando a ordem arrastada e as datas já não batem: uma vez
+            arrastado, o quadro fica preso na posição e mudar a data não o move
+            mais. Isto devolve o mando à data, sem mexer em data nenhuma. */}
+        {onVoltarPorData && order.some((p) => (p.position || 0) > 0) && (
+          <Button size="small" onClick={() => onVoltarPorData(order.map((p) => p.id))}>
+            Voltar à ordem por data
+          </Button>
+        )}
+      </Stack>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
         O mais recente em cima à esquerda, como no perfil. Arraste para organizar (encaixa entre um e
         outro) — a ordem fica salva e as datas não mudam. Em vermelho = sem data ou no passado
-        (clique para ajustar).
+        (clique para ajustar). Mudar a data de uma peça devolve ela para o lugar que a data manda.
         {semArte > 0 && ` ${semArte} peça(s) ainda sem arte ficam de fora daqui.`}
       </Typography>
       <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
@@ -1640,6 +1650,17 @@ export default function Distribution() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [clientFilter, vTasks, vDist]);
 
+  // Volta o perfil à ordem POR DATA: apaga as posições salvas.
+  async function voltarPorData(ids) {
+    try {
+      await api.post("/distribution/reorder-reset", { ids });
+      flash("Perfil de volta à ordem por data.", "success");
+      load({ silent: true });
+    } catch (e) {
+      flash(e.response?.data?.error || "Não foi possível reorganizar.", "error");
+    }
+  }
+
   // Organiza o feed salvando SÓ a ordem (posição) — as datas ficam paradas.
   async function reorderPosition(ids) {
     // A ordem já foi aplicada na tela (otimista). Só persiste — sem recarregar,
@@ -1695,7 +1716,9 @@ export default function Distribution() {
       if (!map.has(i.id)) map.set(i.id, { ...i, file_id: i.cover_file_id || i.file_id });
     });
     return [...map.values()].sort((a, b) => {
-      const pa = a.position ?? 1e9, pb = b.position ?? 1e9;
+      // position 0 = nunca arrastada. Quem foi arrumada à mão vem na ordem que
+      // ela deu; o resto segue a data, mais recente primeiro.
+      const pa = a.position || 1e9, pb = b.position || 1e9;
       if (pa !== pb) return pa - pb;
       return (b.scheduled_at || "") > (a.scheduled_at || "") ? 1 : -1;
     });
@@ -1947,6 +1970,7 @@ export default function Distribution() {
         clientFilter ? (
           <Card><CardContent>
             <ReorderableFeed posts={feedPosts} onSelect={setSelected} onReorder={reorderPosition}
+                  onVoltarPorData={voltarPorData}
               titulo="Como o perfil vai ficar" />
           </CardContent></Card>
         ) : feedGroups.length === 0 ? (
@@ -1959,6 +1983,7 @@ export default function Distribution() {
             {feedGroups.map((g) => (
               <Card key={g.clientId}><CardContent>
                 <ReorderableFeed posts={g.posts} onSelect={setSelected} onReorder={reorderPosition}
+                  onVoltarPorData={voltarPorData}
                   titulo={`Perfil — ${g.clientName}`} />
               </CardContent></Card>
             ))}
