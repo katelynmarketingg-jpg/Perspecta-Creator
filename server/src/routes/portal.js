@@ -13,6 +13,7 @@ import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca, storageConfigured,
 import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 import { chaveDaPorta, trancada, registraErro, registraAcerto } from "../tranca.js";
 import { bilheteDeMidia, enderecosDeMidia, previasDe } from "../midia-url.js";
+import { avisarAprovacoesPendentes } from "../aviso-aprovacao.js";
 
 const router = Router();
 
@@ -427,6 +428,10 @@ router.post("/approvals/:id/approve", (req, res) => {
     ? `✅ ${req.client.name} aprovou "${task.title}" — programado.`
     : `✅ ${req.client.name} aprovou "${task.title}". Clique em Programar para agendar.`;
   notifyAgency(task.client_id, task.id, aviso, task.org_id, task.assignee_id || null);
+  // O aviso "você tem N para aprovar" tem que cair para N-1 agora. Sem isto ele
+  // ficava com o número antigo até a agência mandar outra peça — o cliente via
+  // "8 para aprovar" em cima de uma lista com 7.
+  avisarAprovacoesPendentes(task.org_id, task.client_id);
   res.json({ ok: true });
 });
 
@@ -453,6 +458,7 @@ router.post("/approvals/:id/request-changes", (req, res) => {
      client_caption = ?, client_note = ?, client_ref_file_id = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
   ).run(client_caption ?? null, client_note ?? null, refId, back?.id ?? null, task.id);
   notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`, task.org_id, task.assignee_id || null);
+  avisarAprovacoesPendentes(task.org_id, task.client_id);
   res.json({ ok: true });
 });
 

@@ -8,6 +8,7 @@ import {
 } from "@mui/material";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import FeedPreview from "../components/FeedPreview.jsx";
+import { sugerirSlides } from "../upload/carousel.js";
 import TextoDoContrato from "../components/TextoDoContrato.jsx";
 import PostComments from "../components/PostComments.jsx";
 import Galeria from "../components/Galeria.jsx";
@@ -37,15 +38,20 @@ const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 // Imagem/vídeo anexado, carregado com o token do portal.
 // `capa` (a miniatura escolhida) vira o quadro parado do vídeo: o post aparece
 // com a arte certa e continua dando para dar play.
-function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
-  const [src, setSrc] = useState(mediaUrl || null);
+function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, previaUrl = null, capa }) {
+  // A PRÉVIA primeiro (arte já reduzida para 1080 px): é o que o cliente vê na
+  // tela do celular, e poupa os dados móveis dele. Vídeo nunca tem prévia —
+  // continua tocando por trechos, pelo endereço da arte.
+  const ehFoto = !(mime || "").startsWith("video/");
+  const melhor = (ehFoto && previaUrl) || mediaUrl || null;
+  const [src, setSrc] = useState(melhor);
   const [erro, setErro] = useState(false);
   const ehVideoAqui = (mime || "").startsWith("video/");
   useEffect(() => {
     setErro(false);
     // Com media_url (link inline), toca/mostra direto por streaming — sem baixar
     // o arquivo inteiro (essencial para vídeo grande, que travava antes).
-    if (mediaUrl) { setSrc(mediaUrl); return undefined; }
+    if (melhor) { setSrc(melhor); return undefined; }
     if (!fileId) return undefined;
     let vivo = true;
     // Pelo carregador compartilhado: é ele que converte a foto de iPhone
@@ -56,7 +62,7 @@ function AuthImg({ fileId, alt, mime, maxHeight = 360, mediaUrl, capa }) {
       .then((m) => { if (vivo) setSrc(m.url); })
       .catch(() => { if (vivo) setErro(true); });
     return () => { vivo = false; };   // não revoga: o cache é dono da URL
-  }, [fileId, mediaUrl, mime]);
+  }, [fileId, mediaUrl, melhor, mime]);
 
   // Com link inline, o <img>/<video> pode falhar (formato que o navegador não
   // desenha). Aí baixamos e convertemos — uma vez só.
@@ -237,7 +243,7 @@ function PostDialog({ post, onClose }) {
           </Stack>
           {attachments.map((f) => (
             <AuthImg key={f.id} fileId={f.id} alt={f.original_name} mime={f.mime} maxHeight={460}
-              mediaUrl={f.media_url} capa={f.thumb || f.cover_thumb} />
+              mediaUrl={f.media_url} previaUrl={f.preview_url} capa={f.thumb || f.cover_thumb} />
           ))}
           <Divider />
           <Typography variant="subtitle2" color="text.secondary">Legenda</Typography>
@@ -273,11 +279,16 @@ const ehMidiaAprovacao = (f) =>
 // cai no carregador compartilhado, que converte. Assim a foto aparece sem
 // deixar todas as outras mais lentas.
 function Foto({ file }) {
-  const [src, setSrc] = useState(file.media_url || null);
+  // A PRÉVIA primeiro: a arte já reduzida para 1080 px, que é exatamente o que
+  // cabe na tela do celular dele. Medido aqui, uma lista de 8 aprovações
+  // baixava 11 MB de arte original — nos dados móveis do cliente.
+  const [src, setSrc] = useState(file.preview_url || file.media_url || null);
   const [erro, setErro] = useState(false);
   const tentouConverter = useRef(false);
 
   async function naoDesenhou() {
+    // A prévia não desenhou: tenta a arte antes de desistir.
+    if (src === file.preview_url && file.media_url) { setSrc(file.media_url); return; }
     if (tentouConverter.current) { setErro(true); return; }
     tentouConverter.current = true;
     try {
@@ -297,7 +308,10 @@ function Foto({ file }) {
     );
   }
   return (
-    <Box component="img" src={src} alt={file.original_name} onError={naoDesenhou}
+    // loading="lazy": a lista de aprovações desenha uma arte por peça. Sem
+    // isto, abrir a aba puxava TODAS de uma vez, inclusive as que estão lá
+    // embaixo, fora da tela.
+    <Box component="img" src={src} alt={file.original_name} onError={naoDesenhou} loading="lazy" decoding="async"
       sx={{ width: "100%", maxHeight: 520, objectFit: "contain", borderRadius: 2, bgcolor: "action.hover", display: "block" }} />
   );
 }
@@ -323,8 +337,13 @@ function CarrosselLargoPortal({ file }) {
   function medir(e) {
     const w = e.currentTarget.naturalWidth, h = e.currentTarget.naturalHeight;
     if (!w || !h) return;
-    const n = Math.max(1, Math.round(w / 1080));
-    setDim({ w, h, n, slideW: w / n });
+    // Pelo FORMATO, não por 1080 fixo. Esta conta ficou para trás quando o lado
+    // da agência foi corrigido: dividir a largura por 1080 ignora a altura, que
+    // é o que diz a largura de UMA slide. Numa tira exportada em dobro, o
+    // cliente via "12 slides" de uma arte que tem 6, cada janela cortando as
+    // artes ao meio.
+    const { n } = sugerirSlides(w, h);
+    setDim({ w, h, n: Math.max(1, n), slideW: w / Math.max(1, n) });
   }
   const n = dim?.n || 1;
   const cur = Math.min(idx, n - 1);
