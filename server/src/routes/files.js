@@ -408,6 +408,18 @@ router.get("/diagnostico", async (req, res) => {
              amostra_disco: emDisco.length, sumiram_do_disco: sumiramDoDisco });
 });
 
+// GET /api/files/:id/link — o endereço PELO NOSSO SERVIDOR para um arquivo.
+//
+// Existe para o caso em que o endereço direto da nuvem não serve: telas que
+// CAPTURAM um quadro do vídeo (escolher a capa) desenham num canvas, e o
+// navegador proíbe capturar de mídia que veio de outro domínio. Deste endereço
+// a captura funciona, porque é o nosso próprio domínio.
+router.get("/:id/link", (req, res) => {
+  const f = db.prepare("SELECT id FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!f) return res.status(404).json({ error: "Arquivo não encontrado." });
+  res.json({ url: bilheteDeMidia(f.id, req.orgId) });
+});
+
 router.get("/:id/thumb", (req, res) => {
   const f = db.prepare("SELECT thumb FROM files WHERE id = ? AND org_id = ?")
     .get(req.params.id, req.orgId);

@@ -19,6 +19,8 @@ function Celula({ post, fetchFile, onClick }) {
   const [src, setSrc] = useState(null);
   const [tipo, setTipo] = useState(post.mime || "");
   const [erro, setErro] = useState(false);
+  // Se o endereço direto não desenhar (.HEIC de iPhone), aí sim baixa e converte.
+  const [baixarMesmo, setBaixarMesmo] = useState(false);
 
   const fileId = post.file_id;
   const thumb = post.thumb || null;
@@ -29,6 +31,12 @@ function Celula({ post, fetchFile, onClick }) {
     if (!fileId) return undefined;
     // Vídeo com endereço próprio toca direto, sem baixar nada por aqui.
     if (ehVideo && post.media_url) return undefined;
+    // FOTO com endereço próprio também: desenha a arte em qualidade cheia direto
+    // da nuvem, com a miniatura por baixo enquanto ela chega. Antes só o vídeo
+    // tinha esse caminho — a foto era BAIXADA inteira por aqui, o que era lento
+    // e, quando o download falhava, deixava a grade parada na miniatura
+    // comprimida. Era isso que fazia a prévia do perfil parecer embaçada.
+    if (post.media_url && !baixarMesmo) { setSrc(post.media_url); return undefined; }
     let url;
     let vivo = true;
     fetchFile(fileId)
@@ -41,7 +49,7 @@ function Celula({ post, fetchFile, onClick }) {
       // Sem a arte inteira, a miniatura (se houver) continua na tela.
       .catch(() => { if (vivo && !thumb) setErro(true); });
     return () => { vivo = false; if (url) URL.revokeObjectURL(url); };
-  }, [fileId, thumb, post.mime, post.media_url, ehVideo, fetchFile]);
+  }, [fileId, thumb, post.mime, post.media_url, ehVideo, fetchFile, baixarMesmo]);
 
   const aprovado = post.approval_status === "approved" || post.stage_done;
 
@@ -70,8 +78,14 @@ function Celula({ post, fetchFile, onClick }) {
         {src && (/^video\//.test(tipo)
           ? <Box component="video" src={`${src}#t=0.1`} preload="metadata" muted playsInline
               sx={{ ...(thumb ? porCima : midiaSx), bgcolor: "#000" }} onError={() => setErro(true)} />
-          : <Box component="img" src={src} alt={post.title} sx={thumb ? porCima : midiaSx}
-              onError={() => setErro(true)} />)}
+          : <Box component="img" src={src} alt={post.title} loading="lazy" decoding="async"
+              sx={thumb ? porCima : midiaSx}
+              onError={() => {
+                // Pelo endereço direto não desenhou (.HEIC): baixa e converte.
+                // Só marca erro quando nem isso resolve e não há miniatura.
+                if (src === post.media_url) setBaixarMesmo(true);
+                else if (!thumb) setErro(true);
+              }} />)}
       </>
     );
   } else {

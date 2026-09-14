@@ -296,6 +296,13 @@ router.put("/:id", (req, res) => {
     const ids = Array.isArray(media_ids) ? media_ids.map(Number).filter(Number.isFinite) : [];
     db.prepare("UPDATE tasks SET media_ids = ? WHERE id = ? AND org_id = ?")
       .run(ids.length ? JSON.stringify(ids) : null, req.params.id, req.orgId);
+    // TIRAR A ARTE: lista de slides vazia E file_id nulo no mesmo pedido quer
+    // dizer "esta peça fica sem arte". Sem este caso, o anexo sobrevivia ao
+    // pedido de limpar (a regra de baixo só roda quando media_ids NÃO vem) e a
+    // peça continuava com a arte errada pendurada.
+    if (!ids.length && file_id === null) {
+      db.prepare("DELETE FROM task_attachments WHERE task_id = ?").run(req.params.id);
+    }
     // a inicial do carrossel vira a capa do perfil, e a mídia principal da peça
     if (ids.length) {
       db.prepare("UPDATE tasks SET cover_file_id = ? WHERE id = ? AND org_id = ?").run(ids[0], req.params.id, req.orgId);
