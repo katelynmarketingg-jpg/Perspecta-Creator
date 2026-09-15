@@ -66,6 +66,44 @@ test("arte que não é tira de nada não inventa certeza", () => {
   assert.ok(r.confianca < 0.99, "não pode dizer que fechou redondo quando não fechou");
 });
 
+// A CAPA DE UM CARROSSEL É UM POST, NÃO UMA TIRA.
+//
+// Quando a conta não fecha em formato nenhum, a resposta ainda saía com cara de
+// certeza — e a capa de um carrossel virava "1 / 2" no card. O visor então
+// desenhava a arte com o DOBRO da largura da caixa e ela estourava o card.
+test("quando a conta não fecha, uma arte que não é tira vale 1 slide", () => {
+  for (const [w, h] of [[1200, 1000], [1000, 900], [1080, 1350], [1080, 1080]]) {
+    const r = sugerirSlides(w, h);
+    assert.equal(r.n, 1, `${w}x${h} não é uma tira; deu ${r.n} em "${r.formato}"`);
+  }
+});
+
+test("tira de 2 slides, que é a mais estreita possível, continua valendo", () => {
+  // O limite é justamente aqui: duas slides lado a lado dão uma arte só um
+  // pouco mais larga que alta. Elas encaixam EXATO, e é isso que as separa de
+  // uma capa quase quadrada.
+  assert.equal(sugerirSlides(2160, 1920).n, 2, "duas slides 9:16");
+  assert.equal(sugerirSlides(2160, 1350).n, 2, "duas slides 4:5");
+  assert.equal(sugerirSlides(2160, 1080).n, 2, "dois quadrados");
+});
+
+test("encaixe frouxo não passa por encaixe", () => {
+  // 7 slides 9:16 numa arte de 1200x1000 "fechavam" com 98% pela conta antiga,
+  // que dividia o erro pelo número de slides: quanto mais slides, mais fácil
+  // parecer certo.
+  const r = sugerirSlides(1200, 1000);
+  assert.equal(r.confianca, 0, `deu ${r.confianca} de certeza numa arte que não encaixa`);
+  assert.equal(r.formato, null);
+});
+
+test("tira larga cujo formato não bate ainda dá um palpite útil", () => {
+  // 5000x1350 é claramente uma tira (bem mais larga que alta), mesmo sem fechar
+  // redondo. Aí o palpite antigo (largura ÷ 1080) é melhor que dizer "1".
+  const r = sugerirSlides(5000, 1350);
+  assert.ok(r.n >= 4 && r.n <= 5, `esperava um palpite de tira, deu ${r.n}`);
+  assert.equal(r.confianca, 0, "e sem prometer certeza");
+});
+
 test("medida ausente não quebra", () => {
   const r = sugerirSlides(0, 0);
   assert.equal(r.n, 2);

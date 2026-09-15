@@ -190,7 +190,7 @@ const fromInput = (v) => (v ? v.replace("T", " ").slice(0, 16) : "");
 // Reel e stories são sempre vídeo; fora isso, o tipo do arquivo decide.
 const pecaEhVideo = (p) => ["reel", "stories"].includes(p?.content_type) || /^video\//.test(p?.mime || "");
 
-function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, previaUrl = null, ehVideoDica = false, comecoDaTira = false, natural = false }) {
+function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, previaUrl = null, ehVideoDica = false, comecoDaTira = false, natural = false, mesmaAltura = false }) {
   const [src, setSrc] = useState(null);
   const [video, setVideo] = useState(false);
   const [capa, setCapa] = useState(null);
@@ -251,11 +251,24 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   // jeito certo de ver o post (retrato 4:5, reel 9:16, etc.) na Distribuição.
   // Carrossel salvo como UMA imagem larga: onde o quadro representa a CAPA, o
   // que tem de aparecer é o começo da tira — os primeiros 1080px da esquerda.
+  // mesmaAltura: TODOS OS CARDS DA LISTA COM A MESMA ALTURA.
+  //
+  // No modo natural cada peça aparece na proporção real dela — e aí um reel
+  // (9:16) fica muito mais alto que um post (4:5), deixando a grade desalinhada.
+  // Nesta caixa a arte é ENCAIXADA num retrato 4:5: post e carrossel preenchem
+  // exatamente (não sobra nada), e o reel entra inteiro, um pouco menor, sem
+  // cortar nada do vídeo e sem esticar.
   const sx = natural
-    ? {
+    ? (mesmaAltura
+      ? {
+          width: "100%", aspectRatio: "4 / 5", height: "auto", objectFit: "contain",
+          display: "block", borderRadius: 2, bgcolor: "action.hover",
+          objectPosition: comecoDaTira ? "left center" : "center",
+        }
+      : {
         width: "100%", height: "auto", display: "block", borderRadius: 2,
         objectPosition: comecoDaTira ? "left center" : "center",
-      }
+      })
     : {
         width: "100%", height, objectFit: fit, borderRadius: 2,
         objectPosition: comecoDaTira && !contain ? "left center" : "center",
@@ -287,7 +300,9 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   const mostraControles = natural || height > 120;
   // No modo natural o vídeo também aparece na proporção real (altura automática);
   // fora dele, mantém a caixa de altura fixa com o vídeo contido em fundo preto.
-  const sxVideo = natural ? { ...sx, bgcolor: "#000" } : { ...sx, objectFit: "contain", bgcolor: "#000" };
+  const sxVideo = natural
+    ? { ...sx, ...(mesmaAltura ? {} : { bgcolor: "#000" }) }
+    : { ...sx, objectFit: "contain", bgcolor: "#000" };
   if (transmite) {
     // Se o endereço direto não desenhar (.HEIC de iPhone, arquivo estranho),
     // cai para o download antigo em vez de mostrar erro.
@@ -350,7 +365,7 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
 // post) e desliza em JANELAS de 1080px com a setinha — a 1ª janela são os
 // primeiros 1080px da esquerda (a capa). É recorte por CSS sobre o arquivo
 // cheio (qualidade real), sem cortar nada em disco.
-function CarrosselLargo({ fileId, streamUrl = null }) {
+function CarrosselLargo({ fileId, streamUrl = null, mesmaAltura = false }) {
   const [full, setFull] = useState(null);
   const [dim, setDim] = useState(null);   // { w, h, n, slideW }
   const [idx, setIdx] = useState(0);
@@ -390,14 +405,38 @@ function CarrosselLargo({ fileId, streamUrl = null }) {
   const n = dim?.n || 1;
   const cur = Math.min(idx, n - 1);
   // Caixa na proporção de UMA slide (≈ 4:5). Enquanto não mediu, usa 4:5 padrão.
+  // mesmaAltura: a caixa é sempre um retrato 4:5, para o card ficar do mesmo
+  // tamanho dos outros da lista (ver o comentário em Media).
   const box = {
     position: "relative", width: "100%", overflow: "hidden", borderRadius: 2, bgcolor: "action.hover",
-    aspectRatio: dim ? `${dim.slideW} / ${dim.h}` : "4 / 5",
+    aspectRatio: mesmaAltura ? "4 / 5" : (dim ? `${dim.slideW} / ${dim.h}` : "4 / 5"),
   };
   // A arte cheia tem N slides de largura; a janela mostra uma por vez e desliza.
+  //
+  // Numa caixa de proporção fixa, a slide não pode ser esticada para caber:
+  // `fator` é o quanto UMA slide ocupa da largura da caixa quando ela é
+  // encaixada pela altura. Com a tira ancorada no meio da caixa, deslizar é
+  // sempre a mesma conta — a porcentagem do translate é sobre a largura da
+  // TIRA, então ela não depende do fator.
+  const R_CAIXA = 4 / 5;                                  // a caixa de altura igual
+  const rFatia = dim ? dim.slideW / dim.h : R_CAIXA;      // proporção de UMA slide
+  // A slide tem que caber INTEIRA, nunca ser recortada: se ela é mais "larga"
+  // que a caixa (um quadrado, por exemplo), encaixa pela largura e sobra espaço
+  // em cima e embaixo; se é mais "alta" (uma slide de story), encaixa pela
+  // altura e sobra dos lados. Sem essa distinção, uma capa 1:1 perdia 12% de
+  // cada lado dentro do 4:5.
+  const pelaLargura = rFatia >= R_CAIXA;
+  const fator = rFatia / R_CAIXA;
   const imgSx = dim
-    ? { position: "absolute", top: 0, left: 0, height: "100%", width: `${n * 100}%`, maxWidth: "none",
-        transform: `translateX(-${cur * (100 / n)}%)`, transition: "transform .2s ease", display: "block" }
+    ? (mesmaAltura
+      ? (pelaLargura
+        ? { position: "absolute", top: "50%", left: 0, width: `${n * 100}%`, height: "auto", maxWidth: "none",
+            transform: `translate(-${cur * (100 / n)}%, -50%)`, transition: "transform .2s ease", display: "block" }
+        : { position: "absolute", top: 0, left: "50%", height: "100%", width: `${n * 100 * fator}%`,
+            maxWidth: "none", transform: `translateX(-${((cur + 0.5) / n) * 100}%)`,
+            transition: "transform .2s ease", display: "block" })
+      : { position: "absolute", top: 0, left: 0, height: "100%", width: `${n * 100}%`, maxWidth: "none",
+          transform: `translateX(-${cur * (100 / n)}%)`, transition: "transform .2s ease", display: "block" })
     : { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "left center", display: "block" };
 
   if (erro) return <Box sx={{ ...box, display: "grid", placeItems: "center", color: "error.main", fontSize: 13 }}>Arte não carregou</Box>;
@@ -1862,8 +1901,8 @@ export default function Distribution() {
                           </Stack>
                           {p.client_name && <Typography variant="caption" color="text.secondary">{p.client_name}</Typography>}
                           {p.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={p.cover_file_id || p.file_id} streamUrl={enderecoDaPeca(p)} />
-                            : <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} natural
+                            ? <CarrosselLargo fileId={p.cover_file_id || p.file_id} streamUrl={enderecoDaPeca(p)} mesmaAltura />
+                            : <Media fileId={p.file_id || p.cover_file_id} capaId={p.cover_file_id} natural mesmaAltura
                                 streamUrl={enderecoDaPeca(p)} ehVideoDica={pecaEhVideo(p)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
@@ -1900,8 +1939,8 @@ export default function Distribution() {
                           </Stack>
                           {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
                           {w.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} streamUrl={enderecoDaPeca(w)} />
-                            : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural
+                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} streamUrl={enderecoDaPeca(w)} mesmaAltura />
+                            : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural mesmaAltura
                                 streamUrl={enderecoDaPeca(w)} ehVideoDica={pecaEhVideo(w)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
                           <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
@@ -1939,8 +1978,8 @@ export default function Distribution() {
                           </Stack>
                           {a.client_name && <Typography variant="caption" color="text.secondary">{a.client_name}</Typography>}
                           {a.content_type === "carrossel"
-                            ? <CarrosselLargo fileId={a.cover_file_id || a.file_id} streamUrl={enderecoDaPeca(a)} />
-                            : <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} natural
+                            ? <CarrosselLargo fileId={a.cover_file_id || a.file_id} streamUrl={enderecoDaPeca(a)} mesmaAltura />
+                            : <Media fileId={a.file_id || a.cover_file_id} capaId={a.cover_file_id} natural mesmaAltura
                                 streamUrl={enderecoDaPeca(a)} ehVideoDica={pecaEhVideo(a)} />}
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
