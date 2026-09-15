@@ -427,6 +427,28 @@ router.put("/:id", (req, res) => {
   res.json(publicClient(client));
 });
 
+// Arquivar o cliente em vez de apagar: guarda o mês do último pagamento e marca
+// como 'archived'. O histórico (financeiro, contratos, conteúdos) fica intacto.
+router.post("/:id/archive", (req, res) => {
+  const client = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
+  const mes = String(req.body?.last_payment_month || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(mes)) return res.status(400).json({ error: "Informe o mês do último pagamento (AAAA-MM)." });
+  db.prepare(
+    "UPDATE clients SET status = 'archived', archived_at = datetime('now'), last_payment_month = ? WHERE id = ? AND org_id = ?"
+  ).run(mes, req.params.id, req.orgId);
+  res.json({ ok: true });
+});
+
+// Reativar um cliente arquivado (volta para ativo, sem perder o histórico).
+router.post("/:id/unarchive", (req, res) => {
+  const r = db.prepare(
+    "UPDATE clients SET status = 'active', archived_at = NULL WHERE id = ? AND org_id = ?"
+  ).run(req.params.id, req.orgId);
+  if (!r.changes) return res.status(404).json({ error: "Cliente não encontrado." });
+  res.json({ ok: true });
+});
+
 router.delete("/:id", (req, res) => {
   db.prepare("DELETE FROM clients WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });

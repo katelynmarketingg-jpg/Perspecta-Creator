@@ -8,6 +8,8 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import ArchiveIcon from "@mui/icons-material/Archive";
+import UnarchiveIcon from "@mui/icons-material/Unarchive";
 import DriveIcon from "@mui/icons-material/AddToDrive";
 import DescriptionIcon from "@mui/icons-material/Description";
 import PsychologyIcon from "@mui/icons-material/Psychology";
@@ -106,7 +108,8 @@ export default function Clients() {
   }
 
   const filtrados = rows.filter((c) => {
-    if (filtroStatus && c.status !== filtroStatus) return false;
+    if (filtroStatus) { if (c.status !== filtroStatus) return false; }
+    else if (c.status === "archived") return false;   // "Todos" não mostra arquivados
     if (busca) {
       const alvo = `${c.name} ${c.company || ""} ${c.segment || ""}`.toLowerCase();
       if (!alvo.includes(busca.toLowerCase())) return false;
@@ -210,9 +213,28 @@ export default function Clients() {
     load();
   }
 
-  async function remove(id) {
-    if (!confirm("Excluir cliente?")) return;
-    await api.delete(`/clients/${id}`);
+  // Arquivar (não apaga): pergunta o mês do último pagamento e marca como
+  // arquivado, mantendo o histórico. { id, name, month }.
+  const [arquivar, setArquivar] = useState(null);
+  function abrirArquivar(c) {
+    const hoje = new Date();
+    const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+    setArquivar({ id: c.id, name: c.name, month: c.last_payment_month || mesAtual, saving: false });
+  }
+  async function confirmarArquivar() {
+    if (!arquivar?.month) return;
+    setArquivar((a) => ({ ...a, saving: true }));
+    try {
+      await api.post(`/clients/${arquivar.id}/archive`, { last_payment_month: arquivar.month });
+      setArquivar(null);
+      load();
+    } catch (e) {
+      alert(e.response?.data?.error || "Não foi possível arquivar.");
+      setArquivar((a) => a && ({ ...a, saving: false }));
+    }
+  }
+  async function desarquivar(id) {
+    await api.post(`/clients/${id}/unarchive`);
     load();
   }
 
@@ -233,6 +255,7 @@ export default function Clients() {
             <MenuItem value="">Todos</MenuItem>
             <MenuItem value="active">Ativos</MenuItem>
             <MenuItem value="inactive">Inativos</MenuItem>
+            <MenuItem value="archived">Arquivados</MenuItem>
           </TextField>
         </Stack>
       )}
@@ -307,8 +330,14 @@ export default function Clients() {
                       })()}
                     </TableCell>
                     <TableCell>
-                      <Chip size="small" label={c.status === "active" ? "Ativo" : "Inativo"}
-                        color={c.status === "active" ? "success" : "default"} />
+                      {c.status === "archived" ? (
+                        <Tooltip title={c.last_payment_month ? `Último pagamento: ${c.last_payment_month}` : "Cliente arquivado"}>
+                          <Chip size="small" label="Arquivado" color="warning" variant="outlined" />
+                        </Tooltip>
+                      ) : (
+                        <Chip size="small" label={c.status === "active" ? "Ativo" : "Inativo"}
+                          color={c.status === "active" ? "success" : "default"} />
+                      )}
                     </TableCell>
                     <TableCell align="right">
                       {c.drive_url && (
@@ -326,7 +355,15 @@ export default function Clients() {
                         <IconButton size="small" onClick={() => setCerebro(c)}><PsychologyIcon fontSize="small" /></IconButton>
                       </Tooltip>
                       <IconButton size="small" onClick={() => openEdit(c)}><EditIcon fontSize="small" /></IconButton>
-                      <IconButton size="small" color="error" onClick={() => remove(c.id)}><DeleteIcon fontSize="small" /></IconButton>
+                      {c.status === "archived" ? (
+                        <Tooltip title="Reativar cliente">
+                          <IconButton size="small" color="success" onClick={() => desarquivar(c.id)}><UnarchiveIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="Arquivar cliente (guarda o histórico)">
+                          <IconButton size="small" color="error" onClick={() => abrirArquivar(c)}><ArchiveIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -700,6 +737,29 @@ export default function Clients() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setLink(null)}>Fechar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Arquivar cliente: pede o mês do último pagamento e guarda o histórico */}
+      <Dialog open={Boolean(arquivar)} onClose={() => !arquivar?.saving && setArquivar(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Arquivar {arquivar?.name}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            O cliente sai da lista de ativos e fica como <strong>arquivado</strong> — o histórico
+            (financeiro, contratos e conteúdos) continua guardado. Informe o <strong>mês do último
+            pagamento</strong>.
+          </Typography>
+          <TextField type="month" label="Mês do último pagamento" fullWidth autoFocus
+            InputLabelProps={{ shrink: true }}
+            value={arquivar?.month || ""}
+            onChange={(e) => setArquivar((a) => a && ({ ...a, month: e.target.value }))} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setArquivar(null)} disabled={arquivar?.saving}>Cancelar</Button>
+          <Button variant="contained" color="warning" startIcon={<ArchiveIcon />}
+            disabled={!arquivar?.month || arquivar?.saving} onClick={confirmarArquivar}>
+            {arquivar?.saving ? "Arquivando…" : "Arquivar"}
+          </Button>
         </DialogActions>
       </Dialog>
     </>

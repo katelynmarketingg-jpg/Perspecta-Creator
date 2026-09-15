@@ -411,6 +411,10 @@ ensureColumn("clients", "banner_file_id", "banner_file_id INTEGER"); // imagem/b
 // Tipo de cobrança: 'pagante' (padrão) | 'permuta' | 'trabalho_proprio' | 'cortesia'.
 // Não pagante não gera mensalidade no financeiro.
 ensureColumn("clients", "billing_type", "billing_type TEXT DEFAULT 'pagante'");
+// Arquivamento: quando o cliente sai, guardamos o mês do último pagamento e a
+// data em que foi arquivado — o registro fica (status 'archived'), não some.
+ensureColumn("clients", "archived_at", "archived_at TEXT");
+ensureColumn("clients", "last_payment_month", "last_payment_month TEXT"); // 'AAAA-MM'
 // Plano mensal de conteúdo (gera o projeto base automaticamente).
 ensureColumn("clients", "posts_per_month", "posts_per_month INTEGER");
 ensureColumn("clients", "videos_per_month", "videos_per_month INTEGER");
