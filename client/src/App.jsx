@@ -1,42 +1,59 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Box, CircularProgress } from "@mui/material";
 import { useAuth } from "./auth/AuthContext.jsx";
 import Layout from "./components/Layout.jsx";
 
 import Login from "./pages/Login.jsx";
-import Dashboard from "./pages/Dashboard.jsx";
-import Clients from "./pages/Clients.jsx";
-import Projects from "./pages/Projects.jsx";
-import Tasks from "./pages/Tasks.jsx";
-import Financial from "./pages/Financial.jsx";
-import Contracts from "./pages/Contracts.jsx";
-import Goals from "./pages/Goals.jsx";
-import Agenda from "./pages/Agenda.jsx";
-import Events from "./pages/Events.jsx";
-import Calendar from "./pages/Calendar.jsx";
-import Files from "./pages/Files.jsx";
-import Workspace from "./pages/Workspace.jsx";
-import Reports from "./pages/Reports.jsx";
-import Users from "./pages/Users.jsx";
-import Settings from "./pages/Settings.jsx";
 import NotFound from "./pages/NotFound.jsx";
-import Organizations from "./pages/Organizations.jsx";
-import Integrations from "./pages/Integrations.jsx";
-import Prospects from "./pages/Prospects.jsx";
-import Deliveries from "./pages/Deliveries.jsx";
-import Distribution from "./pages/Distribution.jsx";
-import Planning from "./pages/Planning.jsx";
-import Services from "./pages/Services.jsx";
-import Priorities from "./pages/Priorities.jsx";
-import MinhasFinancas from "./pages/MinhasFinancas.jsx";
-import ClientArea from "./pages/ClientArea.jsx";
-import AI from "./pages/AI.jsx";
 import PortalLogin from "./pages/PortalLogin.jsx";
 import Portal from "./pages/Portal.jsx";
-import SignContract from "./pages/SignContract.jsx";
-import Intelligence from "./pages/Intelligence.jsx";
-import Briefing from "./pages/Briefing.jsx";
-import Onboarding from "./pages/Onboarding.jsx";
+
+
+// ---------------------------------------------------------------------------
+// CADA TELA NO SEU PACOTE.
+//
+// Antes, o navegador baixava as TRINTA telas do sistema antes de desenhar
+// qualquer coisa — inclusive para o cliente, que só abre a área dele. Medido
+// no celular: 1,58 MB de programa (590 KB do sistema inteiro + 390 KB de
+// gráficos) só para aparecer o campo de login do portal.
+//
+// Com lazy(), cada tela vira um arquivo à parte, baixado na hora em que ela é
+// aberta pela primeira vez. As telas do começo (login, portal e o painel)
+// continuam juntas, porque são as primeiras que todo mundo vê.
+// ---------------------------------------------------------------------------
+// O painel puxa os gráficos (390 KB). Adiado também: assim o cliente, que
+// nunca vê um gráfico, não baixa essa parte para entrar na área dele.
+const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
+const Clients = lazy(() => import("./pages/Clients.jsx"));
+const Projects = lazy(() => import("./pages/Projects.jsx"));
+const Tasks = lazy(() => import("./pages/Tasks.jsx"));
+const Financial = lazy(() => import("./pages/Financial.jsx"));
+const Contracts = lazy(() => import("./pages/Contracts.jsx"));
+const Goals = lazy(() => import("./pages/Goals.jsx"));
+const Agenda = lazy(() => import("./pages/Agenda.jsx"));
+const Events = lazy(() => import("./pages/Events.jsx"));
+const Calendar = lazy(() => import("./pages/Calendar.jsx"));
+const Files = lazy(() => import("./pages/Files.jsx"));
+const Workspace = lazy(() => import("./pages/Workspace.jsx"));
+const Reports = lazy(() => import("./pages/Reports.jsx"));
+const Users = lazy(() => import("./pages/Users.jsx"));
+const Settings = lazy(() => import("./pages/Settings.jsx"));
+const Organizations = lazy(() => import("./pages/Organizations.jsx"));
+const Integrations = lazy(() => import("./pages/Integrations.jsx"));
+const Prospects = lazy(() => import("./pages/Prospects.jsx"));
+const Deliveries = lazy(() => import("./pages/Deliveries.jsx"));
+const Distribution = lazy(() => import("./pages/Distribution.jsx"));
+const Planning = lazy(() => import("./pages/Planning.jsx"));
+const Services = lazy(() => import("./pages/Services.jsx"));
+const Priorities = lazy(() => import("./pages/Priorities.jsx"));
+const MinhasFinancas = lazy(() => import("./pages/MinhasFinancas.jsx"));
+const ClientArea = lazy(() => import("./pages/ClientArea.jsx"));
+const AI = lazy(() => import("./pages/AI.jsx"));
+const SignContract = lazy(() => import("./pages/SignContract.jsx"));
+const Intelligence = lazy(() => import("./pages/Intelligence.jsx"));
+const Briefing = lazy(() => import("./pages/Briefing.jsx"));
+const Onboarding = lazy(() => import("./pages/Onboarding.jsx"));
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -50,8 +67,18 @@ function Protected({ children }) {
   return children;
 }
 
+/** Enquanto o pedaço da tela chega, a mesma bolinha de sempre. */
+function Carregando() {
+  return (
+    <Box sx={{ height: "60vh", display: "grid", placeItems: "center" }}>
+      <CircularProgress />
+    </Box>
+  );
+}
+
 export default function App() {
   return (
+    <Suspense fallback={<Carregando />}>
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/portal/login" element={<PortalLogin />} />
@@ -100,5 +127,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </Suspense>
   );
 }

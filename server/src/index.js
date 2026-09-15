@@ -5,6 +5,12 @@ import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import "dotenv/config";
 
+import { pegarPromessasSoltas } from "./promessa-solta.js";
+
+// Antes de montar qualquer rota: erro em rota async vira resposta, não
+// bolinha girando para sempre. Ver o comentário em promessa-solta.js.
+pegarPromessasSoltas();
+
 import authRoutes from "./routes/auth.js";
 import usersRoutes from "./routes/users.js";
 import clientsRoutes from "./routes/clients.js";

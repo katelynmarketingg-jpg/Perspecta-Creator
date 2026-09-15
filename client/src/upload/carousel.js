@@ -44,22 +44,72 @@ const FORMATOS = [
  * tira de slides iguais e é melhor não fingir que sabemos.
  */
 export function sugerirSlides(largura, altura) {
-  if (!largura || !altura) return { n: 2, confianca: 0, formato: null };
-  let melhor = { n: 2, confianca: 0, formato: null };
+  if (!largura || !altura) return { n: 2, confianca: 0, formato: null, alternativas: [] };
+
+  // Cada formato conhecido dá UMA leitura da mesma arte. n = 1 entra na conta
+  // de propósito: assim um post normal (1080x1350) é reconhecido como UM post,
+  // e não como "duas slides" — antes o 1 era descartado e sobrava a resposta de
+  // outro formato, que saía errada e ainda com cara de certeza (um quadrado
+  // 1080x1080 era anunciado como "9:16 (story), 2 slides").
+  const leituras = [];
   for (const f of FORMATOS) {
     const larguraSlide = altura * f.r;
     const exato = largura / larguraSlide;
     const n = Math.round(exato);
-    if (n < 2 || n > 20) continue;
-    // 1 quando o encaixe é perfeito; cai conforme sobra ou falta pedaço.
-    const confianca = 1 - Math.abs(exato - n) / n;
-    if (confianca > melhor.confianca) melhor = { n, confianca, formato: f.nome };
+    if (n < 1 || n > 20) continue;
+    // O ERRO É EM SLIDES, não em porcentagem do total.
+    //
+    // A conta era `1 - erro / n`, e dividir pelo número de slides fazia um
+    // encaixe porco parecer ótimo quando n era grande: sobrar 1/9 de slide em
+    // 7 slides dava "98% de certeza". Agora conta o que realmente importa —
+    // quanto de UMA slide sobra ou falta. Errar meia slide é o pior caso
+    // possível, então vale zero.
+    const confianca = Math.max(0, 1 - Math.abs(exato - n) * 2);
+    leituras.push({ n, confianca, formato: f.nome });
   }
-  // Nenhum formato conhecido encaixou: cai no palpite antigo, sem prometer nada.
-  if (!melhor.formato) {
-    return { n: Math.max(2, Math.min(20, Math.round(largura / LARGURA_SLIDE))), confianca: 0, formato: null };
-  }
-  return melhor;
+
+  // O PALPITE SÓ VALE QUANDO A CONTA FECHA.
+  //
+  // Sem isto, uma arte cujo formato não é nenhum dos conhecidos ganhava a
+  // leitura "menos ruim" e ela saía com cara de certeza. Foi assim que a CAPA
+  // de um carrossel — que é UM post, não uma tira — virou "1 / 2" no card: a
+  // caixa passava a ter metade da largura da arte e a imagem era desenhada com
+  // o dobro do tamanho, estourando o card.
+  //
+  // Quando não fecha, a resposta depende do formato da arte:
+  //   - claramente uma TIRA (bem mais larga que alta): vale o palpite antigo
+  //     (largura ÷ 1080), que é melhor que nada;
+  //   - qualquer outra coisa: é UM post. Cortar um post ao meio é o pior erro
+  //     possível aqui, e "não sei" nunca deve virar "corta em dois".
+  const semCerteza = () => (largura > altura * 1.3
+    ? { n: Math.max(1, Math.min(20, Math.round(largura / LARGURA_SLIDE))), confianca: 0, formato: null, alternativas: [] }
+    : { n: 1, confianca: 0, formato: null, alternativas: [] });
+
+  if (!leituras.length) return semCerteza();
+
+  // Empate acontece de verdade: 4320x1080 é "4 quadrados" E "5 slides 4:5",
+  // as duas contas fechando redondas. Fica com a ordem de FORMATOS (4:5 é o
+  // formato de carrossel mais usado) e DEVOLVE as outras leituras exatas, para
+  // a tela poder oferecer "ou 4" em vez de fingir que só existe uma resposta.
+  const melhor = leituras.reduce((a, b) => (b.confianca > a.confianca ? b : a));
+  // Encaixe frouxo não é encaixe: sobrar mais de 5% de uma slide já quer dizer
+  // que a arte não foi feita nesse formato.
+  if (melhor.confianca < 0.9) return semCerteza();
+
+  // ARTE QUE MAL É MAIS LARGA QUE ALTA SÓ VIRA TIRA COM ENCAIXE PERFEITO.
+  //
+  // Uma tira de verdade é bem mais larga que alta (a mais estreita possível são
+  // duas slides 9:16, e mesmo essa dá 1,12). Perto dessa fronteira mora a capa
+  // de carrossel — que é UM post — e um encaixe "quase certo" era suficiente
+  // para chamá-la de duas slides: o card então desenhava a arte com o dobro da
+  // largura da caixa e ela estourava. Aqui, quanto menos a arte se parece com
+  // uma tira, mais exata a conta precisa ser.
+  const pareceTira = largura >= altura * 1.5;
+  if (melhor.n > 1 && !pareceTira && melhor.confianca < 0.98) return semCerteza();
+  const alternativas = leituras
+    .filter((l) => l.n !== melhor.n && l.confianca > 0.98)
+    .map((l) => ({ n: l.n, formato: l.formato }));
+  return { ...melhor, alternativas };
 }
 
 // Mede a arte: { largura, altura, fatiavel, sugestao, formato, confianca }.
@@ -71,8 +121,8 @@ export async function medirImagem(file) {
   URL.revokeObjectURL(url);
   // Só vale fatiar se a arte é bem mais larga que alta — uma tira, não um post.
   const fatiavel = largura > altura * 1.2;
-  const { n, confianca, formato } = sugerirSlides(largura, altura);
-  return { largura, altura, fatiavel, sugestao: n, confianca, formato };
+  const { n, confianca, formato, alternativas } = sugerirSlides(largura, altura);
+  return { largura, altura, fatiavel, sugestao: n, confianca, formato, alternativas };
 }
 
 // Corta a arte em `n` slides de largura igual, na ordem (esquerda → direita).

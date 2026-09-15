@@ -8,9 +8,10 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
-import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2 } from "../storage.js";
+import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2, enderecoAssinado, nomeParaBaixar } from "../storage.js";
 import { confere } from "../pertence.js";
-import { bilheteDeMidia, enderecoDeMidia } from "../midia-url.js";
+import { bilheteDeMidia, enderecoDeMidia, enderecoDePrevia, previasDe } from "../midia-url.js";
+import { emParalelo } from "../em-paralelo.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -25,12 +26,15 @@ const router = Router();
 // é H.264 por dentro — que é o caso dos vídeos de iPhone. Rotulando como mp4,
 // ele toca normalmente. O arquivo não é convertido: só o rótulo muda.
 
-async function serveFile(res, file, asAttachment, range) {
+async function serveFile(res, file, asAttachment, range, paraCapturar = false) {
   if (isR2Path(file.stored_path)) {
     // CAMINHO RÁPIDO: manda o navegador buscar direto na Cloudflare. O arquivo
     // deixa de atravessar esta máquina — é o que faz vídeo grande abrir rápido,
     // porque a Cloudflare tem servidor perto de quem está assistindo.
-    const direto = await enderecoAssinado(r2Key(file.stored_path), {
+    // paraCapturar: NÃO redireciona. O navegador vai desenhar isto num canvas e
+    // um redirecionamento para outro domínio sujaria o canvas (ver
+    // bilheteDeMidia). Aqui os bytes passam por dentro do servidor.
+    const direto = paraCapturar ? null : await enderecoAssinado(r2Key(file.stored_path), {
       tipo: asAttachment ? undefined : tipoQueONavegadorToca(file),
       baixarComoNome: asAttachment ? file.original_name : undefined,
     });
@@ -49,7 +53,7 @@ async function serveFile(res, file, asAttachment, range) {
       if (!asAttachment) res.setHeader("Accept-Ranges", "bytes");
       if (obj.ContentLength != null) res.setHeader("Content-Length", obj.ContentLength);
       if (!asAttachment && obj.ContentRange) { res.status(206); res.setHeader("Content-Range", obj.ContentRange); }
-      if (asAttachment) res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.original_name)}"`);
+      if (asAttachment) res.setHeader("Content-Disposition", nomeParaBaixar(file.original_name));
       else res.setHeader("Cache-Control", "private, max-age=86400");
       // Um erro no meio do envio (R2 caiu, ou o navegador cancelou a imagem)
       // emite 'error' no stream. Sem tratar, o Node derruba o processo inteiro
@@ -109,6 +113,31 @@ const upload = multer({
 
 // GET /api/files/shared/:ticket — link assinado e temporário, usado só para a
 // Meta buscar a arte na hora de publicar. Fica antes do authRequired.
+// GET /api/files/previa/:bilhete — a arte reduzida, em bytes.
+//
+// Fica aqui (antes do authRequired) porque <img src> não manda cabeçalho de
+// autenticação: quem entra é o bilhete assinado. Cache longo de propósito —
+// a prévia de um arquivo nunca muda, então na segunda visita não custa nada.
+sharedRouter.get("/previa/:bilhete", (req, res) => {
+  let dados;
+  try {
+    dados = jwt.verify(req.params.bilhete, JWT_SECRET);
+  } catch {
+    return res.status(403).json({ error: "Link expirado ou inválido." });
+  }
+  if (!dados?.previa) return res.status(403).json({ error: "Link inválido." });
+  const linha = db.prepare("SELECT preview FROM files WHERE id = ? AND org_id = ?")
+    .get(dados.file_id, dados.org_id);
+  if (!linha?.preview) return res.status(404).json({ error: "Sem prévia." });
+
+  // A prévia é guardada como data URI ("data:image/jpeg;base64,...").
+  const m = /^data:([\w/+.-]+);base64,(.*)$/s.exec(linha.preview);
+  if (!m) return res.status(404).json({ error: "Sem prévia." });
+  res.setHeader("Content-Type", m[1]);
+  res.setHeader("Cache-Control", "private, max-age=604800, immutable");
+  res.send(Buffer.from(m[2], "base64"));
+});
+
 sharedRouter.get("/shared/:ticket", async (req, res) => {
   let payload;
   try {
@@ -120,7 +149,9 @@ sharedRouter.get("/shared/:ticket", async (req, res) => {
     .prepare("SELECT * FROM files WHERE id = ? AND org_id = ?")
     .get(payload.file_id, payload.org_id);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
-  await serveFile(res, file, false, req.headers.range);
+  // payload.capturar: o navegador vai desenhar isto num canvas, então o arquivo
+  // tem que vir por dentro do nosso servidor (ver bilheteDeMidia).
+  await serveFile(res, file, false, req.headers.range, Boolean(payload.capturar));
 });
 
 router.use(authRequired, moduleAllowed("arquivos"));
@@ -168,25 +199,49 @@ router.post("/folders/ensure-defaults", (req, res) => {
     .prepare("SELECT name FROM folders WHERE org_id = ? AND client_id = ? AND parent_id IS NULL")
     .all(req.orgId, clientId);
   const tem = new Set(existentes.map((f) => f.name));
+  const faltando = DEFAULT_FOLDERS.filter((nome) => !tem.has(nome));
   const ins = db.prepare("INSERT INTO folders (name, client_id, parent_id, org_id) VALUES (?, ?, NULL, ?)");
   const tx = db.transaction(() => {
-    DEFAULT_FOLDERS.forEach((nome) => { if (!tem.has(nome)) ins.run(nome, clientId, req.orgId); });
+    faltando.forEach((nome) => ins.run(nome, clientId, req.orgId));
   });
   tx();
+  // Não criou nada: não avisa ninguém. Esta rota é chamada toda vez que alguém
+  // abre um cliente na Galeria, e como é um POST, o aviso automático saía
+  // SEMPRE — fazendo todas as telas abertas do escritório recarregarem a lista
+  // de arquivos (1,25 MB num cliente com 120) por nada.
+  if (!faltando.length) res.locals.semAviso = true;
   res.json(
     db.prepare("SELECT * FROM folders WHERE org_id = ? AND client_id = ? AND parent_id IS NULL ORDER BY name")
       .all(req.orgId, clientId)
   );
 });
 
-router.delete("/folders/:id", (req, res) => {
-  const folder = db.prepare("SELECT id FROM folders WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+router.delete("/folders/:id", async (req, res) => {
+  const folder = db.prepare("SELECT id, name FROM folders WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!folder) return res.status(404).json({ error: "Pasta não encontrada." });
-  // Remove arquivos físicos da pasta (e subpastas ficam por conta do CASCADE).
-  const files = db.prepare("SELECT stored_path FROM files WHERE folder_id = ?").all(req.params.id);
-  files.forEach((f) => { removeStored(f.stored_path); });
+
+  // A PASTA INTEIRA, INCLUSIVE AS DE DENTRO.
+  //
+  // Antes só os arquivos soltos na pasta escolhida eram apagados de verdade.
+  // Os que estavam numa SUBPASTA sumiam do banco (por cascata) e os bytes
+  // ficavam na nuvem para sempre — invisíveis na galeria, impossíveis de
+  // recuperar e cobrados no fim do mês. Aqui a árvore é percorrida inteira.
+  const arvore = [Number(req.params.id)];
+  for (let i = 0; i < arvore.length; i++) {
+    const filhas = db.prepare("SELECT id FROM folders WHERE parent_id = ? AND org_id = ?").all(arvore[i], req.orgId);
+    for (const f of filhas) arvore.push(f.id);
+  }
+  const marcas = arvore.map(() => "?").join(",");
+  const arquivos = db.prepare(
+    `SELECT stored_path FROM files WHERE org_id = ? AND folder_id IN (${marcas})`
+  ).all(req.orgId, ...arvore);
+
+  // `await`: sem ele, a resposta saía antes de a remoção sequer começar, e
+  // qualquer falha da nuvem sumia sem deixar rastro.
+  await emParalelo(arquivos, 4, (f) => removeStored(f.stored_path));
+
   db.prepare("DELETE FROM folders WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
-  res.json({ ok: true });
+  res.json({ ok: true, pastas: arvore.length, arquivos: arquivos.length });
 });
 
 // ---- Arquivos ---------------------------------------------------------------
@@ -201,15 +256,25 @@ router.get("/", async (req, res) => {
     if (folder_id) params.folder_id = folder_id;
   }
   const rows = db.prepare(
+    // f.stored_path entra aqui só para decidir o endereço (e sai antes de
+    // responder). Sem ele, enderecoDeMidia não tinha como saber que o arquivo
+    // está na nuvem e devolvia SEMPRE o caminho pelo nosso servidor: a galeria
+    // inteira passava por dentro do Render, uma ida por foto, em vez de ir
+    // direto na Cloudflare. O endereço direto existia e não estava sendo usado.
     `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.folder_id, f.client_id,
-            f.expires_at, f.keep_forever, f.stage, f.thumb, c.name AS client_name
+            f.expires_at, f.keep_forever, f.stage, f.thumb, f.stored_path, c.name AS client_name
      FROM files f LEFT JOIN clients c ON c.id = f.client_id
      WHERE ${where.join(" AND ")} ORDER BY f.original_name`
   ).all(params);
   // media_url: o endereço que o <img>/<video> usa. Para arquivo no R2 vai o
   // endereço DIRETO da Cloudflare — assim a galeria não faz o navegador bater
   // no nosso servidor uma vez por foto antes de começar a carregar.
-  await Promise.all(rows.map(async (f) => { f.media_url = await enderecoDeMidia(f, req.orgId); }));
+  const previas = previasDe(db, rows.map((f) => f.id), req.orgId);
+  await Promise.all(rows.map(async (f) => {
+    f.media_url = await enderecoDeMidia(f, req.orgId);
+    f.preview_url = previas.get(f.id) || null;
+    delete f.stored_path;   // caminho interno não sai daqui
+  }));
   res.json(rows);
 });
 
@@ -231,20 +296,42 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
     const bruto = req.body?.thumbs;
     thumbs = bruto ? JSON.parse(Array.isArray(bruto) ? bruto[0] : bruto) : [];
   } catch { thumbs = []; }
+  // Os arquivos vão para a nuvem em paralelo (alguns de cada vez). Em fila,
+  // 10 fotos eram 10 esperas de rede uma atrás da outra — e quem enviou ficava
+  // vendo a barra parada em 100% esse tempo todo.
+  const AO_MESMO_TEMPO = 4;
+  const guardados = await emParalelo(req.files || [], AO_MESMO_TEMPO, async (f) => {
+    if (!storageConfigured()) return f.path; // sem R2: fica no disco
+    try {
+      const key = `uploads/${req.orgId}/${f.filename}`;
+      const caminho = await uploadFileToR2(f.path, key, f.mimetype);
+      try { unlinkSync(f.path); } catch {} // já está no R2, apaga o local
+      return caminho;
+    } catch {
+      return f.path; // se o R2 falhar, não perde: mantém no disco
+    }
+  });
+
+  // JÁ TEM UMA IGUAL AQUI?
+  //
+  // A galeria dela enche de "1.png", "2.png", "3.png" repetidos: manda o mesmo
+  // arquivo duas vezes e ficam dois, sem ninguém avisar. Bloquear seria pior —
+  // às vezes é de propósito, e perder o envio é imperdoável. Então o arquivo
+  // entra do mesmo jeito, mas a resposta diz que já havia um igual (mesmo nome
+  // e mesmo tamanho, na mesma pasta do mesmo cliente) e a tela mostra o aviso.
+  const jaTinha = db.prepare(
+    `SELECT id FROM files
+      WHERE org_id = ? AND original_name = ? AND size = ?
+        AND client_id IS ? AND folder_id IS ?
+      LIMIT 1`
+  );
+
   const created = [];
   for (const [i, f] of (req.files || []).entries()) {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const name = Buffer.from(f.originalname, "latin1").toString("utf8");
-    let storedPath = f.path; // por padrão fica no disco
-    if (storageConfigured()) {
-      try {
-        const key = `uploads/${req.orgId}/${f.filename}`;
-        storedPath = await uploadFileToR2(f.path, key, f.mimetype);
-        try { unlinkSync(f.path); } catch {} // já está no R2, apaga o local
-      } catch {
-        storedPath = f.path; // se o R2 falhar, não perde: mantém no disco
-      }
-    }
+    const repetida = Boolean(jaTinha.get(req.orgId, name, f.size, client_id || null, folder_id || null));
+    const storedPath = guardados[i];
     const t = thumbs[i];
     const thumb = typeof t === "string" && t.startsWith("data:image/") && t.length <= LIMITE_THUMB ? t : null;
     const info = stmt.run(folder_id || null, client_id || null, name, f.mimetype, f.size, storedPath, stage, thumb, req.orgId);
@@ -257,6 +344,7 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
       { id: novo.id, mime: novo.mime, original_name: novo.original_name, stored_path: storedPath },
       req.orgId,
     );
+    novo.repetida = repetida;
     created.push(novo);
   }
   res.status(201).json(created);
@@ -290,18 +378,28 @@ router.post("/upload-zip", upload.single("zip"), async (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
-  let count = 0, ignorados = 0;
+  let ignorados = 0;
+  // Primeiro separa o que vale (fotos e vídeos); o resto nem é aberto.
+  const aproveitar = [];
   for (const e of entries) {
     if (e.isDirectory) continue;
     const nome = basename(e.entryName);
     if (!nome || nome.startsWith(".") || e.entryName.startsWith("__MACOSX")) continue;
     const mime = MIME_BY_EXT[extname(nome).toLowerCase()];
     if (!mime) { ignorados++; continue; } // só fotos e vídeos
+    aproveitar.push({ e, nome, mime });
+  }
 
-    const buf = e.getData();
+  // Um .zip de 200 fotos era 200 idas à nuvem em fila, dentro de UM pedido só,
+  // sem nada aparecer na tela enquanto isso. Agora alguns sobem juntos. O
+  // limite baixo é de propósito: segurar 200 fotos na memória derruba o
+  // servidor, e aqui no máximo 4 ficam abertas ao mesmo tempo.
+  const AO_MESMO_TEMPO = 4;
+  const prontos = await emParalelo(aproveitar, AO_MESMO_TEMPO, async ({ e, nome, mime }) => {
     const localName = `${Date.now()}-${randomUUID()}`;
     const localPath = join(UPLOADS_DIR, localName);
     try {
+      const buf = e.getData();
       writeFileSync(localPath, buf);
       let storedPath = localPath;
       if (storageConfigured()) {
@@ -310,9 +408,20 @@ router.post("/upload-zip", upload.single("zip"), async (req, res) => {
           try { unlinkSync(localPath); } catch {}
         } catch { storedPath = localPath; }
       }
-      stmt.run(folder_id || null, client_id || null, nome, mime, buf.length, storedPath, stage, req.orgId);
-      count++;
-    } catch { ignorados++; }
+      return { nome, mime, tamanho: buf.length, storedPath };
+    } catch {
+      try { unlinkSync(localPath); } catch {}
+      return null;
+    }
+  });
+
+  let count = 0;
+  // A gravação no banco fica aqui fora, na ordem do .zip — é rápida e mantém a
+  // sequência das fotos igual à da pasta que ela compactou.
+  for (const p of prontos) {
+    if (!p) { ignorados++; continue; }
+    stmt.run(folder_id || null, client_id || null, p.nome, p.mime, p.tamanho, p.storedPath, stage, req.orgId);
+    count++;
   }
   try { unlinkSync(req.file.path); } catch {} // apaga o zip temporário
 
@@ -417,7 +526,11 @@ router.get("/diagnostico", async (req, res) => {
 router.get("/:id/link", (req, res) => {
   const f = db.prepare("SELECT id FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!f) return res.status(404).json({ error: "Arquivo não encontrado." });
-  res.json({ url: bilheteDeMidia(f.id, req.orgId) });
+  // Esta rota existe para as telas que CAPTURAM o arquivo num canvas (o quadro
+  // de capa do vídeo, a prévia de uma arte antiga). Por isso o bilhete vem
+  // marcado: o arquivo passa por dentro do servidor em vez de terminar num
+  // redirecionamento para a Cloudflare, que sujaria o canvas.
+  res.json({ url: bilheteDeMidia(f.id, req.orgId, { paraCapturar: true }) });
 });
 
 router.get("/:id/thumb", (req, res) => {
@@ -439,7 +552,7 @@ router.put("/:id/thumb", (req, res) => {
   const file = db.prepare("SELECT id, thumb FROM files WHERE id = ? AND org_id = ?")
     .get(req.params.id, req.orgId);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
-  if (file.thumb) return res.json({ ok: true, ja_tinha: true });
+  if (file.thumb) { res.locals.semAviso = true; return res.json({ ok: true, ja_tinha: true }); }
 
   const t = req.body?.thumb;
   if (typeof t !== "string" || !t.startsWith("data:image/")) {
@@ -448,6 +561,33 @@ router.put("/:id/thumb", (req, res) => {
   if (t.length > 300 * 1024) return res.status(400).json({ error: "Miniatura grande demais." });
 
   db.prepare("UPDATE files SET thumb = ? WHERE id = ? AND org_id = ?").run(t, file.id, req.orgId);
+  // Miniatura é conserto interno, não mudança de conteúdo: ninguém precisa ser
+  // avisado. Sem isto, cada miniatura guardada por uma grade fazia TODAS as
+  // telas abertas do escritório recarregarem a lista de arquivos — que num
+  // cliente com 120 arquivos são 1,25 MB, vezes o número de quadros da grade.
+  res.locals.semAviso = true;
+  res.json({ ok: true });
+});
+
+// PUT /api/files/:id/previa — o navegador manda a arte reduzida depois de
+// desenhá-la. Arquivo antigo (enviado antes disso existir) ganha a sua prévia
+// na primeira vez que alguém abre a tela, sem ninguém precisar fazer nada.
+router.put("/:id/previa", (req, res) => {
+  const file = db.prepare("SELECT id, preview FROM files WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (file.preview) { res.locals.semAviso = true; return res.json({ ok: true, ja_tinha: true }); }
+
+  const p = req.body?.previa;
+  if (typeof p !== "string" || !p.startsWith("data:image/")) {
+    return res.status(400).json({ error: "Prévia inválida." });
+  }
+  // 900 KB de folga: a prévia de uma arte cheia de detalhe passa dos 150 KB,
+  // mas nunca chega perto do arquivo original.
+  if (p.length > 900 * 1024) return res.status(400).json({ error: "Prévia grande demais." });
+
+  db.prepare("UPDATE files SET preview = ? WHERE id = ? AND org_id = ?").run(p, file.id, req.orgId);
+  res.locals.semAviso = true;   // conserto interno, igual à miniatura acima
   res.json({ ok: true });
 });
 

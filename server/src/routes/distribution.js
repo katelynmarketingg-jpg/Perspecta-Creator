@@ -3,7 +3,8 @@ import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import { syncTaskMediaToStage } from "../gallery-sync.js";
-import { bilheteDeMidia, enderecosDeMidia } from "../midia-url.js";
+import { bilheteDeMidia, enderecosDeMidia, previasDe } from "../midia-url.js";
+import { avisarAprovacoesPendentes } from "../aviso-aprovacao.js";
 
 // Endereço de streaming da arte. É por ele que o <video> toca: o navegador
 // pede só o começo do arquivo (Range) e mostra o 1º quadro na hora. Sem isso a
@@ -27,11 +28,20 @@ async function comMidia(linhas, orgId) {
   }
   const mapa = await enderecosDeMidia(db, ids, orgId);
   const de = (id) => (id ? mapa.get(Number(id)) || mediaUrl(id, orgId) : null);
+  // A PRÉVIA: a arte já reduzida para o tamanho em que ela aparece na tela. A
+  // grade do perfil baixava a arte ORIGINAL de cada peça para desenhar um
+  // quadradinho de 350 px — medido, 12,6 MB com nove peças. Quando a peça ainda
+  // não tem prévia (arquivo antigo), fica null e a tela usa a arte, como antes.
+  const previas = previasDe(db, ids, orgId);
+  const previaDe = (id) => (id ? previas.get(Number(id)) || null : null);
   return linhas.map((it) => ({
     ...it,
     media_ids: parseMediaIds(it.media_ids),
     media_url: de(it.file_id),
     cover_url: de(it.cover_file_id),
+    preview_url: previaDe(it.file_id),
+    cover_preview_url: previaDe(it.cover_file_id),
+    preview_urls: parseMediaIds(it.media_ids).map(previaDe),
     // Um endereço por SLIDE, na ordem. Carrossel montado com um arquivo por
     // slide não tinha endereço nenhum para as slides: a tela de editar caía no
     // download da arte inteira de cada uma e ficava rodando para sempre.
@@ -370,26 +380,9 @@ router.post("/:id/send", (req, res) => {
   syncTaskMediaToStage(req.orgId, req.params.id, "aprovacao");
 
   // Avisa o cliente — UM aviso só, com a contagem (em vez de um por peça).
-  notifyClientApprovals(req.orgId, task.client_id);
+  avisarAprovacoesPendentes(req.orgId, task.client_id);
 
   res.json({ ok: true });
 });
-
-// Mantém no máximo UM aviso de "conteúdo para aprovar" por cliente, sempre com a
-// contagem atual do que está aguardando aprovação (evita encher de avisos).
-function notifyClientApprovals(orgId, clientId) {
-  if (!clientId) return;
-  const n = db.prepare(
-    `SELECT COUNT(*) AS n FROM tasks t JOIN kanban_stages s ON s.id = t.stage_id
-     WHERE t.org_id = ? AND t.client_id = ? AND s.name LIKE '%Aprova%' AND t.approval_status = 'sent'`
-  ).get(orgId, clientId).n;
-  db.prepare(
-    "DELETE FROM notifications WHERE org_id = ? AND client_id = ? AND audience = 'client' AND is_read = 0 AND message LIKE '%aprovar%'"
-  ).run(orgId, clientId);
-  if (n > 0) {
-    db.prepare("INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('client', ?, ?, ?)")
-      .run(clientId, `🆕 Você tem ${n} conteúdo${n > 1 ? "s" : ""} para aprovar.`, orgId);
-  }
-}
 
 export default router;

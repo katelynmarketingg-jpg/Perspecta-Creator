@@ -12,7 +12,8 @@ import { syncTaskMediaToStage } from "../gallery-sync.js";
 import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca, storageConfigured, uploadFileToR2, enderecoAssinado } from "../storage.js";
 import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 import { chaveDaPorta, trancada, registraErro, registraAcerto } from "../tranca.js";
-import { bilheteDeMidia, enderecosDeMidia } from "../midia-url.js";
+import { bilheteDeMidia, enderecosDeMidia, previasDe } from "../midia-url.js";
+import { avisarAprovacoesPendentes } from "../aviso-aprovacao.js";
 
 const router = Router();
 
@@ -302,7 +303,14 @@ router.get("/gallery", async (req, res) => {
   };
   const out = { originais: [], editados: [], aprovacao: [], aprovados: [], programados: [] };
   const mapaG = await enderecosDeMidia(db, rows.map((f) => f.id), req.client.org_id);
-  rows.forEach((f) => { f.media_url = mapaG.get(f.id) || mediaUrl(f.id, req.client.org_id); out[grupo(f)].push(f); });
+  // A prévia (arte já reduzida) poupa os dados móveis do cliente: ele deixa de
+  // baixar a arte original de cada peça para ver um quadradinho.
+  const previasG = previasDe(db, rows.map((f) => f.id), req.client.org_id);
+  rows.forEach((f) => {
+    f.media_url = mapaG.get(f.id) || mediaUrl(f.id, req.client.org_id);
+    f.preview_url = previasG.get(f.id) || null;
+    out[grupo(f)].push(f);
+  });
   res.json(out);
 });
 
@@ -420,6 +428,10 @@ router.post("/approvals/:id/approve", (req, res) => {
     ? `✅ ${req.client.name} aprovou "${task.title}" — programado.`
     : `✅ ${req.client.name} aprovou "${task.title}". Clique em Programar para agendar.`;
   notifyAgency(task.client_id, task.id, aviso, task.org_id, task.assignee_id || null);
+  // O aviso "você tem N para aprovar" tem que cair para N-1 agora. Sem isto ele
+  // ficava com o número antigo até a agência mandar outra peça — o cliente via
+  // "8 para aprovar" em cima de uma lista com 7.
+  avisarAprovacoesPendentes(task.org_id, task.client_id);
   res.json({ ok: true });
 });
 
@@ -446,6 +458,7 @@ router.post("/approvals/:id/request-changes", (req, res) => {
      client_caption = ?, client_note = ?, client_ref_file_id = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
   ).run(client_caption ?? null, client_note ?? null, refId, back?.id ?? null, task.id);
   notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`, task.org_id, task.assignee_id || null);
+  avisarAprovacoesPendentes(task.org_id, task.client_id);
   res.json({ ok: true });
 });
 
@@ -548,7 +561,11 @@ router.get("/feed", async (req, res) => {
   // O endereço da mídia vai junto: é com ele que a grade desenha a foto em
   // tamanho de verdade e toca o 1º quadro do vídeo, sem baixar o arquivo todo.
   const mapaF = await enderecosDeMidia(db, rows.map((r) => r.file_id), req.client.org_id);
-  for (const r of rows) if (r.file_id) r.media_url = mapaF.get(Number(r.file_id)) || mediaUrl(r.file_id, req.client.org_id);
+  const previasF = previasDe(db, rows.map((r) => r.file_id), req.client.org_id);
+  for (const r of rows) if (r.file_id) {
+    r.media_url = mapaF.get(Number(r.file_id)) || mediaUrl(r.file_id, req.client.org_id);
+    r.preview_url = previasF.get(Number(r.file_id)) || null;
+  }
   res.json(rows);
 });
 
@@ -581,7 +598,11 @@ router.get("/tasks/:id/attachments", async (req, res) => {
       .all(task.cover_file_id, req.client.org_id);
   }
   const mapaA = await enderecosDeMidia(db, rows.map((f) => f.id), req.client.org_id);
-  for (const f of rows) f.media_url = mapaA.get(f.id) || mediaUrl(f.id, req.client.org_id);
+  const previasA = previasDe(db, rows.map((f) => f.id), req.client.org_id);
+  for (const f of rows) {
+    f.media_url = mapaA.get(f.id) || mediaUrl(f.id, req.client.org_id);
+    f.preview_url = previasA.get(f.id) || null;
+  }
   res.json(rows);
 });
 

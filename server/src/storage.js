@@ -79,6 +79,28 @@ function horaAncorada() {
   return new Date(agora - (agora % 3_600_000));
 }
 
+/**
+ * O NOME QUE APARECE NA PASTA DE DOWNLOADS.
+ *
+ * "arte final de setembro.png" chegava como "arte%20final%20de%20setembro.png"
+ * — e com acento ficava pior ainda ("coração" virava "cora%C3%A7%C3%A3o").
+ * O motivo: o nome era escapado uma vez aqui e MAIS UMA vez quando virava
+ * endereço, e o navegador só desfaz um dos dois.
+ *
+ * O jeito certo (RFC 6266) é mandar os dois formatos: um nome simples, sem
+ * acento, para programas antigos, e o `filename*` com o nome de verdade, que
+ * é o que todo navegador de hoje usa.
+ */
+export function nomeParaBaixar(nome) {
+  const limpo = String(nome || "arquivo");
+  // Versão simples: sem acento, sem aspas, sem quebra de linha.
+  const simples = limpo
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/["\\]/g, "_");
+  return `attachment; filename="${simples}"; filename*=UTF-8''${encodeURIComponent(limpo)}`;
+}
+
 export async function enderecoAssinado(key, { segundos = 3600, tipo, baixarComoNome, estavel = false } = {}) {
   if (!configured) return null;
   const comando = new GetObjectCommand({
@@ -89,7 +111,7 @@ export async function enderecoAssinado(key, { segundos = 3600, tipo, baixarComoN
     // o arquivo continua intacto.
     ...(tipo ? { ResponseContentType: tipo } : {}),
     ...(baixarComoNome
-      ? { ResponseContentDisposition: `attachment; filename="${encodeURIComponent(baixarComoNome)}"` }
+      ? { ResponseContentDisposition: nomeParaBaixar(baixarComoNome) }
       : {}),
   });
   try {
