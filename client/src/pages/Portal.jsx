@@ -637,14 +637,16 @@ export default function Portal() {
 
   // O cliente mandando material de volta: cai em Originais, na pasta dele, e a
   // equipe é avisada. Recarrega a galeria para ele ver o que acabou de subir.
-  const enviarArquivos = useCallback(async (arquivos) => {
-    const form = new FormData();
-    arquivos.forEach((f) => form.append("files", f));
-    await portalApi.post("/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
-    // Quem envia está na aba Galeria, então recarregar aqui é o certo: ele
-    // precisa ver na hora o que acabou de mandar.
-    const { data } = await portalApi.get("/gallery");
-    setGaleria(data);
+  // O envio em si mora na aba Galeria (um pedido por arquivo, com barra de
+  // progresso). Aqui só recarregamos a lista quando um arquivo termina de subir
+  // — e com um respiro, para que dez arquivos não virem dez recarregamentos da
+  // galeria inteira nos dados móveis dele.
+  const recarregarGaleria = useRef(null);
+  const aoSubirArquivo = useCallback(() => {
+    clearTimeout(recarregarGaleria.current);
+    recarregarGaleria.current = setTimeout(() => {
+      portalApi.get("/gallery").then((r) => setGaleria(r.data)).catch(() => {});
+    }, 1200);
   }, []);
 
   const buscarArquivo = useCallback(
@@ -953,7 +955,7 @@ export default function Portal() {
             </ToggleButtonGroup>
             {galleryMode === "pastas"
               ? <Card><CardContent><GalleryBrowser /></CardContent></Card>
-              : <Galeria dados={galeria} fetchFile={buscarArquivo} onEnviar={enviarArquivos} />}
+              : <Galeria dados={galeria} fetchFile={buscarArquivo} onEnviar={aoSubirArquivo} />}
           </>
         )}
 

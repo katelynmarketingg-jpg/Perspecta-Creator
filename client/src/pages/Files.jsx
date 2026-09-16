@@ -18,6 +18,7 @@ import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import api from "../api/client.js";
 import { thumbFromElement } from "../upload/thumbnail.js";
+import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { useUploads } from "../upload/UploadContext.jsx";
@@ -404,7 +405,18 @@ export default function Files() {
           </Box>
         )
       ) : (
-        <>
+        // ARRASTAR A PASTA DO MÊS PARA DENTRO.
+        //
+        // A área cobre a galeria inteira: solta em cima, os arquivos entram na
+        // pasta em que ela está. Pasta arrastada é aberta e o que tem dentro
+        // sobe (inclusive subpastas), sem ninguém precisar abrir uma por uma.
+        <AreaDeSoltar
+          aoSoltar={enviarDocs}
+          aviso={currentFolder
+            ? `Vai para a pasta “${path[path.length - 1]?.name || ""}”`
+            : "Vai para a raiz do cliente"}
+          sx={{ minHeight: 320 }}
+        >
           <Button size="small" onClick={() => selectClient("")} sx={{ mb: 1 }}>← Todos os clientes</Button>
 
           <Stack direction="row" spacing={1.5} sx={{ mb: 2, flexWrap: "wrap", gap: 1 }} alignItems="center">
@@ -472,7 +484,7 @@ export default function Files() {
               </Typography>
             </CardContent></Card>
           )}
-        </>
+        </AreaDeSoltar>
       )}
 
 

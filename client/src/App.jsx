@@ -1,8 +1,9 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Box, CircularProgress } from "@mui/material";
 import { useAuth } from "./auth/AuthContext.jsx";
 import Layout from "./components/Layout.jsx";
+import { impedirAberturaPeloNavegador } from "./upload/arrastar.js";
 
 import Login from "./pages/Login.jsx";
 import NotFound from "./pages/NotFound.jsx";
@@ -77,6 +78,14 @@ function Carregando() {
 }
 
 export default function App() {
+  // ARRASTAR ARQUIVO PARA CIMA DO SISTEMA NÃO PODE DERRUBAR O SISTEMA.
+  //
+  // Sem ninguém tratar, o navegador faz o padrão dele: abre o arquivo solto e a
+  // tela do sistema some. Quem errava a mira ao arrastar uma foto perdia onde
+  // estava. Aqui a janela inteira recusa o arquivo solto fora de uma área de
+  // envio; as áreas de envio tratam o evento antes e seguem funcionando.
+  useEffect(() => impedirAberturaPeloNavegador(), []);
+
   return (
     <Suspense fallback={<Carregando />}>
     <Routes>
