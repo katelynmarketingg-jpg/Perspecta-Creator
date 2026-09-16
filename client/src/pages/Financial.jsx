@@ -132,7 +132,10 @@ export default function Financial() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [periodo, mesCursor, vFinancial]);
   useEffect(() => {
-    api.get("/clients").then((r) => setClients(r.data));
+    // escopo "financeiro": traz os clientes atuais E os arquivados que ainda
+    // têm parcela combinada para cair — até o fim do mês da data que ela
+    // marcou ao encerrar. Depois disso eles somem daqui também.
+    api.get("/clients", { params: { escopo: "financeiro" } }).then((r) => setClients(r.data));
     api.get("/financial/renewals").then((r) => setRenewals(r.data)).catch(() => {});
   }, []);
 

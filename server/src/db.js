@@ -891,6 +891,22 @@ ensureColumn("organizations", "signer_document", "signer_document TEXT");
 ensureColumn("organizations", "signer_role", "signer_role TEXT");       // cargo de quem assina
 // Documento do cliente (CPF/CNPJ do pagador) — exigido no recibo.
 ensureColumn("clients", "document", "document TEXT");
+// ---------------------------------------------------------------------------
+// ARQUIVAR CLIENTE, em vez de apagar.
+//
+// Encerrar um contrato não é apagar a história: os recibos, os contratos, os
+// lançamentos e as artes daquele cliente continuam valendo depois que ele sai.
+// Arquivado, ele some das telas do dia a dia mas continua inteiro nos
+// registros — e dá para reativar.
+//
+// As três datas são o que ela combina com o cliente na hora de encerrar, e é
+// por isso que a tela pergunta antes de arquivar.
+// ---------------------------------------------------------------------------
+ensureColumn("clients", "archived_at", "archived_at TEXT");            // quando foi arquivado
+ensureColumn("clients", "entrega_ate", "entrega_ate TEXT");            // última entrega combinada
+ensureColumn("clients", "pagamento_ate", "pagamento_ate TEXT");        // último pagamento combinado
+ensureColumn("clients", "ultimo_projeto_id", "ultimo_projeto_id INTEGER"); // "vai até este projeto"
+ensureColumn("clients", "archive_note", "archive_note TEXT");          // o combinado, em texto
 // Dados que o contrato e o recibo precisam: razão social e quem assina pelo cliente.
 ensureColumn("clients", "legal_name", "legal_name TEXT");     // razão social (vazio = usa o nome)
 ensureColumn("clients", "rep_name", "rep_name TEXT");         // representante legal

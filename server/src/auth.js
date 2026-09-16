@@ -120,6 +120,15 @@ export function portalAuthRequired(req, res, next) {
     if (!payload.portal || !payload.client_id) {
       return res.status(403).json({ error: "Acesso restrito ao portal do cliente." });
     }
+    // CLIENTE ARQUIVADO NÃO ENTRA MAIS — nem com o token que já tinha.
+    //
+    // Sem esta checagem, quem estava logado na hora do arquivamento seguiria
+    // dentro por até 12 horas, que é o prazo do token. Arquivar tem que valer
+    // na hora, que foi o combinado.
+    const dono = db.prepare("SELECT archived_at, status FROM clients WHERE id = ?").get(payload.client_id);
+    if (!dono || dono.archived_at || dono.status !== "active") {
+      return res.status(403).json({ error: "Este acesso foi encerrado. Fale com a agência." });
+    }
     req.client = payload;
     next();
   } catch {
