@@ -902,6 +902,15 @@ ensureColumn("clients", "document", "document TEXT");
 // As três datas são o que ela combina com o cliente na hora de encerrar, e é
 // por isso que a tela pergunta antes de arquivar.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// IMPAGÁVEIS — o que ela sabe que NÃO vai conseguir pagar este mês.
+//
+// Quando o mês aperta, a conta não é "quanto devo": é "quanto disso eu consigo
+// pagar agora". Marcar um gasto como impagável separa o que vai ficar para trás
+// do que ainda dá para honrar, dos dois lados (as contas dela e as da empresa).
+// ---------------------------------------------------------------------------
+ensureColumn("personal_finance", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
+ensureColumn("financial_entries", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
 ensureColumn("clients", "archived_at", "archived_at TEXT");            // quando foi arquivado
 ensureColumn("clients", "entrega_ate", "entrega_ate TEXT");            // última entrega combinada
 ensureColumn("clients", "pagamento_ate", "pagamento_ate TEXT");        // último pagamento combinado

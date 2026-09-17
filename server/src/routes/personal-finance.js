@@ -19,8 +19,16 @@ function summary(rows, salary) {
     byCat[r.category || "Sem categoria"] = (byCat[r.category || "Sem categoria"] || 0) + (Number(r.amount) || 0);
     byMethod[r.method || "Sem método"] = (byMethod[r.method || "Sem método"] || 0) + (Number(r.amount) || 0);
   });
+  // IMPAGÁVEIS: o que ela marcou como "não vou conseguir pagar este mês".
+  // O que importa não é o total deles, e sim quanto AINDA falta pagar — por
+  // isso os dois números andam juntos na tela: o que falta no geral e o que
+  // falta só dos impagáveis.
+  const impagaveis = rows.filter((r) => r.impagavel);
+  const impagavelTotal = impagaveis.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const impagavelAPagar = impagaveis.filter((r) => !r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
   return {
     total, pago, aPagar: Math.max(0, total - pago),
+    impagavelTotal, impagavelAPagar, impagavelQuantos: impagaveis.length,
     salary: Number(salary) || 0,
     comprometido: salary > 0 ? Math.round((total / salary) * 100) : null,
     porCategoria: Object.entries(byCat).map(([k, v]) => ({ nome: k, valor: +v.toFixed(2) })).sort((a, b) => b.valor - a.valor),
@@ -37,7 +45,7 @@ router.get("/", (req, res) => {
   ).all(req.orgId, uid(req), ym);
   const cfg = db.prepare("SELECT salary FROM personal_finance_config WHERE org_id=? AND user_id=?").get(req.orgId, uid(req));
   const salary = cfg?.salary || 0;
-  res.json({ ym, salary, entries: rows.map((r) => ({ ...r, paid: !!r.paid })), summary: summary(rows, salary) });
+  res.json({ ym, salary, entries: rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel })), summary: summary(rows, salary) });
 });
 
 // PUT /api/personal-finance/config { salary }
@@ -73,9 +81,9 @@ const isPerspectiva = (cat) => /perspec/i.test(String(cat ?? ""));
 
 const insertExpense = db.prepare(
   `INSERT INTO financial_entries (type, description, amount, client_id, category, status, due_date, paid_at,
-     payment_link, pix_code, boleto_url, invoice_url, recurring, recurring_day, card, org_id)
+     payment_link, pix_code, boleto_url, invoice_url, recurring, recurring_day, card, impagavel, org_id)
    VALUES ('expense', @description, @amount, NULL, @category, @status, @due_date, @paid_at,
-     NULL, NULL, NULL, NULL, @recurring, @recurring_day, @card, @org_id)`
+     NULL, NULL, NULL, NULL, @recurring, @recurring_day, @card, @impagavel, @org_id)`
 );
 const expenseExistsInMonth = db.prepare(
   "SELECT 1 FROM financial_entries WHERE org_id=? AND type='expense' AND description=? AND strftime('%Y-%m', due_date)=? LIMIT 1"
@@ -103,8 +111,10 @@ function pushExpenseSeries(org, row, ym, day = 10) {
       insertExpense.run({
         description: desc, amount: Number(row.amount) || 0, category: "Perspectiva",
         status: paid ? "paid" : "pending", due_date: `${y}-${mm}-${d}`,
+        // A marca de impagável acompanha a conta quando ela muda de lugar.
         paid_at: paid ? new Date().toISOString() : null,
-        recurring, recurring_day: recurring ? day : null, card: row.method ?? null, org_id: org,
+        recurring, recurring_day: recurring ? day : null, card: row.method ?? null,
+        impagavel: row.impagavel ? 1 : 0, org_id: org,
       });
       created++;
     }
@@ -390,7 +400,12 @@ router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM personal_finance WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
   if (!cur) return res.status(404).json({ error: "Não encontrado." });
   const b = req.body || {};
-  const m = { ...cur, ...b, paid: b.paid !== undefined ? (b.paid ? 1 : 0) : cur.paid, amount: b.amount !== undefined ? (Number(b.amount) || 0) : cur.amount };
+  const m = {
+    ...cur, ...b,
+    paid: b.paid !== undefined ? (b.paid ? 1 : 0) : cur.paid,
+    impagavel: b.impagavel !== undefined ? (b.impagavel ? 1 : 0) : cur.impagavel,
+    amount: b.amount !== undefined ? (Number(b.amount) || 0) : cur.amount,
+  };
   // se mexeu na parcela e não mandou recurring/parcelas explícitas, rededuz do texto
   if (b.parcela !== undefined && b.recurring === undefined) {
     const pi = parcelaInfo(b.parcela);
@@ -402,8 +417,9 @@ router.put("/:id", (req, res) => {
   }
   db.prepare(
     `UPDATE personal_finance SET name=@name, parcela=@parcela, amount=@amount, method=@method,
-       category=@category, paid=@paid, recurring=@recurring, installment_num=@installment_num,
-       installment_total=@installment_total WHERE id=@id AND user_id=@user_id`
+       category=@category, paid=@paid, impagavel=@impagavel, recurring=@recurring,
+       installment_num=@installment_num, installment_total=@installment_total
+     WHERE id=@id AND user_id=@user_id`
   ).run({ ...m, id: req.params.id, user_id: uid(req) });
   const updated = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(req.params.id);
   // TROCOU A CATEGORIA PARA PERSPECTIVA: a conta muda de lugar na hora.

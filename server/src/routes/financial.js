@@ -24,6 +24,10 @@ router.get("/", (req, res) => {
   // Filtro de período pela data de vencimento (ou criação, se sem vencimento).
   if (from) { where.push("date(COALESCE(f.due_date, f.created_at)) >= @from"); params.from = from; }
   if (to) { where.push("date(COALESCE(f.due_date, f.created_at)) <= @to"); params.to = to; }
+  // ?impagavel=1 traz só o que ela marcou como "não vai dar para pagar";
+  // ?impagavel=0 traz só o resto. Sem o parâmetro, traz tudo.
+  if (req.query.impagavel === "1") where.push("f.impagavel = 1");
+  if (req.query.impagavel === "0") where.push("COALESCE(f.impagavel,0) = 0");
   const sql = `${SELECT} WHERE ${where.join(" AND ")} ORDER BY f.due_date DESC, f.id DESC`;
   res.json(db.prepare(sql).all(params));
 });
@@ -62,12 +66,37 @@ router.get("/summary", (req, res) => {
     WHERE org_id = ? AND COALESCE(due_date, created_at) >= date('now','-6 months')
     GROUP BY month ORDER BY month`).all(org);
 
+  // IMPAGÁVEIS: o que ela marcou como "não vai dar para pagar este mês".
+  // Dois números, porque são duas perguntas diferentes: quanto foi marcado, e
+  // quanto disso ainda está em aberto.
+  const impagavelTotal = sum("AND impagavel = 1");
+  const impagavelAberto = db.prepare(
+    `SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS v FROM financial_entries
+      WHERE org_id = ? ${filtroPeriodo} AND impagavel = 1 AND status != 'paid'`
+  ).get(...params).v;
+
   res.json({
     income, expense, profit: income - expense,
     paidIncome, paidExpense, pending,
     lucroRealizado: paidIncome - paidExpense, // o que de fato entrou menos o que saiu
+    impagavelTotal, impagavelAberto,
     series,
   });
+});
+
+// PUT /api/financial/:id/impagavel { impagavel: true|false }
+//
+// Rota própria, e não um campo do editar: marcar "não vou conseguir pagar" é um
+// gesto de um clique no meio do aperto, e não pode exigir abrir a ficha inteira
+// do lançamento para salvar.
+router.put("/:id/impagavel", (req, res) => {
+  const linha = db.prepare("SELECT id FROM financial_entries WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!linha) return res.status(404).json({ error: "Lançamento não encontrado." });
+  const marca = req.body?.impagavel ? 1 : 0;
+  db.prepare("UPDATE financial_entries SET impagavel = ? WHERE id = ? AND org_id = ?")
+    .run(marca, linha.id, req.orgId);
+  res.json({ ok: true, impagavel: Boolean(marca) });
 });
 
 // GET /api/financial/renewals — contratos que encerram no próximo mês.

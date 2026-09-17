@@ -9,6 +9,7 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
+import PriorityHighIcon from "@mui/icons-material/PriorityHigh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
@@ -56,6 +57,8 @@ export default function Financial() {
   const [draft, setDraft] = useState(EMPTY);
   const [flash, setFlash] = useState("");
   const [foraDaGeracao, setForaDaGeracao] = useState([]);  // quem não entrou na geração, e por quê
+  // 'todos' | 'impagaveis' | 'resto' — o mês apertou e ela quer olhar um balão de cada vez.
+  const [balao, setBalao] = useState("todos");
   const [gerarOpen, setGerarOpen] = useState(false);
   const [gerarMeses, setGerarMeses] = useState(12);
   const [parcial, setParcial] = useState(""); // valor do pagamento parcial
@@ -141,7 +144,18 @@ export default function Financial() {
   }, []);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
-  const filtered = rows.filter((r) => tab === "all" || r.type === tab);
+  // IMPAGÁVEIS: o que ela marcou como "não vai dar para pagar este mês". Os dois
+  // balões somam o total — nada some, só muda de lado.
+  const filtered = rows
+    .filter((r) => tab === "all" || r.type === tab)
+    .filter((r) => balao === "todos"
+      || (balao === "impagaveis" ? !!r.impagavel : !r.impagavel));
+  const quantosImpagaveis = rows.filter((r) => r.impagavel).length;
+
+  async function toggleImpagavel(row) {
+    await api.put(`/financial/${row.id}/impagavel`, { impagavel: !row.impagavel });
+    load();
+  }
 
   async function save() {
     const payload = { ...draft, amount: Number(draft.amount) || 0, client_id: draft.client_id || null };
@@ -292,6 +306,27 @@ export default function Financial() {
           <Tab value="income" label="Receitas" />
           <Tab value="expense" label="Despesas" />
         </Tabs>
+
+        {/* OS DOIS BALÕES. Quando o mês aperta, a pergunta não é "quanto devo",
+            é "quanto disso eu consigo pagar agora". Aqui ela olha um lado de
+            cada vez — e o outro não some, só fica no outro balão. */}
+        <Stack direction="row" spacing={1} sx={{ px: 2, py: 1.25, flexWrap: "wrap", gap: 1 }} alignItems="center">
+          <Chip label={`Todos (${rows.filter((r) => tab === "all" || r.type === tab).length})`}
+            size="small" color={balao === "todos" ? "primary" : "default"}
+            variant={balao === "todos" ? "filled" : "outlined"} onClick={() => setBalao("todos")} />
+          <Chip label={`Só impagáveis${quantosImpagaveis ? ` (${quantosImpagaveis})` : ""}`}
+            size="small" color={balao === "impagaveis" ? "warning" : "default"}
+            variant={balao === "impagaveis" ? "filled" : "outlined"} onClick={() => setBalao("impagaveis")} />
+          <Chip label="O restante" size="small"
+            color={balao === "resto" ? "primary" : "default"}
+            variant={balao === "resto" ? "filled" : "outlined"} onClick={() => setBalao("resto")} />
+          {summary?.impagavelAberto > 0 && (
+            <Typography variant="caption" color="warning.main" sx={{ fontWeight: 700, ml: 0.5 }}>
+              {currency(summary.impagavelAberto)} de impagável ainda em aberto
+            </Typography>
+          )}
+        </Stack>
+
         <TableContainer>
           {/* No celular a tabela é mais larga que a tela: ela rola sozinha
               aqui dentro, em vez de arrastar a página inteira para o lado. */}
@@ -354,6 +389,12 @@ export default function Financial() {
                         </span>
                       </Tooltip>
                     )}
+                    <Tooltip title={f.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
+                      <IconButton size="small" color={f.impagavel ? "warning" : "default"}
+                        onClick={() => toggleImpagavel(f)}>
+                        <PriorityHighIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
                     <IconButton size="small" color="error" onClick={() => remove(f.id)}><DeleteIcon fontSize="small" /></IconButton>
                   </TableCell>
