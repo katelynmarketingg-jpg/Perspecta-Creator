@@ -378,8 +378,14 @@ export default function Clients() {
                       })()}
                     </TableCell>
                     <TableCell>
-                      <Chip size="small" label={c.status === "active" ? "Ativo" : "Inativo"}
-                        color={c.status === "active" ? "success" : "default"} />
+                      {c.archived_at ? (
+                        <Tooltip title={c.pagamento_ate ? `Último pagamento: ${c.pagamento_ate}` : "Cliente arquivado"}>
+                          <Chip size="small" label="Arquivado" color="warning" variant="outlined" />
+                        </Tooltip>
+                      ) : (
+                        <Chip size="small" label={c.status === "active" ? "Ativo" : "Inativo"}
+                          color={c.status === "active" ? "success" : "default"} />
+                      )}
                     </TableCell>
                     <TableCell align="right">
                       {c.drive_url && (
