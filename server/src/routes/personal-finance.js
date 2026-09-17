@@ -113,6 +113,21 @@ function pushExpenseSeries(org, row, ym, day = 10) {
   return created;
 }
 
+/**
+ * MANDA A CONTA PARA O FINANCEIRO E TIRA DAQUI.
+ *
+ * A categoria "Perspectiva" quer dizer "isto é da empresa". A importação de CSV
+ * já respeitava isso, mas só ela: criar um gasto à mão nessa categoria, ou
+ * trocar a categoria de um gasto que já existia, deixava a conta parada nas
+ * finanças pessoais. Ela mudava lá e não mudava no Financeiro — tinha que
+ * lembrar de clicar no aviso depois.
+ */
+function mandarParaOFinanceiro(orgId, userId, linha) {
+  const criadas = pushExpenseSeries(orgId, linha, linha.ym);
+  db.prepare("DELETE FROM personal_finance WHERE id=? AND user_id=?").run(linha.id, userId);
+  return criadas;
+}
+
 const ymNext = (ym) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const ymPrev = (ym) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const monthHasRows = (org, user, ym) => !!db.prepare("SELECT 1 FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? LIMIT 1").get(org, user, ym);
@@ -223,6 +238,11 @@ router.post("/", (req, res) => {
     recurring, installment_num: b.installment_num ?? pi.num, installment_total: b.installment_total ?? pi.total, import_id: null,
   });
   const created = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(info.lastInsertRowid);
+  // Gasto da empresa não fica aqui: vai direto para o Financeiro → Despesas.
+  if (isPerspectiva(created.category)) {
+    const criadas = mandarParaOFinanceiro(req.orgId, uid(req), created);
+    return res.status(201).json({ ...created, foi_para_o_financeiro: true, despesas: criadas });
+  }
   // Se é fixa/parcelada, já leva pros próximos meses que existem (os vazios são
   // preenchidos sozinhos quando ela entrar neles).
   if (created.recurring) propagateForward(req.orgId, uid(req), ym, created);
@@ -349,7 +369,20 @@ router.put("/rename-category", (req, res) => {
   db.prepare(
     `UPDATE personal_finance SET category=@to WHERE org_id=@org AND user_id=@uid AND ym=@ym AND ${where}`
   ).run({ to, from, org: req.orgId, uid: uid(req), ym });
-  res.json({ ok: true });
+
+  // Renomeou uma categoria inteira PARA Perspectiva: todas essas contas passam
+  // a ser da empresa e vão junto, na mesma ação.
+  let foram = 0, despesas = 0;
+  if (isPerspectiva(to)) {
+    const tx = db.transaction(() => {
+      const linhas = db.prepare(
+        "SELECT * FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? AND category=?"
+      ).all(req.orgId, uid(req), ym, to);
+      for (const l of linhas) { despesas += mandarParaOFinanceiro(req.orgId, uid(req), l); foram++; }
+    });
+    tx();
+  }
+  res.json({ ok: true, foi_para_o_financeiro: foram, despesas });
 });
 
 // PUT /api/personal-finance/:id — só o dono edita.
@@ -373,6 +406,12 @@ router.put("/:id", (req, res) => {
        installment_total=@installment_total WHERE id=@id AND user_id=@user_id`
   ).run({ ...m, id: req.params.id, user_id: uid(req) });
   const updated = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(req.params.id);
+  // TROCOU A CATEGORIA PARA PERSPECTIVA: a conta muda de lugar na hora.
+  // É o que ela pediu — mudar aqui tem que mudar lá, sem um segundo clique.
+  if (isPerspectiva(updated.category) && !isPerspectiva(cur.category)) {
+    const criadas = mandarParaOFinanceiro(req.orgId, uid(req), updated);
+    return res.json({ ...updated, foi_para_o_financeiro: true, despesas: criadas });
+  }
   // Virou fixa/parcelada (ou mudou a parcela)? Repete pros próximos meses que já
   // existem — sem duplicar os que já têm essa conta.
   if (updated.recurring && (b.parcela !== undefined || b.recurring !== undefined)) {
