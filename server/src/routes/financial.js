@@ -109,10 +109,15 @@ router.post("/generate-monthly", (req, res) => {
   const meses = Math.min(Math.max(Number(req.body?.months) || 1, 1), 36);
   const [y0, m0] = startMonth.split("-").map(Number);
 
+  // Todos os clientes da casa — quem entra e quem não entra é decidido abaixo,
+  // um por um, COM MOTIVO. Antes a consulta já filtrava status = 'active' e
+  // ninguém ficava sabendo de nada: o botão dizia só "N já existiam ou sem
+  // valor definido", juntando num número só razões completamente diferentes.
   const clientes = db.prepare(`
-    SELECT c.id, c.name, c.payment_day,
+    SELECT c.id, c.name, c.payment_day, c.status, c.billing_type, c.work_end,
+           c.archived_at, c.pagamento_ate,
            (SELECT COALESCE(SUM(cs.price),0) FROM client_services cs WHERE cs.client_id = c.id) AS valor
-    FROM clients c WHERE c.org_id = ? AND c.status = 'active'
+    FROM clients c WHERE c.org_id = ?
   `).all(req.orgId);
 
   const jaExiste = db.prepare(`
@@ -123,7 +128,34 @@ router.post("/generate-monthly", (req, res) => {
   // O lançamento é "recorrente" quando marca mais de um mês de uma vez.
   const recorrente = meses > 1 ? 1 : 0;
 
+  // POR QUE ESTE CLIENTE NÃO ENTRA NESTE MÊS? (null = entra)
+  //
+  // A regra do fim de contrato é INCLUSIVA, e é o ponto que faltava: marcar
+  // "Fim: setembro" quer dizer que setembro É o último mês cobrado, não que a
+  // cobrança para antes dele. Antes o campo não era nem consultado aqui — dava
+  // para preencher e não acontecia nada.
+  const mesDe = (data) => (data ? String(data).slice(0, 7) : null);
+  function porQueNaoEntra(c, mes) {
+    if ((c.billing_type || "pagante") !== "pagante") return "não é cliente pagante";
+    if (!c.valor || c.valor <= 0) return "sem valor de serviço cadastrado";
+
+    const fimContrato = mesDe(c.work_end);
+    if (fimContrato && fimContrato < mes) return `contrato encerrou em ${fimContrato}`;
+
+    if (c.archived_at) {
+      // Arquivado ainda é cobrado até o mês do último pagamento combinado — é a
+      // mesma regra que mantém ele visível no Financeiro até lá.
+      const ate = mesDe(c.pagamento_ate);
+      if (!ate) return "cliente arquivado (sem último pagamento definido)";
+      if (mes > ate) return `arquivado, último pagamento em ${ate}`;
+    } else if (c.status !== "active") {
+      return "cliente inativo";
+    }
+    return null;
+  }
+
   let criadas = 0, puladas = 0;
+  const motivos = new Map();       // "cliente — motivo" -> contagem de meses
   const tx = db.transaction(() => {
     for (let i = 0; i < meses; i++) {
       const d = new Date(y0, (m0 - 1) + i, 1);
@@ -131,8 +163,17 @@ router.post("/generate-monthly", (req, res) => {
       const mIndex = d.getMonth();           // 0..11
       const month = `${year}-${String(mIndex + 1).padStart(2, "0")}`;
       for (const c of clientes) {
-        if (!c.valor || c.valor <= 0) { puladas++; continue; }
-        if (jaExiste.get(req.orgId, c.id, month)) { puladas++; continue; }
+        const motivo = porQueNaoEntra(c, month);
+        if (motivo) {
+          puladas++;
+          motivos.set(`${c.name}|${motivo}`, (motivos.get(`${c.name}|${motivo}`) || 0) + 1);
+          continue;
+        }
+        if (jaExiste.get(req.orgId, c.id, month)) {
+          puladas++;
+          motivos.set(`${c.name}|já lançada neste mês`, (motivos.get(`${c.name}|já lançada neste mês`) || 0) + 1);
+          continue;
+        }
         const dia = Number(c.payment_day) || 5;
         const due = dueForMonth(year, mIndex, dia);
         insertEntry.run({
@@ -146,7 +187,15 @@ router.post("/generate-monthly", (req, res) => {
     }
   });
   tx();
-  res.json({ created: criadas, skipped: puladas, month: startMonth, months: meses });
+  // A lista de quem ficou de fora vai junto: sem ela, a pessoa clica, vê um
+  // número e não tem como descobrir qual cliente faltou nem o que fazer.
+  const foraDaLista = [...motivos.entries()]
+    .map(([chave, meses_]) => {
+      const [cliente, motivo] = chave.split("|");
+      return { cliente, motivo, meses: meses_ };
+    })
+    .sort((a, b) => a.cliente.localeCompare(b.cliente));
+  res.json({ created: criadas, skipped: puladas, month: startMonth, months: meses, fora: foraDaLista });
 });
 
 router.post("/", (req, res) => {

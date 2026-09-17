@@ -55,6 +55,7 @@ export default function Financial() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
   const [flash, setFlash] = useState("");
+  const [foraDaGeracao, setForaDaGeracao] = useState([]);  // quem não entrou na geração, e por quê
   const [gerarOpen, setGerarOpen] = useState(false);
   const [gerarMeses, setGerarMeses] = useState(12);
   const [parcial, setParcial] = useState(""); // valor do pagamento parcial
@@ -187,9 +188,14 @@ export default function Financial() {
     try {
       const r = await api.post("/financial/generate-monthly", { month, months: meses });
       const escopo = meses > 1 ? `${meses} meses a partir de ${month}` : month;
-      setFlash(`Mensalidades (${escopo}): ${r.data.created} criada(s), ${r.data.skipped} já existiam ou sem valor definido.`);
+      setFlash(`Mensalidades (${escopo}): ${r.data.created} criada(s), ${r.data.skipped} não entraram.`);
+      // QUEM ficou de fora e POR QUÊ. Antes a tela dizia só "N já existiam ou
+      // sem valor definido", juntando num número só razões diferentes — não
+      // dava para descobrir qual cliente faltou nem o que fazer a respeito.
+      setForaDaGeracao(Array.isArray(r.data.fora) ? r.data.fora : []);
     } catch (e) {
       setFlash(e.response?.data?.error || "Não foi possível gerar as mensalidades.");
+      setForaDaGeracao([]);
     }
     setTimeout(() => setFlash(""), 7000);
     load();
@@ -227,6 +233,27 @@ export default function Financial() {
       />
 
       {flash && <Alert severity="success" sx={{ mb: 2.5 }}>{flash}</Alert>}
+
+      {/* QUEM NÃO ENTROU NA GERAÇÃO, E POR QUÊ.
+          Sem esta lista, "N não entraram" é um número sem saída: não dá para
+          saber qual cliente faltou nem o que arrumar no cadastro dele. */}
+      {foraDaGeracao.length > 0 && (
+        <Alert severity="info" sx={{ mb: 2.5 }} onClose={() => setForaDaGeracao([])}>
+          <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+            Não entraram na geração:
+          </Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+            {foraDaGeracao.map((f) => (
+              <li key={`${f.cliente}-${f.motivo}`}>
+                <Typography variant="body2" component="span">
+                  <b>{f.cliente}</b> — {f.motivo}
+                  {f.meses > 1 ? ` (${f.meses} meses)` : ""}
+                </Typography>
+              </li>
+            ))}
+          </Box>
+        </Alert>
+      )}
       {reciboErro && <Alert severity="error" sx={{ mb: 2.5 }}>{reciboErro}</Alert>}
 
       {/* Contratos encerrando no próximo mês */}
