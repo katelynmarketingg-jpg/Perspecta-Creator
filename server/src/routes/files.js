@@ -12,6 +12,7 @@ import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, delete
 import { confere } from "../pertence.js";
 import { bilheteDeMidia, enderecoDeMidia, enderecoDePrevia, previasDe } from "../midia-url.js";
 import { emParalelo } from "../em-paralelo.js";
+import { erroDeEnvio } from "../erro-de-envio.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -349,6 +350,9 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
   }
   res.status(201).json(created);
 });
+
+// Recusa do multer vira uma frase que diz o limite, em vez de "Erro interno".
+router.use("/upload", erroDeEnvio({ porArquivo: 2 * 1024 * 1024 * 1024, porVez: 20 }));
 
 // Descobre o tipo (mime) de uma foto/vídeo pela extensão do nome.
 const MIME_BY_EXT = {

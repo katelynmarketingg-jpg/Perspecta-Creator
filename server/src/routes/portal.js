@@ -14,6 +14,8 @@ import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 import { chaveDaPorta, trancada, registraErro, registraAcerto } from "../tranca.js";
 import { bilheteDeMidia, enderecosDeMidia, previasDe } from "../midia-url.js";
 import { avisarAprovacoesPendentes } from "../aviso-aprovacao.js";
+import { emParalelo } from "../em-paralelo.js";
+import { erroDeEnvio } from "../erro-de-envio.js";
 
 const router = Router();
 
@@ -49,11 +51,13 @@ router.post("/login", (req, res) => {
   if (trancada(req, res, porta)) return;
   // Vários clientes podem ter o mesmo nome de acesso: confere a senha em cada
   // candidato em vez de assumir o primeiro (o par nome+senha é o que decide).
+  // Busca SEM filtrar por situação, para poder separar "senha errada" de
+  // "conta encerrada". Quem acertou a senha provou que a conta é dele e merece
+  // uma explicação, em vez de ficar tentando achar que digitou errado.
   const candidates = db
     .prepare(
       `SELECT * FROM clients
-        WHERE (lower(portal_username) = lower(?) OR lower(portal_email) = lower(?))
-          AND status = 'active'`
+        WHERE (lower(portal_username) = lower(?) OR lower(portal_email) = lower(?))`
     )
     .all(identifier, identifier);
   const client = candidates.find(
@@ -62,6 +66,12 @@ router.post("/login", (req, res) => {
   if (!client) {
     registraErro(porta);
     return res.status(401).json({ error: "Nome de acesso ou senha inválidos." });
+  }
+  if (client.archived_at || client.status !== "active") {
+    registraAcerto(porta);   // a senha estava certa: não conta como tentativa
+    return res.status(403).json({
+      error: "Este acesso foi encerrado. Se precisar do material, fale com a agência.",
+    });
   }
   registraAcerto(porta);
   const token = jwt.sign(
@@ -248,18 +258,25 @@ router.post("/upload", envioDoCliente.array("files", PORTAL_MAX_POR_VEZ), async 
     `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, org_id)
      VALUES (?, ?, ?, ?, ?, ?, 'originais', ?)`
   );
+  // Os arquivos vão para a nuvem ALGUNS DE CADA VEZ. Em fila, o cliente que
+  // manda cinco vídeos espera cinco idas de rede uma atrás da outra, com a
+  // barra dele parada em 100% esse tempo todo.
+  const guardados = await emParalelo(req.files, 4, async (f) => {
+    if (!storageConfigured()) return f.path;
+    try {
+      const caminho = await uploadFileToR2(f.path, `uploads/${orgId}/${f.filename}`, f.mimetype);
+      try { unlinkSync(f.path); } catch { /* já está no R2 */ }
+      return caminho;
+    } catch {
+      return f.path;   // R2 fora: guarda no disco, não perde
+    }
+  });
+
   const criados = [];
-  for (const f of req.files) {
+  for (const [i, f] of req.files.entries()) {
     // originalname chega em latin1 no multer — normaliza para UTF-8.
     const nome = Buffer.from(f.originalname, "latin1").toString("utf8");
-    let caminho = f.path;
-    if (storageConfigured()) {
-      try {
-        caminho = await uploadFileToR2(f.path, `uploads/${orgId}/${f.filename}`, f.mimetype);
-        try { unlinkSync(f.path); } catch { /* já está no R2 */ }
-      } catch { caminho = f.path; }   // R2 fora: guarda no disco, não perde
-    }
-    const info = stmt.run(pasta, clientId, nome, f.mimetype, f.size, caminho, orgId);
+    const info = stmt.run(pasta, clientId, nome, f.mimetype, f.size, guardados[i], orgId);
     const linha = db.prepare("SELECT id, original_name, mime, size, created_at, stage FROM files WHERE id = ?")
       .get(info.lastInsertRowid);
     criados.push({ ...linha, media_url: mediaUrl(linha.id, orgId) });
@@ -270,6 +287,10 @@ router.post("/upload", envioDoCliente.array("files", PORTAL_MAX_POR_VEZ), async 
 
   res.status(201).json(criados);
 });
+
+// Recusa do multer (arquivo grande demais, arquivos demais, tipo não aceito)
+// vira uma frase que diz o limite — e não "Erro interno do servidor".
+router.use("/upload", erroDeEnvio({ porArquivo: PORTAL_MAX_ARQUIVO, porVez: PORTAL_MAX_POR_VEZ }));
 
 // ---- Galeria: tudo que é do cliente, por etapa, com prazo para baixar --------
 router.get("/gallery", async (req, res) => {

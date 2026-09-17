@@ -10,6 +10,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import UnarchiveIcon from "@mui/icons-material/Unarchive";
+import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import DriveIcon from "@mui/icons-material/AddToDrive";
 import DescriptionIcon from "@mui/icons-material/Description";
 import PsychologyIcon from "@mui/icons-material/Psychology";
@@ -52,6 +53,13 @@ export default function Clients() {
   const [draft, setDraft] = useState(EMPTY);
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("");
+  const [escopo, setEscopo] = useState("ativos");     // 'ativos' | 'arquivados'
+  const [encerrar, setEncerrar] = useState(null);      // cliente sendo arquivado
+  const [resumo, setResumo] = useState(null);          // o que existe dele no sistema
+  const [projetosDele, setProjetosDele] = useState([]);
+  const [apagando, setApagando] = useState(null);      // cliente sendo excluído de vez
+  const [confirmaNome, setConfirmaNome] = useState("");
+  const [erroEncerrar, setErroEncerrar] = useState("");
   // Contratos do cliente (tudo pela ficha, sem aba separada).
   const [contratos, setContratos] = useState(null); // { client, lista: [] }
   const [ver, setVer] = useState(null);   // contrato em visualização
@@ -108,8 +116,7 @@ export default function Clients() {
   }
 
   const filtrados = rows.filter((c) => {
-    if (filtroStatus) { if (c.status !== filtroStatus) return false; }
-    else if (c.status === "archived") return false;   // "Todos" não mostra arquivados
+    if (filtroStatus && c.status !== filtroStatus) return false;
     if (busca) {
       const alvo = `${c.name} ${c.company || ""} ${c.segment || ""}`.toLowerCase();
       if (!alvo.includes(busca.toLowerCase())) return false;
@@ -117,11 +124,15 @@ export default function Clients() {
     return true;
   });
 
-  const load = () => api.get("/clients").then((r) => { setRows(r.data); setLoading(false); });
+  // "escopo" decide quem a lista traz: os do dia a dia ou os arquivados.
+  // Arquivado não some do sistema — só sai da frente.
+  const load = () => api.get("/clients", { params: { escopo } })
+    .then((r) => { setRows(r.data); setLoading(false); });
   useEffect(() => {
     load();
     api.get("/services").then((r) => setAllServices(r.data)).catch(() => {});
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [escopo]);
 
   // Ao vivo: recarrega a lista quando alguém mexe em clientes.
   const vClients = useLiveVersion("clients");
@@ -213,29 +224,59 @@ export default function Clients() {
     load();
   }
 
-  // Arquivar (não apaga): pergunta o mês do último pagamento e marca como
-  // arquivado, mantendo o histórico. { id, name, month }.
-  const [arquivar, setArquivar] = useState(null);
-  function abrirArquivar(c) {
-    const hoje = new Date();
-    const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
-    setArquivar({ id: c.id, name: c.name, month: c.last_payment_month || mesAtual, saving: false });
+  // ARQUIVAR: abre a ficha de encerramento. Antes de perguntar qualquer coisa,
+  // busca o que existe do cliente no sistema — é o que deixa claro, na tela,
+  // que arquivar não perde nada.
+  async function abrirEncerramento(c) {
+    setErroEncerrar("");
+    setResumo(null);
+    setProjetosDele([]);
+    setEncerrar({
+      cliente: c,
+      entrega_ate: "",
+      pagamento_ate: "",
+      ultimo_projeto_id: "",
+      observacao: "",
+    });
+    api.get(`/clients/${c.id}/resumo`).then((r) => setResumo(r.data)).catch(() => {});
+    api.get("/projects", { params: { client_id: c.id } })
+      .then((r) => setProjetosDele(Array.isArray(r.data) ? r.data : []))
+      .catch(() => {});
   }
-  async function confirmarArquivar() {
-    if (!arquivar?.month) return;
-    setArquivar((a) => ({ ...a, saving: true }));
+
+  async function confirmarEncerramento() {
+    const { cliente, ...dados } = encerrar;
     try {
-      await api.post(`/clients/${arquivar.id}/archive`, { last_payment_month: arquivar.month });
-      setArquivar(null);
+      await api.post(`/clients/${cliente.id}/arquivar`, dados);
+      setEncerrar(null);
       load();
-    } catch (e) {
-      alert(e.response?.data?.error || "Não foi possível arquivar.");
-      setArquivar((a) => a && ({ ...a, saving: false }));
+    } catch (err) {
+      setErroEncerrar(err.response?.data?.error || "Não consegui arquivar agora.");
     }
   }
-  async function desarquivar(id) {
-    await api.post(`/clients/${id}/unarchive`);
+
+  async function reativar(c) {
+    await api.post(`/clients/${c.id}/reativar`);
     load();
+  }
+
+  // EXCLUIR DE VEZ: só aparece dentro dos arquivados, e pede o nome digitado.
+  function abrirExclusao(c) {
+    setConfirmaNome("");
+    setErroEncerrar("");
+    setResumo(null);
+    setApagando(c);
+    api.get(`/clients/${c.id}/resumo`).then((r) => setResumo(r.data)).catch(() => {});
+  }
+
+  async function confirmarExclusao() {
+    try {
+      await api.delete(`/clients/${apagando.id}`, { params: { confirmar: confirmaNome } });
+      setApagando(null);
+      load();
+    } catch (err) {
+      setErroEncerrar(err.response?.data?.error || "Não consegui excluir.");
+    }
   }
 
   return (
@@ -255,7 +296,12 @@ export default function Clients() {
             <MenuItem value="">Todos</MenuItem>
             <MenuItem value="active">Ativos</MenuItem>
             <MenuItem value="inactive">Inativos</MenuItem>
-            <MenuItem value="archived">Arquivados</MenuItem>
+          </TextField>
+          {/* Onde ficam os encerrados. Eles não somem do sistema: mudam de aba. */}
+          <TextField select size="small" label="Mostrar" value={escopo}
+            onChange={(e) => setEscopo(e.target.value)} sx={{ minWidth: 170 }}>
+            <MenuItem value="ativos">Clientes atuais</MenuItem>
+            <MenuItem value="arquivados">Arquivados</MenuItem>
           </TextField>
         </Stack>
       )}
@@ -263,7 +309,9 @@ export default function Clients() {
       {loading ? (
         <TableSkeleton rows={4} cols={5} />
       ) : rows.length === 0 ? (
-        <EmptyState message="Nenhum cliente cadastrado." action={<Button onClick={openNew}>Adicionar</Button>} />
+        escopo === "arquivados"
+          ? <EmptyState message="Nenhum cliente arquivado. Quando você encerrar um contrato, ele fica guardado aqui." />
+          : <EmptyState message="Nenhum cliente cadastrado." action={<Button onClick={openNew}>Adicionar</Button>} />
       ) : filtrados.length === 0 ? (
         <EmptyState message="Nenhum cliente encontrado com esse filtro." />
       ) : (
@@ -330,8 +378,8 @@ export default function Clients() {
                       })()}
                     </TableCell>
                     <TableCell>
-                      {c.status === "archived" ? (
-                        <Tooltip title={c.last_payment_month ? `Último pagamento: ${c.last_payment_month}` : "Cliente arquivado"}>
+                      {c.archived_at ? (
+                        <Tooltip title={c.pagamento_ate ? `Último pagamento: ${c.pagamento_ate}` : "Cliente arquivado"}>
                           <Chip size="small" label="Arquivado" color="warning" variant="outlined" />
                         </Tooltip>
                       ) : (
@@ -355,13 +403,27 @@ export default function Clients() {
                         <IconButton size="small" onClick={() => setCerebro(c)}><PsychologyIcon fontSize="small" /></IconButton>
                       </Tooltip>
                       <IconButton size="small" onClick={() => openEdit(c)}><EditIcon fontSize="small" /></IconButton>
-                      {c.status === "archived" ? (
-                        <Tooltip title="Reativar cliente">
-                          <IconButton size="small" color="success" onClick={() => desarquivar(c.id)}><UnarchiveIcon fontSize="small" /></IconButton>
-                        </Tooltip>
+                      {/* O antigo "excluir" virou ARQUIVAR: encerrar um cliente
+                          não é apagar a história dele. Apagar de vez continua
+                          existindo, mas só dentro dos arquivados. */}
+                      {c.archived_at ? (
+                        <>
+                          <Tooltip title="Trazer de volta para os clientes ativos">
+                            <IconButton size="small" color="primary" onClick={() => reativar(c)}>
+                              <UnarchiveIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Excluir de vez — apaga tudo, sem volta">
+                            <IconButton size="small" color="error" onClick={() => abrirExclusao(c)}>
+                              <DeleteForeverIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </>
                       ) : (
-                        <Tooltip title="Arquivar cliente (guarda o histórico)">
-                          <IconButton size="small" color="error" onClick={() => abrirArquivar(c)}><ArchiveIcon fontSize="small" /></IconButton>
+                        <Tooltip title="Encerrar e arquivar — guarda tudo nos registros">
+                          <IconButton size="small" onClick={() => abrirEncerramento(c)}>
+                            <ArchiveIcon fontSize="small" />
+                          </IconButton>
                         </Tooltip>
                       )}
                     </TableCell>
@@ -740,28 +802,108 @@ export default function Clients() {
         </DialogActions>
       </Dialog>
 
-      {/* Arquivar cliente: pede o mês do último pagamento e guarda o histórico */}
-      <Dialog open={Boolean(arquivar)} onClose={() => !arquivar?.saving && setArquivar(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Arquivar {arquivar?.name}</DialogTitle>
+      {/* ---- ENCERRAR E ARQUIVAR -------------------------------------------
+          A pergunta que faltava. Antes o botão apagava na hora, e junto iam as
+          artes, as pastas, o briefing e o planejamento — por cascata, sem aviso.
+          Aqui ela registra o que foi combinado com o cliente e NADA se perde. */}
+      <Dialog open={Boolean(encerrar)} onClose={() => setEncerrar(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Encerrar {encerrar?.cliente?.name}</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            O cliente sai da lista de ativos e fica como <strong>arquivado</strong> — o histórico
-            (financeiro, contratos e conteúdos) continua guardado. Informe o <strong>mês do último
-            pagamento</strong>.
-          </Typography>
-          <TextField type="month" label="Mês do último pagamento" fullWidth autoFocus
-            InputLabelProps={{ shrink: true }}
-            value={arquivar?.month || ""}
-            onChange={(e) => setArquivar((a) => a && ({ ...a, month: e.target.value }))} />
+          <Alert severity="info" sx={{ mb: 2 }}>
+            O cliente sai da Distribuição, Tarefas, Planejamento, Galeria, Relatórios e Metas,
+            e o acesso dele à Área do Cliente para na hora. <b>Nada é apagado</b> — tudo continua
+            nos registros, e dá para reativar quando quiser.
+          </Alert>
+
+          {resumo && (
+            <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, bgcolor: "action.hover" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                O QUE FICA GUARDADO
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 0.5 }}>
+                {resumo.arquivos} arquivo(s) · {resumo.projetos} projeto(s) · {resumo.tarefas} peça(s) ·{" "}
+                {resumo.contratos} contrato(s) · {resumo.recibos} recibo(s) · {resumo.lancamentos} lançamento(s)
+              </Typography>
+              {resumo.em_aberto > 0 && (
+                <Typography variant="body2" color="warning.main" sx={{ mt: 0.5, fontWeight: 600 }}>
+                  Atenção: ainda há {currency(resumo.em_aberto)} em aberto com esse cliente.
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField select label="Vai ser entregue até qual projeto?" fullWidth
+              value={encerrar?.ultimo_projeto_id ?? ""}
+              onChange={(e) => setEncerrar((x) => ({ ...x, ultimo_projeto_id: e.target.value }))}
+              helperText="Opcional — serve para lembrar onde o trabalho parou.">
+              <MenuItem value="">Nenhum projeto em aberto</MenuItem>
+              {projetosDele.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+            </TextField>
+
+            <TextField type="date" label="Última entrega combinada" fullWidth
+              InputLabelProps={{ shrink: true }}
+              value={encerrar?.entrega_ate ?? ""}
+              onChange={(e) => setEncerrar((x) => ({ ...x, entrega_ate: e.target.value }))}
+              helperText="Até quando a equipe ainda entrega para ele." />
+
+            <TextField type="date" label="Último dia para pagamento" fullWidth
+              InputLabelProps={{ shrink: true }}
+              value={encerrar?.pagamento_ate ?? ""}
+              onChange={(e) => setEncerrar((x) => ({ ...x, pagamento_ate: e.target.value }))}
+              helperText="Ele continua aparecendo no Financeiro até o fim do mês dessa data — depois some de lá também." />
+
+            <TextField label="O que ficou combinado" fullWidth multiline rows={2}
+              value={encerrar?.observacao ?? ""}
+              onChange={(e) => setEncerrar((x) => ({ ...x, observacao: e.target.value }))} />
+          </Stack>
+
+          {erroEncerrar && <Alert severity="error" sx={{ mt: 2 }}>{erroEncerrar}</Alert>}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setArquivar(null)} disabled={arquivar?.saving}>Cancelar</Button>
-          <Button variant="contained" color="warning" startIcon={<ArchiveIcon />}
-            disabled={!arquivar?.month || arquivar?.saving} onClick={confirmarArquivar}>
-            {arquivar?.saving ? "Arquivando…" : "Arquivar"}
+          <Button onClick={() => setEncerrar(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={confirmarEncerramento}>Encerrar e arquivar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ---- EXCLUIR DE VEZ -------------------------------------------------
+          Só chega aqui um cliente já arquivado. O nome digitado é a trava: é o
+          que separa "encerrei o contrato" de "apaguei a história". */}
+      <Dialog open={Boolean(apagando)} onClose={() => setApagando(null)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ color: "error.main" }}>Excluir {apagando?.name} de vez</DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            <b>Isto não tem volta.</b> Vão ser apagados de vez, inclusive da nuvem:
+            as artes e pastas, o briefing, o planejamento, as prioridades e os serviços contratados.
+            Contratos, recibos e lançamentos ficam no sistema, mas <b>sem o nome do cliente</b>.
+          </Alert>
+
+          {resumo && (
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              Some agora: <b>{resumo.arquivos} arquivo(s)</b>. Ficam órfãos: {resumo.contratos} contrato(s),{" "}
+              {resumo.recibos} recibo(s) e {resumo.lancamentos} lançamento(s).
+            </Typography>
+          )}
+
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Se tem certeza, digite o nome do cliente: <b>{apagando?.name}</b>
+          </Typography>
+          <TextField fullWidth autoFocus value={confirmaNome}
+            onChange={(e) => setConfirmaNome(e.target.value)}
+            placeholder={apagando?.name || ""} />
+
+          {erroEncerrar && <Alert severity="error" sx={{ mt: 2 }}>{erroEncerrar}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApagando(null)}>Cancelar</Button>
+          <Button variant="contained" color="error"
+            disabled={confirmaNome.trim() !== (apagando?.name || "")}
+            onClick={confirmarExclusao}>
+            Excluir de vez
           </Button>
         </DialogActions>
       </Dialog>
+
     </>
   );
 }

@@ -1424,10 +1424,21 @@ function agrupaPorMes(itens) {
 
 const GRADE = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" };
 
+// GRADE COM OS CARDS DA MESMA ALTURA.
+//
+// Com `alignItems: start`, cada card fica com a altura do que tem dentro — e aí
+// basta um título que quebra em duas linhas, ou um aviso de "pediu ajuste", para
+// a fileira ficar desencontrada. Encaixar a arte numa caixa fixa resolve a maior
+// parte, mas não tudo. Aqui os cards da fileira esticam até a altura do mais
+// alto, e a fileira fica reta sempre.
+const GRADE_IGUAL = { ...GRADE, alignItems: "stretch" };
+// Vai no <Card> dessas listas, para ele de fato ocupar a altura que a grade deu.
+const CARD_IGUAL = { height: "100%", display: "flex", flexDirection: "column" };
+
 /** Desenha os itens em blocos de mês. `children` é como cada item vira cartão. */
-function PorMes({ itens, children }) {
+function PorMes({ itens, children, grade = GRADE }) {
   const grupos = agrupaPorMes(itens);
-  if (grupos.length <= 1) return <Box sx={GRADE}>{itens.map(children)}</Box>;
+  if (grupos.length <= 1) return <Box sx={grade}>{itens.map(children)}</Box>;
   return (
     <Stack spacing={3}>
       {grupos.map((g) => (
@@ -1438,7 +1449,7 @@ function PorMes({ itens, children }) {
               {g.rotulo} · {g.itens.length}
             </Typography>
           </Divider>
-          <Box sx={GRADE}>{g.itens.map(children)}</Box>
+          <Box sx={grade}>{g.itens.map(children)}</Box>
         </Box>
       ))}
     </Stack>
@@ -1888,13 +1899,13 @@ export default function Distribution() {
             programmed.length === 0 ? (
               <EmptyState message="Nada programado ainda. Quando você programa um conteúdo aprovado, ele aparece aqui." />
             ) : (
-              <PorMes itens={programmed}>
+              <PorMes itens={programmed} grade={GRADE_IGUAL}>
                 {(p) => {
                   const ct = CONTENT_TYPES[p.content_type];
                   return (
-                    <Card key={p.id}>
-                      <CardContent>
-                        <Stack spacing={1}>
+                    <Card key={p.id} sx={CARD_IGUAL}>
+                      <CardContent sx={{ flexGrow: 1, display: "flex" }}>
+                        <Stack spacing={1} sx={{ flex: 1, width: "100%" }}>
                           <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
                             {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
                             <Chip size="small" color="info" label="Programado 🗓️" />
@@ -1910,6 +1921,10 @@ export default function Distribution() {
                               ? new Date(p.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
                               : "Sem data"}
                           </Typography>
+                          {/* Empurra a ação para o rodapé do card: assim os botões de
+                              uma fileira ficam na mesma linha, mesmo quando um dos
+                              cards tem o aviso de "pediu ajuste" ocupando espaço. */}
+                          <Box sx={{ flexGrow: 1 }} />
                           <Stack direction="row" spacing={1}>
                             <Button size="small" variant="outlined" onClick={() => setSelected(p)}>Abrir</Button>
                           </Stack>
@@ -1924,14 +1939,14 @@ export default function Distribution() {
             waiting.length === 0 ? (
               <EmptyState message="Nada esperando aprovação. O que você enviar para o cliente aparece aqui até ele responder." />
             ) : (
-              <PorMes itens={waiting}>
+              <PorMes itens={waiting} grade={GRADE_IGUAL}>
                 {(w) => {
                   const ct = CONTENT_TYPES[w.content_type];
                   const pediuAjuste = w.approval_status === "changes_requested";
                   return (
-                    <Card key={w.id}>
-                      <CardContent>
-                        <Stack spacing={1}>
+                    <Card key={w.id} sx={CARD_IGUAL}>
+                      <CardContent sx={{ flexGrow: 1, display: "flex" }}>
+                        <Stack spacing={1} sx={{ flex: 1, width: "100%" }}>
                           <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
                             {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
                             <Chip size="small" color={pediuAjuste ? "warning" : "info"}
@@ -1953,6 +1968,10 @@ export default function Distribution() {
                               <Typography variant="caption">{w.client_note}</Typography>
                             </Alert>
                           )}
+                          {/* Empurra a ação para o rodapé do card: assim os botões de
+                              uma fileira ficam na mesma linha, mesmo quando um dos
+                              cards tem o aviso de "pediu ajuste" ocupando espaço. */}
+                          <Box sx={{ flexGrow: 1 }} />
                           <Button size="small" variant="outlined" onClick={() => setSelected(w)}>Abrir</Button>
                         </Stack>
                       </CardContent>
@@ -1965,13 +1984,13 @@ export default function Distribution() {
             approved.length === 0 ? (
               <EmptyState message="Nada aprovado aguardando programação. Quando o cliente aprova, o conteúdo aparece aqui para programar." />
             ) : (
-              <PorMes itens={approved}>
+              <PorMes itens={approved} grade={GRADE_IGUAL}>
                 {(a) => {
                   const ct = CONTENT_TYPES[a.content_type];
                   return (
-                    <Card key={a.id}>
-                      <CardContent>
-                        <Stack spacing={1}>
+                    <Card key={a.id} sx={CARD_IGUAL}>
+                      <CardContent sx={{ flexGrow: 1, display: "flex" }}>
+                        <Stack spacing={1} sx={{ flex: 1, width: "100%" }}>
                           <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
                             {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
                             <Chip size="small" color="success" label="Aprovado ✓" />
@@ -1987,6 +2006,10 @@ export default function Distribution() {
                               ? new Date(a.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
                               : "Sem data — edite antes de programar"}
                           </Typography>
+                          {/* Empurra a ação para o rodapé do card: assim os botões de
+                              uma fileira ficam na mesma linha, mesmo quando um dos
+                              cards tem o aviso de "pediu ajuste" ocupando espaço. */}
+                          <Box sx={{ flexGrow: 1 }} />
                           <Stack direction="row" spacing={1}>
                             <Button size="small" variant="outlined" onClick={() => setSelected(a)}>Editar</Button>
                             <Button size="small" variant="contained" startIcon={<ScheduleSendIcon />}

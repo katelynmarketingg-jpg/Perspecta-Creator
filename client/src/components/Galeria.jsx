@@ -12,6 +12,11 @@ import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import CircularProgress from "@mui/material/CircularProgress";
 import { fileSize } from "../utils.js";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
+import { enviarLista } from "../upload/envioComProgresso.js";
+import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
+import LinearProgress from "@mui/material/LinearProgress";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 
 const ABAS = [
   { key: "todos", label: "Todos" },
@@ -146,45 +151,83 @@ function Item({ arquivo, fetchFile }) {
 // É onde ele já vem procurar as fotos; poder mandar de volta pelo mesmo lugar
 // evita a foto boa ficar perdida numa conversa de WhatsApp.
 // ---------------------------------------------------------------------------
-function Enviar({ onEnviar }) {
+function Enviar({ aoTerminar }) {
   const input = useRef(null);
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState("");
+  const [fila, setFila] = useState([]);       // [{ nome, tamanho, progresso, status, erro }]
+  const enviando = fila.some((f) => f.status === "enviando" || f.status === "aguardando");
 
-  async function escolheu(e) {
+  async function mandar(arquivos) {
+    if (!arquivos?.length) return;
+    // Um pedido por arquivo, dois de cada vez: assim ele VÊ a barra andar e o
+    // que já subiu fica salvo mesmo se o próximo falhar. Antes era tudo num
+    // pedido só, com uma bolinha girando e nenhum jeito de saber se andava.
+    const resultado = await enviarLista(arquivos, {
+      url: "/api/portal/upload",
+      token: localStorage.getItem("portal_token"),
+      aoMudar: setFila,
+      aoTerminarUm: () => aoTerminar?.(),
+    });
+    // Os que deram certo somem da lista depois de um tempo; os que falharam
+    // ficam na tela, com o motivo, até ele fechar.
+    const deuErro = resultado.some((r) => r.status === "erro");
+    if (!deuErro) setTimeout(() => setFila([]), 4000);
+  }
+
+  function escolheu(e) {
     const arquivos = Array.from(e.target.files || []);
     e.target.value = "";           // deixa reescolher o mesmo arquivo depois
-    if (!arquivos.length) return;
-    setErro("");
-    setEnviando(true);
-    try { await onEnviar(arquivos); }
-    catch (err) {
-      setErro(err?.response?.data?.error
-        || (err?.response?.status === 413 ? "Esse arquivo é grande demais (o limite é 200 MB por arquivo)."
-          : "Não deu para enviar agora. Tente de novo em instantes."));
-    }
-    finally { setEnviando(false); }
+    mandar(arquivos);
   }
 
   return (
-    <Card variant="outlined" sx={{ mb: 2, borderStyle: "dashed" }}>
-      <CardContent sx={{ py: 2 }}>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
-          <Box sx={{ flex: 1 }}>
-            <Typography sx={{ fontWeight: 600 }}>Mandar fotos e vídeos</Typography>
-            <Typography variant="body2" color="text.secondary">
-              O que você mandar aqui chega direto para a equipe e fica guardado em Originais.
-            </Typography>
-          </Box>
-          <Button variant="contained" startIcon={enviando ? <CircularProgress size={16} color="inherit" /> : <AddPhotoAlternateIcon />}
-            disabled={enviando} onClick={() => input.current?.click()}>
-            {enviando ? "Enviando…" : "Escolher arquivos"}
-          </Button>
-        </Stack>
-        {erro && <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setErro("")}>{erro}</Alert>}
-        <input ref={input} type="file" multiple hidden accept="image/*,video/*,.pdf" onChange={escolheu} />
-      </CardContent>
-    </Card>
+    <AreaDeSoltar aoSoltar={mandar} aviso="Chega direto para a equipe, em Originais">
+      <Card variant="outlined" sx={{ mb: 2, borderStyle: "dashed" }}>
+        <CardContent sx={{ py: 2 }}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+            <Box sx={{ flex: 1 }}>
+              <Typography sx={{ fontWeight: 600 }}>Mandar fotos e vídeos</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Arraste aqui, ou escolha no aparelho. O que você mandar chega direto
+                para a equipe e fica guardado em Originais.
+              </Typography>
+            </Box>
+            <Button variant="contained" startIcon={<AddPhotoAlternateIcon />}
+              disabled={enviando} onClick={() => input.current?.click()}>
+              {enviando ? "Enviando…" : "Escolher arquivos"}
+            </Button>
+          </Stack>
+
+          {fila.length > 0 && (
+            <Stack spacing={1} sx={{ mt: 2 }}>
+              {fila.map((f, i) => (
+                <Box key={`${f.nome}-${i}`}>
+                  <Stack direction="row" alignItems="center" spacing={0.75}>
+                    {f.status === "pronto" && <CheckCircleIcon color="success" sx={{ fontSize: 16 }} />}
+                    {f.status === "erro" && <ErrorOutlineIcon color="error" sx={{ fontSize: 16 }} />}
+                    <Typography variant="caption" noWrap title={f.nome} sx={{ flex: 1, fontWeight: 600 }}>
+                      {f.nome}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {f.status === "enviando" ? `${f.progresso}%` : fileSize(f.tamanho)}
+                    </Typography>
+                  </Stack>
+                  {(f.status === "enviando" || f.status === "aguardando") && (
+                    <LinearProgress
+                      variant={f.status === "enviando" ? "determinate" : "indeterminate"}
+                      value={f.progresso} sx={{ mt: 0.5, borderRadius: 2, height: 6 }} />
+                  )}
+                  {f.status === "erro" && (
+                    <Typography variant="caption" color="error">{f.erro}</Typography>
+                  )}
+                </Box>
+              ))}
+            </Stack>
+          )}
+
+          <input ref={input} type="file" multiple hidden accept="image/*,video/*,.pdf" onChange={escolheu} />
+        </CardContent>
+      </Card>
+    </AreaDeSoltar>
   );
 }
 
@@ -220,7 +263,7 @@ export default function Galeria({ dados, fetchFile, onEnviar }) {
         })}
       </Tabs>
 
-      {onEnviar && (aba === "todos" || aba === "originais") && <Enviar onEnviar={onEnviar} />}
+      {onEnviar && (aba === "todos" || aba === "originais") && <Enviar aoTerminar={onEnviar} />}
 
       {lista.length === 0 ? (
         <Card><CardContent sx={{ textAlign: "center", py: 5 }}>

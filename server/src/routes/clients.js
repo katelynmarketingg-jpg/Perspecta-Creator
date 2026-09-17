@@ -4,6 +4,16 @@ import { db } from "../db.js";
 import { authRequired, hashPassword, moduleAllowed, publicBaseUrl, JWT_SECRET } from "../auth.js";
 import { makeSignToken } from "./sign.js";
 import { canAddClient } from "../plans-monitor.js";
+import { filtroDeClientes } from "../arquivar-cliente.js";
+import { emParalelo } from "../em-paralelo.js";
+import { isR2Path, r2Key, deleteR2Object } from "../storage.js";
+import { unlinkSync } from "node:fs";
+
+/** Remove o arquivo físico (nuvem ou disco). O mesmo que a Galeria faz. */
+async function removerGuardado(caminho) {
+  if (isR2Path(caminho)) { try { await deleteR2Object(r2Key(caminho)); } catch {} }
+  else { try { unlinkSync(caminho); } catch {} }
+}
 
 const router = Router();
 router.use(authRequired, moduleAllowed("clientes"));
@@ -292,8 +302,17 @@ function generateReceivables(client, total, durationMonths) {
 
 // ---------------------------------------------------------------------------
 
+// GET /api/clients?escopo=ativos|financeiro|arquivados|todos
+//
+// O padrão é "ativos": cliente arquivado some de todas as telas do dia a dia
+// sem precisar mexer em cada uma — todas pedem a lista por aqui. O Financeiro
+// pede "financeiro", que segura o arquivado até o fim do mês do último
+// pagamento combinado (ver arquivar-cliente.js).
 router.get("/", (req, res) => {
-  const rows = db.prepare("SELECT * FROM clients WHERE org_id = ? ORDER BY name").all(req.orgId);
+  const escopo = String(req.query.escopo || "ativos");
+  const { sql, params } = filtroDeClientes(escopo);
+  const rows = db.prepare(`SELECT * FROM clients WHERE org_id = ?${sql} ORDER BY name`)
+    .all(req.orgId, ...params);
   // agrupa serviços numa única query para evitar N+1
   const all = db
     .prepare(
@@ -427,31 +446,96 @@ router.put("/:id", (req, res) => {
   res.json(publicClient(client));
 });
 
-// Arquivar o cliente em vez de apagar: guarda o mês do último pagamento e marca
-// como 'archived'. O histórico (financeiro, contratos, conteúdos) fica intacto.
-router.post("/:id/archive", (req, res) => {
-  const client = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
-  if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
-  const mes = String(req.body?.last_payment_month || "").trim();
-  if (!/^\d{4}-\d{2}$/.test(mes)) return res.status(400).json({ error: "Informe o mês do último pagamento (AAAA-MM)." });
+// POST /api/clients/:id/arquivar — encerra o cliente SEM perder nada.
+//
+// Guarda o que foi combinado no encerramento: até quando entregamos, até qual
+// projeto, e qual o último pagamento. É isso que a tela pergunta antes.
+router.post("/:id/arquivar", (req, res) => {
+  const cliente = db.prepare("SELECT id, name FROM clients WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!cliente) return res.status(404).json({ error: "Cliente não encontrado." });
+
+  const { entrega_ate, pagamento_ate, ultimo_projeto_id, observacao } = req.body || {};
+  // O projeto citado tem que ser deste cliente — senão a ficha fica dizendo
+  // uma coisa que não aconteceu.
+  if (ultimo_projeto_id) {
+    const p = db.prepare("SELECT id FROM projects WHERE id = ? AND client_id = ?")
+      .get(ultimo_projeto_id, cliente.id);
+    if (!p) return res.status(400).json({ error: "Esse projeto não é deste cliente." });
+  }
+
   db.prepare(
-    "UPDATE clients SET status = 'archived', archived_at = datetime('now'), last_payment_month = ? WHERE id = ? AND org_id = ?"
-  ).run(mes, req.params.id, req.orgId);
+    `UPDATE clients SET archived_at = ?, entrega_ate = ?, pagamento_ate = ?,
+       ultimo_projeto_id = ?, archive_note = ?, status = 'inactive'
+     WHERE id = ? AND org_id = ?`
+  ).run(
+    new Date().toISOString(), entrega_ate || null, pagamento_ate || null,
+    ultimo_projeto_id || null, observacao || null, cliente.id, req.orgId,
+  );
+  res.json({ ok: true, ...resumoDoCliente(cliente.id, req.orgId) });
+});
+
+// POST /api/clients/:id/reativar — voltou atrás, ou o cliente voltou.
+router.post("/:id/reativar", (req, res) => {
+  const cliente = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!cliente) return res.status(404).json({ error: "Cliente não encontrado." });
+  db.prepare(
+    `UPDATE clients SET archived_at = NULL, entrega_ate = NULL, pagamento_ate = NULL,
+       ultimo_projeto_id = NULL, archive_note = NULL, status = 'active'
+     WHERE id = ? AND org_id = ?`
+  ).run(cliente.id, req.orgId);
   res.json({ ok: true });
 });
 
-// Reativar um cliente arquivado (volta para ativo, sem perder o histórico).
-router.post("/:id/unarchive", (req, res) => {
-  const r = db.prepare(
-    "UPDATE clients SET status = 'active', archived_at = NULL WHERE id = ? AND org_id = ?"
-  ).run(req.params.id, req.orgId);
-  if (!r.changes) return res.status(404).json({ error: "Cliente não encontrado." });
-  res.json({ ok: true });
+// GET /api/clients/:id/resumo — o que existe no sistema desse cliente.
+// A tela de arquivar mostra isso para deixar claro que NADA se perde, e a de
+// excluir mostra o mesmo para deixar claro que TUDO se perde.
+router.get("/:id/resumo", (req, res) => {
+  const cliente = db.prepare("SELECT id, name FROM clients WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!cliente) return res.status(404).json({ error: "Cliente não encontrado." });
+  res.json(resumoDoCliente(cliente.id, req.orgId));
 });
 
-router.delete("/:id", (req, res) => {
-  db.prepare("DELETE FROM clients WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
-  res.json({ ok: true });
+function resumoDoCliente(clientId, orgId) {
+  const conta = (sql, ...p) => db.prepare(sql).get(clientId, ...p)?.n || 0;
+  return {
+    arquivos: conta("SELECT COUNT(*) n FROM files WHERE client_id = ?"),
+    tarefas: conta("SELECT COUNT(*) n FROM tasks WHERE client_id = ?"),
+    projetos: conta("SELECT COUNT(*) n FROM projects WHERE client_id = ?"),
+    contratos: conta("SELECT COUNT(*) n FROM contracts WHERE client_id = ?"),
+    recibos: conta("SELECT COUNT(*) n FROM receipts WHERE client_id = ?"),
+    lancamentos: conta("SELECT COUNT(*) n FROM financial_entries WHERE client_id = ?"),
+    em_aberto: db.prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS v FROM financial_entries
+        WHERE client_id = ? AND type = 'income' AND status != 'paid'`
+    ).get(clientId)?.v || 0,
+  };
+}
+
+// DELETE /api/clients/:id — apagar DE VEZ. É o caminho sem volta.
+//
+// Só depois de arquivado, e só digitando o nome do cliente: são as duas
+// travas que separam "encerrei o contrato" de "apaguei a história". E aqui os
+// arquivos são removidos da nuvem também — antes as artes sumiam do banco por
+// cascata e os bytes ficavam no R2 para sempre, invisíveis e cobrados.
+router.delete("/:id", async (req, res) => {
+  const cliente = db.prepare("SELECT id, name, archived_at FROM clients WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!cliente) return res.status(404).json({ error: "Cliente não encontrado." });
+  if (!cliente.archived_at) {
+    return res.status(400).json({ error: "Arquive o cliente antes de excluir. Arquivar guarda tudo; excluir apaga de vez." });
+  }
+  const confirmacao = String(req.query.confirmar || req.body?.confirmar || "").trim();
+  if (confirmacao !== cliente.name) {
+    return res.status(400).json({ error: `Para excluir de vez, digite o nome do cliente exatamente: ${cliente.name}` });
+  }
+
+  const arquivos = db.prepare("SELECT stored_path FROM files WHERE client_id = ?").all(cliente.id);
+  await emParalelo(arquivos, 4, (f) => removerGuardado(f.stored_path));
+
+  db.prepare("DELETE FROM clients WHERE id = ? AND org_id = ?").run(cliente.id, req.orgId);
+  res.json({ ok: true, arquivos: arquivos.length });
 });
 
 // ---------------------------------------------------------------------------

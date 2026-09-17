@@ -411,10 +411,11 @@ ensureColumn("clients", "banner_file_id", "banner_file_id INTEGER"); // imagem/b
 // Tipo de cobrança: 'pagante' (padrão) | 'permuta' | 'trabalho_proprio' | 'cortesia'.
 // Não pagante não gera mensalidade no financeiro.
 ensureColumn("clients", "billing_type", "billing_type TEXT DEFAULT 'pagante'");
-// Arquivamento: quando o cliente sai, guardamos o mês do último pagamento e a
-// data em que foi arquivado — o registro fica (status 'archived'), não some.
+// Arquivamento: quando o cliente sai, o registro fica — não some. As datas do
+// encerramento ficam logo abaixo (entrega_ate, pagamento_ate). `last_payment_month`
+// é de uma versão anterior e continua aqui só para não perder o que já foi gravado.
 ensureColumn("clients", "archived_at", "archived_at TEXT");
-ensureColumn("clients", "last_payment_month", "last_payment_month TEXT"); // 'AAAA-MM'
+ensureColumn("clients", "last_payment_month", "last_payment_month TEXT"); // 'AAAA-MM' (antigo)
 // Plano mensal de conteúdo (gera o projeto base automaticamente).
 ensureColumn("clients", "posts_per_month", "posts_per_month INTEGER");
 ensureColumn("clients", "videos_per_month", "videos_per_month INTEGER");
@@ -895,6 +896,47 @@ ensureColumn("organizations", "signer_document", "signer_document TEXT");
 ensureColumn("organizations", "signer_role", "signer_role TEXT");       // cargo de quem assina
 // Documento do cliente (CPF/CNPJ do pagador) — exigido no recibo.
 ensureColumn("clients", "document", "document TEXT");
+// ---------------------------------------------------------------------------
+// ARQUIVAR CLIENTE, em vez de apagar.
+//
+// Encerrar um contrato não é apagar a história: os recibos, os contratos, os
+// lançamentos e as artes daquele cliente continuam valendo depois que ele sai.
+// Arquivado, ele some das telas do dia a dia mas continua inteiro nos
+// registros — e dá para reativar.
+//
+// As três datas são o que ela combina com o cliente na hora de encerrar, e é
+// por isso que a tela pergunta antes de arquivar.
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// IMPAGÁVEIS — o que ela sabe que NÃO vai conseguir pagar este mês.
+//
+// Quando o mês aperta, a conta não é "quanto devo": é "quanto disso eu consigo
+// pagar agora". Marcar um gasto como impagável separa o que vai ficar para trás
+// do que ainda dá para honrar, dos dois lados (as contas dela e as da empresa).
+// ---------------------------------------------------------------------------
+ensureColumn("personal_finance", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
+ensureColumn("financial_entries", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
+ensureColumn("clients", "archived_at", "archived_at TEXT");            // quando foi arquivado
+ensureColumn("clients", "entrega_ate", "entrega_ate TEXT");            // última entrega combinada
+ensureColumn("clients", "pagamento_ate", "pagamento_ate TEXT");        // último pagamento combinado
+ensureColumn("clients", "ultimo_projeto_id", "ultimo_projeto_id INTEGER"); // "vai até este projeto"
+ensureColumn("clients", "archive_note", "archive_note TEXT");          // o combinado, em texto
+
+// Clientes arquivados por uma versão anterior guardavam o último pagamento em
+// `last_payment_month` e ficavam com status 'archived'. Aqui essa informação é
+// trazida para os campos de hoje, para que ninguém que ela já arquivou perca a
+// data combinada nem suma do Financeiro.
+try {
+  db.prepare(
+    `UPDATE clients SET pagamento_ate = last_payment_month
+      WHERE archived_at IS NOT NULL
+        AND (pagamento_ate IS NULL OR pagamento_ate = '')
+        AND last_payment_month IS NOT NULL AND last_payment_month <> ''`
+  ).run();
+  db.prepare("UPDATE clients SET status = 'inactive' WHERE status = 'archived'").run();
+} catch {
+  // Banco antigo sem a coluna: não há o que migrar.
+}
 // Dados que o contrato e o recibo precisam: razão social e quem assina pelo cliente.
 ensureColumn("clients", "legal_name", "legal_name TEXT");     // razão social (vazio = usa o nome)
 ensureColumn("clients", "rep_name", "rep_name TEXT");         // representante legal

@@ -6,6 +6,7 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
+import PriorityHighIcon from "@mui/icons-material/PriorityHigh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -135,6 +136,13 @@ export default function MinhasFinancas() {
   }
   async function excluir(id) { if (confirm("Excluir este gasto?")) { await api.delete(`/personal-finance/${id}`); load(); } }
   async function togglePago(e) { await api.put(`/personal-finance/${e.id}`, { paid: !e.paid }); load(); }
+  // IMPAGÁVEL: "este eu não vou conseguir pagar este mês". Um clique, na
+  // própria linha — é um gesto de triagem no meio do aperto, não pode exigir
+  // abrir a ficha do gasto.
+  async function toggleImpagavel(e) {
+    await api.put(`/personal-finance/${e.id}`, { impagavel: !e.impagavel });
+    load();
+  }
   async function pagarFatura(g, paid) {
     await api.put("/personal-finance/pay-method", { ym, method: g.method, paid });
     load();
@@ -213,6 +221,11 @@ export default function MinhasFinancas() {
         <StatCard label="Total do mês" value={s ? currency(s.total) : undefined} />
         <StatCard label="Comprometido do salário" value={s?.comprometido != null ? `${s.comprometido}%` : "—"} />
         <StatCard label="A pagar" value={s ? currency(s.aPagar) : undefined} />
+        {/* O segundo número é a pergunta do mês apertado: desse tanto que falta,
+            quanto é do que ela já marcou que não vai dar para pagar. */}
+        <StatCard
+          label={s?.impagavelQuantos ? `Impagáveis a pagar (${s.impagavelQuantos})` : "Impagáveis a pagar"}
+          value={s ? currency(s.impagavelAPagar || 0) : undefined} />
       </Box>
 
       {/* Gráficos */}
@@ -289,6 +302,9 @@ export default function MinhasFinancas() {
                         <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
                           {e.parcela && <Chip size="small" variant="outlined" label={e.parcela} sx={{ height: 18 }} />}
                           {e.category && <Chip size="small" variant="outlined" label={e.category} sx={{ height: 18 }} />}
+                          {e.impagavel && (
+                            <Chip size="small" color="warning" label="impagável" sx={{ height: 18 }} />
+                          )}
                           {e.recurring ? (
                             <Tooltip title={e.installment_total ? `Parcelado — segue até ${e.installment_total}/${e.installment_total}` : "Fixa — repete todo mês"}>
                               <Chip size="small" icon={<RepeatIcon sx={{ fontSize: 12 }} />} label={e.installment_total ? "parcelado" : "todo mês"} sx={{ height: 18, ".MuiChip-label": { pl: 0.5 } }} color="default" variant="outlined" />
@@ -298,6 +314,12 @@ export default function MinhasFinancas() {
                       </Box>
                       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{currency(e.amount)}</Typography>
                       <Box className="acts" sx={{ opacity: { xs: 1, md: 0.55 }, transition: "opacity .15s" }}>
+                        <Tooltip title={e.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
+                          <IconButton size="small" color={e.impagavel ? "warning" : "default"}
+                            onClick={() => toggleImpagavel(e)}>
+                            <PriorityHighIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
                         <IconButton size="small" onClick={() => setDraft({ ...e, paid: !!e.paid })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
                         <IconButton size="small" color="error" onClick={() => excluir(e.id)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
                       </Box>

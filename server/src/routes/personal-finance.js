@@ -19,8 +19,16 @@ function summary(rows, salary) {
     byCat[r.category || "Sem categoria"] = (byCat[r.category || "Sem categoria"] || 0) + (Number(r.amount) || 0);
     byMethod[r.method || "Sem método"] = (byMethod[r.method || "Sem método"] || 0) + (Number(r.amount) || 0);
   });
+  // IMPAGÁVEIS: o que ela marcou como "não vou conseguir pagar este mês".
+  // O que importa não é o total deles, e sim quanto AINDA falta pagar — por
+  // isso os dois números andam juntos na tela: o que falta no geral e o que
+  // falta só dos impagáveis.
+  const impagaveis = rows.filter((r) => r.impagavel);
+  const impagavelTotal = impagaveis.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const impagavelAPagar = impagaveis.filter((r) => !r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
   return {
     total, pago, aPagar: Math.max(0, total - pago),
+    impagavelTotal, impagavelAPagar, impagavelQuantos: impagaveis.length,
     salary: Number(salary) || 0,
     comprometido: salary > 0 ? Math.round((total / salary) * 100) : null,
     porCategoria: Object.entries(byCat).map(([k, v]) => ({ nome: k, valor: +v.toFixed(2) })).sort((a, b) => b.valor - a.valor),
@@ -37,7 +45,7 @@ router.get("/", (req, res) => {
   ).all(req.orgId, uid(req), ym);
   const cfg = db.prepare("SELECT salary FROM personal_finance_config WHERE org_id=? AND user_id=?").get(req.orgId, uid(req));
   const salary = cfg?.salary || 0;
-  res.json({ ym, salary, entries: rows.map((r) => ({ ...r, paid: !!r.paid })), summary: summary(rows, salary) });
+  res.json({ ym, salary, entries: rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel })), summary: summary(rows, salary) });
 });
 
 // PUT /api/personal-finance/config { salary }
@@ -73,9 +81,9 @@ const isPerspectiva = (cat) => /perspec/i.test(String(cat ?? ""));
 
 const insertExpense = db.prepare(
   `INSERT INTO financial_entries (type, description, amount, client_id, category, status, due_date, paid_at,
-     payment_link, pix_code, boleto_url, invoice_url, recurring, recurring_day, card, org_id)
+     payment_link, pix_code, boleto_url, invoice_url, recurring, recurring_day, card, impagavel, org_id)
    VALUES ('expense', @description, @amount, NULL, @category, @status, @due_date, @paid_at,
-     NULL, NULL, NULL, NULL, @recurring, @recurring_day, @card, @org_id)`
+     NULL, NULL, NULL, NULL, @recurring, @recurring_day, @card, @impagavel, @org_id)`
 );
 const expenseExistsInMonth = db.prepare(
   "SELECT 1 FROM financial_entries WHERE org_id=? AND type='expense' AND description=? AND strftime('%Y-%m', due_date)=? LIMIT 1"
@@ -103,14 +111,31 @@ function pushExpenseSeries(org, row, ym, day = 10) {
       insertExpense.run({
         description: desc, amount: Number(row.amount) || 0, category: "Perspectiva",
         status: paid ? "paid" : "pending", due_date: `${y}-${mm}-${d}`,
+        // A marca de impagável acompanha a conta quando ela muda de lugar.
         paid_at: paid ? new Date().toISOString() : null,
-        recurring, recurring_day: recurring ? day : null, card: row.method ?? null, org_id: org,
+        recurring, recurring_day: recurring ? day : null, card: row.method ?? null,
+        impagavel: row.impagavel ? 1 : 0, org_id: org,
       });
       created++;
     }
     m++; if (m > 12) { m = 1; y++; }
   }
   return created;
+}
+
+/**
+ * MANDA A CONTA PARA O FINANCEIRO E TIRA DAQUI.
+ *
+ * A categoria "Perspectiva" quer dizer "isto é da empresa". A importação de CSV
+ * já respeitava isso, mas só ela: criar um gasto à mão nessa categoria, ou
+ * trocar a categoria de um gasto que já existia, deixava a conta parada nas
+ * finanças pessoais. Ela mudava lá e não mudava no Financeiro — tinha que
+ * lembrar de clicar no aviso depois.
+ */
+function mandarParaOFinanceiro(orgId, userId, linha) {
+  const criadas = pushExpenseSeries(orgId, linha, linha.ym);
+  db.prepare("DELETE FROM personal_finance WHERE id=? AND user_id=?").run(linha.id, userId);
+  return criadas;
 }
 
 const ymNext = (ym) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
@@ -223,6 +248,11 @@ router.post("/", (req, res) => {
     recurring, installment_num: b.installment_num ?? pi.num, installment_total: b.installment_total ?? pi.total, import_id: null,
   });
   const created = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(info.lastInsertRowid);
+  // Gasto da empresa não fica aqui: vai direto para o Financeiro → Despesas.
+  if (isPerspectiva(created.category)) {
+    const criadas = mandarParaOFinanceiro(req.orgId, uid(req), created);
+    return res.status(201).json({ ...created, foi_para_o_financeiro: true, despesas: criadas });
+  }
   // Se é fixa/parcelada, já leva pros próximos meses que existem (os vazios são
   // preenchidos sozinhos quando ela entrar neles).
   if (created.recurring) propagateForward(req.orgId, uid(req), ym, created);
@@ -349,7 +379,20 @@ router.put("/rename-category", (req, res) => {
   db.prepare(
     `UPDATE personal_finance SET category=@to WHERE org_id=@org AND user_id=@uid AND ym=@ym AND ${where}`
   ).run({ to, from, org: req.orgId, uid: uid(req), ym });
-  res.json({ ok: true });
+
+  // Renomeou uma categoria inteira PARA Perspectiva: todas essas contas passam
+  // a ser da empresa e vão junto, na mesma ação.
+  let foram = 0, despesas = 0;
+  if (isPerspectiva(to)) {
+    const tx = db.transaction(() => {
+      const linhas = db.prepare(
+        "SELECT * FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? AND category=?"
+      ).all(req.orgId, uid(req), ym, to);
+      for (const l of linhas) { despesas += mandarParaOFinanceiro(req.orgId, uid(req), l); foram++; }
+    });
+    tx();
+  }
+  res.json({ ok: true, foi_para_o_financeiro: foram, despesas });
 });
 
 // PUT /api/personal-finance/:id — só o dono edita.
@@ -357,7 +400,12 @@ router.put("/:id", (req, res) => {
   const cur = db.prepare("SELECT * FROM personal_finance WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
   if (!cur) return res.status(404).json({ error: "Não encontrado." });
   const b = req.body || {};
-  const m = { ...cur, ...b, paid: b.paid !== undefined ? (b.paid ? 1 : 0) : cur.paid, amount: b.amount !== undefined ? (Number(b.amount) || 0) : cur.amount };
+  const m = {
+    ...cur, ...b,
+    paid: b.paid !== undefined ? (b.paid ? 1 : 0) : cur.paid,
+    impagavel: b.impagavel !== undefined ? (b.impagavel ? 1 : 0) : cur.impagavel,
+    amount: b.amount !== undefined ? (Number(b.amount) || 0) : cur.amount,
+  };
   // se mexeu na parcela e não mandou recurring/parcelas explícitas, rededuz do texto
   if (b.parcela !== undefined && b.recurring === undefined) {
     const pi = parcelaInfo(b.parcela);
@@ -369,10 +417,17 @@ router.put("/:id", (req, res) => {
   }
   db.prepare(
     `UPDATE personal_finance SET name=@name, parcela=@parcela, amount=@amount, method=@method,
-       category=@category, paid=@paid, recurring=@recurring, installment_num=@installment_num,
-       installment_total=@installment_total WHERE id=@id AND user_id=@user_id`
+       category=@category, paid=@paid, impagavel=@impagavel, recurring=@recurring,
+       installment_num=@installment_num, installment_total=@installment_total
+     WHERE id=@id AND user_id=@user_id`
   ).run({ ...m, id: req.params.id, user_id: uid(req) });
   const updated = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(req.params.id);
+  // TROCOU A CATEGORIA PARA PERSPECTIVA: a conta muda de lugar na hora.
+  // É o que ela pediu — mudar aqui tem que mudar lá, sem um segundo clique.
+  if (isPerspectiva(updated.category) && !isPerspectiva(cur.category)) {
+    const criadas = mandarParaOFinanceiro(req.orgId, uid(req), updated);
+    return res.json({ ...updated, foi_para_o_financeiro: true, despesas: criadas });
+  }
   // Virou fixa/parcelada (ou mudou a parcela)? Repete pros próximos meses que já
   // existem — sem duplicar os que já têm essa conta.
   if (updated.recurring && (b.parcela !== undefined || b.recurring !== undefined)) {
