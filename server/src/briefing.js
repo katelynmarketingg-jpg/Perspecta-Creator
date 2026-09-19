@@ -151,6 +151,18 @@ export const BRIEFING = [
   },
 ];
 
+// Os tipos de pergunta que existem. "visual" mostra imagens para o cliente
+// escolher e pede que ele escreva por quê — é o que transforma "gostei desta"
+// em direção de arte que a equipe consegue seguir.
+export const TIPOS_DE_PERGUNTA = ["texto", "longo", "escolhas", "cnpj", "dia", "arquivos", "visual"];
+
+/**
+ * Onde fica guardado o "por quê" de uma pergunta visual. Tem nome próprio
+ * porque este id também precisa ser ACEITO quando o cliente salva a resposta —
+ * ele não está na lista de perguntas, é filho de uma.
+ */
+export function idDoPorque(perguntaId) { return `${perguntaId}__porque`; }
+
 /** Todas as perguntas de um conjunto de seções, em lista. */
 export function perguntasDe(secoes = BRIEFING) {
   return (secoes || []).flatMap((s) => (s.perguntas || []).map((p) => ({ ...p, secao: s.id })));
@@ -181,7 +193,13 @@ export function respostasParaPersona(secoes, respostas = {}) {
   const persona = {};
   for (const p of perguntasDe(secoes)) {
     if (!p.campo) continue;
-    const v = String(respostas[p.id] ?? "").trim();
+    let v = String(respostas[p.id] ?? "").trim();
+    // Numa pergunta visual, o que vale para a IA é o motivo: "escolhi a 2" não
+    // diz nada; "gostei do tom terroso e da foto sem gente" diz tudo.
+    if (p.tipo === "visual" && p.pede_porque) {
+      const porque = String(respostas[idDoPorque(p.id)] ?? "").trim();
+      if (porque) v = v ? `${v} — ${porque}` : porque;
+    }
     if (!v) continue;
     persona[p.campo] = persona[p.campo] ? `${persona[p.campo]}. ${v}` : v;
   }
@@ -303,7 +321,7 @@ export function saneiaSecoes(entrada) {
     titulo: String(s.titulo || `Etapa ${i + 1}`).slice(0, 120),
     intro: String(s.intro || "").slice(0, 400),
     perguntas: (Array.isArray(s.perguntas) ? s.perguntas : []).map((p, j) => {
-      const tipo = ["texto", "longo", "escolhas", "cnpj", "dia", "arquivos"].includes(p.tipo) ? p.tipo : "texto";
+      const tipo = TIPOS_DE_PERGUNTA.includes(p.tipo) ? p.tipo : "texto";
       const q = {
         id: limpaId(p.id, `p_${i + 1}_${j + 1}`),
         tipo,
@@ -328,6 +346,29 @@ export function saneiaSecoes(entrada) {
       if (tipo === "escolhas") {
         q.opcoes = (Array.isArray(p.opcoes) ? p.opcoes : []).map((o) => String(o).slice(0, 80)).filter(Boolean).slice(0, 12);
         if (p.multipla) q.multipla = true;
+      }
+      if (tipo === "visual") {
+        // Cada opção é uma imagem com uma legenda. O token é o endereço público
+        // da imagem; sem ele a opção não tem o que mostrar, então cai fora.
+        q.opcoes_visuais = (Array.isArray(p.opcoes_visuais) ? p.opcoes_visuais : [])
+          .map((o) => ({
+            token: String(o?.token || "").slice(0, 64),
+            legenda: String(o?.legenda || "").slice(0, 80),
+          }))
+          .filter((o) => o.token)
+          .slice(0, 12);
+        if (p.multipla) q.multipla = true;
+        if (p.pede_porque !== false) {
+          // O "por quê" é o motivo de a pergunta existir: a imagem escolhida diz
+          // pouco; o que ela viu na imagem é que vira direção de arte.
+          q.pede_porque = true;
+          q.porque_label = String(p.porque_label || "Por que você escolheu?").slice(0, 160);
+        }
+      }
+      if (tipo === "arquivos" && p.pasta) {
+        // Onde cai o que ele mandar, dentro da galeria dele. Assim duas perguntas
+        // de envio não misturam tudo na mesma pasta.
+        q.pasta = String(p.pasta).slice(0, 80);
       }
       if (p.campo) q.campo = String(p.campo);
       if (p.campo_cliente && CAMPOS_CLIENTE[p.campo_cliente]) q.campo_cliente = p.campo_cliente;
@@ -359,4 +400,46 @@ export function saveTemplate(orgId, { welcome, secoes }) {
 export function resetTemplate(orgId) {
   db.prepare("DELETE FROM briefing_templates WHERE org_id = ?").run(orgId);
   return getTemplate(orgId);
+}
+
+// ---------------------------------------------------------------------------
+// O QUESTIONÁRIO DESTE CLIENTE.
+//
+// Nem todo cliente cabe no mesmo formulário: um escritório de advocacia e uma
+// pastelaria não respondem às mesmas perguntas. Quando o onboarding tem
+// perguntas próprias, são elas que valem — para o cliente, para o progresso,
+// para o que vira inteligência da IA e para o que preenche o cadastro.
+//
+// Sem perguntas próprias, vale o modelo do escritório. Nada some: voltar ao
+// padrão é apagar a coluna, e o modelo da casa continua lá inteiro.
+// ---------------------------------------------------------------------------
+
+/** As seções que valem para este onboarding: as dele, ou as da casa. */
+export function secoesDoBriefing(briefing) {
+  const proprias = leSecoesProprias(briefing);
+  return proprias || getTemplate(briefing.org_id).secoes;
+}
+
+/** As perguntas próprias deste onboarding, ou null se ele usa o padrão. */
+export function leSecoesProprias(briefing) {
+  if (!briefing?.sections) return null;
+  const v = leJson(briefing.sections, null);
+  return Array.isArray(v) && v.length ? v : null;
+}
+
+/** Guarda um questionário só deste cliente. Devolve as seções já saneadas. */
+export function salvaSecoesDoBriefing(briefingId, secoes) {
+  const limpo = saneiaSecoes(secoes);
+  if (!limpo.length) {
+    const e = new Error("O questionário precisa de pelo menos uma pergunta.");
+    e.code = "VAZIO";
+    throw e;
+  }
+  db.prepare("UPDATE briefings SET sections = ? WHERE id = ?").run(JSON.stringify(limpo), briefingId);
+  return limpo;
+}
+
+/** Volta este cliente ao questionário padrão do escritório. */
+export function usaSecoesPadrao(briefingId) {
+  db.prepare("UPDATE briefings SET sections = NULL WHERE id = ?").run(briefingId);
 }

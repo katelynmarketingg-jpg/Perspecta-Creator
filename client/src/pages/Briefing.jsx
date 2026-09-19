@@ -112,6 +112,25 @@ export default function Briefing() {
     return <Tela><Stack alignItems="center" sx={{ py: 10 }}><CircularProgress /></Stack></Tela>;
   }
 
+  // ---- a equipe fechou este onboarding ------------------------------------
+  // Quem nunca respondeu não pode ver "Recebemos, obrigado!": seria mentira, e
+  // ele ficaria esperando um retorno que não vem. Diz o que houve e com quem falar.
+  if (dados.encerrado && !dados.answered_at) {
+    return (
+      <Tela logo={dados.agency_logo}>
+        <Box sx={{ textAlign: "center", py: 6 }}>
+          <Typography sx={{ fontSize: { xs: 24, sm: 30 }, fontWeight: 800, letterSpacing: "-0.02em", mb: 1.5 }}>
+            Este formulário foi encerrado
+          </Typography>
+          <Typography sx={{ fontSize: 16.5, color: "text.secondary", lineHeight: 1.7, maxWidth: 440, mx: "auto" }}>
+            A equipe da <b>{dados.agency_name}</b> fechou este cadastro. Se você ainda precisa
+            responder, é só falar com quem te mandou o link.
+          </Typography>
+        </Box>
+      </Tela>
+    );
+  }
+
   // ---- fim: contrato + acesso ---------------------------------------------
   if (pronto) return <Concluido base={base} dados={dados} />;
 
@@ -168,8 +187,12 @@ export default function Briefing() {
   const secao = dados.secoes[passo];
   const ultima = passo === dados.secoes.length - 1;
   const total = dados.secoes.reduce((n, s) => n + s.perguntas.length, 0);
-  const preenchidas = Object.values(respostas).filter((v) => String(v || "").trim()).length;
-  const pct = Math.round((preenchidas / total) * 100);
+  // Conta AS PERGUNTAS, não as chaves guardadas. O "por quê" de uma pergunta em
+  // imagem é filho de uma pergunta, e respostas de um questionário antigo podem
+  // ter sobrado: contando tudo, a barra passava de 100% ("200% respondido").
+  const preenchidas = dados.secoes.reduce(
+    (n, s) => n + s.perguntas.filter((p) => String(respostas[p.id] || "").trim()).length, 0);
+  const pct = total ? Math.min(100, Math.round((preenchidas / total) * 100)) : 0;
   const setResp = (id, v) => setRespostas((r) => ({ ...r, [id]: v }));
 
   return (
@@ -215,7 +238,8 @@ export default function Briefing() {
           <Stack spacing={3.5}>
             {secao.perguntas.map((p) => (
               <Pergunta key={p.id} p={p} valor={respostas[p.id]} onChange={(v) => setResp(p.id, v)}
-                faltando={faltando.includes(p.id)} base={base} />
+                faltando={faltando.includes(p.id)} base={base}
+                porque={respostas[`${p.id}__porque`]} onPorque={(v) => setResp(`${p.id}__porque`, v)} />
             ))}
           </Stack>
         </Box>
@@ -460,10 +484,14 @@ function Aviso({ icone, titulo, texto }) {
   );
 }
 
-function Pergunta({ p, valor, onChange, faltando, base }) {
+function Pergunta({ p, valor, onChange, faltando, base, porque, onPorque }) {
   if (p.tipo === "cnpj") return <PerguntaCnpj p={p} valor={valor} onChange={onChange} faltando={faltando} />;
   if (p.tipo === "dia") return <PerguntaDia p={p} valor={valor} onChange={onChange} faltando={faltando} />;
   if (p.tipo === "arquivos") return <PerguntaArquivos p={p} onChange={onChange} base={base} />;
+  if (p.tipo === "visual") {
+    return <PerguntaVisual p={p} valor={valor} onChange={onChange} faltando={faltando}
+      porque={porque} onPorque={onPorque} />;
+  }
   if (p.tipo === "escolhas") {
     const marcadas = String(valor || "").split(",").map((s) => s.trim()).filter(Boolean);
     const alterna = (o) => {
@@ -538,10 +566,14 @@ function PerguntaArquivos({ p, onChange, base }) {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
 
+  // Só o que caiu NESTA pergunta: um onboarding pode ter duas galerias ("fotos
+  // do espaço" e "referências"), e misturar as duas confunde os dois lados.
+  const lista = `${base}/arquivos?pergunta=${encodeURIComponent(p.id)}`;
+
   useEffect(() => {
-    fetch(`${base}/arquivos`).then((r) => r.json())
+    fetch(lista).then((r) => r.json())
       .then((l) => { if (Array.isArray(l)) setEnviados(l); }).catch(() => {});
-  }, [base]);
+  }, [lista]);
 
   async function mandar(lista) {
     const arquivos = Array.from(lista || []);
@@ -558,7 +590,7 @@ function PerguntaArquivos({ p, onChange, base }) {
           throw new Error(j.error || "Não consegui enviar.");
         }
       }
-      const l = await (await fetch(`${base}/arquivos`)).json();
+      const l = await (await fetch(lista)).json();
       setEnviados(l);
       onChange(`${l.length} arquivo(s) enviado(s)`);
     } catch (e) { setErro(e.message); }
@@ -687,6 +719,90 @@ function Tela({ children, logo }) {
         )}
         {children}
       </Box>
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OPÇÕES EM IMAGEM — escolher e dizer por quê.
+//
+// Perguntar "que estilo você quer?" por escrito quase nunca funciona: cada um
+// entende "moderno" de um jeito. Mostrando as imagens, a pessoa aponta em
+// segundos. E o campo de baixo é o que importa de verdade para a equipe: o que
+// ela VIU naquela imagem — a cor, o clima, a ausência de gente na foto.
+// ---------------------------------------------------------------------------
+function PerguntaVisual({ p, valor, onChange, faltando, porque, onPorque }) {
+  const opcoes = p.opcoes_visuais || [];
+  const marcadas = String(valor || "").split(",").map((s) => s.trim()).filter(Boolean);
+
+  const alterna = (nome) => {
+    if (p.multipla) {
+      onChange((marcadas.includes(nome) ? marcadas.filter((x) => x !== nome) : [...marcadas, nome]).join(", "));
+    } else {
+      onChange(marcadas[0] === nome ? "" : nome);   // clicar de novo desmarca
+    }
+  };
+
+  return (
+    <Box>
+      <Rotulo p={p} faltando={faltando} />
+      <Box sx={{
+        mt: 1.75, display: "grid", gap: 1.5,
+        gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(3, 1fr)" },
+      }}>
+        {opcoes.map((o, i) => {
+          const nome = o.legenda || `Opção ${i + 1}`;
+          const escolhida = marcadas.includes(nome);
+          return (
+            <Box key={o.token} onClick={() => alterna(nome)}
+              sx={{
+                cursor: "pointer", borderRadius: 2.5, overflow: "hidden", position: "relative",
+                border: "3px solid", borderColor: escolhida ? "primary.main" : "transparent",
+                boxShadow: escolhida ? 3 : 1, transition: "border-color .15s ease, box-shadow .15s ease",
+              }}>
+              <Box component="img" src={`/api/briefing-midia/${o.token}`} alt={nome} loading="lazy"
+                sx={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" }} />
+              {escolhida && (
+                <Box sx={{
+                  position: "absolute", top: 8, right: 8, width: 26, height: 26, borderRadius: "50%",
+                  bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center",
+                  fontSize: 15, fontWeight: 800, lineHeight: 1,
+                }}>✓</Box>
+              )}
+              <Typography sx={{
+                px: 1, py: 0.75, fontSize: 13.5, textAlign: "center",
+                bgcolor: escolhida ? "primary.main" : "action.hover",
+                color: escolhida ? "#fff" : "text.secondary",
+                fontWeight: escolhida ? 700 : 400,
+              }}>{nome}</Typography>
+            </Box>
+          );
+        })}
+      </Box>
+
+      {!opcoes.length && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+          (a equipe ainda não subiu as imagens desta pergunta)
+        </Typography>
+      )}
+
+      {p.multipla && opcoes.length > 0 && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+          Pode escolher mais de uma.
+        </Typography>
+      )}
+
+      {p.pede_porque && (
+        <Box sx={{ mt: 2 }}>
+          <Typography sx={{ fontWeight: 600, fontSize: 15 }}>
+            {p.porque_label || "Por que você escolheu?"}
+          </Typography>
+          <TextField fullWidth multiline minRows={2} value={porque || ""}
+            onChange={(e) => onPorque(e.target.value)}
+            placeholder="O que te chamou atenção? A cor, o clima, o jeito de mostrar…"
+            sx={{ mt: 1, "& .MuiOutlinedInput-root": { borderRadius: 2, fontSize: 16 } }} />
+        </Box>
+      )}
     </Box>
   );
 }

@@ -7,6 +7,7 @@ import {
   respostasParaPersona, respostasParaCliente, CAMPOS_CLIENTE,
   respostasParaCentral, DESTINOS_CENTRAL,
   getTemplate, saveTemplate, resetTemplate,
+  secoesDoBriefing, leSecoesProprias, salvaSecoesDoBriefing, usaSecoesPadrao,
 } from "../briefing.js";
 import { guardaNaCentral } from "../central.js";
 import { modelosDisponiveis, mesesDeVigencia, numeroBR } from "../contract-gen.js";
@@ -57,15 +58,18 @@ function saneiaTermos(entrada = {}) {
 
 function resumo(b, req) {
   const respostas = JSON.parse(b.answers || "{}");
-  const secoes = getTemplate(b.org_id).secoes;
+  // As perguntas DESTE cliente (as dele, se tiver; senão as da casa).
+  const secoes = secoesDoBriefing(b);
   return {
     id: b.id, client_id: b.client_id, token: b.token, status: b.status,
     url: req ? `${publicBaseUrl(req)}/briefing/${b.token}` : null,
     created_at: b.created_at, opened_at: b.opened_at,
     answered_at: b.answered_at, applied_at: b.applied_at,
+    closed_at: b.closed_at || null,
     progresso: progresso(secoes, respostas),
     respondidas: perguntasDe(secoes).filter((p) => String(respostas[p.id] ?? "").trim()).length,
     total: perguntasDe(secoes).length,
+    perguntas_proprias: Boolean(leSecoesProprias(b)),
     termos: leTermos(b),
   };
 }
@@ -112,8 +116,11 @@ router.post("/", (req, res) => {
 
   // Um briefing ABERTO por cliente: clicar de novo devolve o mesmo link, em vez
   // de espalhar links diferentes para a mesma pessoa.
+  // Encerrado também não conta: se ela fechou aquele onboarding e está abrindo
+  // de novo, é porque quer um novo — não reaproveitar o link fechado.
   const existente = db.prepare(
-    "SELECT * FROM briefings WHERE org_id = ? AND client_id = ? AND status <> 'aplicado' ORDER BY created_at DESC LIMIT 1"
+    `SELECT * FROM briefings WHERE org_id = ? AND client_id = ?
+       AND status NOT IN ('aplicado', 'encerrado') ORDER BY created_at DESC LIMIT 1`
   ).get(req.orgId, clientId);
   if (existente) {
     if (req.body?.termos) {
@@ -152,7 +159,7 @@ router.get("/:id", (req, res) => {
   const b = db.prepare("SELECT * FROM briefings WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!b) return res.status(404).json({ error: "Briefing não encontrado." });
   const respostas = JSON.parse(b.answers || "{}");
-  const secoes = getTemplate(req.orgId).secoes;
+  const secoes = secoesDoBriefing(b);
   res.json({ ...resumo(b, req), respostas, secoes, faltando: faltando(secoes, respostas) });
 });
 
@@ -167,7 +174,7 @@ router.post("/:id/aplicar", (req, res) => {
   if (!cliente) return res.status(404).json({ error: "Cliente não encontrado." });
 
   const respostas = JSON.parse(b.answers || "{}");
-  const secoes = getTemplate(req.orgId).secoes;
+  const secoes = secoesDoBriefing(b);
   const atual = cliente.ai_persona ? JSON.parse(cliente.ai_persona) : {};
   const doBriefing = respostasParaPersona(secoes, respostas);
   const sobrescrever = Boolean(req.body?.sobrescrever);
@@ -224,6 +231,76 @@ router.post("/:id/aplicar", (req, res) => {
 
   db.prepare("UPDATE briefings SET status = 'aplicado', applied_at = datetime('now') WHERE id = ?").run(b.id);
   res.json({ ok: true, campos: mudou, cadastro: cadastroMudou, central, persona: novo });
+});
+
+// ---------------------------------------------------------------------------
+// O QUESTIONÁRIO DESTE CLIENTE.
+//
+// O modelo da casa serve para a maioria, mas não para todo mundo: um escritório
+// de advocacia e uma pastelaria não respondem às mesmas perguntas. Aqui ela
+// monta um questionário só daquele cliente, que fica guardado com ele. Voltar
+// ao padrão é um clique — o modelo da casa continua inteiro, sem risco.
+// ---------------------------------------------------------------------------
+
+// GET /api/briefings/:id/perguntas — as perguntas que valem para este cliente.
+router.get("/:id/perguntas", (req, res) => {
+  const b = db.prepare("SELECT * FROM briefings WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!b) return res.status(404).json({ error: "Onboarding não encontrado." });
+  const proprias = leSecoesProprias(b);
+  res.json({
+    proprias: Boolean(proprias),
+    secoes: proprias || getTemplate(req.orgId).secoes,
+    padrao: getTemplate(req.orgId).secoes,   // para ela comparar, ou começar dali
+    campos_cliente: Object.entries(CAMPOS_CLIENTE).map(([k, v]) => ({ key: k, rotulo: v.rotulo })),
+    destinos_central: Object.entries(DESTINOS_CENTRAL).map(([k, v]) => ({ key: k, rotulo: v.rotulo })),
+  });
+});
+
+// PUT /api/briefings/:id/perguntas — guarda o questionário só deste cliente.
+router.put("/:id/perguntas", (req, res) => {
+  const b = db.prepare("SELECT * FROM briefings WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!b) return res.status(404).json({ error: "Onboarding não encontrado." });
+  try {
+    const secoes = salvaSecoesDoBriefing(b.id, req.body?.secoes);
+    const atualizado = db.prepare("SELECT * FROM briefings WHERE id = ?").get(b.id);
+    res.json({ proprias: true, secoes, ...resumo(atualizado, req) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// DELETE /api/briefings/:id/perguntas — volta este cliente ao modelo da casa.
+router.delete("/:id/perguntas", (req, res) => {
+  const b = db.prepare("SELECT id FROM briefings WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!b) return res.status(404).json({ error: "Onboarding não encontrado." });
+  usaSecoesPadrao(b.id);
+  const atualizado = db.prepare("SELECT * FROM briefings WHERE id = ?").get(b.id);
+  res.json({ proprias: false, secoes: getTemplate(req.orgId).secoes, ...resumo(atualizado, req) });
+});
+
+// ---------------------------------------------------------------------------
+// FECHAR O ONBOARDING.
+//
+// Chega uma hora em que aquele onboarding acabou: o cliente respondeu o que
+// tinha de responder, ou entrou por outro caminho e não vai preencher nada.
+// Encerrar tira ele da fila de pendentes e faz o link parar de aceitar
+// resposta — sem apagar nada do que já foi dito.
+// ---------------------------------------------------------------------------
+router.post("/:id/encerrar", (req, res) => {
+  const b = db.prepare("SELECT * FROM briefings WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!b) return res.status(404).json({ error: "Onboarding não encontrado." });
+  db.prepare("UPDATE briefings SET status = 'encerrado', closed_at = datetime('now') WHERE id = ?").run(b.id);
+  res.json(resumo(db.prepare("SELECT * FROM briefings WHERE id = ?").get(b.id), req));
+});
+
+// E o caminho de volta: encerrou sem querer, ou o cliente pediu para responder.
+router.post("/:id/reabrir", (req, res) => {
+  const b = db.prepare("SELECT * FROM briefings WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!b) return res.status(404).json({ error: "Onboarding não encontrado." });
+  // Quem já tinha respondido volta para "respondido"; o resto, para "aberto".
+  const volta = b.answered_at ? "respondido" : "aberto";
+  db.prepare("UPDATE briefings SET status = ?, closed_at = NULL WHERE id = ?").run(volta, b.id);
+  res.json(resumo(db.prepare("SELECT * FROM briefings WHERE id = ?").get(b.id), req));
 });
 
 // DELETE /api/briefings/:id — apaga o briefing e invalida o link.

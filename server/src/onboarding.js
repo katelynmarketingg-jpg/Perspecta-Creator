@@ -1,5 +1,5 @@
 import { db } from "./db.js";
-import { CAMPOS_CLIENTE, respostasParaCliente, respostasParaCentral, getTemplate } from "./briefing.js";
+import { CAMPOS_CLIENTE, respostasParaCliente, respostasParaCentral, secoesDoBriefing } from "./briefing.js";
 import { guardaNaCentral } from "./central.js";
 import { geraContrato } from "./contract-gen.js";
 
@@ -88,7 +88,8 @@ export function geraContratoDoOnboarding(briefing) {
 
 /** Tudo de uma vez, quando o cliente aperta "enviar". */
 export function fechaOnboarding(briefing, respostas) {
-  const secoes = getTemplate(briefing.org_id).secoes;
+  // As perguntas DESTE onboarding: podem ser só deste cliente.
+  const secoes = secoesDoBriefing(briefing);
   const cadastro = aplicaCadastro(briefing.client_id, secoes, respostas);
   const central = aplicaCentral(briefing.org_id, briefing.client_id, secoes, respostas);
   if (central.mexeu) {
