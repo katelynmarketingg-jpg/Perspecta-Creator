@@ -352,8 +352,12 @@ export default function Onboarding() {
                     sx={{ height: 34, borderRadius: 2 }} />
                   {formularios.map((f) => (
                     <Tooltip key={f.id} title={resumoDaJornada(f)}>
+                      {/* Só o nome. O nome É a informação; o número de
+                          perguntas ao lado dele virava ruído em todos os
+                          botões da estante. Quem quiser o detalhe, a dica
+                          ao passar o mouse conta a jornada inteira. */}
                       <Chip clickable onClick={() => setEditando(f.id)}
-                        label={`${f.name} · ${f.perguntas}`}
+                        label={f.name}
                         color={editando === f.id ? "primary" : "default"}
                         variant={editando === f.id ? "filled" : "outlined"}
                         sx={{ height: 34, borderRadius: 2 }} />
