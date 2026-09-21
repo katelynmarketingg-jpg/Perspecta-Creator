@@ -84,6 +84,9 @@ export default function Onboarding() {
   const [editando, setEditando] = useState(null);   // null = padrão da casa
   const [form, setForm] = useState(null);           // o formulário aberto, se houver
   const [batizando, setBatizando] = useState(null); // { nome, copiar_de, renomeia }
+  // Um formulário é a jornada inteira: onde começa, o que pergunta e como
+  // termina. Estas são as três partes que ela edita.
+  const [parte, setParte] = useState("perguntas");
 
   const carregarFormularios = () =>
     api.get("/briefings/formularios").then((r) => setFormularios(r.data.formularios || []))
@@ -93,7 +96,11 @@ export default function Onboarding() {
     api.get("/briefings").then((r) => setBriefings(r.data)).catch(() => {});
     carregarFormularios();
     api.get("/briefings/template").then((r) => {
-      setModelo({ welcome: r.data.welcome, secoes: r.data.secoes });
+      setModelo({
+        welcome: r.data.welcome, secoes: r.data.secoes,
+        gera_contrato: r.data.gera_contrato !== false,
+        cria_acesso: r.data.cria_acesso !== false,
+      });
       setCamposCliente(r.data.campos_cliente || []);
       setDestinosCentral(r.data.destinos_central || []);
     }).catch(() => {});
@@ -103,7 +110,11 @@ export default function Onboarding() {
   useEffect(() => {
     if (!editando) { setForm(null); return; }
     api.get(`/briefings/formularios/${editando}`)
-      .then((r) => setForm({ id: r.data.id, name: r.data.name, secoes: r.data.secoes }))
+      .then((r) => setForm({
+        id: r.data.id, name: r.data.name, secoes: r.data.secoes,
+        welcome: r.data.welcome, welcome_da_casa: r.data.welcome_da_casa,
+        gera_contrato: r.data.gera_contrato, cria_acesso: r.data.cria_acesso,
+      }))
       .catch(() => { setForm(null); setEditando(null); });
   }, [editando]);
 
@@ -117,7 +128,13 @@ export default function Onboarding() {
   async function salvarFormulario() {
     setSalvando(true);
     try {
-      await api.put(`/briefings/formularios/${editando}`, { secoes: form.secoes });
+      await api.put(`/briefings/formularios/${editando}`, {
+        secoes: form.secoes,
+        // `null` é "volte a usar o texto da casa" — por isso vai explícito.
+        welcome: form.welcome ?? null,
+        gera_contrato: form.gera_contrato,
+        cria_acesso: form.cria_acesso,
+      });
       await carregarFormularios();
       setMsg({ t: "success", m: `"${form.name}" salvo. Quem receber este formulário a partir de agora já vê assim.` });
     } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui salvar." }); }
@@ -129,8 +146,9 @@ export default function Onboarding() {
       const { data } = await api.post("/briefings/formularios", { nome, copiar_de: copiar_de || undefined });
       await carregarFormularios();
       setEditando(data.id);
+      setParte("inicio");   // a jornada começa no começo
       setBatizando(null);
-      setMsg({ t: "success", m: `Formulário "${data.name}" criado. Agora é só ajustar as perguntas e salvar.` });
+      setMsg({ t: "success", m: `Formulário "${data.name}" criado. Percorra Início, Perguntas e Fim, e salve.` });
     } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui criar." }); }
   }
 
@@ -226,7 +244,11 @@ export default function Onboarding() {
     setSalvando(true);
     try {
       const { data } = await api.put("/briefings/template", modelo);
-      setModelo({ welcome: data.welcome, secoes: data.secoes });
+      setModelo({
+        welcome: data.welcome, secoes: data.secoes,
+        gera_contrato: data.gera_contrato !== false,
+        cria_acesso: data.cria_acesso !== false,
+      });
       setMsg({ t: "success", m: "Salvo. Quem abrir o link a partir de agora já vê assim." });
     } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui salvar." }); }
     finally { setSalvando(false); setTimeout(() => setMsg(null), 6000); }
@@ -363,38 +385,10 @@ export default function Onboarding() {
       ) : !modelo ? <LinearProgress /> : (
         <Stack spacing={2.5}>
           {tab === "boasvindas" && (
-          <Card><CardContent>
-            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Texto de boas-vindas</Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
-              É a primeira tela, antes de qualquer pergunta. Use <code>{"{agencia}"}</code> para o nome do
-              seu escritório e <code>{"{cliente}"}</code> para o nome de quem vai responder.
-            </Typography>
-            <Stack spacing={2}>
-              <TextField label="Título" fullWidth size="small" value={modelo.welcome.titulo}
-                onChange={(e) => setModelo((m) => ({ ...m, welcome: { ...m.welcome, titulo: e.target.value } }))} />
-              {modelo.welcome.paragrafos.map((t, i) => (
-                <TextField key={i} label={`Parágrafo ${i + 1}`} fullWidth size="small" multiline minRows={2} value={t}
-                  onChange={(e) => setModelo((m) => {
-                    const ps = [...m.welcome.paragrafos]; ps[i] = e.target.value;
-                    return { ...m, welcome: { ...m.welcome, paragrafos: ps } };
-                  })} />
-              ))}
-              <Stack direction="row" spacing={1}>
-                <Button size="small" startIcon={<AddIcon />}
-                  onClick={() => setModelo((m) => ({ ...m, welcome: { ...m.welcome, paragrafos: [...m.welcome.paragrafos, ""] } }))}>
-                  Mais um parágrafo
-                </Button>
-                {modelo.welcome.paragrafos.length > 1 && (
-                  <Button size="small" color="error"
-                    onClick={() => setModelo((m) => ({ ...m, welcome: { ...m.welcome, paragrafos: m.welcome.paragrafos.slice(0, -1) } }))}>
-                    Tirar o último
-                  </Button>
-                )}
-              </Stack>
-              <TextField label="Texto do botão" size="small" sx={{ maxWidth: 260 }} value={modelo.welcome.botao}
-                onChange={(e) => setModelo((m) => ({ ...m, welcome: { ...m.welcome, botao: e.target.value } }))} />
-            </Stack>
-          </CardContent></Card>
+            <Card><CardContent>
+              <EditorDeBoasVindas welcome={modelo.welcome}
+                onChange={(welcome) => setModelo((m) => ({ ...m, welcome }))} />
+            </CardContent></Card>
           )}
 
           {tab === "perguntas" && (
@@ -413,11 +407,13 @@ export default function Onboarding() {
                     color={editando ? "default" : "primary"} variant={editando ? "outlined" : "filled"}
                     sx={{ height: 34, borderRadius: 2 }} />
                   {formularios.map((f) => (
-                    <Chip key={f.id} clickable onClick={() => setEditando(f.id)}
-                      label={`${f.name} · ${f.perguntas}`}
-                      color={editando === f.id ? "primary" : "default"}
-                      variant={editando === f.id ? "filled" : "outlined"}
-                      sx={{ height: 34, borderRadius: 2 }} />
+                    <Tooltip key={f.id} title={resumoDaJornada(f)}>
+                      <Chip clickable onClick={() => setEditando(f.id)}
+                        label={`${f.name} · ${f.perguntas}`}
+                        color={editando === f.id ? "primary" : "default"}
+                        variant={editando === f.id ? "filled" : "outlined"}
+                        sx={{ height: 34, borderRadius: 2 }} />
+                    </Tooltip>
                   ))}
                   <Button size="small" startIcon={<AddIcon />}
                     onClick={() => setBatizando({ nome: "", copiar_de: editando || "" })}>
@@ -442,9 +438,57 @@ export default function Onboarding() {
                 )}
               </CardContent></Card>
 
-              {editando && !form ? <LinearProgress /> : (
+              {/* AS TRÊS PARTES DA JORNADA. Onde começa, o que pergunta e como
+                  termina — porque um orçamento e um onboarding mensal não
+                  abrem com o mesmo texto nem terminam do mesmo jeito. */}
+              <Tabs value={parte} onChange={(_, v) => setParte(v)} sx={{ minHeight: 40 }}>
+                <Tab value="inicio" label="Início" sx={{ minHeight: 40 }} />
+                <Tab value="perguntas" label="Perguntas" sx={{ minHeight: 40 }} />
+                <Tab value="fim" label="Fim" sx={{ minHeight: 40 }} />
+              </Tabs>
+
+              {editando && !form ? <LinearProgress /> : parte === "perguntas" ? (
                 <EditorDePerguntas secoes={secoesEmEdicao} onChange={mudaSecoesEmEdicao}
                   camposCliente={camposCliente} destinosCentral={destinosCentral} />
+              ) : parte === "inicio" ? (
+                <Card><CardContent>
+                  {editando ? (
+                    <>
+                      <FormControlLabel sx={{ mb: 1 }} control={
+                        <Switch size="small" checked={Boolean(form.welcome)}
+                          onChange={(e) => setForm((f) => ({
+                            ...f,
+                            // Ligar parte do texto da casa: é o rascunho mais
+                            // provável, e ela ajusta o que for diferente.
+                            welcome: e.target.checked ? { ...f.welcome_da_casa } : null,
+                          }))} />
+                      } label={
+                        <Typography variant="caption">
+                          escrever um texto de boas-vindas só para este formulário
+                        </Typography>
+                      } />
+                      {form.welcome ? (
+                        <EditorDeBoasVindas welcome={form.welcome}
+                          onChange={(welcome) => setForm((f) => ({ ...f, welcome }))} />
+                      ) : (
+                        <Alert severity="info">
+                          Quem receber este formulário vê o texto de boas-vindas da casa — o mesmo
+                          da aba "1 · Boas-vindas".
+                        </Alert>
+                      )}
+                    </>
+                  ) : (
+                    <EditorDeBoasVindas welcome={modelo.welcome}
+                      onChange={(welcome) => setModelo((m) => ({ ...m, welcome }))} />
+                  )}
+                </CardContent></Card>
+              ) : (
+                <FimDoFormulario
+                  gera={editando ? form.gera_contrato : modelo.gera_contrato}
+                  acesso={editando ? form.cria_acesso : modelo.cria_acesso}
+                  onMuda={(campo, valor) => (editando
+                    ? setForm((f) => ({ ...f, [campo]: valor }))
+                    : setModelo((m) => ({ ...m, [campo]: valor })))} />
               )}
             </>
           )}
@@ -1307,4 +1351,111 @@ function NomeDoFormulario({ alvo, onFechar, onConfirmar }) {
       </DialogActions>
     </Dialog>
   );
+}
+
+// ---------------------------------------------------------------------------
+// O TEXTO DE BOAS-VINDAS.
+//
+// A primeira tela que o cliente vê, antes de qualquer pergunta. Serve tanto
+// para o padrão da casa quanto para um formulário com nome — um convite de
+// rebranding não abre com as mesmas palavras de um onboarding mensal.
+// ---------------------------------------------------------------------------
+function EditorDeBoasVindas({ welcome, onChange }) {
+  const muda = (campo, valor) => onChange({ ...welcome, [campo]: valor });
+  return (
+    <>
+      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Texto de boas-vindas</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
+        É a primeira tela, antes de qualquer pergunta. Use <code>{"{agencia}"}</code> para o nome do
+        seu escritório e <code>{"{cliente}"}</code> para o nome de quem vai responder.
+      </Typography>
+      <Stack spacing={2}>
+        <TextField label="Título" fullWidth size="small" value={welcome.titulo}
+          onChange={(e) => muda("titulo", e.target.value)} />
+        {welcome.paragrafos.map((t, i) => (
+          <TextField key={i} label={`Parágrafo ${i + 1}`} fullWidth size="small" multiline minRows={2} value={t}
+            onChange={(e) => {
+              const ps = [...welcome.paragrafos]; ps[i] = e.target.value;
+              muda("paragrafos", ps);
+            }} />
+        ))}
+        <Stack direction="row" spacing={1}>
+          <Button size="small" startIcon={<AddIcon />}
+            onClick={() => muda("paragrafos", [...welcome.paragrafos, ""])}>
+            Mais um parágrafo
+          </Button>
+          {welcome.paragrafos.length > 1 && (
+            <Button size="small" color="error"
+              onClick={() => muda("paragrafos", welcome.paragrafos.slice(0, -1))}>
+              Tirar o último
+            </Button>
+          )}
+        </Stack>
+        <TextField label="Texto do botão" size="small" sx={{ maxWidth: 260 }} value={welcome.botao}
+          onChange={(e) => muda("botao", e.target.value)} />
+      </Stack>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// O FIM DO FORMULÁRIO.
+//
+// Depois de responder, o cliente via sempre os mesmos dois passos: assinar o
+// contrato e criar o acesso à Área do Cliente. Mas nem todo onboarding termina
+// assim — um orçamento não vira contrato, e um trabalho pontual não precisa de
+// área nenhuma. Quando um passo está desligado, ele não aparece para o cliente
+// e a porta fica fechada no servidor também.
+// ---------------------------------------------------------------------------
+function FimDoFormulario({ gera, acesso, onMuda }) {
+  const nenhum = !gera && !acesso;
+  return (
+    <Card><CardContent>
+      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>O que acontece depois que ele responde</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
+        São os passos que aparecem na última tela do cliente. Desligue o que não fizer sentido
+        para este formulário.
+      </Typography>
+
+      <Stack spacing={2.5}>
+        <Box>
+          <FormControlLabel control={
+            <Switch checked={Boolean(gera)} onChange={(e) => onMuda("gera_contrato", e.target.checked)} />
+          } label="Gerar o contrato e mandar para assinatura" />
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", pl: 6 }}>
+            {gera
+              ? "Assim que ele terminar, o contrato nasce pronto com os dados que ele acabou de dar, e ele assina ali mesmo."
+              : "Nenhum contrato é gerado por este formulário. Serve para orçamento, sondagem ou quando o contrato já foi assinado antes."}
+          </Typography>
+        </Box>
+
+        <Box>
+          <FormControlLabel control={
+            <Switch checked={Boolean(acesso)} onChange={(e) => onMuda("cria_acesso", e.target.checked)} />
+          } label="Oferecer o acesso à Área do Cliente" />
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", pl: 6 }}>
+            {acesso
+              ? "Ele escolhe o nome de acesso e a senha na hora, e já entra para aprovar conteúdo e mandar material."
+              : "Este formulário não abre Área do Cliente. Você ainda pode criar o acesso à mão depois, no cadastro dele."}
+          </Typography>
+        </Box>
+
+        {nenhum && (
+          <Alert severity="info">
+            Sem nenhum dos dois, a última tela é só o agradecimento — o que faz sentido quando o
+            formulário existe só para você colher as respostas.
+          </Alert>
+        )}
+      </Stack>
+    </CardContent></Card>
+  );
+}
+
+/** O que este formulário faz, em uma frase — para a dica da estante. */
+function resumoDaJornada(f) {
+  const partes = [`${f.perguntas} perguntas`];
+  if (f.boas_vindas_proprias) partes.push("boas-vindas próprias");
+  partes.push(f.gera_contrato ? "vai para assinatura" : "sem contrato");
+  partes.push(f.cria_acesso ? "abre a Área do Cliente" : "sem Área do Cliente");
+  return partes.join(" · ");
 }

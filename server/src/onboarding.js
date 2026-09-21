@@ -1,5 +1,5 @@
 import { db } from "./db.js";
-import { CAMPOS_CLIENTE, respostasParaCliente, respostasParaCentral, secoesDoBriefing } from "./briefing.js";
+import { CAMPOS_CLIENTE, respostasParaCliente, respostasParaCentral, secoesDoBriefing, ajustesDoBriefing } from "./briefing.js";
 import { guardaNaCentral } from "./central.js";
 import { geraContrato } from "./contract-gen.js";
 
@@ -74,6 +74,10 @@ export function aplicaCentral(orgId, clientId, secoes, respostas) {
  * duas vezes, ou o cliente reenviar, não pode virar dois contratos.
  */
 export function geraContratoDoOnboarding(briefing) {
+  // O formulário que este cliente recebeu pode não mandar para assinatura —
+  // um orçamento, uma sondagem. Aí não há contrato para gerar.
+  if (!ajustesDoBriefing(briefing).gera_contrato) return null;
+
   let termos = null;
   try { termos = briefing.terms ? JSON.parse(briefing.terms) : null; } catch { termos = null; }
   if (!termos || (!termos.service_id && !termos.template_id)) return null;

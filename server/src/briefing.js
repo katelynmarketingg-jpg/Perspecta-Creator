@@ -295,13 +295,29 @@ function leJson(txt, padrao) {
 }
 
 export function getTemplate(orgId) {
-  const linha = db.prepare("SELECT welcome, sections, updated_at FROM briefing_templates WHERE org_id = ?").get(orgId);
+  const linha = db.prepare(
+    "SELECT welcome, sections, gera_contrato, cria_acesso, updated_at FROM briefing_templates WHERE org_id = ?"
+  ).get(orgId);
   const secoes = linha ? leJson(linha.sections, BRIEFING) : BRIEFING;
   return {
     welcome: linha ? leJson(linha.welcome, BEM_VINDO) : BEM_VINDO,
     secoes: Array.isArray(secoes) && secoes.length ? secoes : BRIEFING,
+    // Os dois passos do fim. Sem linha ainda (casa nova), os dois valem.
+    gera_contrato: linha ? linha.gera_contrato !== 0 : true,
+    cria_acesso: linha ? linha.cria_acesso !== 0 : true,
     personalizado: Boolean(linha),
     updated_at: linha?.updated_at || null,
+  };
+}
+
+/** O texto de boas-vindas em forma segura, com os limites de tamanho. */
+export function saneiaBoasVindas(welcome, padrao = BEM_VINDO) {
+  return {
+    titulo: String(welcome?.titulo || padrao.titulo).slice(0, 200),
+    paragrafos: (Array.isArray(welcome?.paragrafos) && welcome.paragrafos.length
+      ? welcome.paragrafos : padrao.paragrafos)
+      .map((t) => String(t).slice(0, 1200)).filter(Boolean).slice(0, 6),
+    botao: String(welcome?.botao || padrao.botao).slice(0, 60),
   };
 }
 
@@ -378,21 +394,23 @@ export function saneiaSecoes(entrada) {
   })).filter((s) => s.perguntas.length);
 }
 
-export function saveTemplate(orgId, { welcome, secoes }) {
+export function saveTemplate(orgId, { welcome, secoes, gera_contrato, cria_acesso }) {
   const limpo = saneiaSecoes(secoes);
   if (!limpo.length) { const e = new Error("O briefing precisa de pelo menos uma pergunta."); e.code = "VAZIO"; throw e; }
-  const bv = {
-    titulo: String(welcome?.titulo || BEM_VINDO.titulo).slice(0, 200),
-    paragrafos: (Array.isArray(welcome?.paragrafos) ? welcome.paragrafos : BEM_VINDO.paragrafos)
-      .map((t) => String(t).slice(0, 1200)).filter(Boolean).slice(0, 6),
-    botao: String(welcome?.botao || BEM_VINDO.botao).slice(0, 60),
-  };
+  const bv = saneiaBoasVindas(welcome);
+  // Campo ausente não muda o que já está gravado: a aba de boas-vindas salva
+  // sem saber dos passos do fim, e não pode religá-los sem querer.
+  const atual = getTemplate(orgId);
+  const contrato = gera_contrato === undefined ? atual.gera_contrato : Boolean(gera_contrato);
+  const acesso = cria_acesso === undefined ? atual.cria_acesso : Boolean(cria_acesso);
   db.prepare(
-    `INSERT INTO briefing_templates (org_id, welcome, sections, updated_at)
-     VALUES (?, ?, ?, datetime('now'))
+    `INSERT INTO briefing_templates (org_id, welcome, sections, gera_contrato, cria_acesso, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(org_id) DO UPDATE SET
-       welcome = excluded.welcome, sections = excluded.sections, updated_at = datetime('now')`
-  ).run(orgId, JSON.stringify(bv), JSON.stringify(limpo));
+       welcome = excluded.welcome, sections = excluded.sections,
+       gera_contrato = excluded.gera_contrato, cria_acesso = excluded.cria_acesso,
+       updated_at = datetime('now')`
+  ).run(orgId, JSON.stringify(bv), JSON.stringify(limpo), contrato ? 1 : 0, acesso ? 1 : 0);
   return getTemplate(orgId);
 }
 
@@ -477,7 +495,8 @@ export function usaSecoesPadrao(briefingId) {
 /** Todos os formulários da casa, para a lista e para os seletores. */
 export function listaDeFormularios(orgId) {
   return db.prepare(
-    "SELECT id, name, sections, created_at, updated_at FROM briefing_forms WHERE org_id = ? ORDER BY name COLLATE NOCASE"
+    `SELECT id, name, sections, welcome, gera_contrato, cria_acesso, created_at, updated_at
+       FROM briefing_forms WHERE org_id = ? ORDER BY name COLLATE NOCASE`
   ).all(orgId).map((f) => {
     const secoes = leJson(f.sections, []);
     return {
@@ -485,18 +504,50 @@ export function listaDeFormularios(orgId) {
       name: f.name,
       etapas: secoes.length,
       perguntas: perguntasDe(secoes).length,
+      boas_vindas_proprias: Boolean(f.welcome),
+      gera_contrato: f.gera_contrato !== 0,
+      cria_acesso: f.cria_acesso !== 0,
       created_at: f.created_at,
       updated_at: f.updated_at,
     };
   });
 }
 
-/** Um formulário inteiro, com as perguntas. */
+/** Um formulário inteiro: o começo, as perguntas e o fim. */
 export function getFormulario(orgId, id) {
   const f = db.prepare("SELECT * FROM briefing_forms WHERE id = ? AND org_id = ?").get(id, orgId);
   if (!f) return null;
   const secoes = leJson(f.sections, []);
-  return { id: f.id, name: f.name, secoes: Array.isArray(secoes) ? secoes : [], updated_at: f.updated_at };
+  return {
+    id: f.id,
+    name: f.name,
+    // Boas-vindas próprias, ou vazio — e aí vale o texto da casa.
+    welcome: f.welcome ? leJson(f.welcome, null) : null,
+    secoes: Array.isArray(secoes) ? secoes : [],
+    gera_contrato: f.gera_contrato !== 0,
+    cria_acesso: f.cria_acesso !== 0,
+    updated_at: f.updated_at,
+  };
+}
+
+/**
+ * COMO ESTE ONBOARDING COMEÇA E COMO TERMINA.
+ *
+ * Nem todo onboarding termina igual: um orçamento não gera contrato, e um
+ * trabalho pontual não precisa de área do cliente nenhuma. Quem decide é o
+ * formulário que ele recebeu; na falta de um, o padrão da casa.
+ */
+export function ajustesDoBriefing(briefing) {
+  const padrao = getTemplate(briefing.org_id);
+  const form = formularioDoBriefing(briefing);
+  if (!form) {
+    return { welcome: padrao.welcome, gera_contrato: padrao.gera_contrato, cria_acesso: padrao.cria_acesso };
+  }
+  return {
+    welcome: form.welcome || padrao.welcome,
+    gera_contrato: form.gera_contrato,
+    cria_acesso: form.cria_acesso,
+  };
 }
 
 /** O formulário que este onboarding usa, ou null (padrão da casa). */
@@ -526,27 +577,45 @@ function secoesDeFormulario(secoes) {
 }
 
 /** Cria um formulário. Sem perguntas, nasce a partir do padrão da casa. */
-export function criaFormulario(orgId, { nome, secoes }) {
+export function criaFormulario(orgId, { nome, secoes, welcome, gera_contrato, cria_acesso }) {
   const name = nomeDeFormulario(nome);
   const limpo = secoesDeFormulario(
     Array.isArray(secoes) && secoes.length ? secoes : getTemplate(orgId).secoes,
   );
   const id = db.prepare(
-    "INSERT INTO briefing_forms (org_id, name, sections) VALUES (?, ?, ?)"
-  ).run(orgId, name, JSON.stringify(limpo)).lastInsertRowid;
+    `INSERT INTO briefing_forms (org_id, name, sections, welcome, gera_contrato, cria_acesso)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    orgId, name, JSON.stringify(limpo),
+    welcome ? JSON.stringify(saneiaBoasVindas(welcome, getTemplate(orgId).welcome)) : null,
+    gera_contrato === false ? 0 : 1,
+    cria_acesso === false ? 0 : 1,
+  ).lastInsertRowid;
   return getFormulario(orgId, id);
 }
 
 /** Salva o formulário. `nome` e `secoes` são independentes: dá para só renomear. */
-export function salvaFormulario(orgId, id, { nome, secoes }) {
+export function salvaFormulario(orgId, id, { nome, secoes, welcome, gera_contrato, cria_acesso }) {
   const atual = getFormulario(orgId, id);
   if (!atual) return null;
+  // Cada campo é independente: dá para só renomear, só mexer no fim, só trocar
+  // as perguntas. O que não vem no pedido fica como estava.
   const name = nome === undefined ? atual.name : nomeDeFormulario(nome);
-  const limpo = secoes === undefined ? null : secoesDeFormulario(secoes);
+  const limpo = secoes === undefined ? atual.secoes : secoesDeFormulario(secoes);
+  const bv = welcome === undefined
+    ? atual.welcome
+    // `null` explícito é "volte a usar o texto da casa".
+    : (welcome ? saneiaBoasVindas(welcome, getTemplate(orgId).welcome) : null);
+  const contrato = gera_contrato === undefined ? atual.gera_contrato : Boolean(gera_contrato);
+  const acesso = cria_acesso === undefined ? atual.cria_acesso : Boolean(cria_acesso);
   db.prepare(
-    `UPDATE briefing_forms SET name = ?, sections = ?, updated_at = datetime('now')
-      WHERE id = ? AND org_id = ?`
-  ).run(name, limpo ? JSON.stringify(limpo) : JSON.stringify(atual.secoes), id, orgId);
+    `UPDATE briefing_forms SET name = ?, sections = ?, welcome = ?,
+       gera_contrato = ?, cria_acesso = ?, updated_at = datetime('now')
+     WHERE id = ? AND org_id = ?`
+  ).run(
+    name, JSON.stringify(limpo), bv ? JSON.stringify(bv) : null,
+    contrato ? 1 : 0, acesso ? 1 : 0, id, orgId,
+  );
   return getFormulario(orgId, id);
 }
 

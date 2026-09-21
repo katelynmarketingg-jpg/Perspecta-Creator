@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { unlinkSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { db } from "../db.js";
-import { getTemplate, perguntasDe, progresso, faltando, secoesDoBriefing, idDoPorque } from "../briefing.js";
+import { perguntasDe, progresso, faltando, secoesDoBriefing, idDoPorque, ajustesDoBriefing } from "../briefing.js";
 import { hashPassword, publicBaseUrl } from "../auth.js";
 import { makeSignToken } from "./sign.js";
 import { storageConfigured, uploadFileToR2 } from "../storage.js";
@@ -57,7 +57,9 @@ briefingPublicRouter.get("/:token", (req, res) => {
   if (!b.opened_at) {
     db.prepare("UPDATE briefings SET opened_at = datetime('now') WHERE id = ?").run(b.id);
   }
-  const modelo = getTemplate(b.org_id);   // o texto de boas-vindas do escritório
+  // Como este onboarding começa e como termina — vem do formulário que ele
+  // recebeu, ou do padrão da casa.
+  const ajustes = ajustesDoBriefing(b);
   // As perguntas podem ser só deste cliente: um advogado e uma pastelaria não
   // respondem às mesmas coisas.
   const secoes = secoesDoBriefing(b);
@@ -70,7 +72,10 @@ briefingPublicRouter.get("/:token", (req, res) => {
 
   res.json({
     secoes,
-    welcome: modelo.welcome,
+    welcome: ajustes.welcome,
+    // O que aparece depois do envio. Um orçamento não gera contrato; um
+    // trabalho pontual não precisa de área do cliente.
+    passos: { contrato: ajustes.gera_contrato, acesso: ajustes.cria_acesso },
     respostas,
     client_name: cliente?.name || "",
     agency_name: org?.name || "",
@@ -238,16 +243,19 @@ briefingPublicRouter.get("/:token/proximos-passos", (req, res) => {
   const cliente = db.prepare("SELECT name, portal_username, portal_password_hash FROM clients WHERE id = ?")
     .get(b.client_id);
   const org = db.prepare("SELECT name FROM organizations WHERE id = ?").get(b.org_id);
+  const ajustes = ajustesDoBriefing(b);
 
-  // O contrato mais recente que ainda espera assinatura.
-  const contrato = db.prepare(
+  // O contrato mais recente que ainda espera assinatura. Se este formulário não
+  // manda para assinatura, nem se procura: o passo não vai aparecer.
+  const contrato = ajustes.gera_contrato ? db.prepare(
     `SELECT id, title, signed_at FROM contracts
       WHERE client_id = ? AND org_id = ? ORDER BY signed_at IS NULL DESC, id DESC LIMIT 1`
-  ).get(b.client_id, b.org_id);
+  ).get(b.client_id, b.org_id) : null;
 
   res.json({
     client_name: cliente?.name || "",
     agency_name: org?.name || "",
+    passos: { contrato: ajustes.gera_contrato, acesso: ajustes.cria_acesso },
     tem_acesso: Boolean(cliente?.portal_password_hash),
     usuario: cliente?.portal_username || "",
     portal_url: `${publicBaseUrl(req)}/portal/login`,
@@ -268,6 +276,12 @@ briefingPublicRouter.get("/:token/proximos-passos", (req, res) => {
 briefingPublicRouter.post("/:token/acesso", (req, res) => {
   const b = carrega(req.params.token);
   if (!b) return res.status(404).json({ error: "Este link não existe mais." });
+
+  // Este formulário não oferece Área do Cliente. A tela nem mostra o passo, mas
+  // a porta também tem que estar fechada: link é endereço público.
+  if (!ajustesDoBriefing(b).cria_acesso) {
+    return res.status(403).json({ error: "Este cadastro não cria acesso à Área do Cliente." });
+  }
 
   const cliente = db.prepare("SELECT * FROM clients WHERE id = ?").get(b.client_id);
   if (cliente?.portal_password_hash) {

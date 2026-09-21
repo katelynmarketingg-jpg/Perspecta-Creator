@@ -328,6 +328,14 @@ function Concluido({ base, dados }) {
   const temAcesso = criado || passos?.tem_acesso;
   const contrato = passos?.contrato;
 
+  // O QUE ESTE FORMULÁRIO OFERECE NO FIM. Nem todo onboarding termina igual:
+  // um orçamento não vai para assinatura, um trabalho pontual não abre Área do
+  // Cliente. Enquanto a resposta não chega, não mostra passo nenhum — piscar
+  // um passo e tirá-lo em seguida é pior do que esperar meio segundo.
+  const mostraContrato = passos ? passos.passos?.contrato !== false : false;
+  const mostraAcesso = passos ? passos.passos?.acesso !== false : false;
+  const quantos = (mostraContrato ? 1 : 0) + (mostraAcesso ? 1 : 0);
+
   return (
     <Tela logo={dados.agency_logo}>
       <Fade in>
@@ -349,13 +357,20 @@ function Concluido({ base, dados }) {
             </Typography>
           </Box>
 
-          <Typography sx={{ fontWeight: 800, fontSize: 19, mb: 0.5 }}>Faltam só dois passos</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Dá para resolver agora, aqui mesmo. Se preferir, volte a este link depois — ele continua seu.
-          </Typography>
+          {quantos > 0 && (
+            <>
+              <Typography sx={{ fontWeight: 800, fontSize: 19, mb: 0.5 }}>
+                {quantos === 1 ? "Falta só um passo" : "Faltam só dois passos"}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Dá para resolver agora, aqui mesmo. Se preferir, volte a este link depois — ele continua seu.
+              </Typography>
+            </>
+          )}
 
           <Stack spacing={2}>
             {/* ---- 1. contrato ---- */}
+            {mostraContrato && (
             <Passo numero="1" titulo="Seu contrato" pronto={contrato?.assinado}>
               {contrato?.assinado ? (
                 <Typography variant="body2" color="text.secondary">
@@ -380,9 +395,11 @@ function Concluido({ base, dados }) {
                 </Typography>
               )}
             </Passo>
+            )}
 
             {/* ---- 2. acesso ---- */}
-            <Passo numero="2" titulo="Seu acesso" pronto={Boolean(temAcesso)}>
+            {mostraAcesso && (
+            <Passo numero={mostraContrato ? "2" : "1"} titulo="Seu acesso" pronto={Boolean(temAcesso)}>
               {temAcesso ? (
                 <>
                   <Alert severity="success" sx={{ borderRadius: 2, mb: 2 }}>
@@ -431,6 +448,7 @@ function Concluido({ base, dados }) {
                 </>
               )}
             </Passo>
+            )}
           </Stack>
 
           <Stack direction="row" spacing={1} justifyContent="center" alignItems="center"
