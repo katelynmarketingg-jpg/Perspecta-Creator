@@ -523,6 +523,57 @@ CREATE INDEX IF NOT EXISTS idx_briefings_client ON briefings(org_id, client_id);
 // — com os dados dele (que o briefing preencheu) e estes, que só ela sabe.
 ensureColumn("briefings", "terms", "terms TEXT");
 
+// PERGUNTAS SÓ DESTE CLIENTE. Nem todo cliente cabe no mesmo questionário: um
+// advogado e uma pastelaria não respondem às mesmas coisas. Quando esta coluna
+// está vazia, vale o modelo do escritório — que continua sendo o padrão e pode
+// ser trazido de volta a qualquer momento.
+ensureColumn("briefings", "sections", "sections TEXT");
+// Quando ela encerrou o onboarding à mão. Encerrado, o link para de responder:
+// o cliente já entrou, não precisa mais preencher nada.
+ensureColumn("briefings", "closed_at", "closed_at TEXT");
+
+// ---------------------------------------------------------------------------
+// FORMULÁRIOS COM NOME.
+//
+// O padrão da casa é um só, mas a casa atende ramos diferentes: advocacia,
+// alimentação, estética. Em vez de refazer as perguntas cliente por cliente,
+// ela monta um formulário com nome ("Advocacia") e manda esse para quem for do
+// ramo. O padrão continua existindo e continua sendo o que vale por omissão.
+//
+// Qual formulário este onboarding usa. Vazio = o padrão da casa.
+ensureColumn("briefings", "form_id", "form_id INTEGER");
+db.exec(`
+CREATE TABLE IF NOT EXISTS briefing_forms (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id     INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  sections   TEXT NOT NULL,                 -- JSON: as seções e perguntas
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_briefing_forms_org ON briefing_forms(org_id);
+`);
+
+// ---------------------------------------------------------------------------
+// IMAGENS DAS PERGUNTAS VISUAIS.
+//
+// Uma pergunta pode mostrar opções em imagem — três paletas, quatro estilos de
+// foto — e pedir que o cliente escolha e diga por quê. Estas imagens precisam
+// abrir para quem NÃO tem login (o cliente responde por link), então são
+// servidas por um endereço com token sorteado, não pelo id.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS briefing_media (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  token       TEXT NOT NULL UNIQUE,
+  mime        TEXT NOT NULL,
+  size        INTEGER NOT NULL DEFAULT 0,
+  stored_path TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
+
 // O briefing é EDITÁVEL: cada escritório tem o seu texto de boas-vindas e as
 // suas perguntas. Enquanto não mexer em nada, vale o modelo de fábrica
 // (server/src/briefing.js) — a linha só nasce quando alguém salva uma mudança.

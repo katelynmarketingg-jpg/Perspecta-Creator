@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { unlinkSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { db } from "../db.js";
-import { getTemplate, perguntasDe, progresso, faltando } from "../briefing.js";
+import { getTemplate, perguntasDe, progresso, faltando, secoesDoBriefing, idDoPorque } from "../briefing.js";
 import { hashPassword, publicBaseUrl } from "../auth.js";
 import { makeSignToken } from "./sign.js";
 import { storageConfigured, uploadFileToR2 } from "../storage.js";
@@ -30,11 +30,24 @@ function carrega(token) {
   return db.prepare("SELECT * FROM briefings WHERE token = ?").get(String(token || ""));
 }
 
-// As perguntas são as DO ESCRITÓRIO (ele pode ter editado o briefing), não uma
-// lista fixa no código.
-function idsValidos(orgId) {
-  return new Set(perguntasDe(getTemplate(orgId).secoes).map((p) => p.id));
+// As perguntas são as DESTE ONBOARDING: as que a agência montou só para este
+// cliente, ou, na falta delas, o modelo do escritório. Nunca uma lista fixa.
+//
+// O "por quê" de uma pergunta visual entra junto: ele não é uma pergunta da
+// lista, é filho de uma — sem estar aqui, a explicação do cliente era jogada
+// fora na hora de salvar.
+function idsValidos(briefing) {
+  const ids = new Set();
+  for (const p of perguntasDe(secoesDoBriefing(briefing))) {
+    ids.add(p.id);
+    if (p.tipo === "visual" && p.pede_porque) ids.add(idDoPorque(p.id));
+  }
+  return ids;
 }
+
+/** Onboarding encerrado pela agência não recebe mais nada. */
+function encerrado(b) { return b.status === "encerrado"; }
+const AVISO_ENCERRADO = "Este formulário foi encerrado pela equipe. Fale com quem te mandou o link.";
 
 // GET /api/briefing/:token — as perguntas e o que já foi respondido.
 briefingPublicRouter.get("/:token", (req, res) => {
@@ -44,7 +57,10 @@ briefingPublicRouter.get("/:token", (req, res) => {
   if (!b.opened_at) {
     db.prepare("UPDATE briefings SET opened_at = datetime('now') WHERE id = ?").run(b.id);
   }
-  const modelo = getTemplate(b.org_id);   // o briefing DESTE escritório
+  const modelo = getTemplate(b.org_id);   // o texto de boas-vindas do escritório
+  // As perguntas podem ser só deste cliente: um advogado e uma pastelaria não
+  // respondem às mesmas coisas.
+  const secoes = secoesDoBriefing(b);
   const cliente = db.prepare("SELECT name FROM clients WHERE id = ?").get(b.client_id);
   // A logo vem junto: a página é aberta por quem não tem conta, então não pode
   // buscar a marca pelas rotas da equipe — e chegar sem marca nenhuma faria o
@@ -53,14 +69,16 @@ briefingPublicRouter.get("/:token", (req, res) => {
   const respostas = JSON.parse(b.answers || "{}");
 
   res.json({
-    secoes: modelo.secoes,
+    secoes,
     welcome: modelo.welcome,
     respostas,
     client_name: cliente?.name || "",
     agency_name: org?.name || "",
     agency_logo: org?.logo || null,
     status: b.status,
-    progresso: progresso(modelo.secoes, respostas),
+    encerrado: encerrado(b),
+    aviso_encerrado: encerrado(b) ? AVISO_ENCERRADO : null,
+    progresso: progresso(secoes, respostas),
     answered_at: b.answered_at,
   });
 });
@@ -69,18 +87,19 @@ briefingPublicRouter.get("/:token", (req, res) => {
 briefingPublicRouter.put("/:token", (req, res) => {
   const b = carrega(req.params.token);
   if (!b) return res.status(404).json({ error: "Este link não existe mais." });
+  if (encerrado(b)) return res.status(409).json({ error: AVISO_ENCERRADO });
 
   const entrada = req.body?.respostas || {};
   const atual = JSON.parse(b.answers || "{}");
   // Só perguntas que existem, e cada resposta com teto de tamanho.
-  const ids = idsValidos(b.org_id);
+  const ids = idsValidos(b);
   for (const [k, v] of Object.entries(entrada)) {
     if (!ids.has(k)) continue;
     const texto = Array.isArray(v) ? v.join(", ") : String(v ?? "");
     atual[k] = texto.slice(0, TAMANHO_MAX);
   }
   db.prepare("UPDATE briefings SET answers = ? WHERE id = ?").run(JSON.stringify(atual), b.id);
-  res.json({ ok: true, progresso: progresso(getTemplate(b.org_id).secoes, atual) });
+  res.json({ ok: true, progresso: progresso(secoesDoBriefing(b), atual) });
 });
 
 // ---------------------------------------------------------------------------
@@ -116,23 +135,59 @@ function pastaDoCliente(clientId) {
     .run(PASTA, clientId).lastInsertRowid;
 }
 
-// GET /api/briefing/:token/arquivos — o que o cliente já mandou.
+/** A pergunta de envio com este id, dentro das perguntas DESTE onboarding. */
+function perguntaDeEnvio(briefing, perguntaId) {
+  if (!perguntaId) return null;
+  return perguntasDe(secoesDoBriefing(briefing))
+    .find((p) => p.id === perguntaId && p.tipo === "arquivos") || null;
+}
+
+/**
+ * Onde cai o que o cliente mandou NESTA pergunta.
+ *
+ * Um onboarding pode ter mais de uma galeria — "fotos do espaço" e "referências
+ * que você gosta" são coisas diferentes, e misturar as duas na mesma pasta
+ * obriga a equipe a separar tudo à mão depois. Quando a pergunta diz em que
+ * pasta cai, ela ganha uma subpasta própria; sem isso, vai para a pasta geral,
+ * como sempre foi.
+ */
+function pastaDaPergunta(briefing, pergunta, { criar = true } = {}) {
+  const raiz = criar ? pastaDoCliente(briefing.client_id) : (
+    db.prepare("SELECT id FROM folders WHERE client_id = ? AND name = ? AND parent_id IS NULL")
+      .get(briefing.client_id, PASTA)?.id || null
+  );
+  if (!raiz) return null;
+  const nome = String(pergunta?.pasta || "").trim();
+  if (!nome) return raiz;
+  const achada = db.prepare("SELECT id FROM folders WHERE client_id = ? AND name = ? AND parent_id = ?")
+    .get(briefing.client_id, nome, raiz);
+  if (achada) return achada.id;
+  if (!criar) return null;
+  return db.prepare("INSERT INTO folders (name, client_id, parent_id) VALUES (?, ?, ?)")
+    .run(nome, briefing.client_id, raiz).lastInsertRowid;
+}
+
+// GET /api/briefing/:token/arquivos — o que o cliente já mandou NESTA pergunta.
 briefingPublicRouter.get("/:token/arquivos", (req, res) => {
   const b = carrega(req.params.token);
   if (!b) return res.status(404).json({ error: "Este link não existe mais." });
-  const pasta = db.prepare("SELECT id FROM folders WHERE client_id = ? AND name = ?").get(b.client_id, PASTA);
+  const pergunta = perguntaDeEnvio(b, String(req.query.pergunta || ""));
+  const pasta = pastaDaPergunta(b, pergunta, { criar: false });
   if (!pasta) return res.json([]);
   res.json(db.prepare(
     "SELECT id, original_name, mime, size, created_at FROM files WHERE folder_id = ? ORDER BY id DESC"
-  ).all(pasta.id));
+  ).all(pasta));
 });
 
 // POST /api/briefing/:token/arquivos — o cliente manda fotos, vídeos e referências.
 briefingPublicRouter.post("/:token/arquivos", envio.array("files", MAX_POR_VEZ), async (req, res) => {
   const b = carrega(req.params.token);
   if (!b) return res.status(404).json({ error: "Este link não existe mais." });
+  if (encerrado(b)) return res.status(409).json({ error: AVISO_ENCERRADO });
 
-  const pasta = pastaDoCliente(b.client_id);
+  const perguntaId = String(req.query.pergunta || "");
+  const pergunta = perguntaDeEnvio(b, perguntaId);
+  const pasta = pastaDaPergunta(b, pergunta);
   const jaTem = db.prepare("SELECT COUNT(*) n FROM files WHERE folder_id = ?").get(pasta).n;
   if (jaTem + (req.files?.length || 0) > MAX_POR_BRIEFING) {
     return res.status(400).json({ error: "Você já mandou bastante coisa! Fale com a equipe para enviar o resto." });
@@ -159,8 +214,7 @@ briefingPublicRouter.post("/:token/arquivos", envio.array("files", MAX_POR_VEZ),
 
   // A resposta da pergunta guarda o resumo, para o progresso contar e a equipe
   // ver de relance quanto veio.
-  const perguntaId = String(req.query.pergunta || "");
-  if (perguntaId && idsValidos(b.org_id).has(perguntaId)) {
+  if (perguntaId && idsValidos(b).has(perguntaId)) {
     const respostas = JSON.parse(b.answers || "{}");
     const total = jaTem + criados.length;
     respostas[perguntaId] = `${total} arquivo(s) enviado(s)`;
@@ -250,6 +304,7 @@ briefingPublicRouter.post("/:token/acesso", (req, res) => {
 briefingPublicRouter.post("/:token/enviar", (req, res) => {
   const b = carrega(req.params.token);
   if (!b) return res.status(404).json({ error: "Este link não existe mais." });
+  if (encerrado(b)) return res.status(409).json({ error: AVISO_ENCERRADO });
 
   // Já enviado: clique duplo, voltar no navegador, recarregar a página. Não
   // refaz nada — senão o cliente recebe "enviado!" mas a equipe recebe o aviso
@@ -262,7 +317,7 @@ briefingPublicRouter.post("/:token/enviar", (req, res) => {
   }
 
   const respostas = JSON.parse(b.answers || "{}");
-  const faltam = faltando(getTemplate(b.org_id).secoes, respostas);
+  const faltam = faltando(secoesDoBriefing(b), respostas);
   if (faltam.length) {
     return res.status(400).json({ error: "Ainda faltam perguntas obrigatórias.", faltando: faltam });
   }
