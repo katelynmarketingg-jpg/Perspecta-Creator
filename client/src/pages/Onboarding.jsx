@@ -123,6 +123,8 @@ export default function Onboarding() {
 
   // O que a aba "Perguntas" está editando agora: o padrão ou um formulário.
   const secoesEmEdicao = editando ? (form?.secoes || []) : (modelo?.secoes || []);
+  // Sem etapa nenhuma não há o que salvar: o cliente abriria um link vazio.
+  const vazio = secoesEmEdicao.length === 0;
   const mudaSecoesEmEdicao = (secoes) => {
     if (editando) setForm((f) => f && ({ ...f, secoes }));
     else setModelo((m) => ({ ...m, secoes }));
@@ -480,11 +482,17 @@ export default function Onboarding() {
           )}
 
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", gap: 1 }}>
-            <Button variant="contained" disabled={salvando}
-              onClick={editando ? salvarFormulario : salvarModelo}>
-              {salvando ? "Salvando…"
-                : editando ? `Salvar "${form?.name || ""}"` : "Salvar o padrão da casa"}
-            </Button>
+            {/* Vazio, o salvar fica desligado com o motivo à vista — melhor do
+                que deixar clicar e voltar com um erro do servidor. */}
+            <Tooltip title={vazio ? "Crie ao menos uma etapa com uma pergunta antes de salvar" : ""}>
+              <span>
+                <Button variant="contained" disabled={salvando || vazio}
+                  onClick={editando ? salvarFormulario : salvarModelo}>
+                  {salvando ? "Salvando…"
+                    : editando ? `Salvar "${form?.name || ""}"` : "Salvar o padrão da casa"}
+                </Button>
+              </span>
+            </Tooltip>
             <Box sx={{ flex: 1 }} />
             {/* "Voltar ao de fábrica" é só do padrão da casa: um formulário com
                 nome se apaga pelo botão da estante, não por aqui. */}
@@ -921,11 +929,6 @@ function EditorDePerguntas({ secoes, onChange, camposCliente, destinosCentral })
 
   const apagaSecao = (i) => {
     const sec = secoes[i];
-    if (secoes.length === 1) {
-      window.alert("Esta é a única etapa. Um formulário precisa de pelo menos uma — "
-        + "crie outra antes de apagar esta.");
-      return;
-    }
     const quantas = sec.perguntas?.length || 0;
     const aviso = quantas
       ? `Apagar a etapa "${sec.titulo || "(sem título)"}" e as ${quantas} perguntas dela?`
@@ -1075,6 +1078,15 @@ function EditorDePerguntas({ secoes, onChange, camposCliente, destinosCentral })
           </Collapse>
         </Box>
       ))}
+      {/* Apagar a última etapa é permitido — é assim que ela limpa um
+          formulário herdado do padrão e monta o dela do zero. O que não pode é
+          SALVAR vazio: aí o cliente abriria um link sem pergunta nenhuma. */}
+      {secoes.length === 0 && (
+        <Alert severity="info">
+          Este formulário está sem etapas. Crie a primeira aqui embaixo — enquanto estiver vazio,
+          ele não pode ser salvo.
+        </Alert>
+      )}
       <Button startIcon={<AddIcon />} onClick={novaSecao} sx={{ alignSelf: "flex-start" }}>Nova etapa</Button>
     </Stack>
   );
