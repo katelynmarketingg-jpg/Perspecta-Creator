@@ -103,7 +103,10 @@ router.get("/template", (req, res) => {
 
 router.put("/template", adminRequired, (req, res) => {
   try {
-    res.json(saveTemplate(req.orgId, { welcome: req.body?.welcome, secoes: req.body?.secoes }));
+    res.json(saveTemplate(req.orgId, {
+      welcome: req.body?.welcome, secoes: req.body?.secoes,
+      gera_contrato: req.body?.gera_contrato, cria_acesso: req.body?.cria_acesso,
+    }));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -188,7 +191,14 @@ router.post("/formularios", (req, res) => {
     if (!secoes && req.body?.copiar_de) {
       secoes = getFormulario(req.orgId, Number(req.body.copiar_de))?.secoes;
     }
-    res.status(201).json(criaFormulario(req.orgId, { nome: req.body?.nome, secoes }));
+    // Duplicar leva a jornada junto: o texto de boas-vindas e os passos do fim.
+    const fonte = req.body?.copiar_de ? getFormulario(req.orgId, Number(req.body.copiar_de)) : null;
+    res.status(201).json(criaFormulario(req.orgId, {
+      nome: req.body?.nome, secoes,
+      welcome: req.body?.welcome ?? fonte?.welcome ?? undefined,
+      gera_contrato: req.body?.gera_contrato ?? fonte?.gera_contrato,
+      cria_acesso: req.body?.cria_acesso ?? fonte?.cria_acesso,
+    }));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -200,6 +210,9 @@ router.get("/formularios/:fid", (req, res) => {
   if (!f) return res.status(404).json({ error: "Formulário não encontrado." });
   res.json({
     ...f,
+    // O texto da casa vai junto: é o que vale enquanto este formulário não
+    // tiver um próprio, e é dele que ela parte ao escrever um.
+    welcome_da_casa: getTemplate(req.orgId).welcome,
     campos_cliente: Object.entries(CAMPOS_CLIENTE).map(([k, v]) => ({ key: k, rotulo: v.rotulo })),
     destinos_central: Object.entries(DESTINOS_CENTRAL).map(([k, v]) => ({ key: k, rotulo: v.rotulo })),
   });
@@ -211,6 +224,9 @@ router.put("/formularios/:fid", (req, res) => {
     const f = salvaFormulario(req.orgId, Number(req.params.fid), {
       nome: req.body?.nome,
       secoes: req.body?.secoes,
+      welcome: req.body?.welcome,
+      gera_contrato: req.body?.gera_contrato,
+      cria_acesso: req.body?.cria_acesso,
     });
     if (!f) return res.status(404).json({ error: "Formulário não encontrado." });
     res.json(f);

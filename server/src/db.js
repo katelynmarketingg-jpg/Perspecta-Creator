@@ -554,6 +554,17 @@ CREATE TABLE IF NOT EXISTS briefing_forms (
 CREATE INDEX IF NOT EXISTS idx_briefing_forms_org ON briefing_forms(org_id);
 `);
 
+// Um formulário não é só a lista de perguntas: é a jornada inteira daquele
+// cliente. Onde começa (o texto de boas-vindas) e onde termina — se o contrato
+// vai para assinatura e se ele cria o acesso à Área do Cliente ali na hora.
+//
+// Nem todo onboarding termina igual: um orçamento não gera contrato, e um
+// cliente de trabalho pontual não precisa de área nenhuma. Sem isso, os dois
+// passos apareciam sempre, para todo mundo.
+ensureColumn("briefing_forms", "welcome", "welcome TEXT");   // JSON; vazio = o texto da casa
+ensureColumn("briefing_forms", "gera_contrato", "gera_contrato INTEGER NOT NULL DEFAULT 1");
+ensureColumn("briefing_forms", "cria_acesso", "cria_acesso INTEGER NOT NULL DEFAULT 1");
+
 // ---------------------------------------------------------------------------
 // IMAGENS DAS PERGUNTAS VISUAIS.
 //
@@ -585,6 +596,12 @@ CREATE TABLE IF NOT EXISTS briefing_templates (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `);
+// O padrão da casa também decide o próprio fim: se o contrato vai para
+// assinatura e se o cliente cria o acesso à Área do Cliente ao terminar.
+// (Vem DEPOIS do CREATE: ensureColumn numa tabela que ainda não existe é
+// ignorado em silêncio, e a coluna nunca apareceria.)
+ensureColumn("briefing_templates", "gera_contrato", "gera_contrato INTEGER NOT NULL DEFAULT 1");
+ensureColumn("briefing_templates", "cria_acesso", "cria_acesso INTEGER NOT NULL DEFAULT 1");
 
 // Configuração de IA por escritório (chave paga pelo próprio escritório).
 db.exec(`
