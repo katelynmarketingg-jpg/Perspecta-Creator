@@ -9,7 +9,7 @@ import {
   getTemplate, saveTemplate, resetTemplate,
   secoesDoBriefing, leSecoesProprias, salvaSecoesDoBriefing, usaSecoesPadrao,
   listaDeFormularios, getFormulario, criaFormulario, salvaFormulario,
-  apagaFormulario, usaFormulario, origemDasPerguntas,
+  apagaFormulario, usaFormulario, origemDasPerguntas, formularioDoServico,
 } from "../briefing.js";
 import { guardaNaCentral } from "../central.js";
 import { modelosDisponiveis, mesesDeVigencia, numeroBR } from "../contract-gen.js";
@@ -56,6 +56,13 @@ function saneiaTermos(entrada = {}) {
     duration_months: mesesDeVigencia(data(entrada.start_date), data(entrada.end_date)),
     observacoes: String(entrada.observacoes || "").trim().slice(0, 1000),
   };
+}
+
+/** "servico:3" / "modelo:7" — a mesma chave que a tela usa nos seletores. */
+function chaveDoServico(termos) {
+  if (termos?.service_id) return `servico:${Number(termos.service_id)}`;
+  if (termos?.template_id) return `modelo:${Number(termos.template_id)}`;
+  return "";
 }
 
 function resumo(b, req) {
@@ -148,10 +155,15 @@ router.post("/", (req, res) => {
   // data do contrato) viajam junto: é com eles que o contrato nasce pronto
   // assim que o cliente termina de responder.
   const termos = req.body?.termos ? JSON.stringify(saneiaTermos(req.body.termos)) : null;
-  // Qual formulário este cliente vai responder. Sem escolha, o padrão da casa.
-  const formId = req.body?.form_id ? Number(req.body.form_id) : null;
+  // Qual formulário este cliente vai responder. Ela pode dizer na mão; se não
+  // disser, o serviço que ela escolheu decide — é o formulário feito para ele.
+  // Sem os dois, vale o padrão da casa.
+  let formId = req.body?.form_id ? Number(req.body.form_id) : null;
   if (formId && !getFormulario(req.orgId, formId)) {
     return res.status(400).json({ error: "Esse formulário não existe mais." });
+  }
+  if (!formId && req.body?.termos) {
+    formId = formularioDoServico(req.orgId, chaveDoServico(req.body.termos))?.id || null;
   }
   const id = db.prepare(
     "INSERT INTO briefings (org_id, client_id, token, terms, form_id) VALUES (?, ?, ?, ?, ?)"
@@ -198,6 +210,9 @@ router.post("/formularios", (req, res) => {
       welcome: req.body?.welcome ?? fonte?.welcome ?? undefined,
       gera_contrato: req.body?.gera_contrato ?? fonte?.gera_contrato,
       cria_acesso: req.body?.cria_acesso ?? fonte?.cria_acesso,
+      // O serviço NÃO é duplicado: dois formulários para o mesmo serviço
+      // deixariam a escolha automática sem saber qual dos dois usar.
+      servico: req.body?.servico,
     }));
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -227,6 +242,7 @@ router.put("/formularios/:fid", (req, res) => {
       welcome: req.body?.welcome,
       gera_contrato: req.body?.gera_contrato,
       cria_acesso: req.body?.cria_acesso,
+      servico: req.body?.servico,
     });
     if (!f) return res.status(404).json({ error: "Formulário não encontrado." });
     res.json(f);

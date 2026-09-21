@@ -495,7 +495,7 @@ export function usaSecoesPadrao(briefingId) {
 /** Todos os formulários da casa, para a lista e para os seletores. */
 export function listaDeFormularios(orgId) {
   return db.prepare(
-    `SELECT id, name, sections, welcome, gera_contrato, cria_acesso, created_at, updated_at
+    `SELECT id, name, sections, welcome, gera_contrato, cria_acesso, servico, created_at, updated_at
        FROM briefing_forms WHERE org_id = ? ORDER BY name COLLATE NOCASE`
   ).all(orgId).map((f) => {
     const secoes = leJson(f.sections, []);
@@ -507,6 +507,7 @@ export function listaDeFormularios(orgId) {
       boas_vindas_proprias: Boolean(f.welcome),
       gera_contrato: f.gera_contrato !== 0,
       cria_acesso: f.cria_acesso !== 0,
+      servico: f.servico || "",
       created_at: f.created_at,
       updated_at: f.updated_at,
     };
@@ -526,6 +527,7 @@ export function getFormulario(orgId, id) {
     secoes: Array.isArray(secoes) ? secoes : [],
     gera_contrato: f.gera_contrato !== 0,
     cria_acesso: f.cria_acesso !== 0,
+    servico: f.servico || "",
     updated_at: f.updated_at,
   };
 }
@@ -548,6 +550,21 @@ export function ajustesDoBriefing(briefing) {
     gera_contrato: form.gera_contrato,
     cria_acesso: form.cria_acesso,
   };
+}
+
+/**
+ * O formulário feito para este serviço, se houver.
+ *
+ * É o que faz a escolha andar sozinha: ela diz que o cliente contratou Gestão e
+ * o formulário de Gestão vem junto, sem ela precisar lembrar qual era.
+ */
+export function formularioDoServico(orgId, chaveDoServico) {
+  const chave = String(chaveDoServico || "").trim();
+  if (!chave) return null;
+  const f = db.prepare(
+    "SELECT id FROM briefing_forms WHERE org_id = ? AND servico = ? ORDER BY id LIMIT 1"
+  ).get(orgId, chave);
+  return f ? getFormulario(orgId, f.id) : null;
 }
 
 /** O formulário que este onboarding usa, ou null (padrão da casa). */
@@ -577,25 +594,26 @@ function secoesDeFormulario(secoes) {
 }
 
 /** Cria um formulário. Sem perguntas, nasce a partir do padrão da casa. */
-export function criaFormulario(orgId, { nome, secoes, welcome, gera_contrato, cria_acesso }) {
+export function criaFormulario(orgId, { nome, secoes, welcome, gera_contrato, cria_acesso, servico }) {
   const name = nomeDeFormulario(nome);
   const limpo = secoesDeFormulario(
     Array.isArray(secoes) && secoes.length ? secoes : getTemplate(orgId).secoes,
   );
   const id = db.prepare(
-    `INSERT INTO briefing_forms (org_id, name, sections, welcome, gera_contrato, cria_acesso)
-     VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO briefing_forms (org_id, name, sections, welcome, gera_contrato, cria_acesso, servico)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(
     orgId, name, JSON.stringify(limpo),
     welcome ? JSON.stringify(saneiaBoasVindas(welcome, getTemplate(orgId).welcome)) : null,
     gera_contrato === false ? 0 : 1,
     cria_acesso === false ? 0 : 1,
+    String(servico || "").slice(0, 40) || null,
   ).lastInsertRowid;
   return getFormulario(orgId, id);
 }
 
 /** Salva o formulário. `nome` e `secoes` são independentes: dá para só renomear. */
-export function salvaFormulario(orgId, id, { nome, secoes, welcome, gera_contrato, cria_acesso }) {
+export function salvaFormulario(orgId, id, { nome, secoes, welcome, gera_contrato, cria_acesso, servico }) {
   const atual = getFormulario(orgId, id);
   if (!atual) return null;
   // Cada campo é independente: dá para só renomear, só mexer no fim, só trocar
@@ -608,13 +626,14 @@ export function salvaFormulario(orgId, id, { nome, secoes, welcome, gera_contrat
     : (welcome ? saneiaBoasVindas(welcome, getTemplate(orgId).welcome) : null);
   const contrato = gera_contrato === undefined ? atual.gera_contrato : Boolean(gera_contrato);
   const acesso = cria_acesso === undefined ? atual.cria_acesso : Boolean(cria_acesso);
+  const svc = servico === undefined ? atual.servico : (String(servico || "").slice(0, 40) || null);
   db.prepare(
     `UPDATE briefing_forms SET name = ?, sections = ?, welcome = ?,
-       gera_contrato = ?, cria_acesso = ?, updated_at = datetime('now')
+       gera_contrato = ?, cria_acesso = ?, servico = ?, updated_at = datetime('now')
      WHERE id = ? AND org_id = ?`
   ).run(
     name, JSON.stringify(limpo), bv ? JSON.stringify(bv) : null,
-    contrato ? 1 : 0, acesso ? 1 : 0, id, orgId,
+    contrato ? 1 : 0, acesso ? 1 : 0, svc || null, id, orgId,
   );
   return getFormulario(orgId, id);
 }
