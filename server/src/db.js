@@ -564,6 +564,10 @@ CREATE INDEX IF NOT EXISTS idx_briefing_forms_org ON briefing_forms(org_id);
 ensureColumn("briefing_forms", "welcome", "welcome TEXT");   // JSON; vazio = o texto da casa
 ensureColumn("briefing_forms", "gera_contrato", "gera_contrato INTEGER NOT NULL DEFAULT 1");
 ensureColumn("briefing_forms", "cria_acesso", "cria_acesso INTEGER NOT NULL DEFAULT 1");
+// Para qual SERVIÇO este formulário é. Guardado como a chave que a tela já usa
+// ("servico:3" ou "modelo:7"). É o que faz a escolha andar sozinha: ela diz que
+// o cliente contratou Gestão, e o formulário de Gestão vem junto.
+ensureColumn("briefing_forms", "servico", "servico TEXT");
 
 // ---------------------------------------------------------------------------
 // IMAGENS DAS PERGUNTAS VISUAIS.

@@ -20,6 +20,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import QuizIcon from "@mui/icons-material/Quiz";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { PERSONA_GRUPOS } from "../persona.js";
@@ -77,6 +78,7 @@ export default function Onboarding() {
   const [modelos, setModelos] = useState([]);   // contratos disponíveis
   const [abrindo, setAbrindo] = useState(null); // o cliente para quem vou abrir o onboarding
   const [perguntasDe, setPerguntasDe] = useState(null); // questionário só de um cliente
+  const [vendoCliente, setVendoCliente] = useState(null); // o painel de um cliente
   // A estante de formulários com nome, e qual deles a aba "Perguntas" edita.
   // `null` é o padrão da casa — que também é uma opção de verdade, não a
   // ausência de uma.
@@ -114,6 +116,7 @@ export default function Onboarding() {
         id: r.data.id, name: r.data.name, secoes: r.data.secoes,
         welcome: r.data.welcome, welcome_da_casa: r.data.welcome_da_casa,
         gera_contrato: r.data.gera_contrato, cria_acesso: r.data.cria_acesso,
+        servico: r.data.servico || "",
       }))
       .catch(() => { setForm(null); setEditando(null); });
   }, [editando]);
@@ -134,6 +137,7 @@ export default function Onboarding() {
         welcome: form.welcome ?? null,
         gera_contrato: form.gera_contrato,
         cria_acesso: form.cria_acesso,
+        servico: form.servico || "",
       });
       await carregarFormularios();
       setMsg({ t: "success", m: `"${form.name}" salvo. Quem receber este formulário a partir de agora já vê assim.` });
@@ -148,7 +152,7 @@ export default function Onboarding() {
       setEditando(data.id);
       setParte("inicio");   // a jornada começa no começo
       setBatizando(null);
-      setMsg({ t: "success", m: `Formulário "${data.name}" criado. Percorra Início, Perguntas e Fim, e salve.` });
+      setMsg({ t: "success", m: `Formulário "${data.name}" criado. Percorra Início, Perguntas e Contrato e acesso, e salve.` });
     } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui criar." }); }
   }
 
@@ -272,103 +276,52 @@ export default function Onboarding() {
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2.5 }}>
         <Tab value="clientes" label={`Clientes${respondidos ? ` (${respondidos})` : ""}`} />
-        <Tab value="boasvindas" label="1 · Boas-vindas" />
-        <Tab value="perguntas" label="2 · Perguntas" />
-        <Tab value="contrato" label="3 · Contrato" />
+        <Tab value="formularios" label={`Formulários${formularios.length ? ` (${formularios.length + 1})` : ""}`} />
       </Tabs>
 
       {tab === "clientes" ? (
         <Card><CardContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Abra o onboarding de um cliente: você preenche o serviço, as quantidades, o valor e a
-            vigência — o que só você sabe — e o sistema devolve o link para mandar a ele. Quando ele
-            terminar de responder, o <b>cadastro</b> e o <b>contrato</b> já saem prontos, e as
-            respostas ficam aqui esperando você levar para a <b>inteligência da IA</b>.
+            Clique no cliente para ver a situação dele, pegar o link, corrigir o que foi combinado
+            ou escolher outro formulário. Quem ainda não começou, você abre por aqui mesmo.
           </Typography>
           <TableContainer>
-            {/* No celular a tabela é mais larga que a tela: ela rola sozinha
-                aqui dentro, em vez de arrastar a página inteira para o lado. */}
+            {/* A lista é só a lista: nome e nada mais. O estado de cada um mora
+                dentro do cliente, onde ela vai de qualquer jeito para fazer
+                alguma coisa — na tabela, nove linhas de "aguardando resposta"
+                só enchiam a tela sem dizer nada. A única exceção é quem já
+                respondeu e está esperando por ela: isso é tarefa, não estado. */}
             <Table size="small">
               <TableHead><TableRow>
-                <TableCell>Cliente</TableCell><TableCell>Onboarding</TableCell>
-                <TableCell>O que foi combinado</TableCell><TableCell align="right">Ações</TableCell>
+                <TableCell>Cliente</TableCell>
+                <TableCell align="right">Onboarding</TableCell>
               </TableRow></TableHead>
               <TableBody>
                 {clients.map((c) => {
                   const b = porCliente[c.id];
-                  const est = b ? ESTADO[b.status] : null;
+                  const esperando = b?.status === "respondido";
                   return (
-                    <TableRow key={c.id} hover>
-                      <TableCell sx={{ fontWeight: 600 }}>{c.name}</TableCell>
-                      <TableCell>
-                        {b ? (
-                          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
-                            <Chip size="small" label={est.label} color={est.cor} />
-                            <Typography variant="caption" color="text.secondary">
-                              {b.respondidas}/{b.total} perguntas
-                            </Typography>
-                            {/* Qual formulário ele está respondendo. Com vários
-                                formulários na casa, sem isto ninguém sabe quem
-                                recebeu o quê. */}
-                            <Chip size="small" variant="outlined" label={b.origem?.nome || "Padrão da casa"}
-                              color={b.origem?.tipo === "padrao" ? "default" : "primary"}
+                    <TableRow key={c.id} hover
+                      onClick={() => (b ? setVendoCliente({ cliente: c, briefing: b }) : setAbrindo({ cliente: c }))}
+                      sx={{ cursor: "pointer" }}>
+                      <TableCell sx={{ fontWeight: 600 }}>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                          {c.name}
+                          {esperando && (
+                            <Chip size="small" color="warning" label="Respondido — aplicar"
                               sx={{ height: 20, fontSize: 11 }} />
-                          </Stack>
-                        ) : <Typography variant="caption" color="text.secondary">não começou</Typography>}
-                      </TableCell>
-                      <TableCell>
-                        {b?.termos ? (
-                          <Typography variant="caption" color="text.secondary">
-                            {[b.termos.servico, b.termos.value ? currency(b.termos.value) + "/mês" : null,
-                              b.termos.duration_months ? `${b.termos.duration_months} meses` : null]
-                              .filter(Boolean).join(" · ") || "—"}
-                          </Typography>
-                        ) : b ? (
-                          <Tooltip title="Sem isto o contrato não tem como sair sozinho">
-                            <Chip size="small" variant="outlined" color="warning" label="faltam os termos" />
-                          </Tooltip>
-                        ) : <Typography variant="caption" color="text.secondary">—</Typography>}
+                          )}
+                        </Stack>
                       </TableCell>
                       <TableCell align="right">
                         {b ? (
-                          <>
-                            <Tooltip title="Ver e copiar o link">
-                              <IconButton size="small" onClick={() => setLink({ url: b.url, client_name: c.name })}>
-                                <LinkRoundedIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Ver as respostas">
-                              <IconButton size="small" onClick={() => abrir(b)}><VisibilityIcon fontSize="small" /></IconButton>
-                            </Tooltip>
-                            <Tooltip title="Corrigir o que foi combinado">
-                              <IconButton size="small" onClick={() => setAbrindo({ cliente: c, briefing: b })}>
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title={b.perguntas_proprias
-                              ? "Este cliente tem perguntas próprias — editar"
-                              : "Fazer um questionário só deste cliente"}>
-                              <IconButton size="small" color={b.perguntas_proprias ? "primary" : "default"}
-                                onClick={() => setPerguntasDe({ briefing: b, client_name: c.name })}>
-                                <QuizIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            {b.status === "encerrado" ? (
-                              <Tooltip title="Reabrir — o link volta a aceitar resposta">
-                                <IconButton size="small" onClick={() => reabrir(b)}>
-                                  <LockOpenIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            ) : (
-                              <Tooltip title="Fechar onboarding — sai da fila e o link para de aceitar resposta">
-                                <IconButton size="small" onClick={() => encerrar(b, c.name)}>
-                                  <DoneAllIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                          </>
+                          <Button size="small" endIcon={<ChevronRightIcon />}
+                            onClick={(e) => { e.stopPropagation(); setVendoCliente({ cliente: c, briefing: b }); }}>
+                            Abrir
+                          </Button>
                         ) : (
-                          <Button size="small" variant="outlined" onClick={() => setAbrindo({ cliente: c })}>
+                          <Button size="small" variant="outlined"
+                            onClick={(e) => { e.stopPropagation(); setAbrindo({ cliente: c }); }}>
                             Abrir onboarding
                           </Button>
                         )}
@@ -380,18 +333,9 @@ export default function Onboarding() {
             </Table>
           </TableContainer>
         </CardContent></Card>
-      ) : tab === "contrato" ? (
-        <AbaContrato modelos={modelos} />
       ) : !modelo ? <LinearProgress /> : (
         <Stack spacing={2.5}>
-          {tab === "boasvindas" && (
-            <Card><CardContent>
-              <EditorDeBoasVindas welcome={modelo.welcome}
-                onChange={(welcome) => setModelo((m) => ({ ...m, welcome }))} />
-            </CardContent></Card>
-          )}
-
-          {tab === "perguntas" && (
+          {(
             <>
               {/* A ESTANTE. O padrão da casa é a primeira opção porque é ele
                   que vale quando ela não escolhe nada — e é dele que quase todo
@@ -444,7 +388,7 @@ export default function Onboarding() {
               <Tabs value={parte} onChange={(_, v) => setParte(v)} sx={{ minHeight: 40 }}>
                 <Tab value="inicio" label="Início" sx={{ minHeight: 40 }} />
                 <Tab value="perguntas" label="Perguntas" sx={{ minHeight: 40 }} />
-                <Tab value="fim" label="Fim" sx={{ minHeight: 40 }} />
+                <Tab value="fim" label="Contrato e acesso" sx={{ minHeight: 40 }} />
               </Tabs>
 
               {editando && !form ? <LinearProgress /> : parte === "perguntas" ? (
@@ -483,24 +427,64 @@ export default function Onboarding() {
                   )}
                 </CardContent></Card>
               ) : (
-                <FimDoFormulario
-                  gera={editando ? form.gera_contrato : modelo.gera_contrato}
-                  acesso={editando ? form.cria_acesso : modelo.cria_acesso}
-                  onMuda={(campo, valor) => (editando
-                    ? setForm((f) => ({ ...f, [campo]: valor }))
-                    : setModelo((m) => ({ ...m, [campo]: valor })))} />
+                <Stack spacing={2.5}>
+                  {/* O VÍNCULO COM O SERVIÇO. É ele que faz a escolha andar
+                      sozinha: ela diz que o cliente contratou Gestão, e o
+                      formulário de Gestão vem junto, sem precisar lembrar qual. */}
+                  {editando && (
+                    <Card><CardContent>
+                      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Para qual serviço é este formulário</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
+                        Quando você abrir o onboarding de um cliente e escolher este serviço, este
+                        formulário vem junto sozinho. Você ainda pode trocar na mão em qualquer cliente.
+                      </Typography>
+                      <TextField select size="small" fullWidth sx={{ maxWidth: 420 }}
+                        label="Serviço" value={form.servico || ""}
+                        onChange={(e) => setForm((f) => ({ ...f, servico: e.target.value }))}>
+                        <MenuItem value="">— nenhum: escolho na mão —</MenuItem>
+                        {modelos.map((m) => {
+                          const chave = chaveDoModelo(m);
+                          const ocupado = formularios.find((x) => x.servico === chave && x.id !== form.id);
+                          return (
+                            <MenuItem key={chave} value={chave}>
+                              {m.name}
+                              {ocupado && (
+                                <Typography variant="caption" color="warning.main" sx={{ ml: 1 }}>
+                                  já é de "{ocupado.name}"
+                                </Typography>
+                              )}
+                            </MenuItem>
+                          );
+                        })}
+                      </TextField>
+                    </CardContent></Card>
+                  )}
+
+                  <FimDoFormulario
+                    gera={editando ? form.gera_contrato : modelo.gera_contrato}
+                    acesso={editando ? form.cria_acesso : modelo.cria_acesso}
+                    onMuda={(campo, valor) => (editando
+                      ? setForm((f) => ({ ...f, [campo]: valor }))
+                      : setModelo((m) => ({ ...m, [campo]: valor })))} />
+
+                  {/* A referência de sempre: de onde sai o texto do contrato e
+                      quais marcadores o sistema preenche. */}
+                  <AbaContrato modelos={modelos} />
+                </Stack>
               )}
             </>
           )}
 
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", gap: 1 }}>
             <Button variant="contained" disabled={salvando}
-              onClick={tab === "perguntas" && editando ? salvarFormulario : salvarModelo}>
+              onClick={editando ? salvarFormulario : salvarModelo}>
               {salvando ? "Salvando…"
-                : tab === "perguntas" && editando ? `Salvar "${form?.name || ""}"` : "Salvar"}
+                : editando ? `Salvar "${form?.name || ""}"` : "Salvar o padrão da casa"}
             </Button>
             <Box sx={{ flex: 1 }} />
-            {!(tab === "perguntas" && editando) && (
+            {/* "Voltar ao de fábrica" é só do padrão da casa: um formulário com
+                nome se apaga pelo botão da estante, não por aqui. */}
+            {!editando && (
               <Button color="error" startIcon={<RestartAltIcon />} onClick={voltarAoPadrao}>
                 Voltar ao de fábrica
               </Button>
@@ -514,6 +498,18 @@ export default function Onboarding() {
         onConfirmar={(nome) => (batizando?.renomeia
           ? renomearFormulario(nome)
           : criarFormulario({ nome, copiar_de: batizando?.copiar_de }))} />
+
+      {/* O painel do cliente: a situação, o link e tudo o que dá para fazer */}
+      <PainelDoCliente alvo={vendoCliente} formularios={formularios}
+        onFechar={() => setVendoCliente(null)}
+        onLink={(url, nome) => setLink({ url, client_name: nome })}
+        onRespostas={(b) => { setVendoCliente(null); abrir(b); }}
+        onTermos={(cliente, briefing) => { setVendoCliente(null); setAbrindo({ cliente, briefing }); }}
+        onPerguntas={(briefing, nome) => { setVendoCliente(null); setPerguntasDe({ briefing, client_name: nome }); }}
+        onEncerrar={(b, nome) => { setVendoCliente(null); encerrar(b, nome); }}
+        onReabrir={(b) => { setVendoCliente(null); reabrir(b); }}
+        onTrocouFormulario={async () => { await carregar(); }}
+        onErro={(m) => setMsg({ t: "error", m })} />
 
       {/* O questionário só deste cliente */}
       <PerguntasDoCliente alvo={perguntasDe} onFechar={() => setPerguntasDe(null)}
@@ -636,17 +632,23 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
   // é para ela só conferir os números, não redigitar tudo.
   function escolheModelo(chave) {
     const m = modelos.find((x) => chaveDoModelo(x) === chave);
+    // O serviço traz o formulário dele junto: ela diz "é Gestão" e as perguntas
+    // de Gestão já vêm, sem precisar lembrar qual formulário era. Se ela já
+    // tinha escolhido um na mão, a escolha dela manda.
+    const doServico = (formularios || []).find((x) => x.servico === chave);
     setF((a) => ({
       ...a,
       modelo: chave,
       servico: a.servico || m?.name || "",
       value: a.value === "" && m?.valor_padrao ? m.valor_padrao : a.value,
       itens: a.itens.length ? a.itens : (m?.itens || []).map((i) => ({ ...i, quantidade: "" })),
+      form_id: a.form_id || (doServico ? doServico.id : a.form_id),
     }));
   }
 
   const meses = mesesEntre(f.start_date, f.end_date);
   const escolhido = modelos.find((x) => chaveDoModelo(x) === f.modelo);
+  const formDoServico = (formularios || []).find((x) => x.servico && x.servico === f.modelo);
   const semContrato = escolhido && !escolhido.tem_contrato;
 
   function salvar() {
@@ -672,29 +674,11 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
           pagamento — vem do próprio cliente ao responder, e o contrato se monta com as duas metades.
         </Typography>
         <Stack spacing={2}>
-          {/* QUAL FORMULÁRIO ELE VAI RESPONDER. Fica no topo porque é a primeira
-              decisão: as perguntas que ele vê saem daqui. */}
-          <TextField select label="Formulário que ele vai responder" size="small" fullWidth
-            value={f.form_id} onChange={(e) => setF((a) => ({ ...a, form_id: e.target.value }))}
-            helperText={jaExiste?.origem?.tipo === "proprio"
-              ? "Atenção: hoje ele tem perguntas escritas só para ele. Escolher um formulário aqui substitui essas perguntas."
-              : "O padrão da casa vale quando você não escolhe nenhum."}>
-            <MenuItem value="">Padrão da casa</MenuItem>
-            {(formularios || []).map((x) => (
-              <MenuItem key={x.id} value={x.id}>
-                {x.name}
-                <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                  {x.perguntas} perguntas
-                </Typography>
-              </MenuItem>
-            ))}
-          </TextField>
-
-          <TextField select label="Contrato deste cliente" size="small" fullWidth value={f.modelo}
+          <TextField select label="Serviço contratado" size="small" fullWidth value={f.modelo}
             onChange={(e) => escolheModelo(e.target.value)}
             helperText={semContrato
               ? "Este serviço ainda não tem o texto do contrato escrito — abra Serviços e escreva."
-              : "De onde sai o texto do contrato. Sem isto, o contrato não sai sozinho."}
+              : "De onde sai o texto do contrato — e é ele que traz o formulário certo junto."}
             error={Boolean(semContrato)}>
             <MenuItem value="">— decidir depois —</MenuItem>
             {modelos.map((m) => (
@@ -702,6 +686,26 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
                 {m.name}
                 <Typography variant="caption" color={m.tem_contrato ? "success.main" : "text.disabled"} sx={{ ml: 1 }}>
                   {m.origem === "servico" ? "serviço" : "modelo"}{m.tem_contrato ? " ✓" : " — sem texto"}
+                </Typography>
+              </MenuItem>
+            ))}
+          </TextField>
+
+          {/* O FORMULÁRIO. Normalmente vem do serviço acima; este campo existe
+              para quando ela quiser outro, ou quando o serviço não tem um. */}
+          <TextField select label="Formulário que ele vai responder" size="small" fullWidth
+            value={f.form_id} onChange={(e) => setF((a) => ({ ...a, form_id: e.target.value }))}
+            helperText={jaExiste?.origem?.tipo === "proprio"
+              ? "Atenção: hoje ele tem perguntas escritas só para ele. Escolher um formulário aqui substitui essas perguntas."
+              : formDoServico
+                ? `Veio do serviço escolhido. Troque se quiser outro.`
+                : "O padrão da casa vale quando você não escolhe nenhum."}>
+            <MenuItem value="">Padrão da casa</MenuItem>
+            {(formularios || []).map((x) => (
+              <MenuItem key={x.id} value={x.id}>
+                {x.name}
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  {x.perguntas} perguntas{x.servico === f.modelo ? " · deste serviço" : ""}
                 </Typography>
               </MenuItem>
             ))}
@@ -1458,4 +1462,140 @@ function resumoDaJornada(f) {
   partes.push(f.gera_contrato ? "vai para assinatura" : "sem contrato");
   partes.push(f.cria_acesso ? "abre a Área do Cliente" : "sem Área do Cliente");
   return partes.join(" · ");
+}
+
+// ---------------------------------------------------------------------------
+// O PAINEL DO CLIENTE.
+//
+// A lista mostra só nomes, de propósito: nove linhas de "aguardando resposta"
+// enchiam a tela sem dizer nada útil. A situação de cada um mora aqui dentro,
+// onde ela vai de qualquer jeito para fazer alguma coisa — e aqui está tudo
+// junto: onde ele está, o link para mandar, o que foi combinado, qual
+// formulário ele responde, e o que dá para fazer com ele.
+// ---------------------------------------------------------------------------
+function PainelDoCliente({
+  alvo, formularios, onFechar, onLink, onRespostas, onTermos, onPerguntas,
+  onEncerrar, onReabrir, onTrocouFormulario, onErro,
+}) {
+  const [b, setB] = useState(null);
+  const [copiado, setCopiado] = useState(false);
+  const cliente = alvo?.cliente;
+
+  useEffect(() => { setB(alvo?.briefing || null); setCopiado(false); }, [alvo]);
+  if (!alvo || !b) return <Dialog open={false} onClose={onFechar} />;
+
+  const est = ESTADO[b.status] || ESTADO.aberto;
+  const encerrado = b.status === "encerrado";
+
+  async function trocarFormulario(novo) {
+    try {
+      const { data } = await api.put(`/briefings/${b.id}/formulario`, { form_id: novo || null });
+      setB(data);
+      onTrocouFormulario();
+    } catch (e) { onErro(e.response?.data?.error || "Não consegui trocar o formulário."); }
+  }
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(b.url);
+      setCopiado(true); setTimeout(() => setCopiado(false), 2000);
+    } catch { onLink(b.url, cliente.name); }   // sem clipboard: mostra o link à vista
+  }
+
+  const combinado = b.termos
+    ? [b.termos.servico, b.termos.value ? `${currency(b.termos.value)}/mês` : null,
+       b.termos.duration_months ? `${b.termos.duration_months} meses` : null].filter(Boolean).join(" · ")
+    : "";
+
+  return (
+    <Dialog open onClose={onFechar} fullWidth maxWidth="sm">
+      <DialogTitle sx={{ pb: 1 }}>
+        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+          {cliente.name}
+          <Chip size="small" label={est.label} color={est.cor} />
+        </Stack>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2.5}>
+          {/* ---- onde ele está ---- */}
+          <Box>
+            <LinearProgress variant="determinate" value={b.progresso}
+              sx={{ height: 8, borderRadius: 4, mb: 0.75 }} />
+            <Typography variant="caption" color="text.secondary">
+              {b.respondidas} de {b.total} perguntas respondidas
+            </Typography>
+          </Box>
+
+          {/* ---- o link, que é o motivo de ela abrir isto aqui ---- */}
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
+              Link para mandar ao cliente {encerrado && "— encerrado, não aceita mais resposta"}
+            </Typography>
+            <TextField value={b.url} fullWidth size="small" onFocus={(e) => e.target.select()}
+              InputProps={{ readOnly: true, sx: { fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12.5 } }} />
+            <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap", gap: 1 }}>
+              <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={copiar}>
+                {copiado ? "Copiado!" : "Copiar link"}
+              </Button>
+              <Button size="small" variant="outlined" startIcon={<OpenInNewIcon />}
+                component="a" href={b.url} target="_blank" rel="noreferrer">
+                Abrir para conferir
+              </Button>
+            </Stack>
+          </Box>
+
+          {/* ---- qual formulário ele responde ---- */}
+          <TextField select size="small" fullWidth label="Formulário que ele responde"
+            value={b.perguntas_proprias ? "__proprio" : (b.form_id || "")}
+            onChange={(e) => e.target.value !== "__proprio" && trocarFormulario(e.target.value)}
+            helperText={b.perguntas_proprias
+              ? "Este cliente tem perguntas escritas só para ele."
+              : "Escolher outro troca as perguntas sem trocar o link."}>
+            <MenuItem value="">Padrão da casa</MenuItem>
+            {formularios.map((f) => (
+              <MenuItem key={f.id} value={f.id}>{f.name} · {f.perguntas} perguntas</MenuItem>
+            ))}
+            {b.perguntas_proprias && <MenuItem value="__proprio">Perguntas só deste cliente</MenuItem>}
+          </TextField>
+
+          {/* ---- o que foi combinado ---- */}
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              O que foi combinado
+            </Typography>
+            {combinado ? (
+              <Typography variant="body2">{combinado}</Typography>
+            ) : (
+              <Alert severity="warning" sx={{ py: 0.25 }}>
+                Faltam os termos — sem eles o contrato não tem como sair sozinho.
+              </Alert>
+            )}
+            <Button size="small" startIcon={<EditIcon />} sx={{ mt: 0.75 }}
+              onClick={() => onTermos(cliente, b)}>
+              {combinado ? "Corrigir o que foi combinado" : "Preencher os termos"}
+            </Button>
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ flexWrap: "wrap", gap: 1, px: 2.5, py: 2 }}>
+        <Button size="small" startIcon={<VisibilityIcon />} onClick={() => onRespostas(b)}>
+          Ver respostas
+        </Button>
+        <Button size="small" startIcon={<QuizIcon />}
+          color={b.perguntas_proprias ? "primary" : "inherit"}
+          onClick={() => onPerguntas(b, cliente.name)}>
+          Perguntas deste cliente
+        </Button>
+        <Box sx={{ flex: 1 }} />
+        {encerrado ? (
+          <Button size="small" startIcon={<LockOpenIcon />} onClick={() => onReabrir(b)}>Reabrir</Button>
+        ) : (
+          <Button size="small" startIcon={<DoneAllIcon />} onClick={() => onEncerrar(b, cliente.name)}>
+            Fechar onboarding
+          </Button>
+        )}
+        <Button onClick={onFechar}>Fechar</Button>
+      </DialogActions>
+    </Dialog>
+  );
 }
