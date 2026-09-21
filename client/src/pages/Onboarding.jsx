@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, TextField, Button, Tabs, Tab, Chip,
-  Alert, IconButton, Tooltip, MenuItem, Divider, Accordion, AccordionSummary,
-  AccordionDetails, Switch, FormControlLabel, Table, TableContainer, TableHead, TableRow, TableCell,
-  TableBody, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress,
+  Alert, IconButton, Tooltip, MenuItem, Divider,
+  Switch, FormControlLabel, Table, TableContainer, TableHead, TableRow, TableCell,
+  TableBody, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, Collapse,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import AddIcon from "@mui/icons-material/Add";
@@ -856,31 +856,83 @@ function EditorDePerguntas({ secoes, onChange, camposCliente, destinosCentral })
     id: `etapa_${Date.now()}`, titulo: "Nova etapa", intro: "",
     perguntas: [{ id: `nova_${Date.now()}`, tipo: "texto", label: "" }],
   }]);
-  const apagaSecao = (i) => onChange(secoes.filter((_, k) => k !== i));
+  // APAGAR UMA ETAPA leva as perguntas dela junto — e é exatamente por isso que
+  // pergunta antes, dizendo quantas são. Sem esse número, é fácil apagar nove
+  // perguntas achando que era uma etapa vazia.
+  // Qual etapa está aberta. É controlado aqui (e não pelo Accordion do MUI)
+  // porque o cabeçalho da etapa tem botões — subir, descer, apagar — e o
+  // Accordion desenha o cabeçalho inteiro como um <button>. Botão dentro de
+  // botão é HTML inválido: o navegador desmonta a marcação por conta própria e
+  // o teclado passa a se perder no meio dos controles.
+  const [aberta, setAberta] = useState(null);
+  const alterna = (i) => setAberta((a) => (a === i ? null : i));
+
+  const apagaSecao = (i) => {
+    const sec = secoes[i];
+    if (secoes.length === 1) {
+      window.alert("Esta é a única etapa. Um formulário precisa de pelo menos uma — "
+        + "crie outra antes de apagar esta.");
+      return;
+    }
+    const quantas = sec.perguntas?.length || 0;
+    const aviso = quantas
+      ? `Apagar a etapa "${sec.titulo || "(sem título)"}" e as ${quantas} perguntas dela?`
+      : `Apagar a etapa "${sec.titulo || "(sem título)"}"?`;
+    if (!window.confirm(aviso)) return;
+    onChange(secoes.filter((_, k) => k !== i));
+  };
 
   return (
     <Stack spacing={2.5}>
       {secoes.map((sec, i) => (
-        <Accordion key={i} disableGutters sx={{ "&:before": { display: "none" }, border: 1, borderColor: "divider", borderRadius: 1 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ width: "100%", pr: 1 }}>
+        <Box key={i} sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden" }}>
+          {/* O CABEÇALHO DA ETAPA. Subir, descer e apagar ficam aqui, com a
+              etapa fechada: reordenar ou apagar não deveria obrigar ninguém a
+              abrir a etapa e ler o que tem dentro primeiro. */}
+          <Stack direction="row" spacing={1} alignItems="center" data-etapa={i + 1}
+            data-aberta={aberta === i ? "sim" : "nao"}
+            sx={{ px: 2, py: 1.5, bgcolor: aberta === i ? "action.hover" : "transparent" }}>
+            <Stack direction="row" spacing={1} alignItems="center"
+              onClick={() => alterna(i)}
+              sx={{ flex: 1, minWidth: 0, cursor: "pointer", flexWrap: "wrap", gap: 0.5 }}>
               <Typography sx={{ fontWeight: 600 }}>{sec.titulo || "(sem título)"}</Typography>
               <Chip size="small" variant="outlined" label={`${sec.perguntas.length} perguntas`} />
-              <Box sx={{ flex: 1 }} />
-              <Typography variant="caption" color="text.secondary">etapa {i + 1}</Typography>
             </Stack>
-          </AccordionSummary>
-          <AccordionDetails>
+            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+              etapa {i + 1}
+            </Typography>
+            <Tooltip title="Subir a etapa">
+              <span>
+                <IconButton size="small" disabled={i === 0} onClick={() => moveSecao(i, -1)}>
+                  <ArrowUpwardIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Descer a etapa">
+              <span>
+                <IconButton size="small" disabled={i === secoes.length - 1} onClick={() => moveSecao(i, 1)}>
+                  <ArrowDownwardIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Apagar a etapa inteira">
+              <IconButton size="small" color="error" onClick={() => apagaSecao(i)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={aberta === i ? "Fechar a etapa" : "Abrir e editar as perguntas"}>
+              <IconButton size="small" onClick={() => alterna(i)}>
+                <ExpandMoreIcon fontSize="small"
+                  sx={{ transition: "transform .2s", transform: aberta === i ? "rotate(180deg)" : "none" }} />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+
+          <Collapse in={aberta === i} unmountOnExit>
+            <Box sx={{ px: 2, pb: 2, pt: 1 }}>
             <Stack spacing={2}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <TextField label="Título da etapa" size="small" fullWidth value={sec.titulo}
-                  onChange={(e) => mudaSecao(i, "titulo", e.target.value)} />
-                <IconButton size="small" onClick={() => moveSecao(i, -1)} disabled={i === 0}><ArrowUpwardIcon fontSize="small" /></IconButton>
-                <IconButton size="small" onClick={() => moveSecao(i, 1)} disabled={i === secoes.length - 1}><ArrowDownwardIcon fontSize="small" /></IconButton>
-                <Tooltip title="Apagar a etapa inteira">
-                  <IconButton size="small" color="error" onClick={() => apagaSecao(i)}><DeleteIcon fontSize="small" /></IconButton>
-                </Tooltip>
-              </Stack>
+              <TextField label="Título da etapa" size="small" fullWidth value={sec.titulo}
+                onChange={(e) => mudaSecao(i, "titulo", e.target.value)} />
               <TextField label="Frase de abertura da etapa" size="small" fullWidth value={sec.intro || ""}
                 onChange={(e) => mudaSecao(i, "intro", e.target.value)} />
               <Divider />
@@ -967,8 +1019,9 @@ function EditorDePerguntas({ secoes, onChange, camposCliente, destinosCentral })
                 Nova pergunta
               </Button>
             </Stack>
-          </AccordionDetails>
-        </Accordion>
+            </Box>
+          </Collapse>
+        </Box>
       ))}
       <Button startIcon={<AddIcon />} onClick={novaSecao} sx={{ alignSelf: "flex-start" }}>Nova etapa</Button>
     </Stack>
