@@ -414,10 +414,27 @@ export function resetTemplate(orgId) {
 // padrão é apagar a coluna, e o modelo da casa continua lá inteiro.
 // ---------------------------------------------------------------------------
 
-/** As seções que valem para este onboarding: as dele, ou as da casa. */
+/**
+ * As seções que valem para este onboarding, na ordem que importa:
+ *   1. as perguntas que ela escreveu SÓ para este cliente;
+ *   2. o formulário com nome que ela escolheu mandar ("Advocacia");
+ *   3. o padrão da casa.
+ * É sempre esta função que decide — nenhuma tela escolhe por conta própria.
+ */
 export function secoesDoBriefing(briefing) {
   const proprias = leSecoesProprias(briefing);
-  return proprias || getTemplate(briefing.org_id).secoes;
+  if (proprias) return proprias;
+  const form = formularioDoBriefing(briefing);
+  if (form) return form.secoes;
+  return getTemplate(briefing.org_id).secoes;
+}
+
+/** De onde saem as perguntas deste onboarding, em uma frase, para a tela. */
+export function origemDasPerguntas(briefing) {
+  if (leSecoesProprias(briefing)) return { tipo: "proprio", nome: "Só deste cliente" };
+  const form = formularioDoBriefing(briefing);
+  if (form) return { tipo: "formulario", id: form.id, nome: form.name };
+  return { tipo: "padrao", nome: "Padrão da casa" };
 }
 
 /** As perguntas próprias deste onboarding, ou null se ele usa o padrão. */
@@ -442,4 +459,124 @@ export function salvaSecoesDoBriefing(briefingId, secoes) {
 /** Volta este cliente ao questionário padrão do escritório. */
 export function usaSecoesPadrao(briefingId) {
   db.prepare("UPDATE briefings SET sections = NULL WHERE id = ?").run(briefingId);
+}
+
+// ---------------------------------------------------------------------------
+// FORMULÁRIOS COM NOME.
+//
+// O padrão da casa é um só, mas a casa atende ramos diferentes. Em vez de
+// refazer as perguntas cliente por cliente, ela monta um formulário com nome —
+// "Advocacia", "Alimentação", "Clínica" — e manda esse para quem for do ramo.
+//
+// Um formulário é um MODELO, não a resposta de ninguém: mexer nele hoje não
+// altera o que um cliente já respondeu, porque as respostas ficam no onboarding
+// dele. E o padrão da casa continua existindo, intocado, como o que vale quando
+// ela não escolhe nada.
+// ---------------------------------------------------------------------------
+
+/** Todos os formulários da casa, para a lista e para os seletores. */
+export function listaDeFormularios(orgId) {
+  return db.prepare(
+    "SELECT id, name, sections, created_at, updated_at FROM briefing_forms WHERE org_id = ? ORDER BY name COLLATE NOCASE"
+  ).all(orgId).map((f) => {
+    const secoes = leJson(f.sections, []);
+    return {
+      id: f.id,
+      name: f.name,
+      etapas: secoes.length,
+      perguntas: perguntasDe(secoes).length,
+      created_at: f.created_at,
+      updated_at: f.updated_at,
+    };
+  });
+}
+
+/** Um formulário inteiro, com as perguntas. */
+export function getFormulario(orgId, id) {
+  const f = db.prepare("SELECT * FROM briefing_forms WHERE id = ? AND org_id = ?").get(id, orgId);
+  if (!f) return null;
+  const secoes = leJson(f.sections, []);
+  return { id: f.id, name: f.name, secoes: Array.isArray(secoes) ? secoes : [], updated_at: f.updated_at };
+}
+
+/** O formulário que este onboarding usa, ou null (padrão da casa). */
+export function formularioDoBriefing(briefing) {
+  if (!briefing?.form_id) return null;
+  return getFormulario(briefing.org_id, briefing.form_id);
+}
+
+function nomeDeFormulario(nome) {
+  const limpo = String(nome || "").trim().slice(0, 80);
+  if (!limpo) {
+    const e = new Error("Dê um nome ao formulário — é por ele que você vai achar depois.");
+    e.code = "SEM_NOME";
+    throw e;
+  }
+  return limpo;
+}
+
+function secoesDeFormulario(secoes) {
+  const limpo = saneiaSecoes(secoes);
+  if (!limpo.length) {
+    const e = new Error("O formulário precisa de pelo menos uma pergunta.");
+    e.code = "VAZIO";
+    throw e;
+  }
+  return limpo;
+}
+
+/** Cria um formulário. Sem perguntas, nasce a partir do padrão da casa. */
+export function criaFormulario(orgId, { nome, secoes }) {
+  const name = nomeDeFormulario(nome);
+  const limpo = secoesDeFormulario(
+    Array.isArray(secoes) && secoes.length ? secoes : getTemplate(orgId).secoes,
+  );
+  const id = db.prepare(
+    "INSERT INTO briefing_forms (org_id, name, sections) VALUES (?, ?, ?)"
+  ).run(orgId, name, JSON.stringify(limpo)).lastInsertRowid;
+  return getFormulario(orgId, id);
+}
+
+/** Salva o formulário. `nome` e `secoes` são independentes: dá para só renomear. */
+export function salvaFormulario(orgId, id, { nome, secoes }) {
+  const atual = getFormulario(orgId, id);
+  if (!atual) return null;
+  const name = nome === undefined ? atual.name : nomeDeFormulario(nome);
+  const limpo = secoes === undefined ? null : secoesDeFormulario(secoes);
+  db.prepare(
+    `UPDATE briefing_forms SET name = ?, sections = ?, updated_at = datetime('now')
+      WHERE id = ? AND org_id = ?`
+  ).run(name, limpo ? JSON.stringify(limpo) : JSON.stringify(atual.secoes), id, orgId);
+  return getFormulario(orgId, id);
+}
+
+/**
+ * Apaga um formulário. Quem estava usando ele NÃO fica com um onboarding sem
+ * perguntas: volta para o padrão da casa. As respostas que já existem ficam
+ * onde sempre estiveram, no onboarding de cada cliente.
+ */
+export function apagaFormulario(orgId, id) {
+  const f = getFormulario(orgId, id);
+  if (!f) return { apagado: false, clientes: 0 };
+  const quantos = db.prepare("SELECT COUNT(*) n FROM briefings WHERE org_id = ? AND form_id = ?")
+    .get(orgId, id).n;
+  db.prepare("UPDATE briefings SET form_id = NULL WHERE org_id = ? AND form_id = ?").run(orgId, id);
+  db.prepare("DELETE FROM briefing_forms WHERE id = ? AND org_id = ?").run(id, orgId);
+  return { apagado: true, clientes: quantos };
+}
+
+/** Manda este onboarding usar um formulário com nome (ou o padrão, com null). */
+export function usaFormulario(briefingId, orgId, formId) {
+  if (formId) {
+    const f = getFormulario(orgId, formId);
+    if (!f) {
+      const e = new Error("Esse formulário não existe mais.");
+      e.code = "SEM_FORMULARIO";
+      throw e;
+    }
+  }
+  // Perguntas próprias vencem o formulário. Ao escolher um formulário, ela está
+  // dizendo "use este" — então a cópia solta sai do caminho, senão a escolha
+  // não teria efeito nenhum e ninguém entenderia por quê.
+  db.prepare("UPDATE briefings SET form_id = ?, sections = NULL WHERE id = ?").run(formId || null, briefingId);
 }

@@ -533,6 +533,28 @@ ensureColumn("briefings", "sections", "sections TEXT");
 ensureColumn("briefings", "closed_at", "closed_at TEXT");
 
 // ---------------------------------------------------------------------------
+// FORMULÁRIOS COM NOME.
+//
+// O padrão da casa é um só, mas a casa atende ramos diferentes: advocacia,
+// alimentação, estética. Em vez de refazer as perguntas cliente por cliente,
+// ela monta um formulário com nome ("Advocacia") e manda esse para quem for do
+// ramo. O padrão continua existindo e continua sendo o que vale por omissão.
+//
+// Qual formulário este onboarding usa. Vazio = o padrão da casa.
+ensureColumn("briefings", "form_id", "form_id INTEGER");
+db.exec(`
+CREATE TABLE IF NOT EXISTS briefing_forms (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id     INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  sections   TEXT NOT NULL,                 -- JSON: as seções e perguntas
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_briefing_forms_org ON briefing_forms(org_id);
+`);
+
+// ---------------------------------------------------------------------------
 // IMAGENS DAS PERGUNTAS VISUAIS.
 //
 // Uma pergunta pode mostrar opções em imagem — três paletas, quatro estilos de

@@ -77,15 +77,85 @@ export default function Onboarding() {
   const [modelos, setModelos] = useState([]);   // contratos disponíveis
   const [abrindo, setAbrindo] = useState(null); // o cliente para quem vou abrir o onboarding
   const [perguntasDe, setPerguntasDe] = useState(null); // questionário só de um cliente
+  // A estante de formulários com nome, e qual deles a aba "Perguntas" edita.
+  // `null` é o padrão da casa — que também é uma opção de verdade, não a
+  // ausência de uma.
+  const [formularios, setFormularios] = useState([]);
+  const [editando, setEditando] = useState(null);   // null = padrão da casa
+  const [form, setForm] = useState(null);           // o formulário aberto, se houver
+  const [batizando, setBatizando] = useState(null); // { nome, copiar_de, renomeia }
+
+  const carregarFormularios = () =>
+    api.get("/briefings/formularios").then((r) => setFormularios(r.data.formularios || []))
+      .catch(() => {});
 
   const carregar = () => {
     api.get("/briefings").then((r) => setBriefings(r.data)).catch(() => {});
+    carregarFormularios();
     api.get("/briefings/template").then((r) => {
       setModelo({ welcome: r.data.welcome, secoes: r.data.secoes });
       setCamposCliente(r.data.campos_cliente || []);
       setDestinosCentral(r.data.destinos_central || []);
     }).catch(() => {});
   };
+
+  // Trocar de formulário na aba "Perguntas" busca as perguntas daquele.
+  useEffect(() => {
+    if (!editando) { setForm(null); return; }
+    api.get(`/briefings/formularios/${editando}`)
+      .then((r) => setForm({ id: r.data.id, name: r.data.name, secoes: r.data.secoes }))
+      .catch(() => { setForm(null); setEditando(null); });
+  }, [editando]);
+
+  // O que a aba "Perguntas" está editando agora: o padrão ou um formulário.
+  const secoesEmEdicao = editando ? (form?.secoes || []) : (modelo?.secoes || []);
+  const mudaSecoesEmEdicao = (secoes) => {
+    if (editando) setForm((f) => f && ({ ...f, secoes }));
+    else setModelo((m) => ({ ...m, secoes }));
+  };
+
+  async function salvarFormulario() {
+    setSalvando(true);
+    try {
+      await api.put(`/briefings/formularios/${editando}`, { secoes: form.secoes });
+      await carregarFormularios();
+      setMsg({ t: "success", m: `"${form.name}" salvo. Quem receber este formulário a partir de agora já vê assim.` });
+    } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui salvar." }); }
+    finally { setSalvando(false); setTimeout(() => setMsg(null), 6000); }
+  }
+
+  async function criarFormulario({ nome, copiar_de }) {
+    try {
+      const { data } = await api.post("/briefings/formularios", { nome, copiar_de: copiar_de || undefined });
+      await carregarFormularios();
+      setEditando(data.id);
+      setBatizando(null);
+      setMsg({ t: "success", m: `Formulário "${data.name}" criado. Agora é só ajustar as perguntas e salvar.` });
+    } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui criar." }); }
+  }
+
+  async function renomearFormulario(nome) {
+    try {
+      const { data } = await api.put(`/briefings/formularios/${editando}`, { nome });
+      setForm((f) => f && ({ ...f, name: data.name }));
+      await carregarFormularios();
+      setBatizando(null);
+    } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui renomear." }); }
+  }
+
+  async function apagarFormulario() {
+    if (!window.confirm(`Apagar o formulário "${form.name}"? `
+      + "Quem estava recebendo ele volta para o padrão da casa. "
+      + "As respostas que os clientes já deram não se perdem.")) return;
+    try {
+      const { data } = await api.delete(`/briefings/formularios/${editando}`);
+      setEditando(null);
+      await carregar();
+      setMsg({ t: "success", m: data.clientes
+        ? `Formulário apagado. ${data.clientes} cliente(s) voltaram para o padrão da casa.`
+        : "Formulário apagado." });
+    } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui apagar." }); }
+  }
 
   useEffect(() => {
     api.get("/clients").then((r) => setClients(r.data.filter((c) => c.status === "active"))).catch(() => {});
@@ -96,10 +166,10 @@ export default function Onboarding() {
   const porCliente = {};
   for (const b of briefings) if (!porCliente[b.client_id]) porCliente[b.client_id] = b;
 
-  async function criarLink(clienteId, termos) {
+  async function criarLink(clienteId, termos, formId) {
     const c = clients.find((x) => x.id === clienteId);
     try {
-      const { data } = await api.post("/briefings", { client_id: clienteId, termos });
+      const { data } = await api.post("/briefings", { client_id: clienteId, termos, form_id: formId });
       await carregar();
       setAbrindo(null);
       setLink({ url: data.url, client_name: c?.name || "" });
@@ -215,6 +285,12 @@ export default function Onboarding() {
                             <Typography variant="caption" color="text.secondary">
                               {b.respondidas}/{b.total} perguntas
                             </Typography>
+                            {/* Qual formulário ele está respondendo. Com vários
+                                formulários na casa, sem isto ninguém sabe quem
+                                recebeu o quê. */}
+                            <Chip size="small" variant="outlined" label={b.origem?.nome || "Padrão da casa"}
+                              color={b.origem?.tipo === "padrao" ? "default" : "primary"}
+                              sx={{ height: 20, fontSize: 11 }} />
                           </Stack>
                         ) : <Typography variant="caption" color="text.secondary">não começou</Typography>}
                       </TableCell>
@@ -322,30 +398,86 @@ export default function Onboarding() {
           )}
 
           {tab === "perguntas" && (
-            <EditorDePerguntas secoes={modelo.secoes}
-              onChange={(secoes) => setModelo((m) => ({ ...m, secoes }))}
-              camposCliente={camposCliente} destinosCentral={destinosCentral} />
+            <>
+              {/* A ESTANTE. O padrão da casa é a primeira opção porque é ele
+                  que vale quando ela não escolhe nada — e é dele que quase todo
+                  formulário novo nasce. */}
+              <Card variant="outlined"><CardContent sx={{ pb: "16px !important" }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Qual formulário você está editando</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.75 }}>
+                  Você pode ter um formulário por ramo — "Advocacia", "Alimentação" — e mandar o
+                  certo para cada cliente. O padrão é o que vale quando você não escolhe nenhum.
+                </Typography>
+                <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
+                  <Chip label="Padrão da casa" clickable onClick={() => setEditando(null)}
+                    color={editando ? "default" : "primary"} variant={editando ? "outlined" : "filled"}
+                    sx={{ height: 34, borderRadius: 2 }} />
+                  {formularios.map((f) => (
+                    <Chip key={f.id} clickable onClick={() => setEditando(f.id)}
+                      label={`${f.name} · ${f.perguntas}`}
+                      color={editando === f.id ? "primary" : "default"}
+                      variant={editando === f.id ? "filled" : "outlined"}
+                      sx={{ height: 34, borderRadius: 2 }} />
+                  ))}
+                  <Button size="small" startIcon={<AddIcon />}
+                    onClick={() => setBatizando({ nome: "", copiar_de: editando || "" })}>
+                    Novo formulário
+                  </Button>
+                </Stack>
+                {editando && form && (
+                  <Stack direction="row" spacing={1} sx={{ mt: 1.75, flexWrap: "wrap", gap: 1 }}>
+                    <Button size="small" startIcon={<EditIcon />}
+                      onClick={() => setBatizando({ nome: form.name, renomeia: true })}>
+                      Renomear
+                    </Button>
+                    <Button size="small" startIcon={<ContentCopyIcon />}
+                      onClick={() => setBatizando({ nome: `${form.name} (cópia)`, copiar_de: form.id })}>
+                      Duplicar
+                    </Button>
+                    <Box sx={{ flex: 1 }} />
+                    <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={apagarFormulario}>
+                      Apagar formulário
+                    </Button>
+                  </Stack>
+                )}
+              </CardContent></Card>
+
+              {editando && !form ? <LinearProgress /> : (
+                <EditorDePerguntas secoes={secoesEmEdicao} onChange={mudaSecoesEmEdicao}
+                  camposCliente={camposCliente} destinosCentral={destinosCentral} />
+              )}
+            </>
           )}
 
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", gap: 1 }}>
-            <Button variant="contained" onClick={salvarModelo} disabled={salvando}>
-              {salvando ? "Salvando…" : "Salvar"}
+            <Button variant="contained" disabled={salvando}
+              onClick={tab === "perguntas" && editando ? salvarFormulario : salvarModelo}>
+              {salvando ? "Salvando…"
+                : tab === "perguntas" && editando ? `Salvar "${form?.name || ""}"` : "Salvar"}
             </Button>
             <Box sx={{ flex: 1 }} />
-            <Button color="error" startIcon={<RestartAltIcon />} onClick={voltarAoPadrao}>
-              Voltar ao de fábrica
-            </Button>
+            {!(tab === "perguntas" && editando) && (
+              <Button color="error" startIcon={<RestartAltIcon />} onClick={voltarAoPadrao}>
+                Voltar ao de fábrica
+              </Button>
+            )}
           </Stack>
         </Stack>
       )}
+
+      {/* Dar nome a um formulário — criar, duplicar ou renomear */}
+      <NomeDoFormulario alvo={batizando} onFechar={() => setBatizando(null)}
+        onConfirmar={(nome) => (batizando?.renomeia
+          ? renomearFormulario(nome)
+          : criarFormulario({ nome, copiar_de: batizando?.copiar_de }))} />
 
       {/* O questionário só deste cliente */}
       <PerguntasDoCliente alvo={perguntasDe} onFechar={() => setPerguntasDe(null)}
         onSalvo={(texto) => { setPerguntasDe(null); carregar(); setMsg({ t: "success", m: texto }); }} />
 
       {/* O que a agência preenche antes de mandar o link */}
-      <FormularioOnboarding aberto={abrindo} modelos={modelos} onFechar={() => setAbrindo(null)}
-        onSalvar={criarLink} />
+      <FormularioOnboarding aberto={abrindo} modelos={modelos} formularios={formularios}
+        onFechar={() => setAbrindo(null)} onSalvar={criarLink} />
 
       {/* O link, à vista */}
       <Dialog open={Boolean(link)} onClose={() => setLink(null)} fullWidth maxWidth="sm">
@@ -428,12 +560,13 @@ export default function Onboarding() {
 const VAZIO = {
   modelo: "", servico: "", value: "", itens: [],
   start_date: "", end_date: "", contract_date: "", observacoes: "",
+  form_id: "",   // qual formulário ele vai responder ("" = padrão da casa)
 };
 
 /** "servico:3" / "modelo:7" — o select precisa de um valor só. */
 const chaveDoModelo = (m) => `${m.origem}:${m.id}`;
 
-function FormularioOnboarding({ aberto, modelos, onFechar, onSalvar }) {
+function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar }) {
   const [f, setF] = useState(VAZIO);
   const cliente = aberto?.cliente;
   const jaExiste = aberto?.briefing;
@@ -441,15 +574,17 @@ function FormularioOnboarding({ aberto, modelos, onFechar, onSalvar }) {
   useEffect(() => {
     if (!aberto) return;
     const t = jaExiste?.termos;
+    const formAtual = jaExiste?.form_id || "";
     if (t) {
       setF({
         modelo: t.service_id ? `servico:${t.service_id}` : (t.template_id ? `modelo:${t.template_id}` : ""),
         servico: t.servico || "", value: t.value ?? "", itens: t.itens || [],
         start_date: t.start_date || "", end_date: t.end_date || "",
         contract_date: t.contract_date || "", observacoes: t.observacoes || "",
+        form_id: formAtual,
       });
     } else {
-      setF({ ...VAZIO, contract_date: new Date().toISOString().slice(0, 10) });
+      setF({ ...VAZIO, form_id: formAtual, contract_date: new Date().toISOString().slice(0, 10) });
     }
   }, [aberto, jaExiste]);
 
@@ -479,7 +614,7 @@ function FormularioOnboarding({ aberto, modelos, onFechar, onSalvar }) {
       itens: f.itens.filter((i) => i.label),
       start_date: f.start_date || null, end_date: f.end_date || null,
       contract_date: f.contract_date || null, observacoes: f.observacoes,
-    });
+    }, f.form_id || null);
   }
 
   return (
@@ -493,6 +628,24 @@ function FormularioOnboarding({ aberto, modelos, onFechar, onSalvar }) {
           pagamento — vem do próprio cliente ao responder, e o contrato se monta com as duas metades.
         </Typography>
         <Stack spacing={2}>
+          {/* QUAL FORMULÁRIO ELE VAI RESPONDER. Fica no topo porque é a primeira
+              decisão: as perguntas que ele vê saem daqui. */}
+          <TextField select label="Formulário que ele vai responder" size="small" fullWidth
+            value={f.form_id} onChange={(e) => setF((a) => ({ ...a, form_id: e.target.value }))}
+            helperText={jaExiste?.origem?.tipo === "proprio"
+              ? "Atenção: hoje ele tem perguntas escritas só para ele. Escolher um formulário aqui substitui essas perguntas."
+              : "O padrão da casa vale quando você não escolhe nenhum."}>
+            <MenuItem value="">Padrão da casa</MenuItem>
+            {(formularios || []).map((x) => (
+              <MenuItem key={x.id} value={x.id}>
+                {x.name}
+                <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  {x.perguntas} perguntas
+                </Typography>
+              </MenuItem>
+            ))}
+          </TextField>
+
           <TextField select label="Contrato deste cliente" size="small" fullWidth value={f.modelo}
             onChange={(e) => escolheModelo(e.target.value)}
             helperText={semContrato
@@ -936,23 +1089,39 @@ function OpcoesVisuais({ p, onMuda }) {
 function PerguntasDoCliente({ alvo, onFechar, onSalvo }) {
   const [secoes, setSecoes] = useState(null);
   const [proprias, setProprias] = useState(false);
-  const [padrao, setPadrao] = useState([]);
+  const [origem, setOrigem] = useState(null);
+  const [formId, setFormId] = useState("");
+  const [formularios, setFormularios] = useState([]);
   const [camposCliente, setCamposCliente] = useState([]);
   const [destinosCentral, setDestinosCentral] = useState([]);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
 
+  const carregar = () => api.get(`/briefings/${alvo.briefing.id}/perguntas`).then(({ data }) => {
+    setSecoes(data.secoes);
+    setProprias(data.proprias);
+    setOrigem(data.origem || null);
+    setFormId(data.form_id || "");
+    setFormularios(data.formularios || []);
+    setCamposCliente(data.campos_cliente || []);
+    setDestinosCentral(data.destinos_central || []);
+  });
+
   useEffect(() => {
     if (!alvo) { setSecoes(null); return; }
     setErro("");
-    api.get(`/briefings/${alvo.briefing.id}/perguntas`).then(({ data }) => {
-      setSecoes(data.secoes);
-      setProprias(data.proprias);
-      setPadrao(data.padrao || []);
-      setCamposCliente(data.campos_cliente || []);
-      setDestinosCentral(data.destinos_central || []);
-    }).catch((e) => setErro(e.response?.data?.error || "Não consegui abrir as perguntas."));
+    carregar().catch((e) => setErro(e.response?.data?.error || "Não consegui abrir as perguntas."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alvo]);
+
+  // TROCAR DE FORMULÁRIO. É o caminho curto: em vez de reescrever as perguntas
+  // deste cliente, ela manda o formulário do ramo dele.
+  async function trocarFormulario(novo) {
+    try {
+      await api.put(`/briefings/${alvo.briefing.id}/formulario`, { form_id: novo || null });
+      await carregar();
+    } catch (e) { setErro(e.response?.data?.error || "Não consegui trocar o formulário."); }
+  }
 
   async function salvar() {
     setSalvando(true); setErro("");
@@ -964,8 +1133,8 @@ function PerguntasDoCliente({ alvo, onFechar, onSalvo }) {
   }
 
   async function voltarAoPadrao() {
-    if (!window.confirm(`Voltar ${alvo.client_name} ao questionário padrão da casa? `
-      + "As perguntas que você montou só para ele serão perdidas.")) return;
+    if (!window.confirm(`Descartar as perguntas escritas só para ${alvo.client_name}? `
+      + "Ele volta a responder o formulário escolhido acima — ou o padrão da casa.")) return;
     try {
       await api.delete(`/briefings/${alvo.briefing.id}/perguntas`);
       onSalvo(`${alvo.client_name} voltou ao questionário padrão.`);
@@ -976,11 +1145,22 @@ function PerguntasDoCliente({ alvo, onFechar, onSalvo }) {
     <Dialog open={Boolean(alvo)} onClose={onFechar} fullWidth maxWidth="md">
       <DialogTitle>Perguntas de {alvo?.client_name}</DialogTitle>
       <DialogContent dividers>
+        <TextField select size="small" fullWidth label="Formulário deste cliente" sx={{ mb: 2 }}
+          value={proprias ? "__proprio" : formId}
+          onChange={(e) => trocarFormulario(e.target.value === "__proprio" ? formId : e.target.value)}
+          helperText="Trocar aqui é o caminho curto: manda o formulário do ramo dele, sem reescrever pergunta nenhuma.">
+          <MenuItem value="">Padrão da casa</MenuItem>
+          {formularios.map((x) => (
+            <MenuItem key={x.id} value={x.id}>{x.name} · {x.perguntas} perguntas</MenuItem>
+          ))}
+          {proprias && <MenuItem value="__proprio">Perguntas escritas só para ele</MenuItem>}
+        </TextField>
+
         <Alert severity={proprias ? "info" : "warning"} sx={{ mb: 2 }}>
           {proprias
-            ? "Este cliente tem perguntas próprias. Mudar o modelo da casa não mexe mais nele."
-            : "Hoje ele responde o questionário padrão da casa. Salvar aqui cria uma cópia só dele — "
-              + "a partir daí, o padrão deixa de valer para este cliente."}
+            ? "Este cliente tem perguntas escritas só para ele. Mudar um formulário ou o padrão da casa não mexe mais nele."
+            : `Hoje ele responde ${origem?.tipo === "formulario" ? `o formulário "${origem.nome}"` : "o padrão da casa"}. `
+              + "Salvar aqui cria uma cópia só dele — a partir daí, mexer naquele formulário não altera mais este cliente."}
         </Alert>
         {erro && <Alert severity="error" sx={{ mb: 2 }}>{erro}</Alert>}
         {!secoes ? <LinearProgress /> : (
@@ -989,14 +1169,13 @@ function PerguntasDoCliente({ alvo, onFechar, onSalvo }) {
         )}
       </DialogContent>
       <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
-        {proprias && (
+        {proprias ? (
           <Button color="error" startIcon={<RestartAltIcon />} onClick={voltarAoPadrao} sx={{ mr: "auto" }}>
-            Usar o padrão da casa
+            Descartar e usar um formulário
           </Button>
-        )}
-        {!proprias && padrao.length > 0 && (
+        ) : (
           <Typography variant="caption" color="text.secondary" sx={{ mr: "auto", ml: 1 }}>
-            Você está partindo do padrão — é só editar o que for diferente.
+            Você está partindo {origem?.tipo === "formulario" ? `do formulário "${origem.nome}"` : "do padrão da casa"} — é só editar o que for diferente.
           </Typography>
         )}
         <Button onClick={onFechar}>Cancelar</Button>
@@ -1032,5 +1211,47 @@ function EscolhaVisual({ p, respostas }) {
         </Box>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// O NOME DO FORMULÁRIO.
+//
+// Serve para as três portas: criar do zero, duplicar um que já existe e
+// renomear. É o nome que ela vai procurar depois, na hora de mandar para um
+// cliente — então ele é obrigatório e vem antes de qualquer pergunta.
+// ---------------------------------------------------------------------------
+function NomeDoFormulario({ alvo, onFechar, onConfirmar }) {
+  const [nome, setNome] = useState("");
+  useEffect(() => { if (alvo) setNome(alvo.nome || ""); }, [alvo]);
+
+  const renomeia = Boolean(alvo?.renomeia);
+  const copia = Boolean(alvo?.copiar_de) && !renomeia;
+
+  return (
+    <Dialog open={Boolean(alvo)} onClose={onFechar} fullWidth maxWidth="xs">
+      <DialogTitle>
+        {renomeia ? "Renomear formulário" : copia ? "Duplicar formulário" : "Novo formulário"}
+      </DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {renomeia
+            ? "O nome é como você acha este formulário na hora de mandar para um cliente."
+            : copia
+              ? "O novo nasce com as mesmas perguntas do que você está editando. A partir daí, são dois formulários separados."
+              : "Ele nasce com as perguntas do padrão da casa — é só tirar e acrescentar o que for diferente."}
+        </Typography>
+        <TextField autoFocus fullWidth size="small" label="Nome do formulário"
+          placeholder="Ex.: Advocacia, Alimentação, Clínica"
+          value={nome} onChange={(e) => setNome(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && nome.trim()) onConfirmar(nome.trim()); }} />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onFechar}>Cancelar</Button>
+        <Button variant="contained" disabled={!nome.trim()} onClick={() => onConfirmar(nome.trim())}>
+          {renomeia ? "Renomear" : "Criar"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
