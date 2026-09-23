@@ -546,9 +546,12 @@ router.delete("/:id", async (req, res) => {
 router.get("/:id/contracts", (req, res) => {
   const client = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!client) return res.status(404).json({ error: "Cliente não encontrado." });
+  // Sem o `style`: ele guarda o logo inteiro em texto, e a lista não usa.
+  // Quem vai imprimir busca o contrato pelo id, que traz tudo.
   res.json(
     db.prepare("SELECT * FROM contracts WHERE client_id = ? AND org_id = ? ORDER BY created_at DESC")
       .all(req.params.id, req.orgId)
+      .map(({ style, ...resto }) => ({ ...resto, tem_estilo: Boolean(style) }))
   );
 });
 

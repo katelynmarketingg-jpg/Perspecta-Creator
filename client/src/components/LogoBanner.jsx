@@ -12,10 +12,17 @@ const SNAP = 8;     // distância (px) para "encaixar" no meio
 // Guias tipo Canva (botão da régua): mostra as linhas do meio (horizontal e
 // vertical) e, ao arrastar, o logo ENCAIXA no centro quando chega perto — aí
 // grava logoX = null (centralizado de verdade, igual no PDF).
-export default function LogoBanner({ geom = {}, onGeom, editable = true }) {
+export default function LogoBanner({
+  geom = {}, onGeom, editable = true,
+  // O logo DESTE contrato. Vazio: cai no logo da casa, como sempre foi.
+  logo: logoProprio = null,
+  altura = BAND_H,
+  vazio = "(Sem logo — defina em Integrações/Configurações)",
+}) {
   const bandRef = useRef(null);
   const drag = useRef(null);
-  const [logo, setLogo] = useState(null);
+  const [logoDaCasa, setLogoDaCasa] = useState(null);
+  const logo = logoProprio || logoDaCasa;
   const [guias, setGuias] = useState(false);   // botão réguas/guias ligado?
   const [arrastando, setArrastando] = useState(false);
   const [noMeio, setNoMeio] = useState(false);  // encaixou no centro agora?
@@ -23,7 +30,12 @@ export default function LogoBanner({ geom = {}, onGeom, editable = true }) {
   const logoX = geom.logoX ?? null; // null = centralizado
   const logoY = geom.logoY ?? 16;
 
-  useEffect(() => { api.get("/branding").then((r) => setLogo(r.data?.logo || null)).catch(() => {}); }, []);
+  // Só busca o da casa quando não tem um próprio: sem isso, trocar o logo do
+  // contrato ficava com a imagem antiga piscando por um instante.
+  useEffect(() => {
+    if (logoProprio) return;
+    api.get("/branding").then((r) => setLogoDaCasa(r.data?.logo || null)).catch(() => {});
+  }, [logoProprio]);
 
   function iniciar(e, modo) {
     if (!editable) return;
@@ -39,7 +51,7 @@ export default function LogoBanner({ geom = {}, onGeom, editable = true }) {
     const g = drag.current; if (!g) return;
     if (g.modo === "move") {
       const nx = Math.max(0, Math.min(g.bandW - logoW, g.baseX + (e.clientX - g.startX)));
-      const ny = Math.max(0, Math.min(BAND_H - 20, g.baseY + (e.clientY - g.startY)));
+      const ny = Math.max(0, Math.min(altura - 20, g.baseY + (e.clientY - g.startY)));
       // Encaixe no meio: se o centro do logo está a menos de SNAP do centro da
       // faixa, centraliza de verdade (logoX = null) — igual vai sair no PDF.
       const centroLogo = nx + logoW / 2;
@@ -66,8 +78,8 @@ export default function LogoBanner({ geom = {}, onGeom, editable = true }) {
 
   if (!logo) {
     return (
-      <Box sx={{ height: BAND_H, borderBottom: 1, borderColor: "divider", display: "grid", placeItems: "center", color: "text.disabled", fontSize: 13 }}>
-        (Sem logo — defina em Integrações/Configurações)
+      <Box sx={{ height: altura, borderBottom: 1, borderColor: "divider", display: "grid", placeItems: "center", color: "text.disabled", fontSize: 13 }}>
+        {vazio}
       </Box>
     );
   }
@@ -79,7 +91,7 @@ export default function LogoBanner({ geom = {}, onGeom, editable = true }) {
   });
 
   return (
-    <Box ref={bandRef} sx={{ position: "relative", height: BAND_H, borderBottom: 1, borderColor: "divider" }}>
+    <Box ref={bandRef} sx={{ position: "relative", height: altura, borderBottom: 1, borderColor: "divider" }}>
       {/* Botão réguas/guias (tipo Canva): liga/desliga as linhas do meio */}
       {editable && (
         <Tooltip title={guias ? "Esconder guias" : "Mostrar réguas e guias (meio)"}>

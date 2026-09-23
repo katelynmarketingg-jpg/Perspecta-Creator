@@ -135,10 +135,12 @@ export function mesesDeVigencia(inicio, fim) {
  */
 export function achaModelo(orgId, termos = {}) {
   if (termos.service_id) {
-    const svc = db.prepare("SELECT id, name, contract_template FROM services WHERE id = ? AND org_id = ?")
+    const svc = db.prepare("SELECT id, name, contract_template, contract_style FROM services WHERE id = ? AND org_id = ?")
       .get(termos.service_id, orgId);
     if (svc && String(svc.contract_template || "").trim()) {
-      return { name: svc.name, body: svc.contract_template, origem: "servico", id: svc.id };
+      // O estilo vem junto: é ele que leva o logo para o contrato de verdade.
+      return { name: svc.name, body: svc.contract_template, estilo: svc.contract_style || null,
+               origem: "servico", id: svc.id };
     }
     // O serviço existe mas está sem contrato escrito: dizer isso é mais útil do
     // que "modelo não encontrado".
@@ -337,9 +339,10 @@ export function geraContrato(orgId, termos = {}) {
   const titulo = termos.title || `${tpl.name} — ${client.name}`;
 
   const info = db.prepare(
-    `INSERT INTO contracts (client_id, title, value, duration_months, start_date, first_due_date, status, notes, org_id)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`
-  ).run(client.id, titulo, valor, duracao, termos.start_date ?? null, termos.first_due_date ?? null, corpo, orgId);
+    `INSERT INTO contracts (client_id, title, value, duration_months, start_date, first_due_date, status, notes, style, org_id)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+  ).run(client.id, titulo, valor, duracao, termos.start_date ?? null, termos.first_due_date ?? null,
+        corpo, tpl.estilo ?? null, orgId);
 
   const criado = db.prepare(
     "SELECT ct.*, c.name AS client_name FROM contracts ct LEFT JOIN clients c ON c.id = ct.client_id WHERE ct.id = ?"
