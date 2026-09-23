@@ -16,6 +16,8 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { Box, Typography, Tooltip, Alert } from "@mui/material";
 import TextoDoContrato, { pareceHtml, limpaContrato } from "../components/TextoDoContrato.jsx";
 import api from "../api/client.js";
+import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
+import { estiloDoContrato, ALTURA_RODAPE } from "../contrato-estilo.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
@@ -35,6 +37,8 @@ export default function Contracts() {
   // Modelos de contrato
   const [templates, setTemplates] = useState([]);
   const [services, setServices] = useState([]);
+  // O logo da casa, para o contrato que não trouxe um próprio.
+  const [logoDaCasa, setLogoDaCasa] = useState(null);
   const [tplManage, setTplManage] = useState(false);       // diálogo de gerenciar modelos
   const [tplDraft, setTplDraft] = useState(null);          // { id?, name, body }
   const [gen, setGen] = useState(null);                    // { template_id, client_id, value, duration_months, start_date }
@@ -90,6 +94,7 @@ export default function Contracts() {
     load(); loadTemplates();
     api.get("/clients").then((r) => setClients(r.data));
     api.get("/services").then((r) => setServices(r.data)).catch(() => {});
+    api.get("/branding").then((r) => setLogoDaCasa(r.data?.logo || null)).catch(() => {});
   }, []);
 
   // Ao vivo: recarrega quando alguém mexe nos contratos.
@@ -104,11 +109,17 @@ export default function Contracts() {
 
   // Imprimir = janela limpa com o texto; o próprio "Salvar como PDF" do
   // navegador gera o arquivo. Não precisa de biblioteca nenhuma.
-  function imprimir(c) {
+  // A janela abre ANTES do pedido: aberta dentro de um `then`, o navegador a
+  // trata como pop-up e bloqueia.
+  async function imprimir(base) {
     const w = window.open("", "_blank", "width=800,height=900");
     if (!w) return;
+    // O estilo (com o logo) não vem na listagem, para ela não carregar
+    // megabytes de imagem que ninguém olha. Busca só o que vai imprimir.
+    let c = base;
+    try { c = (await api.get(`/contracts/${base.id}`)).data || base; } catch { /* imprime sem o logo */ }
     const assinatura = c.signed_at
-      ? `<div style="margin-top:40px;padding-top:16px;border-top:1px solid #ccc;font-size:13px;color:#555">
+      ? `<div class="assinatura">
            ${c.signature_img ? `<img src="${c.signature_img}" style="max-height:80px;display:block;margin-bottom:8px" />` : ""}
            Assinado eletronicamente por <b>${c.signer_name || ""}</b>${c.signer_document ? " (" + c.signer_document + ")" : ""}
            em ${new Date(c.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}${c.signer_ip ? " · IP " + c.signer_ip : ""}.
@@ -121,13 +132,21 @@ export default function Contracts() {
       ? limpaContrato(texto)
       : `<pre>${String(texto || "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]))}</pre>`);
 
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${c.title}</title>
-      <style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:0 24px;color:#1a1a1a;line-height:1.7}
-      h1{font-size:20px;border-bottom:2px solid #EA580C;padding-bottom:8px}
-      pre{white-space:pre-wrap;font-family:inherit;font-size:14.5px}\n      .corpo{font-size:14.5px}.corpo h1,.corpo h2,.corpo h3{font-size:16px}.corpo img{max-width:100%}</style></head>
-      <body><h1>${c.title}</h1><div class="corpo">${corpoImpresso(c.notes)}</div>${assinatura}
-      <script>window.onload=()=>window.print()</script></body></html>`);
-    w.document.close();
+    // O estilo veio junto com o contrato quando ele foi gerado: é dele que
+    // sai o logo, e se ele fica no topo, no rodapé, ou nos dois.
+    const st = estiloDoContrato(c.style);
+    const logo = st.logo || logoDaCasa;
+    imprimirDocumento({
+      janela: w,
+      titulo: c.title,
+      corpo: [
+        st.topo.ativo ? faixaDeLogo(logo, st.topo) : "",
+        `<h1>${c.title}</h1>`,
+        `<div class="corpo">${corpoImpresso(c.notes)}</div>`,
+        assinatura,
+        st.rodape.ativo ? faixaDeLogo(logo, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
+      ].join(""),
+    });
   }
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));

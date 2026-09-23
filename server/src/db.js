@@ -395,6 +395,12 @@ ensureColumn("client_services", "billing", "billing TEXT NOT NULL DEFAULT 'mensa
 ensureColumn("services", "category", "category TEXT");
 // Estilo do modelo de contrato (logo posição/tamanho, etc.) em JSON.
 ensureColumn("services", "contract_style", "contract_style TEXT");
+// O ESTILO (logo e onde ele fica) viaja JUNTO com o contrato gerado. Sem isso
+// o logo vivia só na prévia do modelo em Serviços, e o contrato que o cliente
+// assina saía sem marca nenhuma. Copiado na geração, e não lido do serviço na
+// hora de imprimir, de propósito: mexer no modelo hoje não pode mudar a cara
+// de um contrato que já foi assinado.
+ensureColumn("contracts", "style", "style TEXT");
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");

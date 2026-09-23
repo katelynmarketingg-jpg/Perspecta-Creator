@@ -24,6 +24,8 @@ import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import GavelIcon from "@mui/icons-material/Gavel";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client.js";
+import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
+import { estiloDoContrato, ALTURA_RODAPE } from "../contrato-estilo.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState, TableSkeleton } from "../components/ui.jsx";
 import { currency, formatDate, CONTENT_TYPES } from "../utils.js";
@@ -53,7 +55,9 @@ export default function Clients() {
   const [draft, setDraft] = useState(EMPTY);
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("");
-  const [escopo, setEscopo] = useState("ativos");     // 'ativos' | 'arquivados'
+  const [escopo, setEscopo] = useState("ativos");
+  // O logo da casa, para o contrato que não trouxe um próprio.
+  const [logoDaCasa, setLogoDaCasa] = useState(null);     // 'ativos' | 'arquivados'
   const [encerrar, setEncerrar] = useState(null);      // cliente sendo arquivado
   const [resumo, setResumo] = useState(null);          // o que existe dele no sistema
   const [projetosDele, setProjetosDele] = useState([]);
@@ -97,22 +101,29 @@ export default function Clients() {
     setLink(data);
   }
   // Impressão limpa (o "Salvar como PDF" do navegador gera o arquivo).
-  function imprimir(c) {
+  async function imprimir(base) {
     const w = window.open("", "_blank", "width=800,height=900");
     if (!w) return;
+    let c = base;
+    try { c = (await api.get(`/contracts/${base.id}`)).data || base; } catch { /* imprime sem o logo */ }
     const assinatura = c.signed_at
-      ? `<div style="margin-top:40px;padding-top:16px;border-top:1px solid #ccc;font-size:13px;color:#555">
+      ? `<div class="assinatura">
            Assinado eletronicamente por <b>${c.signer_name || ""}</b>${c.signer_document ? " (" + c.signer_document + ")" : ""}
            em ${new Date(c.signed_at.replace(" ", "T") + "Z").toLocaleString("pt-BR")}.
          </div>`
       : "";
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${c.title}</title>
-      <style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:0 24px;color:#1a1a1a;line-height:1.7}
-      h1{font-size:20px;border-bottom:2px solid #EA580C;padding-bottom:8px}
-      pre{white-space:pre-wrap;font-family:inherit;font-size:14.5px}</style></head>
-      <body><h1>${c.title}</h1><pre>${(c.notes || "").replace(/</g, "&lt;")}</pre>${assinatura}
-      <script>window.onload=()=>window.print()</script></body></html>`);
-    w.document.close();
+    const st = estiloDoContrato(c.style);
+    imprimirDocumento({
+      janela: w,
+      titulo: c.title,
+      corpo: [
+        st.topo.ativo ? faixaDeLogo(st.logo || logoDaCasa, st.topo) : "",
+        `<h1>${c.title}</h1>`,
+        `<pre>${(c.notes || "").replace(/</g, "&lt;")}</pre>`,
+        assinatura,
+        st.rodape.ativo ? faixaDeLogo(st.logo || logoDaCasa, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
+      ].join(""),
+    });
   }
 
   const filtrados = rows.filter((c) => {
@@ -131,6 +142,7 @@ export default function Clients() {
   useEffect(() => {
     load();
     api.get("/services").then((r) => setAllServices(r.data)).catch(() => {});
+    api.get("/branding").then((r) => setLogoDaCasa(r.data?.logo || null)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [escopo]);
 

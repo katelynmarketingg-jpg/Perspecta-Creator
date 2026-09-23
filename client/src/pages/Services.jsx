@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, Button, IconButton, Chip, TextField,
   Dialog, DialogContent, Alert, Divider, Tooltip, AppBar, Toolbar, Tabs, Tab,
+  Switch, FormControlLabel,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -11,6 +12,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import SaveIcon from "@mui/icons-material/Save";
 import PrintIcon from "@mui/icons-material/Print";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import ImageIcon from "@mui/icons-material/Image";
 import DescriptionIcon from "@mui/icons-material/Description";
 import api from "../api/client.js";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -19,10 +21,14 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RichEditor from "../components/RichEditor.jsx";
 import ReceiptSettings from "../components/ReceiptSettings.jsx";
 import { receiptHtml } from "../receipt.js";
-import LogoBanner, { BAND_H } from "../components/LogoBanner.jsx";
+import LogoBanner from "../components/LogoBanner.jsx";
+import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
+import { estiloDoContrato, estiloParaGuardar, ALTURA_TOPO, ALTURA_RODAPE } from "../contrato-estilo.js";
 
-const VAZIO = { name: "", category: "", default_price: "", contract_template: "", items_schema: [], contract_style: {} };
-const parseStyle = (s) => { try { return typeof s === "string" ? JSON.parse(s) : (s || {}); } catch { return {}; } };
+const VAZIO = { name: "", category: "", default_price: "", contract_template: "", items_schema: [], contract_style: estiloDoContrato(null) };
+// O estilo do contrato (logo e onde ele fica) sempre na forma de hoje —
+// inclusive quando o que está no banco é do formato antigo.
+const parseStyle = (s) => estiloDoContrato(s);
 
 /** Quanto o documento pesa, em texto legível ("1,2 MB"). */
 function tamanhoDe(payload) {
@@ -79,7 +85,7 @@ export default function Services() {
     const payload = {
       ...draft,
       default_price: Number(draft.default_price) || 0,
-      contract_style: JSON.stringify(draft.contract_style || {}),
+      contract_style: JSON.stringify(estiloParaGuardar(estiloDoContrato(draft.contract_style))),
     };
     setErro("");
     setSalvando(true);
@@ -113,22 +119,29 @@ export default function Services() {
   }
   function delItem(i) { setDraft((d) => ({ ...d, items_schema: d.items_schema.filter((_, k) => k !== i) })); }
 
-  // Impressão/PDF do modelo (logo + texto do contrato).
+  // Prévia/PDF do modelo: o logo em cima, o texto, e o logo no rodapé.
   function imprimir() {
-    const st = draft.contract_style || {};
+    const st = estiloDoContrato(draft.contract_style);
+    // A janela abre ANTES do pedido ao servidor: aberta dentro de um `then`,
+    // o navegador a trata como pop-up e bloqueia.
     const win = window.open("", "_blank");
     if (!win) return;
     api.get("/branding").then((r) => {
-      const logo = r.data?.logo;
-      const leftCss = st.logoX == null ? "left:50%;transform:translateX(-50%)" : `left:${st.logoX}px`;
-      const cab = logo
-        ? `<div style="position:relative;height:${BAND_H}px"><img src="${logo}" style="position:absolute;top:${st.logoY ?? 16}px;${leftCss};width:${st.logoW || 200}px;object-fit:contain" /></div>`
-        : "";
-      win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${draft.name || "Contrato"}</title>
-        <style>@page{margin:0} body{margin:0;padding:20mm;font-family:Georgia,serif;line-height:1.6;color:#111} ul,ol{padding-left:22px}</style>
-        </head><body>${cab}<h2 style="text-align:center">${draft.name || ""}</h2>${draft.contract_template || ""}
-        <script>window.onload=function(){window.focus();window.print();}<\/script></body></html>`);
-      win.document.close();
+      const logo = st.logo || r.data?.logo || null;
+      imprimirDocumento({
+        janela: win,
+        titulo: draft.name || "Contrato",
+        corpo: [
+          st.topo.ativo ? faixaDeLogo(logo, st.topo) : "",
+          draft.name ? `<p class="sobretitulo">${draft.name}</p>` : "",
+          draft.contract_template || "",
+          st.rodape.ativo ? faixaDeLogo(logo, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
+        ].join(""),
+      });
+    }).catch(() => {
+      // Sem a marca, ainda imprime: o contrato é o que importa.
+      imprimirDocumento({ janela: win, titulo: draft.name || "Contrato",
+        corpo: draft.contract_template || "" });
     });
   }
 
@@ -339,10 +352,13 @@ export default function Services() {
                     minHeight={360}
                     placeholder="Escreva aqui o contrato deste serviço (com os marcadores acima)…"
                     header={
-                      <Box sx={{ overflow: "hidden" }}>
-                        <LogoBanner geom={draft.contract_style || {}}
-                          onGeom={(g) => setDraft((d) => ({ ...d, contract_style: g }))} />
-                      </Box>
+                      <MarcaDoContrato estilo={estiloDoContrato(draft.contract_style)}
+                        onMuda={(e) => setDraft((d) => ({ ...d, contract_style: e }))}
+                        onErro={setErro} />
+                    }
+                    footer={
+                      <RodapeDoContrato estilo={estiloDoContrato(draft.contract_style)}
+                        onMuda={(e) => setDraft((d) => ({ ...d, contract_style: e }))} />
                     }
                   />
                 </Box>
@@ -353,4 +369,111 @@ export default function Services() {
       </Dialog>
     </>
   );
+}
+
+// ---------------------------------------------------------------------------
+// A MARCA NO CONTRATO — o logo do topo, e qual logo é.
+//
+// Até aqui o contrato usava sempre o logo da casa, e só no topo. Mas o
+// contrato costuma ter uma marca própria — e o logo no rodapé é o que fecha o
+// documento. As duas faixas se arrastam e redimensionam igual, para ela
+// aprender uma vez só.
+// ---------------------------------------------------------------------------
+function MarcaDoContrato({ estilo, onMuda, onErro }) {
+  const trocarLogo = async (arquivo) => {
+    if (!arquivo) return;
+    try {
+      const logo = await comoDataURI(arquivo);
+      onMuda({ ...estilo, logo });
+    } catch (e) { onErro?.(e.message); }
+  };
+
+  return (
+    <Box sx={{ overflow: "hidden" }}>
+      <Stack direction="row" spacing={1} alignItems="center"
+        sx={{ px: 1, py: 0.75, flexWrap: "wrap", gap: 1, bgcolor: "action.hover" }}>
+        <Typography variant="caption" color="text.secondary" sx={{ mr: "auto" }}>
+          {estilo.logo ? "Logo deste contrato" : "Usando o logo da casa"}
+        </Typography>
+        <Button size="small" component="label" startIcon={<ImageIcon fontSize="small" />}>
+          {estilo.logo ? "Trocar logo" : "Usar outro logo"}
+          <input hidden type="file" accept="image/*"
+            onChange={(e) => { trocarLogo(e.target.files?.[0]); e.target.value = ""; }} />
+        </Button>
+        {estilo.logo && (
+          <Button size="small" color="error" onClick={() => onMuda({ ...estilo, logo: null })}>
+            Voltar ao da casa
+          </Button>
+        )}
+        <FormControlLabel sx={{ ml: 0 }} control={
+          <Switch size="small" checked={estilo.topo.ativo}
+            onChange={(e) => onMuda({ ...estilo, topo: { ...estilo.topo, ativo: e.target.checked } })} />
+        } label={<Typography variant="caption">logo no topo</Typography>} />
+      </Stack>
+      {estilo.topo.ativo && (
+        <LogoBanner logo={estilo.logo} altura={ALTURA_TOPO}
+          geom={{ logoX: estilo.topo.x, logoY: estilo.topo.y, logoW: estilo.topo.w }}
+          onGeom={(g) => onMuda({ ...estilo, topo: { ...estilo.topo, x: g.logoX, y: g.logoY, w: g.logoW } })} />
+      )}
+    </Box>
+  );
+}
+
+/** A mesma faixa, no fim do documento. */
+function RodapeDoContrato({ estilo, onMuda }) {
+  return (
+    <Box sx={{ overflow: "hidden", mt: 1 }}>
+      <Stack direction="row" spacing={1} alignItems="center"
+        sx={{ px: 1, py: 0.75, bgcolor: "action.hover" }}>
+        <Typography variant="caption" color="text.secondary" sx={{ mr: "auto" }}>
+          Fim do contrato
+        </Typography>
+        <FormControlLabel sx={{ ml: 0 }} control={
+          <Switch size="small" checked={estilo.rodape.ativo}
+            onChange={(e) => onMuda({ ...estilo, rodape: { ...estilo.rodape, ativo: e.target.checked } })} />
+        } label={<Typography variant="caption">logo no rodapé</Typography>} />
+      </Stack>
+      {estilo.rodape.ativo && (
+        <LogoBanner logo={estilo.logo} altura={ALTURA_RODAPE}
+          vazio="(Sem logo — escolha um acima, ou defina o da casa em Configurações)"
+          geom={{ logoX: estilo.rodape.x, logoY: estilo.rodape.y, logoW: estilo.rodape.w }}
+          onGeom={(g) => onMuda({ ...estilo, rodape: { ...estilo.rodape, x: g.logoX, y: g.logoY, w: g.logoW } })} />
+      )}
+    </Box>
+  );
+}
+
+/**
+ * A imagem escolhida, reduzida e virada data URI.
+ *
+ * Reduzir é o que impede uma foto de 5 MB de virar texto dentro do banco e
+ * viajar junto em toda listagem de serviços. 800 px de largura é mais do que
+ * um logo precisa em papel A4.
+ */
+function comoDataURI(arquivo) {
+  const LIMITE = 400 * 1024;
+  return new Promise((ok, falha) => {
+    if (!/^image\//.test(arquivo.type)) return falha(new Error("Escolha uma imagem (PNG, JPG ou WEBP)."));
+    const leitor = new FileReader();
+    leitor.onerror = () => falha(new Error("Não consegui ler essa imagem."));
+    leitor.onload = () => {
+      const img = new Image();
+      img.onerror = () => falha(new Error("Não consegui abrir essa imagem."));
+      img.onload = () => {
+        const escala = Math.min(1, 800 / (img.width || 800));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * escala);
+        c.height = Math.round(img.height * escala);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        // PNG preserva fundo transparente, que é o caso de quase todo logo.
+        const saida = c.toDataURL("image/png");
+        if (saida.length > LIMITE) {
+          return falha(new Error("Esse logo ficou grande demais. Use uma imagem menor ou mais simples."));
+        }
+        ok(saida);
+      };
+      img.src = leitor.result;
+    };
+    leitor.readAsDataURL(arquivo);
+  });
 }

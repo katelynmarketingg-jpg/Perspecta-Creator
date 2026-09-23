@@ -16,8 +16,27 @@ const comIntegridade = (linhas) =>
   (Array.isArray(linhas) ? linhas : [linhas]).filter(Boolean)
     .map((c) => ({ ...c, integridade: conferirAssinatura(c) }));
 
+/**
+ * O estilo guarda o LOGO inteiro, como texto (data URI). Numa listagem de
+ * trinta contratos isso vira dezenas de megabytes que ninguém vai olhar — a
+ * tela só precisa dele na hora de imprimir UM. Sai da lista e fica no GET de
+ * um contrato só; a tela busca ali quando vai imprimir.
+ */
+const semEstilo = (linhas) => linhas.map(({ style, ...resto }) => ({ ...resto, tem_estilo: Boolean(style) }));
+
 router.get("/", (req, res) => {
-  res.json(comIntegridade(db.prepare(`${SELECT} WHERE ct.org_id = ? ORDER BY ct.created_at DESC`).all(req.orgId)));
+  res.json(semEstilo(comIntegridade(
+    db.prepare(`${SELECT} WHERE ct.org_id = ? ORDER BY ct.created_at DESC`).all(req.orgId),
+  )));
+});
+
+// GET /api/contracts/:id — um contrato inteiro, COM o estilo (o logo).
+// É o que a tela busca na hora de imprimir: o logo só viaja quando vai ser
+// usado, em vez de em toda listagem.
+router.get("/:id", (req, res) => {
+  const c = db.prepare(`${SELECT} WHERE ct.id = ? AND ct.org_id = ?`).get(req.params.id, req.orgId);
+  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  res.json(comIntegridade(c)[0]);
 });
 
 router.post("/", (req, res) => {

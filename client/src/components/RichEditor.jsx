@@ -60,9 +60,11 @@ export function limpaHtmlColado(html) {
 // Editor de texto rico reutilizável (contentEditable + execCommand).
 // value = HTML; onChange(html) a cada digitação. `docKey` reinicia o conteúdo
 // quando muda (ex.: trocou de serviço).
+// `footer` é o par do `header`, logo DEPOIS do texto: é onde entra a faixa do
+// logo no rodapé do contrato, para ela ver o documento inteiro de uma vez.
 // `header` é um bloco opcional renderizado ENTRE a barra e o texto (ex.: o logo
 // dentro da folha). A barra fica no topo (sticky).
-export default function RichEditor({ value = "", onChange, docKey, minHeight = 260, placeholder = "Escreva aqui…", header = null }) {
+export default function RichEditor({ value = "", onChange, docKey, minHeight = 260, placeholder = "Escreva aqui…", header = null, footer = null }) {
   const ref = useRef(null);
 
   // (Re)inicia o conteúdo quando o documento muda.
@@ -126,6 +128,7 @@ export default function RichEditor({ value = "", onChange, docKey, minHeight = 2
           "&:empty:before": { content: `"${placeholder}"`, color: "text.disabled" },
         }}
       />
+      {footer}
     </Box>
   );
 }
