@@ -117,4 +117,26 @@ test("gasto da Perspectiva não acompanha: o lugar dele é o Financeiro", async 
   assert.ok(!out.entries.some((e) => e.name === "Registro.br"));
 });
 
+test("conta antiga, gravada sem a marca de 'repete', também acompanha", async () => {
+  // O caso da base dela: linhas que entraram por importação antes da coluna
+  // `recurring` existir ficaram com 0, mesmo escrito "fixa" ou "3/5" na
+  // parcela. Antes elas não acompanhavam de jeito nenhum — e era isso que
+  // fazia o mês seguinte abrir vazio mesmo com tudo marcado como fixa.
+  db.prepare(
+    `INSERT INTO personal_finance (org_id, user_id, ym, name, parcela, amount, method, category,
+       paid, position, recurring, installment_num, installment_total, avulso)
+     VALUES (?, ?, '2028-01', 'Empréstimo Carro', 'fixa', 1225, 'Nubank PJ', 'Carro', 0, 0, 0, NULL, NULL, 0)`
+  ).run(org, uid);
+  db.prepare(
+    `INSERT INTO personal_finance (org_id, user_id, ym, name, parcela, amount, method, category,
+       paid, position, recurring, installment_num, installment_total, avulso)
+     VALUES (?, ?, '2028-01', 'Sofá', '3/5', 300, 'Renner', 'Casa', 0, 0, 0, 3, 5, 0)`
+  ).run(org, uid);
+
+  const fev = await mes("2028-02");
+  assert.deepEqual(nomes(fev), ["Empréstimo Carro", "Sofá"], "as duas seguem para fevereiro");
+  assert.equal(fev.entries.find((e) => e.name === "Sofá").parcela, "4/5", "e a parcela anda");
+  assert.equal(fev.entries.find((e) => e.name === "Empréstimo Carro").parcela, "fixa");
+});
+
 after(() => { srv.close(); db.close(); rmSync(dir, { recursive: true, force: true }); });
