@@ -27,8 +27,8 @@ router.get("/", (req, res) => {
   // Filtro de período pela data de vencimento (ou criação, se sem vencimento).
   if (from) { where.push("date(COALESCE(f.due_date, f.created_at)) >= @from"); params.from = from; }
   if (to) { where.push("date(COALESCE(f.due_date, f.created_at)) <= @to"); params.to = to; }
-  // ?impagavel=1 traz só o que ela marcou como "não vai dar para pagar";
-  // ?impagavel=0 traz só o resto. Sem o parâmetro, traz tudo.
+  // ?impagavel=1 traz só o que ela marcou como "não posso deixar de pagar";
+  // ?impagavel=0 traz só o que pode esperar. Sem o parâmetro, traz tudo.
   if (req.query.impagavel === "1") where.push("f.impagavel = 1");
   if (req.query.impagavel === "0") where.push("COALESCE(f.impagavel,0) = 0");
   const sql = `${SELECT} WHERE ${where.join(" AND ")} ORDER BY f.due_date DESC, f.id DESC`;
@@ -69,7 +69,7 @@ router.get("/summary", (req, res) => {
     WHERE org_id = ? AND COALESCE(due_date, created_at) >= date('now','-6 months')
     GROUP BY month ORDER BY month`).all(org);
 
-  // IMPAGÁVEIS: o que ela marcou como "não vai dar para pagar este mês".
+  // IMPAGÁVEIS: o que ela marcou como "não posso deixar de pagar".
   // Dois números, porque são duas perguntas diferentes: quanto foi marcado, e
   // quanto disso ainda está em aberto.
   const impagavelTotal = sum("AND impagavel = 1");
@@ -89,7 +89,7 @@ router.get("/summary", (req, res) => {
 
 // PUT /api/financial/:id/impagavel { impagavel: true|false }
 //
-// Rota própria, e não um campo do editar: marcar "não vou conseguir pagar" é um
+// Rota própria, e não um campo do editar: marcar "não posso deixar de pagar" é um
 // gesto de um clique no meio do aperto, e não pode exigir abrir a ficha inteira
 // do lançamento para salvar.
 router.put("/:id/impagavel", (req, res) => {

@@ -68,7 +68,8 @@ export default function Financial() {
   const [novaCobranca, setNovaCobranca] = useState(null);
   const [baixando, setBaixando] = useState(null);
   const [historico, setHistorico] = useState([]);  // o que já foi recebido da dívida em edição
-  // 'todos' | 'impagaveis' | 'resto' — o mês apertou e ela quer olhar um balão de cada vez.
+  // 'todos' | 'impagaveis' | 'resto' — quando o dinheiro está curto ela quer ver
+  // primeiro o que NÃO pode deixar de pagar, e só depois o que pode esperar.
   const [balao, setBalao] = useState("todos");
   // Juntar as despesas em tópicos ("Perspectiva", "Salário Katy") em vez de
   // vinte linhas soltas. Guarda a escolha — ela não precisa clicar todo dia.
@@ -221,7 +222,7 @@ export default function Financial() {
   }, []);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
-  // IMPAGÁVEIS: o que ela marcou como "não vai dar para pagar este mês". Os dois
+  // IMPAGÁVEIS: o que ela marcou como "não posso deixar de pagar". Os dois
   // balões somam o total — nada some, só muda de lado.
   const filtered = rows
     .filter((r) => tab === "all" || r.type === tab)
@@ -300,7 +301,7 @@ export default function Financial() {
             </span>
           </Tooltip>
         )}
-        <Tooltip title={f.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
+        <Tooltip title={f.impagavel ? "Impagável: não pode deixar de pagar — clique para tirar" : "Marcar como impagável: esta eu não posso deixar de pagar"}>
           <IconButton size="small" color={f.impagavel ? "warning" : "default"}
             onClick={() => toggleImpagavel(f)}>
             {f.impagavel ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
@@ -495,12 +496,12 @@ export default function Financial() {
           <Chip label={`Só impagáveis${quantosImpagaveis ? ` (${quantosImpagaveis})` : ""}`}
             size="small" color={balao === "impagaveis" ? "warning" : "default"}
             variant={balao === "impagaveis" ? "filled" : "outlined"} onClick={() => setBalao("impagaveis")} />
-          <Chip label="O restante" size="small"
+          <Chip label="O que pode esperar" size="small"
             color={balao === "resto" ? "primary" : "default"}
             variant={balao === "resto" ? "filled" : "outlined"} onClick={() => setBalao("resto")} />
           {summary?.impagavelAberto > 0 && (
             <Typography variant="caption" color="warning.main" sx={{ fontWeight: 700, ml: 0.5 }}>
-              {currency(summary.impagavelAberto)} de impagável ainda em aberto
+              {currency(summary.impagavelAberto)} que não pode deixar de pagar, ainda em aberto
             </Typography>
           )}
           {/* JUNTAR EM TÓPICOS. Em vez de vinte linhas soltas (MacBook, monitor,

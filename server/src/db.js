@@ -415,6 +415,10 @@ ensureColumn("personal_finance", "recurring", "recurring INTEGER NOT NULL DEFAUL
 ensureColumn("personal_finance", "installment_num", "installment_num INTEGER");        // parcela atual (8 de 8/10)
 ensureColumn("personal_finance", "installment_total", "installment_total INTEGER");    // total de parcelas (10 de 8/10)
 ensureColumn("personal_finance", "import_id", "import_id INTEGER");                     // qual importação criou a linha
+// "Só neste mês": a conta NÃO acompanha para o mês seguinte. O padrão é o
+// contrário — conta de casa é conta que volta todo mês, e obrigar a escrever
+// "Mensal" em cada uma fazia o mês novo abrir vazio.
+ensureColumn("personal_finance", "avulso", "avulso INTEGER NOT NULL DEFAULT 0");
 // Parcelas de um serviço do cliente: 1 = à vista/mensal; N = parcelado em N vezes
 // (ex.: LP de R$1.000 em 4x de R$250). billing: 'mensal' (recorrente) | 'avulso'.
 ensureColumn("client_services", "installments", "installments INTEGER NOT NULL DEFAULT 1");
@@ -1096,11 +1100,12 @@ ensureColumn("clients", "document", "document TEXT");
 // por isso que a tela pergunta antes de arquivar.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// IMPAGÁVEIS — o que ela sabe que NÃO vai conseguir pagar este mês.
+// IMPAGÁVEIS — o que ela NÃO PODE deixar de pagar.
 //
-// Quando o mês aperta, a conta não é "quanto devo": é "quanto disso eu consigo
-// pagar agora". Marcar um gasto como impagável separa o que vai ficar para trás
-// do que ainda dá para honrar, dos dois lados (as contas dela e as da empresa).
+// O nome vem dela: "impagável" aqui é a conta que não dá para empurrar — o
+// aluguel, a parcela do carro, a luz. Quando o mês aperta, a pergunta não é
+// "quanto devo", é "o que eu pago PRIMEIRO". A estrelinha separa o que tem de
+// sair agora do que pode esperar, dos dois lados (as contas dela e as da casa).
 // ---------------------------------------------------------------------------
 ensureColumn("personal_finance", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
 ensureColumn("financial_entries", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");

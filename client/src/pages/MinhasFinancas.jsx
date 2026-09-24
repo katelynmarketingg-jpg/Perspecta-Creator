@@ -24,9 +24,15 @@ import { PageHeader, StatCard } from "../components/ui.jsx";
 import DebtsCard from "../components/DebtsCard.jsx";
 import { currency } from "../utils.js";
 
+// "2026-09" → "Setembro de 2026"
+function nomeDoMes(ym) {
+  const [y, m] = String(ym).split("-").map(Number);
+  return `${MESES[(m || 1) - 1]} de ${y}`;
+}
+
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const CORES = ["#EA580C", "#2563EB", "#16A34A", "#7C3AED", "#D97706", "#DC2626", "#0891B2", "#DB2777", "#65A30D", "#9333EA", "#57534E"];
-const VAZIO = { name: "", parcela: "", amount: "", method: "", category: "", paid: false };
+const VAZIO = { name: "", parcela: "", amount: "", method: "", category: "", paid: false, avulso: false };
 
 // --- CSV ---
 function splitLine(line) {
@@ -137,7 +143,8 @@ export default function MinhasFinancas() {
   }
   async function excluir(id) { if (confirm("Excluir este gasto?")) { await api.delete(`/personal-finance/${id}`); load(); } }
   async function togglePago(e) { await api.put(`/personal-finance/${e.id}`, { paid: !e.paid }); load(); }
-  // IMPAGÁVEL: "este eu não vou conseguir pagar este mês". Um clique, na
+  // IMPAGÁVEL: "esta eu NÃO POSSO deixar de pagar" — o aluguel, a parcela do
+  // carro, o que não dá para empurrar. Um clique, na
   // própria linha — é um gesto de triagem no meio do aperto, não pode exigir
   // abrir a ficha do gasto.
   async function toggleImpagavel(e) {
@@ -156,7 +163,7 @@ export default function MinhasFinancas() {
     const replace = data?.entries?.length ? confirm(`Já há ${data.entries.length} gasto(s) em ${MESES[cursor.getMonth()]}. Substituir por ${entries.length} do CSV? (Cancelar = adicionar)`) : false;
     const r = await api.post("/personal-finance/import", { ym, entries, replace, label: file.name });
     const extra = r.data.toFinanceiro ? ` ${r.data.toFinanceiro} da categoria Perspectiva foram pro Financeiro (despesas).` : "";
-    setMsg(`Importados ${r.data.imported} gastos de ${MESES[cursor.getMonth()]}. As contas fixas e parceladas vão seguir sozinhas nos próximos meses.${extra} ✅`);
+    setMsg(`Importados ${r.data.imported} gastos de ${MESES[cursor.getMonth()]}. Elas seguem sozinhas nos próximos meses — as parceladas avançando a parcela.${extra} ✅`);
     setTimeout(() => setMsg(""), 9000);
     load();
   }
@@ -193,6 +200,16 @@ export default function MinhasFinancas() {
         } />
 
       {msg && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setMsg("")}>{msg}</Alert>}
+
+      {/* Mês que se preencheu sozinho. Dizer de onde as contas vieram evita o
+          susto de abrir novembro e achar que alguém lançou tudo de novo. */}
+      {data?.preenchido_de && (
+        <Alert severity="info" icon={false} sx={{ mb: 2 }}>
+          Este mês começou com as contas de <b>{nomeDoMes(data.preenchido_de)}</b>, com as parcelas
+          já avançadas e tudo em aberto. Ajuste o que mudou — e, se alguma conta foi só de uma vez,
+          marque <b>"Só neste mês"</b> nela para ela não voltar.
+        </Alert>
+      )}
 
       {perspectiva.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}
@@ -242,10 +259,10 @@ export default function MinhasFinancas() {
         <StatCard label={`Já peguei este mês (${s?.meu?.topico || "Salário Katy"})`} value={s ? currency(s.meu?.jaPeguei || 0) : undefined} />
         <StatCard label="Total do mês" value={s ? currency(s.total) : undefined} />
         <StatCard label="Comprometido do salário" value={s?.comprometido != null ? `${s.comprometido}%` : "—"} />
-        {/* O segundo número é a pergunta do mês apertado: desse tanto que falta,
-            quanto é do que ela já marcou que não vai dar para pagar. */}
+        {/* A pergunta do mês apertado: desse tanto que falta, quanto é do que
+            não pode esperar de jeito nenhum. É o que ela paga primeiro. */}
         <StatCard
-          label={s?.impagavelQuantos ? `Impagáveis a pagar (${s.impagavelQuantos})` : "Impagáveis a pagar"}
+          label={s?.impagavelQuantos ? `Impagáveis em aberto (${s.impagavelQuantos})` : "Impagáveis em aberto"}
           value={s ? currency(s.impagavelAPagar || 0) : undefined} />
       </Box>
 
@@ -332,6 +349,12 @@ export default function MinhasFinancas() {
                         <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{e.name}</Typography>
                         <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
                           {e.parcela && <Chip size="small" variant="outlined" label={e.parcela} sx={{ height: 18 }} />}
+                          {/* Esta não volta no mês que vem — bom saber antes de fechar o mês. */}
+                          {e.avulso && (
+                            <Tooltip title="Não acompanha os próximos meses">
+                              <Chip size="small" variant="outlined" color="info" label="só neste mês" sx={{ height: 18 }} />
+                            </Tooltip>
+                          )}
                           {e.category && <Chip size="small" variant="outlined" label={e.category} sx={{ height: 18 }} />}
                           {e.impagavel && (
                             <Chip size="small" color="warning" label="impagável" sx={{ height: 18 }} />
@@ -345,7 +368,7 @@ export default function MinhasFinancas() {
                       </Box>
                       <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{currency(e.amount)}</Typography>
                       <Box className="acts" sx={{ opacity: { xs: 1, md: 0.55 }, transition: "opacity .15s" }}>
-                        <Tooltip title={e.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
+                        <Tooltip title={e.impagavel ? "Impagável: não pode deixar de pagar — clique para tirar" : "Marcar como impagável: esta eu não posso deixar de pagar"}>
                           <IconButton size="small" color={e.impagavel ? "warning" : "default"}
                             onClick={() => toggleImpagavel(e)}>
                             {e.impagavel ? <StarIcon sx={{ fontSize: 16 }} /> : <StarBorderIcon sx={{ fontSize: 16 }} />}
@@ -389,6 +412,17 @@ export default function MinhasFinancas() {
               <Stack direction="row" alignItems="center">
                 <Checkbox checked={!!draft.paid} onChange={(e) => setDraft((d) => ({ ...d, paid: e.target.checked }))} />
                 <Typography variant="body2">Já pago</Typography>
+              </Stack>
+              {/* A conta acompanha os próximos meses sozinha. Isto é a exceção:
+                  a compra que foi só desta vez e não deve voltar em novembro. */}
+              <Stack direction="row" alignItems="flex-start">
+                <Checkbox checked={!!draft.avulso} onChange={(e) => setDraft((d) => ({ ...d, avulso: e.target.checked }))} />
+                <Box sx={{ pt: 1 }}>
+                  <Typography variant="body2">Só neste mês</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Por padrão a conta acompanha os próximos meses. Marque aqui se foi só desta vez.
+                  </Typography>
+                </Box>
               </Stack>
             </Stack>
           )}

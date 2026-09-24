@@ -22,10 +22,9 @@ function summary(rows, salary) {
     byCat[r.category || "Sem categoria"] = (byCat[r.category || "Sem categoria"] || 0) + (Number(r.amount) || 0);
     byMethod[r.method || "Sem método"] = (byMethod[r.method || "Sem método"] || 0) + (Number(r.amount) || 0);
   });
-  // IMPAGÁVEIS: o que ela marcou como "não vou conseguir pagar este mês".
-  // O que importa não é o total deles, e sim quanto AINDA falta pagar — por
-  // isso os dois números andam juntos na tela: o que falta no geral e o que
-  // falta só dos impagáveis.
+  // IMPAGÁVEIS: o que ela marcou como "não posso deixar de pagar" — o aluguel,
+  // a parcela do carro. O que importa não é o total deles, e sim quanto AINDA
+  // falta pagar: é esse o dinheiro que tem de sair primeiro.
   const impagaveis = rows.filter((r) => r.impagavel);
   const impagavelTotal = impagaveis.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const impagavelAPagar = impagaveis.filter((r) => !r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
@@ -43,7 +42,9 @@ function summary(rows, salary) {
 // GET /api/personal-finance?ym=AAAA-MM
 router.get("/", (req, res) => {
   const ym = (req.query.ym || new Date().toISOString().slice(0, 7)).slice(0, 7);
-  ensureMonth(req.orgId, uid(req), ym); // puxa as contas dos meses anteriores se estiver vazio
+  // Mês vazio se preenche sozinho com as contas do mês anterior — e a tela avisa
+  // de onde elas vieram, pra ela saber que não é lançamento novo.
+  const preenchido_de = ensureMonth(req.orgId, uid(req), ym);
   const rows = db.prepare(
     "SELECT * FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? ORDER BY position, id"
   ).all(req.orgId, uid(req), ym);
@@ -51,7 +52,11 @@ router.get("/", (req, res) => {
   const salary = cfg?.salary || 0;
   const resumo = summary(rows, salary);
   resumo.meu.topico = topicoDoSalario(req.user.name); // o nome da linha lá no Financeiro
-  res.json({ ym, salary, entries: rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel })), summary: resumo });
+  res.json({
+    ym, salary, preenchido_de,
+    entries: rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel, avulso: !!r.avulso })),
+    summary: resumo,
+  });
 });
 
 // PUT /api/personal-finance/config { salary }
@@ -66,9 +71,9 @@ router.put("/config", (req, res) => {
 
 const insert = db.prepare(
   `INSERT INTO personal_finance (org_id, user_id, ym, name, parcela, amount, method, category, paid, position,
-     recurring, installment_num, installment_total, import_id)
+     recurring, installment_num, installment_total, import_id, avulso)
    VALUES (@org_id, @user_id, @ym, @name, @parcela, @amount, @method, @category, @paid, @position,
-     @recurring, @installment_num, @installment_total, @import_id)`
+     @recurring, @installment_num, @installment_total, @import_id, @avulso)`
 );
 
 // A partir do texto da "parcela" descobre se a conta se repete e em qual parcela
@@ -192,7 +197,11 @@ const monthHasRows = (org, user, ym) => !!db.prepare("SELECT 1 FROM personal_fin
 // Avança uma conta um mês pra frente. Devolve a linha do mês seguinte, ou null
 // se a conta acabou (parcela final) ou não se repete.
 function rollForward(row, ym, i) {
-  if (!row.recurring) return null;
+  // O PADRÃO É ACOMPANHAR. Antes, só ia para o mês seguinte a conta com
+  // "Mensal" ou "1/10" escrito na parcela — e como quase nenhuma tem isso
+  // escrito, o mês novo abria vazio e ela tinha de reimportar o CSV. Conta de
+  // casa é conta que volta: agora a exceção é a conta marcada "só neste mês".
+  if (row.avulso) return null;
   if (isPerspectiva(row.category)) return null; // Perspectiva vive no Financeiro, não aqui
   let parcela = row.parcela, num = row.installment_num, total = row.installment_total;
   if (total != null) {
@@ -203,21 +212,22 @@ function rollForward(row, ym, i) {
   return {
     org_id: row.org_id, user_id: row.user_id, ym, name: row.name,
     parcela, amount: Number(row.amount) || 0, method: row.method ?? null, category: row.category ?? null,
-    paid: 0, position: i, recurring: 1, installment_num: num ?? null, installment_total: total ?? null, import_id: null,
+    paid: 0, position: i, recurring: row.recurring ? 1 : 0,
+    installment_num: num ?? null, installment_total: total ?? null, import_id: null, avulso: 0,
   };
 }
 
 // Garante que o mês pedido esteja preenchido, puxando as contas dos meses
 // anteriores automaticamente (sem precisar reimportar). Só gera em meses vazios.
 function ensureMonth(org, user, ym) {
-  if (monthHasRows(org, user, ym)) return;
+  if (monthHasRows(org, user, ym)) return null;
   // acha o mês anterior mais recente que tenha lançamentos
   let src = null, cur = ymPrev(ym);
   for (let i = 0; i < 36 && cur >= "2000-01"; i++) {
     if (monthHasRows(org, user, cur)) { src = cur; break; }
     cur = ymPrev(cur);
   }
-  if (!src) return;                              // nada pra puxar
+  if (!src) return null;                         // nada pra puxar
   const tx = db.transaction(() => {
     let prev = db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? ORDER BY position, id").all(org, user, src);
     let m = ymNext(src);
@@ -233,6 +243,7 @@ function ensureMonth(org, user, ym) {
     }
   });
   tx();
+  return monthHasRows(org, user, ym) ? src : null;
 }
 
 // Verifica se um mês já tem uma conta com aquele nome (pra não duplicar).
@@ -268,7 +279,7 @@ function propagateForward(org, user, startYm, row) {
           parcela, amount: Number(row.amount) || 0, method: row.method ?? null,
           category: row.category ?? null, paid: 0, position: Number(row.position) || 0,
           recurring: 1, installment_num: total != null ? curNum : null,
-          installment_total: total, import_id: null,
+          installment_total: total, import_id: null, avulso: 0,
         });
         created++;
       }
@@ -284,6 +295,9 @@ router.post("/", (req, res) => {
   const b = req.body || {};
   if (!b.name?.trim()) return res.status(400).json({ error: "Informe o nome do gasto." });
   const ym = (b.ym || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  // Lançar num mês que ela nunca abriu não pode "inaugurar" o mês com essa conta
+  // sozinha: as contas que vinham dos meses anteriores têm de estar lá também.
+  ensureMonth(req.orgId, uid(req), ym);
   // se veio recurring/parcelas explícitas usa; senão deriva do texto da parcela
   const pi = parcelaInfo(b.parcela);
   const recurring = b.recurring !== undefined ? (b.recurring ? 1 : 0) : pi.recurring;
@@ -292,7 +306,8 @@ router.post("/", (req, res) => {
     parcela: b.parcela ?? null, amount: Number(b.amount) || 0,
     method: b.method ?? null, category: b.category ?? null,
     paid: b.paid ? 1 : 0, position: Number(b.position) || 0,
-    recurring, installment_num: b.installment_num ?? pi.num, installment_total: b.installment_total ?? pi.total, import_id: null,
+    recurring, installment_num: b.installment_num ?? pi.num, installment_total: b.installment_total ?? pi.total,
+    import_id: null, avulso: b.avulso ? 1 : 0,
   });
   const created = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(info.lastInsertRowid);
   // Gasto da empresa não fica aqui: vai direto para o Financeiro → Despesas.
@@ -335,7 +350,8 @@ router.post("/import", (req, res) => {
         parcela: e.parcela ?? null, amount: Number(e.amount) || 0,
         method: e.method ?? null, category: e.category ?? null,
         paid: e.paid ? 1 : 0, position: i,
-        recurring: pi.recurring, installment_num: pi.num, installment_total: pi.total, import_id: importId,
+        recurring: pi.recurring, installment_num: pi.num, installment_total: pi.total,
+        import_id: importId, avulso: e.avulso ? 1 : 0,
       });
       n++;
     });
@@ -455,6 +471,7 @@ router.put("/:id", (req, res) => {
     ...cur, ...b,
     paid: b.paid !== undefined ? (b.paid ? 1 : 0) : cur.paid,
     impagavel: b.impagavel !== undefined ? (b.impagavel ? 1 : 0) : cur.impagavel,
+    avulso: b.avulso !== undefined ? (b.avulso ? 1 : 0) : cur.avulso,
     amount: b.amount !== undefined ? (Number(b.amount) || 0) : cur.amount,
   };
   // se mexeu na parcela e não mandou recurring/parcelas explícitas, rededuz do texto
@@ -468,7 +485,7 @@ router.put("/:id", (req, res) => {
   }
   db.prepare(
     `UPDATE personal_finance SET name=@name, parcela=@parcela, amount=@amount, method=@method,
-       category=@category, paid=@paid, impagavel=@impagavel, recurring=@recurring,
+       category=@category, paid=@paid, impagavel=@impagavel, avulso=@avulso, recurring=@recurring,
        installment_num=@installment_num, installment_total=@installment_total
      WHERE id=@id AND user_id=@user_id`
   ).run({ ...m, id: req.params.id, user_id: uid(req) });
