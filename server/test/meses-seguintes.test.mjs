@@ -117,26 +117,62 @@ test("gasto da Perspectiva não acompanha: o lugar dele é o Financeiro", async 
   assert.ok(!out.entries.some((e) => e.name === "Registro.br"));
 });
 
-test("conta antiga, gravada sem a marca de 'repete', também acompanha", async () => {
-  // O caso da base dela: linhas que entraram por importação antes da coluna
-  // `recurring` existir ficaram com 0, mesmo escrito "fixa" ou "3/5" na
-  // parcela. Antes elas não acompanhavam de jeito nenhum — e era isso que
-  // fazia o mês seguinte abrir vazio mesmo com tudo marcado como fixa.
-  db.prepare(
-    `INSERT INTO personal_finance (org_id, user_id, ym, name, parcela, amount, method, category,
-       paid, position, recurring, installment_num, installment_total, avulso)
-     VALUES (?, ?, '2028-01', 'Empréstimo Carro', 'fixa', 1225, 'Nubank PJ', 'Carro', 0, 0, 0, NULL, NULL, 0)`
-  ).run(org, uid);
-  db.prepare(
-    `INSERT INTO personal_finance (org_id, user_id, ym, name, parcela, amount, method, category,
-       paid, position, recurring, installment_num, installment_total, avulso)
-     VALUES (?, ?, '2028-01', 'Sofá', '3/5', 300, 'Renner', 'Casa', 0, 0, 0, 3, 5, 0)`
-  ).run(org, uid);
+// A BASE DELA É ASSIM: a importação antiga gravou o TEXTO da parcela ("3/3",
+// "10/12") e deixou os campos de número vazios. Quem olha só os campos acha que
+// a conta não é parcelada — e aí ela é copiada com o mesmo texto mês após mês,
+// sem nunca andar e sem nunca acabar. Foi o que ela viu: "3/3" em dois meses.
+const linhaAntiga = db.prepare(
+  `INSERT INTO personal_finance (org_id, user_id, ym, name, parcela, amount, method, category,
+     paid, position, recurring, installment_num, installment_total, avulso)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, NULL, NULL, 0)`
+);
+
+test("linha antiga só com o texto da parcela: a parcela anda e a conta acaba", async () => {
+  linhaAntiga.run(org, uid, "2028-01", "Compras p/casa", "10/12", 44.5, "Shoppe", "Casa");
+  linhaAntiga.run(org, uid, "2028-01", "Empréstimo Carro", "fixa", 1225, "Nubank PJ", "Carro");
 
   const fev = await mes("2028-02");
-  assert.deepEqual(nomes(fev), ["Empréstimo Carro", "Sofá"], "as duas seguem para fevereiro");
-  assert.equal(fev.entries.find((e) => e.name === "Sofá").parcela, "4/5", "e a parcela anda");
-  assert.equal(fev.entries.find((e) => e.name === "Empréstimo Carro").parcela, "fixa");
+  assert.equal(fev.entries.find((e) => e.name === "Compras p/casa").parcela, "11/12", "andou");
+  assert.equal(fev.entries.find((e) => e.name === "Empréstimo Carro").parcela, "fixa", "fixa segue");
+
+  assert.equal((await mes("2028-03")).entries.find((e) => e.name === "Compras p/casa").parcela, "12/12");
+  const abr = await mes("2028-04");
+  assert.ok(!abr.entries.some((e) => e.name === "Compras p/casa"), "a última parcela foi paga: não volta");
+  assert.deepEqual(nomes(abr), ["Empréstimo Carro"]);
+});
+
+test("a conta na última parcela NÃO aparece no mês seguinte", async () => {
+  // O caso exato do relato: "3/3" apareceu em dois meses.
+  linhaAntiga.run(org, uid, "2028-05", "Calças térmicas Bruno", "3/3", 25, "Shoppe", "Casa");
+  const jun = await mes("2028-06");
+  assert.ok(!jun.entries.some((e) => e.name === "Calças térmicas Bruno"),
+    "3/3 é a última: some no mês seguinte, e não se repete como 3/3 de novo");
+});
+
+test("o que terminou vai para a listinha de baixo, dizendo por quê", async () => {
+  const jun = await mes("2028-06");
+  const bruno = jun.terminadas.find((t) => t.name === "Calças térmicas Bruno");
+  assert.ok(bruno, "some da lista, mas fica registrado embaixo");
+  assert.equal(bruno.parcela, "3/3");
+  assert.equal(bruno.amount, 25);
+  assert.equal(bruno.motivo, "quitou");
+  assert.equal(bruno.ym, "2028-05", "diz de qual mês era");
+});
+
+test('a conta "só neste mês" também entra na listinha, com outro motivo', async () => {
+  await chamar("POST", "/", { ym: "2028-07", name: "Presente", amount: 200, avulso: true });
+  const ago = await mes("2028-08");
+  const p = ago.terminadas.find((t) => t.name === "Presente");
+  assert.equal(p.motivo, "so_daquele_mes");
+});
+
+test("conta recadastrada no mês não conta como terminada", async () => {
+  linhaAntiga.run(org, uid, "2028-09", "Fone", "2/2", 90, "Pix", "Casa");
+  await mes("2028-10");                                     // abre outubro (o Fone some)
+  await chamar("POST", "/", { ym: "2028-10", name: "Fone", amount: 90 }); // ela lança de novo
+  const out = await mes("2028-10");
+  assert.ok(out.entries.some((e) => e.name === "Fone"), "está na lista do mês");
+  assert.ok(!out.terminadas.some((t) => t.name === "Fone"), "então não é 'terminou'");
 });
 
 after(() => { srv.close(); db.close(); rmSync(dir, { recursive: true, force: true }); });

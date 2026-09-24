@@ -39,6 +39,42 @@ function summary(rows, salary) {
   };
 }
 
+/**
+ * O QUE TERMINOU NO MÊS PASSADO.
+ *
+ * A conta que chegou na última parcela (5/5) sai da lista no mês seguinte — é
+ * o certo, já está paga. Mas sumir sem dizer nada assusta: dá a impressão de
+ * que a conta se perdeu. Então o mês guarda, lá embaixo e miudinho, o registro
+ * do que acabou: o que quitou de vez e o que era só daquele mês.
+ *
+ * É calculado na hora, olhando o mês anterior — nada a mais para guardar.
+ */
+function terminadasAntesDe(org, user, ym) {
+  const anterior = ymPrev(ym);
+  const antes = db.prepare(
+    "SELECT * FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? ORDER BY position, id"
+  ).all(org, user, anterior);
+  if (!antes.length) return [];
+
+  return antes.flatMap((l) => {
+    // Mesma leitura do rollForward: a linha antiga só tem o texto ("3/3"), os
+    // campos de número vieram vazios. Ler só os campos deixava a conta de fora
+    // da lista justamente no mês em que ela some — que é quando importa.
+    const pi = parcelaInfo(l.parcela);
+    const total = l.installment_total != null ? Number(l.installment_total) : pi.total;
+    const atual = l.installment_total != null ? Number(l.installment_num) || 0 : Number(pi.num) || 0;
+    const acabou = total != null && atual >= total;
+    if (!acabou && !l.avulso) return [];
+    // Se ela recadastrou a conta neste mês, não é "terminou": está aí na lista.
+    if (nameExistsInMonth.get(org, user, ym, l.name)) return [];
+    return [{
+      name: l.name, parcela: l.parcela, amount: Number(l.amount) || 0,
+      category: l.category, method: l.method, ym: anterior,
+      motivo: acabou ? "quitou" : "so_daquele_mes",
+    }];
+  });
+}
+
 // GET /api/personal-finance?ym=AAAA-MM
 router.get("/", (req, res) => {
   const ym = (req.query.ym || new Date().toISOString().slice(0, 7)).slice(0, 7);
@@ -55,6 +91,7 @@ router.get("/", (req, res) => {
   res.json({
     ym, salary, preenchido_de,
     entries: rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel, avulso: !!r.avulso })),
+    terminadas: terminadasAntesDe(req.orgId, uid(req), ym),
     summary: resumo,
   });
 });
@@ -204,6 +241,13 @@ function rollForward(row, ym, i) {
   if (row.avulso) return null;
   if (isPerspectiva(row.category)) return null; // Perspectiva vive no Financeiro, não aqui
   let parcela = row.parcela, num = row.installment_num, total = row.installment_total;
+  // A LINHA ANTIGA SÓ TEM O TEXTO. Importações antigas gravaram "3/3" na
+  // parcela e deixaram os campos de número vazios. Sem reler o texto, a conta
+  // era copiada como "3/3" mês após mês: nunca andava e nunca acabava.
+  if (total == null) {
+    const pi = parcelaInfo(row.parcela);
+    if (pi.total != null) { num = pi.num; total = pi.total; }
+  }
   if (total != null) {
     const next = (Number(num) || 0) + 1;
     if (next > total) return null;               // acabou de pagar — some no próximo mês
