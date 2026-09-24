@@ -61,6 +61,7 @@ export default function Financial() {
   const [draft, setDraft] = useState(EMPTY);
   const [flash, setFlash] = useState("");
   const [foraDaGeracao, setForaDaGeracao] = useState([]);  // quem não entrou na geração, e por quê
+  const [previa, setPrevia] = useState(null);              // o que vai acontecer se clicar em Gerar
   // A PROJEÇÃO: o que entra menos o que sai, para ela saber se vai faltar.
   const [projecao, setProjecao] = useState(null);
   const [aReceber, setAReceber] = useState([]);   // o que me devem, sem data
@@ -601,7 +602,7 @@ export default function Financial() {
       </Card>
 
       {/* Gerar mensalidades recorrentes a partir dos clientes cadastrados */}
-      <Dialog open={gerarOpen} onClose={() => setGerarOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={gerarOpen} onClose={() => setGerarOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Gerar mensalidades</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -617,6 +618,52 @@ export default function Financial() {
               <MenuItem value={6}>Próximos 6 meses</MenuItem>
               <MenuItem value={12}>Próximos 12 meses</MenuItem>
             </TextField>
+
+            {/* O QUE VAI ACONTECER, ANTES DE CLICAR.
+                Nasceu de um caso real: duas mensalidades não saíam e não havia
+                como descobrir o motivo sem abrir o banco. Aqui está, cliente por
+                cliente, o que o gerador está vendo — inclusive o valor
+                cadastrado, que é o que costuma faltar. E o cliente APAGADO não
+                aparece em lugar nenhum desta lista: é assim que se descobre que
+                ele não existe mais. */}
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                O que vai acontecer em {previa?.mes || "…"}
+              </Typography>
+              {!previa ? (
+                <Typography variant="caption" color="text.secondary">Conferindo os clientes…</Typography>
+              ) : previa.total === 0 ? (
+                <Typography variant="caption" color="text.secondary">Nenhum cliente cadastrado.</Typography>
+              ) : (
+                <>
+                  <Typography variant="caption" color="text.secondary">
+                    {previa.entram} de {previa.total} cliente(s) entram.
+                  </Typography>
+                  <Stack spacing={0.25} sx={{ mt: 0.75, maxHeight: 260, overflowY: "auto" }}>
+                    {(previa.linhas || []).map((l) => (
+                      <Stack key={l.id} direction="row" spacing={1} alignItems="baseline"
+                        sx={{ px: 1, py: 0.4, borderRadius: 1, bgcolor: "action.hover" }}>
+                        <Typography variant="caption" sx={{ width: 14 }}>{l.entra ? "✓" : "—"}</Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 600, flex: 1, minWidth: 0 }} noWrap>
+                          {l.cliente}
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                          {currency(l.valor)}
+                        </Typography>
+                        <Typography variant="caption" color={l.entra ? "success.main" : "text.secondary"}
+                          sx={{ minWidth: 200, textAlign: "right" }}>
+                          {l.entra ? "entra" : l.motivo}
+                        </Typography>
+                      </Stack>
+                    ))}
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    Cliente que não estiver nesta lista foi apagado do cadastro — não há como lançar
+                    mensalidade para ele.
+                  </Typography>
+                </>
+              )}
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>
