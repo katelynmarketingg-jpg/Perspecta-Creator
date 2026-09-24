@@ -1,4 +1,5 @@
 import { db } from "./db.js";
+import { rodaAvisosDeRenovacao } from "./lp-alertas.js";
 
 // Quantos dias parados na aprovação até cobrar, e o intervalo entre cobranças.
 const DIAS_PARA_COBRAR = 3;
@@ -89,6 +90,9 @@ export function startReminders() {
   const passada = () => {
     try { runApprovalReminders(); } catch (e) { console.error("lembretes:", e.message); }
     try { runRenewalAlerts(); } catch (e) { console.error("renovações:", e.message); }
+    // As renovações anuais das landing pages: o aviso é o produto aqui —
+    // ninguém abre aquela tela todo dia, e o vencimento não espera.
+    try { rodaAvisosDeRenovacao(); } catch (e) { console.error("renovações LP:", e.message); }
   };
   setTimeout(passada, 30 * 1000); // primeira passada 30s depois de subir
   setInterval(passada, UMA_HORA).unref?.();

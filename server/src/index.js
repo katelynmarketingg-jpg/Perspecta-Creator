@@ -33,6 +33,7 @@ import plansRoutes from "./routes/plans.js";
 import integrationsRoutes from "./routes/integrations.js";
 import { sharedRouter } from "./routes/files.js";
 import { signRouter } from "./routes/sign.js";
+import landingRoutes from "./routes/landing.js";
 import briefingsRoutes from "./routes/briefings.js";
 import { briefingPublicRouter } from "./routes/briefing-public.js";
 import { midiaAuthRouter, midiaPublicRouter } from "./routes/briefing-midia.js";
@@ -110,6 +111,7 @@ app.use("/api/plans", plansRoutes);
 app.use("/api/integrations", integrationsRoutes);
 app.use("/api/sign", signRouter);    // assinatura por link público
 app.use("/api/briefing", briefingPublicRouter); // briefing do cliente, por link público
+app.use("/api/landing", landingRoutes);         // landing pages e renovações
 app.use("/api/briefings", briefingsRoutes);     // briefing do lado da equipe
 // As imagens das perguntas visuais: a equipe sobe com login, o cliente vê sem.
 app.use("/api/briefing-midia", midiaPublicRouter);
