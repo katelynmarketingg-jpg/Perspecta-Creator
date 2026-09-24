@@ -6,7 +6,8 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
-import PriorityHighIcon from "@mui/icons-material/PriorityHigh";
+import StarIcon from "@mui/icons-material/Star";
+import StarBorderIcon from "@mui/icons-material/StarBorder";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -317,7 +318,7 @@ export default function MinhasFinancas() {
                         <Tooltip title={e.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
                           <IconButton size="small" color={e.impagavel ? "warning" : "default"}
                             onClick={() => toggleImpagavel(e)}>
-                            <PriorityHighIcon sx={{ fontSize: 16 }} />
+                            {e.impagavel ? <StarIcon sx={{ fontSize: 16 }} /> : <StarBorderIcon sx={{ fontSize: 16 }} />}
                           </IconButton>
                         </Tooltip>
                         <IconButton size="small" onClick={() => setDraft({ ...e, paid: !!e.paid })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>

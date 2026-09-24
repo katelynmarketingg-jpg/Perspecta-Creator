@@ -4,6 +4,9 @@ import { authRequired, moduleAllowed } from "../auth.js";
 import { ensureReceiptForEntry, cancelReceiptForEntry } from "../receipts.js";
 import { sincronizaAvisoDeAberto } from "../overdue.js";
 import { confere } from "../pertence.js";
+// numeroBR: "1.500,50" vira 1500.5. Com Number puro isso viraria 0 — e um
+// recebimento entraria valendo nada, sem ninguém notar.
+import { numeroBR } from "../contract-gen.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("financeiro"));
@@ -380,6 +383,131 @@ router.delete("/:id", (req, res) => {
     try { sincronizaAvisoDeAberto(req.orgId, cur.client_id); } catch { /* o aviso não derruba a exclusão */ }
   }
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// A PROJEÇÃO DO MÊS: vai sobrar ou vai faltar?
+//
+// Os cartões de cima diziam o que já aconteceu ("lucro realizado"). Faltava a
+// pergunta que ela faz de verdade no fim do mês: com o que tenho para receber,
+// eu consigo pagar tudo?
+//
+// A conta inclui, quando ela pede, os gastos dela que estão em Minhas Finanças
+// e NÃO são da Perspectiva — porque o bolso é o mesmo, mesmo que a conta da
+// empresa não os conheça.
+// ---------------------------------------------------------------------------
+router.get("/projecao", (req, res) => {
+  const mes = String(req.query.month || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const doMes = (extra, params = []) => db.prepare(
+    `SELECT COALESCE(SUM(amount),0) v FROM financial_entries
+      WHERE org_id = ? AND strftime('%Y-%m', COALESCE(due_date, created_at)) = ? ${extra}`
+  ).get(req.orgId, mes, ...params).v;
+
+  const entra = doMes("AND type='income'");
+  const sai = doMes("AND type='expense'");
+  const aReceber = doMes("AND type='income' AND status <> 'paid'");
+  const aPagar = doMes("AND type='expense' AND status <> 'paid'");
+
+  // OS GASTOS DELA (Minhas Finanças, fora da categoria Perspectiva). Ficam
+  // separados: são dela, não da empresa — mas ela quer poder somar.
+  const pessoais = db.prepare(
+    `SELECT COALESCE(SUM(amount),0) v FROM personal_finance
+      WHERE org_id = ? AND ym = ? AND paid = 0 AND category NOT LIKE '%perspec%'`
+  ).get(req.orgId, mes).v;
+
+  // O que me devem, sem data: não entra na previsão do mês (não tem mês), mas
+  // ela precisa ver o número na hora de decidir.
+  const meDevem = db.prepare(
+    `SELECT COALESCE(SUM(a.total),0) - COALESCE((
+        SELECT SUM(b.valor) FROM a_receber_baixa b
+         JOIN a_receber_solto s ON s.id = b.a_receber_id
+        WHERE s.org_id = ? AND s.arquivado = 0), 0) AS v
+       FROM a_receber_solto a WHERE a.org_id = ? AND a.arquivado = 0`
+  ).get(req.orgId, req.orgId).v;
+
+  res.json({
+    mes,
+    entra, sai,
+    a_receber: aReceber, a_pagar: aPagar,
+    sobra: entra - sai,
+    // Com os gastos dela junto — o número que responde "dá para pagar tudo?".
+    sobra_com_katelyn: entra - sai - pessoais,
+    katelyn: pessoais,
+    me_devem: Math.max(0, meDevem),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O QUE ME DEVEM — sem data.
+//
+// O espelho de "o que eu devo", que já existe em Minhas Finanças. Alguém ficou
+// de pagar, não há vencimento combinado, e ela vai recebendo aos poucos. Fica
+// fora dos lançamentos com data de propósito: isso não tem mês, e misturar
+// faria a previsão mentir.
+// ---------------------------------------------------------------------------
+function comSaldo(linha) {
+  const pago = db.prepare("SELECT COALESCE(SUM(valor),0) v FROM a_receber_baixa WHERE a_receber_id = ?")
+    .get(linha.id).v;
+  return { ...linha, recebido: pago, falta: Math.max(0, (linha.total || 0) - pago) };
+}
+
+router.get("/a-receber", (req, res) => {
+  const linhas = db.prepare(
+    `SELECT a.*, c.name AS client_name FROM a_receber_solto a
+     LEFT JOIN clients c ON c.id = a.client_id
+     WHERE a.org_id = ? AND a.arquivado = 0 ORDER BY a.created_at DESC`
+  ).all(req.orgId).map(comSaldo);
+  res.json(linhas);
+});
+
+router.post("/a-receber", (req, res) => {
+  const quem = String(req.body?.quem || "").trim().slice(0, 120);
+  if (!quem) return res.status(400).json({ error: "Diga quem está devendo." });
+  const info = db.prepare(
+    "INSERT INTO a_receber_solto (org_id, quem, client_id, total, nota) VALUES (?, ?, ?, ?, ?)"
+  ).run(req.orgId, quem, Number(req.body?.client_id) || null,
+        numeroBR(req.body?.total) || 0, String(req.body?.nota || "").slice(0, 300) || null);
+  res.status(201).json(comSaldo(db.prepare("SELECT * FROM a_receber_solto WHERE id = ?").get(info.lastInsertRowid)));
+});
+
+router.delete("/a-receber/:id", (req, res) => {
+  db.prepare("UPDATE a_receber_solto SET arquivado = 1 WHERE id = ? AND org_id = ?")
+    .run(req.params.id, req.orgId);
+  res.json({ ok: true });
+});
+
+/**
+ * Recebeu um pedaço: abate do saldo E lança no Financeiro.
+ *
+ * O lançamento é o ponto: sem ele, o dinheiro entrou e a previsão do mês não
+ * soube. Com ele, o valor aparece UMA vez — a baixa guarda qual lançamento é.
+ */
+router.post("/a-receber/:id/baixa", (req, res) => {
+  const alvo = db.prepare("SELECT * FROM a_receber_solto WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!alvo) return res.status(404).json({ error: "Cobrança não encontrada." });
+
+  const valor = numeroBR(req.body?.valor);
+  if (!valor || valor <= 0) return res.status(400).json({ error: "Informe o valor recebido." });
+  const quando = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.recebido_em || ""))
+    ? req.body.recebido_em : new Date().toISOString().slice(0, 10);
+
+  const entry = db.prepare(
+    `INSERT INTO financial_entries (org_id, type, description, amount, client_id, category, status, due_date, paid_amount)
+     VALUES (?, 'income', ?, ?, ?, 'Recebimento', 'paid', ?, ?)`
+  ).run(req.orgId, `Recebido de ${alvo.quem}`, valor, alvo.client_id || null, quando, valor);
+
+  db.prepare(
+    "INSERT INTO a_receber_baixa (org_id, a_receber_id, valor, recebido_em, entry_id, nota) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(req.orgId, alvo.id, valor, quando, entry.lastInsertRowid,
+        String(req.body?.nota || "").slice(0, 300) || null);
+
+  const atual = comSaldo(db.prepare("SELECT * FROM a_receber_solto WHERE id = ?").get(alvo.id));
+  // Quitou: some da lista sozinho, como a dívida faz quando zera.
+  if (atual.falta <= 0.005) {
+    db.prepare("UPDATE a_receber_solto SET arquivado = 1 WHERE id = ?").run(alvo.id);
+  }
+  res.status(201).json({ ...atual, lancamento_id: entry.lastInsertRowid });
 });
 
 export default router;

@@ -2,14 +2,15 @@ import { useEffect, useState } from "react";
 import {
   Button, Card, Grid, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Tabs, Tab, Divider,
-  FormControlLabel, Switch, Typography, Box,
+  FormControlLabel, Switch, Typography, Box, CardContent,
 } from "@mui/material";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
-import PriorityHighIcon from "@mui/icons-material/PriorityHigh";
+import StarIcon from "@mui/icons-material/Star";
+import StarBorderIcon from "@mui/icons-material/StarBorder";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
@@ -57,6 +58,12 @@ export default function Financial() {
   const [draft, setDraft] = useState(EMPTY);
   const [flash, setFlash] = useState("");
   const [foraDaGeracao, setForaDaGeracao] = useState([]);  // quem não entrou na geração, e por quê
+  // A PROJEÇÃO: o que entra menos o que sai, para ela saber se vai faltar.
+  const [projecao, setProjecao] = useState(null);
+  const [somarKatelyn, setSomarKatelyn] = useState(false);
+  const [aReceber, setAReceber] = useState([]);   // o que me devem, sem data
+  const [novaCobranca, setNovaCobranca] = useState(null);
+  const [baixando, setBaixando] = useState(null);
   // 'todos' | 'impagaveis' | 'resto' — o mês apertou e ela quer olhar um balão de cada vez.
   const [balao, setBalao] = useState("todos");
   const [gerarOpen, setGerarOpen] = useState(false);
@@ -130,7 +137,37 @@ export default function Financial() {
     const params = rangeAtual();
     api.get("/financial", { params }).then((r) => setRows(r.data));
     api.get("/financial/summary", { params }).then((r) => setSummary(r.data));
+    // A projeção é sempre de um MÊS: "vai sobrar" só faz sentido num mês.
+    const mes = periodo === "mes"
+      ? `${mesCursor.getFullYear()}-${String(mesCursor.getMonth() + 1).padStart(2, "0")}`
+      : new Date().toISOString().slice(0, 7);
+    api.get("/financial/projecao", { params: { month: mes } })
+      .then((r) => setProjecao(r.data)).catch(() => setProjecao(null));
+    api.get("/financial/a-receber").then((r) => setAReceber(r.data)).catch(() => {});
   };
+
+  async function salvarCobranca() {
+    try {
+      await api.post("/financial/a-receber", novaCobranca);
+      setNovaCobranca(null); load();
+    } catch (e) { setFlash(e.response?.data?.error || "Não consegui registrar."); }
+  }
+
+  async function darBaixa() {
+    try {
+      await api.post(`/financial/a-receber/${baixando.cobranca.id}/baixa`,
+        { valor: baixando.valor, recebido_em: baixando.recebido_em });
+      setBaixando(null); load();
+      setFlash("Recebimento lançado no Financeiro e abatido do que ele devia.");
+      setTimeout(() => setFlash(""), 5000);
+    } catch (e) { setFlash(e.response?.data?.error || "Não consegui lançar."); }
+  }
+
+  async function apagarCobranca(c) {
+    if (!window.confirm(`Tirar "${c.quem}" da lista de quem te deve?`)) return;
+    await api.delete(`/financial/a-receber/${c.id}`);
+    load();
+  }
   // Ao vivo: 'vFinancial' muda quando alguém lança/edita no financeiro.
   const vFinancial = useLiveVersion("financial");
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -241,6 +278,12 @@ export default function Financial() {
             <Tooltip title="Puxa a mensalidade de cada cliente (valor + dia de pagamento cadastrados) como receita recorrente">
               <Button variant="outlined" startIcon={<RepeatIcon />} onClick={() => setGerarOpen(true)}>Gerar mensalidades</Button>
             </Tooltip>
+            {/* O caminho mais curto para o lançamento que ela mais faz: já
+                abre como despesa da Perspectiva, sem escolher nada. */}
+            <Button variant="outlined" startIcon={<AddIcon />}
+              onClick={() => { setDraft({ ...EMPTY, type: "expense", category: "Perspectiva" }); setOpen(true); }}>
+              Despesa Perspectiva
+            </Button>
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setDraft(EMPTY); setOpen(true); }}>Lançar</Button>
           </Stack>
         }
@@ -299,6 +342,16 @@ export default function Financial() {
           <StatCard label="Lucro realizado" value={summary ? currency(summary.lucroRealizado) : undefined} />
         </Grid>
       </Grid>
+
+      {/* VAI SOBRAR OU VAI FALTAR. Os cartões de cima dizem o que já aconteceu;
+          este responde a pergunta que ela faz no fim do mês: com o que tenho
+          para receber, dá para pagar tudo? */}
+      {projecao && <Projecao dados={projecao} somarKatelyn={somarKatelyn} onSomar={setSomarKatelyn} />}
+
+      {/* O QUE ME DEVEM — sem data. O espelho de "o que eu devo". */}
+      <QuemMeDeve lista={aReceber} onNova={() => setNovaCobranca({ quem: "", total: "", nota: "", client_id: "" })}
+        onBaixa={(c) => setBaixando({ cobranca: c, valor: "", recebido_em: new Date().toISOString().slice(0, 10) })}
+        onApagar={apagarCobranca} />
 
       <Card>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2, borderBottom: 1, borderColor: "divider" }}>
@@ -392,7 +445,7 @@ export default function Financial() {
                     <Tooltip title={f.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
                       <IconButton size="small" color={f.impagavel ? "warning" : "default"}
                         onClick={() => toggleImpagavel(f)}>
-                        <PriorityHighIcon fontSize="small" />
+                        {f.impagavel ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
                       </IconButton>
                     </Tooltip>
                     <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
@@ -589,6 +642,178 @@ export default function Financial() {
           <Button variant="contained" onClick={save} disabled={!draft.description || !draft.amount}>Salvar</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Nova cobrança: quem me deve, sem data. */}
+      <Dialog open={Boolean(novaCobranca)} onClose={() => setNovaCobranca(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Quem está me devendo</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField size="small" fullWidth label="Quem" autoFocus value={novaCobranca?.quem || ""}
+              onChange={(e) => setNovaCobranca((c) => ({ ...c, quem: e.target.value }))} />
+            <TextField size="small" fullWidth label="Quanto ficou de pagar" value={novaCobranca?.total || ""}
+              onChange={(e) => setNovaCobranca((c) => ({ ...c, total: e.target.value }))}
+              helperText="Pode escrever do jeito daqui: 1.200,00" />
+            <TextField select size="small" fullWidth label="Cliente (opcional)" value={novaCobranca?.client_id || ""}
+              onChange={(e) => setNovaCobranca((c) => ({ ...c, client_id: e.target.value }))}>
+              <MenuItem value="">— nenhum —</MenuItem>
+              {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            </TextField>
+            <TextField size="small" fullWidth label="Do que se trata" value={novaCobranca?.nota || ""}
+              onChange={(e) => setNovaCobranca((c) => ({ ...c, nota: e.target.value }))} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNovaCobranca(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={salvarCobranca}
+            disabled={!novaCobranca?.quem?.trim()}>Registrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Recebi um pedaço: abate do saldo e lança no Financeiro. */}
+      <Dialog open={Boolean(baixando)} onClose={() => setBaixando(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Recebi de {baixando?.cobranca?.quem}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">
+              Falta {baixando ? currency(baixando.cobranca.falta) : ""}. O valor que você lançar aqui
+              entra no Financeiro como recebido e é abatido do que ele devia.
+            </Typography>
+            <TextField size="small" fullWidth label="Valor recebido" autoFocus value={baixando?.valor || ""}
+              onChange={(e) => setBaixando((b) => ({ ...b, valor: e.target.value }))} />
+            <TextField size="small" fullWidth type="date" label="Quando" InputLabelProps={{ shrink: true }}
+              value={baixando?.recebido_em || ""}
+              onChange={(e) => setBaixando((b) => ({ ...b, recebido_em: e.target.value }))} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBaixando(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={darBaixa} disabled={!baixando?.valor}>Lançar</Button>
+        </DialogActions>
+      </Dialog>
+
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// VAI SOBRAR OU VAI FALTAR.
+//
+// Os cartões de cima contam o que já aconteceu. Este responde a pergunta que
+// ela faz de verdade no fim do mês: com o que tenho para receber, eu consigo
+// pagar tudo? E, se ela quiser, somando os gastos dela que estão em Minhas
+// Finanças — porque o bolso é o mesmo, mesmo que a conta da empresa não os veja.
+// ---------------------------------------------------------------------------
+function Projecao({ dados, somarKatelyn, onSomar }) {
+  const sobra = somarKatelyn ? dados.sobra_com_katelyn : dados.sobra;
+  const falta = sobra < 0;
+  return (
+    <Card variant="outlined" sx={{ mb: 3, borderColor: falta ? "error.main" : "divider" }}>
+      <CardContent sx={{ py: 2, "&:last-child": { pb: 2 } }}>
+        <Stack direction="row" spacing={3} alignItems="center" sx={{ flexWrap: "wrap", gap: 2 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              {falta ? "Vai faltar este mês" : "Vai sobrar este mês"}
+            </Typography>
+            <Typography sx={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2,
+                              color: falta ? "error.main" : "success.main" }}>
+              {currency(Math.abs(sobra))}
+            </Typography>
+          </Box>
+
+          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 400 }}>
+            {currency(dados.entra)} entrando − {currency(dados.sai)} saindo
+            {somarKatelyn && dados.katelyn > 0 && <> − {currency(dados.katelyn)} dos seus gastos</>}
+            {/* O QUE AINDA ESTÁ EM ABERTO, dos dois lados. A conta acima já
+                conta com eles; estas linhas dizem quanto ainda depende de
+                alguém pagar — de fora para dentro e de dentro para fora. */}
+            {(dados.a_receber > 0 || dados.a_pagar > 0) && <br />}
+            {dados.a_receber > 0 && (
+              <>Ainda tenho <b>{currency(dados.a_receber)}</b> a receber</>
+            )}
+            {dados.a_receber > 0 && dados.a_pagar > 0 && " · "}
+            {dados.a_pagar > 0 && (
+              <>falta pagar <b>{currency(dados.a_pagar)}</b></>
+            )}
+            {dados.me_devem > 0 && (
+              <><br />Fora isso, me devem {currency(dados.me_devem)} sem data marcada.</>
+            )}
+          </Typography>
+
+          <Box sx={{ flex: 1 }} />
+
+          {dados.katelyn > 0 && (
+            <FormControlLabel control={
+              <Switch size="small" checked={somarKatelyn} onChange={(e) => onSomar(e.target.checked)} />
+            } label={
+              <Typography variant="caption">
+                somar <b>Valores Katelyn</b> ({currency(dados.katelyn)})<br />
+                <Box component="span" sx={{ color: "text.secondary" }}>
+                  o que está em Minhas Finanças e não é da Perspectiva
+                </Box>
+              </Typography>
+            } />
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// O QUE ME DEVEM — sem data.
+//
+// O espelho de "o que eu devo", que já existe em Minhas Finanças. Alguém ficou
+// de pagar e não há vencimento combinado. Fica fora dos lançamentos com data de
+// propósito: isso não tem mês, e misturar faria a previsão mentir. Quando o
+// dinheiro entra de verdade, aí sim vira lançamento.
+// ---------------------------------------------------------------------------
+function QuemMeDeve({ lista, onNova, onBaixa, onApagar }) {
+  const total = lista.reduce((t, c) => t + (c.falta || 0), 0);
+  return (
+    <Card variant="outlined" sx={{ mb: 3 }}>
+      <CardContent sx={{ py: 1.75, "&:last-child": { pb: 1.75 } }}>
+        <Stack direction="row" alignItems="center" sx={{ mb: lista.length ? 1.5 : 0, flexWrap: "wrap", gap: 1 }}>
+          <Typography variant="subtitle2">O que me devem</Typography>
+          {total > 0 && (
+            <Chip size="small" color="warning" variant="outlined" label={currency(total)} />
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+            sem data — não entra na previsão do mês
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" startIcon={<AddIcon />} onClick={onNova}>Nova cobrança</Button>
+        </Stack>
+
+        {lista.length === 0 ? (
+          <Typography variant="caption" color="text.secondary">
+            Ninguém por aqui. Registre quanto estão te devendo e vá lançando conforme receber.
+          </Typography>
+        ) : (
+          <Stack spacing={0.75}>
+            {lista.map((c) => (
+              <Stack key={c.id} direction="row" spacing={1.5} alignItems="center"
+                sx={{ p: 1, borderRadius: 1, bgcolor: "action.hover", flexWrap: "wrap", gap: 1 }}>
+                <Box sx={{ minWidth: 150 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{c.quem}</Typography>
+                  {c.nota && <Typography variant="caption" color="text.secondary">{c.nota}</Typography>}
+                </Box>
+                <Typography variant="body2" sx={{ flex: 1, minWidth: 120 }}>
+                  falta <b>{currency(c.falta)}</b>
+                  {c.recebido > 0 && (
+                    <Typography component="span" variant="caption" color="text.secondary">
+                      {" "}· já recebi {currency(c.recebido)} de {currency(c.total)}
+                    </Typography>
+                  )}
+                </Typography>
+                <Button size="small" onClick={() => onBaixa(c)}>Lançar um valor</Button>
+                <IconButton size="small" onClick={() => onApagar(c)}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+            ))}
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
   );
 }
