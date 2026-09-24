@@ -1306,4 +1306,57 @@ db.prepare("UPDATE files SET expires_at = NULL, expiry_notified_at = NULL WHERE 
   });
 })();
 
+// ---------------------------------------------------------------------------
+// LIMPEZA ÚNICA: as cópias erradas de parcela final.
+//
+// Houve uma versão em que a conta parcelada era copiada para o mês seguinte com
+// o MESMO texto de parcela, sem andar e sem acabar — "3/3" aparecia em dois
+// meses seguidos. O erro já está corrigido, mas os meses abertos naquela versão
+// ficaram com essas linhas, e ninguém quer apagar uma a uma.
+//
+// A limpeza é estreita de propósito. Só apaga a linha que reúne TODAS estas
+// marcas: é a última parcela (n/n no texto), os campos de número estão vazios
+// (o formato antigo, que era o que disparava o erro), existe uma linha idêntica
+// no mês anterior (foi cópia, não lançamento) e ela NÃO foi marcada como paga —
+// se ela encostou na linha, o dado é dela e fica. Roda uma vez só.
+// ---------------------------------------------------------------------------
+db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
+  chave      TEXT PRIMARY KEY,
+  rodou_em   TEXT NOT NULL DEFAULT (datetime('now'))
+);`);
+
+(() => {
+  const CHAVE = "parcela-final-duplicada-2026-09";
+  if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE)) return;
+
+  const mesAnterior = (ym) => {
+    const [y, m] = String(ym).split("-").map(Number);
+    const d = new Date(y, m - 2, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+  const candidatas = db.prepare(
+    `SELECT id, org_id, user_id, ym, name, parcela FROM personal_finance
+      WHERE installment_total IS NULL AND paid = 0 AND parcela LIKE '%/%'`
+  ).all();
+  const igualNoMesAnterior = db.prepare(
+    `SELECT 1 FROM personal_finance
+      WHERE org_id=? AND user_id=? AND ym=? AND name=? AND parcela=? LIMIT 1`
+  );
+  const apagar = db.prepare("DELETE FROM personal_finance WHERE id = ?");
+
+  let apagadas = 0;
+  db.transaction(() => {
+    for (const l of candidatas) {
+      const m = String(l.parcela).match(/^\s*(\d+)\s*\/\s*(\d+)\s*$/);
+      if (!m) continue;
+      if (Number(m[1]) < Number(m[2])) continue;          // ainda tem parcela pela frente
+      if (!igualNoMesAnterior.get(l.org_id, l.user_id, mesAnterior(l.ym), l.name, l.parcela)) continue;
+      apagar.run(l.id);
+      apagadas++;
+    }
+    db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
+  })();
+  if (apagadas) console.log(`Limpeza: ${apagadas} cópia(s) de parcela final removida(s).`);
+})();
+
 export default db;

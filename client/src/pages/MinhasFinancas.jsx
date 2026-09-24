@@ -389,6 +389,11 @@ export default function MinhasFinancas() {
       {/* Dívidas — o que eu devo e vou pagando aos poucos (separado das contas do mês) */}
       <DebtsCard />
 
+      {/* O QUE TERMINOU. Miudinho e lá embaixo, de propósito: não é conta a
+          pagar, é só o registro de que aquela parcela acabou. Sem isso, a conta
+          some do mês e parece que se perdeu. */}
+      {data?.terminadas?.length > 0 && <Terminadas lista={data.terminadas} />}
+
       {/* Novo / editar gasto */}
       <Dialog open={Boolean(draft)} onClose={() => setDraft(null)} fullWidth maxWidth="xs">
         <DialogTitle>{draft?.id ? "Editar gasto" : "Novo gasto"}</DialogTitle>
@@ -460,5 +465,35 @@ export default function MinhasFinancas() {
         </DialogActions>
       </Dialog>
     </>
+  );
+}
+
+// Lista do que não voltou neste mês — quitou de vez ou era só daquele mês.
+// Começa fechada: é informação de conferência, não coisa para fazer.
+function Terminadas({ lista }) {
+  const [aberto, setAberto] = useState(false);
+  const soma = lista.reduce((t, x) => t + (Number(x.amount) || 0), 0);
+  return (
+    <Box sx={{ mt: 2, px: 0.5 }}>
+      <Stack direction="row" alignItems="center" spacing={0.5}
+        sx={{ cursor: "pointer", color: "text.secondary" }} onClick={() => setAberto((v) => !v)}>
+        {aberto ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
+        <Typography variant="caption">
+          Terminou no mês passado e não volta: <b>{lista.length}</b>{" "}
+          {lista.length === 1 ? "conta" : "contas"} · {currency(soma)} a menos
+        </Typography>
+      </Stack>
+      <Collapse in={aberto}>
+        <Stack spacing={0.25} sx={{ mt: 0.75, pl: 2.5 }}>
+          {lista.map((x, i) => (
+            <Typography key={`${x.name}-${i}`} variant="caption" color="text.secondary">
+              <b>{x.name}</b>
+              {x.parcela ? ` (${x.parcela})` : ""} — {currency(x.amount)} ·{" "}
+              {x.motivo === "quitou" ? "última parcela paga" : "era só daquele mês"}
+            </Typography>
+          ))}
+        </Stack>
+      </Collapse>
+    </Box>
   );
 }
