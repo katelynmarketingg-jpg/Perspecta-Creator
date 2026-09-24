@@ -43,9 +43,13 @@ export function quantoFaltaPagar(linhas = []) {
  * A conta que ela quis ver em cima: "o que falta pagar do meu".
  *
  * Palavras dela: "o meu é os valores que tenho em aberto, mais o valor que eu
- * colocar ali de salário". Ou seja — o que ainda precisa sair do caixa este mês
- * é o que falta pagar das contas MAIS o salário que ela ainda quer tirar por
- * cima. E o salário já não é o cheio: desconta o que ela já foi pegando.
+ * colocar ali". Ou seja — o que ainda precisa sair do caixa este mês é o que
+ * falta pagar das contas MAIS o que ela quer tirar para si por cima.
+ *
+ * Esse segundo valor é o LAZER do mês ("se eu vou pegar algo do que sobrou pra
+ * lazer"), não um salário fixo; o campo continua chamado `salario` aqui e
+ * `salary` no banco por história, e a tela diz Lazer. E ele já não é o cheio:
+ * desconta o que ela foi pegando conta a conta ao longo do mês.
  */
 export function oQueFaltaDoMeu(linhas = [], salario = 0) {
   const emAberto = quantoFaltaPagar(linhas);

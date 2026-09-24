@@ -75,6 +75,49 @@ function terminadasAntesDe(org, user, ym) {
   });
 }
 
+/**
+ * AS CONTAS DA PERSPECTIVA QUE CAEM NA MESMA FATURA.
+ *
+ * Gasto da empresa mora no Financeiro — isso não muda, é lá que ele é pago e
+ * contabilizado. Só que ele sai do MESMO cartão que as contas dela: o Nubank PJ
+ * tem Adobe e Netcomet da agência junto com a gasolina e o mercado. Sem ver as
+ * duas coisas no mesmo lugar, o total da fatura aqui fica mentindo, e ela não
+ * consegue responder "quanto preciso pagar neste cartão".
+ *
+ * Então elas APARECEM aqui, marcadas, mas continuam sendo do Financeiro: nada
+ * é copiado para cá. A regra de quem aparece é ter meio de pagamento
+ * preenchido — é isso que quer dizer "saiu por um cartão meu". Salário não
+ * entra: não sai de cartão, e o "Salário Katy" é a soma DESTAS contas, entraria
+ * duas vezes.
+ */
+function daPerspectivaNoMes(orgId, ym, nomeDoDono) {
+  const topicoSalario = topicoDoSalario(nomeDoDono);
+  return db.prepare(
+    `SELECT id, description, amount, category, card, status, paid_amount, due_date, impagavel
+       FROM financial_entries
+      WHERE org_id = ? AND type = 'expense'
+        AND card IS NOT NULL AND TRIM(card) != ''
+        AND COALESCE(category, '') != ?
+        AND strftime('%Y-%m', due_date) = ?
+      ORDER BY due_date, id`
+  ).all(orgId, topicoSalario, ym).map((f) => ({
+    id: `f${f.id}`,                       // id de tela; o de verdade vai em entry_id
+    entry_id: f.id,
+    da_perspectiva: true,                 // a tela marca e não deixa editar aqui
+    name: f.description,
+    parcela: null,
+    amount: Number(f.amount) || 0,
+    method: f.card,
+    category: (f.category || "").trim() || "Perspectiva",
+    paid: f.status === "paid",
+    impagavel: !!f.impagavel,
+    avulso: false,
+    recurring: 0,
+    installment_num: null,
+    installment_total: null,
+  }));
+}
+
 // GET /api/personal-finance?ym=AAAA-MM
 router.get("/", (req, res) => {
   const ym = (req.query.ym || new Date().toISOString().slice(0, 7)).slice(0, 7);
@@ -86,14 +129,48 @@ router.get("/", (req, res) => {
   ).all(req.orgId, uid(req), ym);
   const cfg = db.prepare("SELECT salary FROM personal_finance_config WHERE org_id=? AND user_id=?").get(req.orgId, uid(req));
   const salary = cfg?.salary || 0;
+  const daCasa = daPerspectivaNoMes(req.orgId, ym, req.user.name);
+  const minhas = rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel, avulso: !!r.avulso }));
+
+  // O resumo é sobre o dinheiro DELA: a conta da empresa entra na fatura, mas
+  // não é gasto dela. Por isso o summary continua olhando só as linhas daqui.
   const resumo = summary(rows, salary);
   resumo.meu.topico = topicoDoSalario(req.user.name); // o nome da linha lá no Financeiro
+  resumo.perspectiva = {
+    total: +daCasa.reduce((t, f) => t + f.amount, 0).toFixed(2),
+    aberto: +daCasa.filter((f) => !f.paid).reduce((t, f) => t + f.amount, 0).toFixed(2),
+    quantos: daCasa.length,
+  };
+
   res.json({
     ym, salary, preenchido_de,
-    entries: rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel, avulso: !!r.avulso })),
+    entries: [...minhas, ...daCasa],
     terminadas: terminadasAntesDe(req.orgId, uid(req), ym),
     summary: resumo,
   });
+});
+
+/**
+ * Marcar paga (ou impagável) uma conta da Perspectiva sem sair desta tela.
+ * Ela está fechando a fatura do cartão aqui; mandá-la ao Financeiro para dar um
+ * check seria trocar de tela no meio da conta. O que muda é o lançamento de lá
+ * — aqui não fica cópia nenhuma.
+ */
+router.put("/perspectiva/:entryId", (req, res) => {
+  const alvo = db.prepare(
+    "SELECT * FROM financial_entries WHERE id = ? AND org_id = ? AND type = 'expense'"
+  ).get(req.params.entryId, req.orgId);
+  if (!alvo) return res.status(404).json({ error: "Lançamento não encontrado." });
+
+  const b = req.body || {};
+  if (b.paid !== undefined) {
+    db.prepare("UPDATE financial_entries SET status = ?, paid_at = ? WHERE id = ?")
+      .run(b.paid ? "paid" : "pending", b.paid ? new Date().toISOString() : null, alvo.id);
+  }
+  if (b.impagavel !== undefined) {
+    db.prepare("UPDATE financial_entries SET impagavel = ? WHERE id = ?").run(b.impagavel ? 1 : 0, alvo.id);
+  }
+  res.json({ ok: true });
 });
 
 // PUT /api/personal-finance/config { salary }

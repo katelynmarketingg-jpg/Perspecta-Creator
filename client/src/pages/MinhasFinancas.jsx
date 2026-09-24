@@ -94,6 +94,7 @@ export default function MinhasFinancas() {
       const k = e.method || "Sem método";
       (map[k] ||= { method: e.method || "", items: [], total: 0, pagos: 0 });
       map[k].items.push(e); map[k].total += Number(e.amount) || 0; if (e.paid) map[k].pagos++;
+      if (e.da_perspectiva) map[k].perspectiva = (map[k].perspectiva || 0) + (Number(e.amount) || 0);
     });
     return Object.entries(map).map(([nome, g]) => ({ nome, ...g, allPaid: g.items.length > 0 && g.pagos === g.items.length }))
       .sort((a, b) => b.total - a.total);
@@ -103,8 +104,13 @@ export default function MinhasFinancas() {
   // criar um novo só digitando.
   const metodos = useMemo(() => [...new Set((data?.entries || []).map((e) => e.method).filter(Boolean))].sort(), [data]);
   const categorias = useMemo(() => [...new Set((data?.entries || []).map((e) => e.category).filter(Boolean))].sort(), [data]);
-  // Gastos da Perspectiva que ainda estão aqui (deveriam estar no Financeiro).
-  const perspectiva = useMemo(() => (data?.entries || []).filter((e) => /perspec/i.test(e.category || "")), [data]);
+  // Gastos da Perspectiva que ainda estão AQUI, nas finanças pessoais, e
+  // deveriam estar no Financeiro. As linhas que vêm de lá (da_perspectiva) já
+  // estão no lugar certo — mandar mover essas seria mandar mover o que não é
+  // daqui, e contradiz o aviso logo abaixo.
+  const perspectiva = useMemo(
+    () => (data?.entries || []).filter((e) => !e.da_perspectiva && /perspec/i.test(e.category || "")),
+    [data]);
 
   // `todos` = varre todos os meses; senão, só o mês aberto. Gasto da empresa não
   // é gasto pessoal: o lugar dele é no Financeiro, como despesa.
@@ -130,6 +136,8 @@ export default function MinhasFinancas() {
     load();
   }
 
+  // O campo guarda-se como `salary` no servidor por história; na tela é o
+  // lazer do mês — quanto ela vai tirar para si do que sobrou.
   async function salvarSalario() {
     await api.put("/personal-finance/config", { salary: Number(salaryDraft) || 0 });
     load();
@@ -142,17 +150,27 @@ export default function MinhasFinancas() {
     setDraft(null); load();
   }
   async function excluir(id) { if (confirm("Excluir este gasto?")) { await api.delete(`/personal-finance/${id}`); load(); } }
-  async function togglePago(e) { await api.put(`/personal-finance/${e.id}`, { paid: !e.paid }); load(); }
+  // A linha da Perspectiva mora no Financeiro: o check daqui altera o
+  // lançamento de lá, não uma cópia. Por isso o endereço é outro.
+  const enderecoDe = (e) => e.da_perspectiva
+    ? `/personal-finance/perspectiva/${e.entry_id}`
+    : `/personal-finance/${e.id}`;
+  async function togglePago(e) { await api.put(enderecoDe(e), { paid: !e.paid }); load(); }
   // IMPAGÁVEL: "esta eu NÃO POSSO deixar de pagar" — o aluguel, a parcela do
   // carro, o que não dá para empurrar. Um clique, na
   // própria linha — é um gesto de triagem no meio do aperto, não pode exigir
   // abrir a ficha do gasto.
   async function toggleImpagavel(e) {
-    await api.put(`/personal-finance/${e.id}`, { impagavel: !e.impagavel });
+    await api.put(enderecoDe(e), { impagavel: !e.impagavel });
     load();
   }
   async function pagarFatura(g, paid) {
     await api.put("/personal-finance/pay-method", { ym, method: g.method, paid });
+    // As contas da Perspectiva da mesma fatura vão junto: quem paga o cartão
+    // paga tudo o que está nele, não só a parte dela.
+    for (const e of g.items.filter((x) => x.da_perspectiva)) {
+      await api.put(`/personal-finance/perspectiva/${e.entry_id}`, { paid });
+    }
     load();
   }
   async function importarCSV(file) {
@@ -229,11 +247,17 @@ export default function MinhasFinancas() {
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, mb: 2 }}>
         <Card>
           <CardContent>
-            <Typography variant="caption" color="text.secondary">Salário / renda do mês</Typography>
+            {/* Não é salário: é quanto ela pretende TIRAR do que sobrou, para
+                si — lazer. Por isso entra na conta do "falta pagar do meu":
+                é dinheiro que ainda vai sair do caixa. */}
+            <Typography variant="caption" color="text.secondary">Lazer deste mês</Typography>
             <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
               <TextField size="small" type="number" value={salaryDraft} onChange={(e) => setSalaryDraft(e.target.value)}
                 onBlur={salvarSalario} InputProps={{ startAdornment: <span style={{ marginRight: 4 }}>R$</span> }} fullWidth />
             </Stack>
+            <Typography variant="caption" color="text.secondary">
+              quanto você vai pegar do que sobrou
+            </Typography>
           </CardContent>
         </Card>
         {/* A PERGUNTA DO MÊS: "o que falta pagar do meu?"
@@ -249,7 +273,7 @@ export default function MinhasFinancas() {
             <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
               {s
                 ? `${currency(s.meu?.emAberto || 0)} de contas em aberto` +
-                  (s.meu?.salarioAindaAPegar ? ` + ${currency(s.meu.salarioAindaAPegar)} de salário a pegar` : "")
+                  (s.meu?.salarioAindaAPegar ? ` + ${currency(s.meu.salarioAindaAPegar)} de lazer a pegar` : "")
                 : "\u00a0"}
             </Typography>
           </CardContent>
@@ -257,14 +281,31 @@ export default function MinhasFinancas() {
         {/* Quanto ela JÁ tirou — é exatamente o que aparece no Financeiro como
             um tópico só, engordando a cada check. */}
         <StatCard label={`Já peguei este mês (${s?.meu?.topico || "Salário Katy"})`} value={s ? currency(s.meu?.jaPeguei || 0) : undefined} />
-        <StatCard label="Total do mês" value={s ? currency(s.total) : undefined} />
-        <StatCard label="Comprometido do salário" value={s?.comprometido != null ? `${s.comprometido}%` : "—"} />
+        <StatCard label="Total do mês — só o meu" value={s ? currency(s.total) : undefined} />
         {/* A pergunta do mês apertado: desse tanto que falta, quanto é do que
             não pode esperar de jeito nenhum. É o que ela paga primeiro. */}
         <StatCard
           label={s?.impagavelQuantos ? `Impagáveis em aberto (${s.impagavelQuantos})` : "Impagáveis em aberto"}
           value={s ? currency(s.impagavelAPagar || 0) : undefined} />
+        {/* A conta da empresa está nas mesmas faturas, mas não é gasto dela.
+            Fica num cartão à parte pra não inchar o "meu" nem sumir da vista. */}
+        {s?.perspectiva?.quantos > 0 && (
+          <StatCard
+            label={`Da Perspectiva nestas faturas (${s.perspectiva.quantos})`}
+            value={currency(s.perspectiva.total)} />
+        )}
       </Box>
+
+      {/* As contas da empresa que caem nestas faturas. Dizer isso em uma linha
+          evita a pergunta "por que a Adobe está nas minhas finanças?". */}
+      {s?.perspectiva?.quantos > 0 && (
+        <Alert severity="info" icon={false} sx={{ mb: 2 }}>
+          {s.perspectiva.quantos} conta(s) da <b>Perspectiva</b> (<b>{currency(s.perspectiva.total)}</b>,
+          {" "}{currency(s.perspectiva.aberto)} em aberto) saem destes mesmos cartões e por isso aparecem
+          nas faturas aqui, marcadas em azul. Elas <b>não</b> entram no "falta pagar do meu" — o lançamento
+          delas vive no <b>Financeiro</b>, e é lá que se edita.
+        </Alert>
+      )}
 
       {/* A ponte com o Financeiro, dita em uma linha — pra ela saber que o
           check aqui já virou lançamento lá, sem precisar conferir. */}
@@ -331,7 +372,10 @@ export default function MinhasFinancas() {
                 </Tooltip>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography sx={{ fontWeight: 700 }}>{g.nome}</Typography>
-                  <Typography variant="caption" color="text.secondary">{g.items.length} item(ns) · {g.pagos}/{g.items.length} pagos</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {g.items.length} item(ns) · {g.pagos}/{g.items.length} pagos
+                    {g.perspectiva > 0 && ` · ${currency(g.perspectiva)} da Perspectiva`}
+                  </Typography>
                 </Box>
                 <Tooltip title="Renomear este banco / meio de pagamento">
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); renomearGrupo(g); }}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
@@ -355,7 +399,14 @@ export default function MinhasFinancas() {
                               <Chip size="small" variant="outlined" color="info" label="só neste mês" sx={{ height: 18 }} />
                             </Tooltip>
                           )}
-                          {e.category && <Chip size="small" variant="outlined" label={e.category} sx={{ height: 18 }} />}
+                          {/* É da empresa. Está aqui só porque sai do mesmo
+                              cartão — o dado vive no Financeiro. */}
+                          {e.da_perspectiva && (
+                            <Tooltip title="Conta da Perspectiva. Aparece aqui porque sai deste cartão, mas o lançamento vive no Financeiro.">
+                              <Chip size="small" color="primary" label="Perspectiva" sx={{ height: 18 }} />
+                            </Tooltip>
+                          )}
+                          {e.category && !e.da_perspectiva && <Chip size="small" variant="outlined" label={e.category} sx={{ height: 18 }} />}
                           {e.impagavel && (
                             <Chip size="small" color="warning" label="impagável" sx={{ height: 18 }} />
                           )}
@@ -374,8 +425,16 @@ export default function MinhasFinancas() {
                             {e.impagavel ? <StarIcon sx={{ fontSize: 16 }} /> : <StarBorderIcon sx={{ fontSize: 16 }} />}
                           </IconButton>
                         </Tooltip>
-                        <IconButton size="small" onClick={() => setDraft({ ...e, paid: !!e.paid })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
-                        <IconButton size="small" color="error" onClick={() => excluir(e.id)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
+                        {/* Editar e apagar mexem no dado: o da Perspectiva é
+                            do Financeiro, e mudar por aqui esconderia de onde
+                            a mudança veio. O check e a estrelinha valem, que é
+                            o que ela faz fechando a fatura. */}
+                        {!e.da_perspectiva && (
+                          <>
+                            <IconButton size="small" onClick={() => setDraft({ ...e, paid: !!e.paid })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
+                            <IconButton size="small" color="error" onClick={() => excluir(e.id)}><DeleteIcon sx={{ fontSize: 16 }} /></IconButton>
+                          </>
+                        )}
                       </Box>
                     </Stack>
                   ))}

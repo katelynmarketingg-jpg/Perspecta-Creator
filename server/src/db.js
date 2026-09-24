@@ -1120,10 +1120,14 @@ ensureColumn("clients", "archive_note", "archive_note TEXT");          // o comb
 // trazida para os campos de hoje, para que ninguém que ela já arquivou perca a
 // data combinada nem suma do Financeiro.
 try {
+  // A cópia NÃO pede archived_at. Quem arquivava na versão antiga nem sempre
+  // preenchia esse campo, e exigi-lo deixava a data combinada para trás — a
+  // mensalidade do último mês não saía. Ter `last_payment_month` preenchido já
+  // é a prova de que houve um encerramento combinado; é o que basta. Roda a
+  // cada subida sem repetir efeito: só preenche o que está vazio.
   db.prepare(
     `UPDATE clients SET pagamento_ate = last_payment_month
-      WHERE archived_at IS NOT NULL
-        AND (pagamento_ate IS NULL OR pagamento_ate = '')
+      WHERE (pagamento_ate IS NULL OR pagamento_ate = '')
         AND last_payment_month IS NOT NULL AND last_payment_month <> ''`
   ).run();
   db.prepare("UPDATE clients SET status = 'inactive' WHERE status = 'archived'").run();

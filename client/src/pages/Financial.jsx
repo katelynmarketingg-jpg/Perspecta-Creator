@@ -63,7 +63,6 @@ export default function Financial() {
   const [foraDaGeracao, setForaDaGeracao] = useState([]);  // quem não entrou na geração, e por quê
   // A PROJEÇÃO: o que entra menos o que sai, para ela saber se vai faltar.
   const [projecao, setProjecao] = useState(null);
-  const [somarKatelyn, setSomarKatelyn] = useState(false);
   const [aReceber, setAReceber] = useState([]);   // o que me devem, sem data
   const [novaCobranca, setNovaCobranca] = useState(null);
   const [baixando, setBaixando] = useState(null);
@@ -472,7 +471,7 @@ export default function Financial() {
       {/* VAI SOBRAR OU VAI FALTAR. Os cartões de cima dizem o que já aconteceu;
           este responde a pergunta que ela faz no fim do mês: com o que tenho
           para receber, dá para pagar tudo? */}
-      {projecao && <Projecao dados={projecao} somarKatelyn={somarKatelyn} onSomar={setSomarKatelyn} />}
+      {projecao && <Projecao dados={projecao} />}
 
       {/* O QUE ME DEVEM — sem data. O espelho de "o que eu devo". */}
       <QuemMeDeve lista={aReceber} onNova={() => setNovaCobranca({ quem: "", total: "", nota: "", client_id: "" })}
@@ -547,7 +546,14 @@ export default function Financial() {
                     <TableCell>
                       <Stack direction="row" spacing={1} alignItems="center">
                         {topicoAberto[g.topico] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                        <Typography sx={{ fontWeight: 700 }}>{g.topico}</Typography>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ fontWeight: 700 }}>{g.topico}</Typography>
+                          {/* O que tem dentro, dito no próprio título: "Salários"
+                              sozinho não informa nada. */}
+                          {g.nomes && (
+                            <Typography variant="caption" color="text.secondary">{g.nomes}</Typography>
+                          )}
+                        </Box>
                         <Chip size="small" variant="outlined" label={`${g.itens.length} ${g.itens.length === 1 ? "item" : "itens"}`} sx={{ height: 20 }} />
                         {g.impagaveis > 0 && (
                           <Chip size="small" color="warning" variant="outlined" icon={<StarIcon sx={{ fontSize: 13 }} />}
@@ -850,14 +856,29 @@ export default function Financial() {
 // pagar tudo? E, se ela quiser, somando os gastos dela que estão em Minhas
 // Finanças — porque o bolso é o mesmo, mesmo que a conta da empresa não os veja.
 // ---------------------------------------------------------------------------
-function Projecao({ dados, somarKatelyn, onSomar }) {
-  const sobra = somarKatelyn ? dados.sobra_com_katelyn : dados.sobra;
+/**
+ * VAI SOBRAR OU VAI FALTAR — a conta inteira, sem chavinha.
+ *
+ * Antes os gastos dela ficavam atrás de um interruptor ("somar Valores
+ * Katelyn"): o número grande mudava conforme o estado do botão, e para saber
+ * se dava para pagar tudo era preciso lembrar de ligá-lo. Agora tudo que sai
+ * do caixa está na conta, linha a linha, como as outras saídas. O total é um
+ * só e não depende de ninguém lembrar de nada.
+ */
+function Projecao({ dados }) {
+  const sobra = dados.sobra_com_katelyn;
   const falta = sobra < 0;
+  const linhas = [
+    { rotulo: "entrando", valor: dados.entra, sinal: "+" },
+    { rotulo: "saindo, da Perspectiva", valor: dados.sai, sinal: "−" },
+    { rotulo: "saindo, das suas contas", valor: dados.katelyn, sinal: "−", ajuda: "o que está em aberto nas Minhas Finanças e não é da Perspectiva" },
+  ].filter((l) => l.valor > 0);
+
   return (
     <Card variant="outlined" sx={{ mb: 3, borderColor: falta ? "error.main" : "divider" }}>
       <CardContent sx={{ py: 2, "&:last-child": { pb: 2 } }}>
         <Stack direction="row" spacing={3} alignItems="center" sx={{ flexWrap: "wrap", gap: 2 }}>
-          <Box>
+          <Box sx={{ minWidth: 150 }}>
             <Typography variant="caption" color="text.secondary">
               {falta ? "Vai faltar este mês" : "Vai sobrar este mês"}
             </Typography>
@@ -867,13 +888,32 @@ function Projecao({ dados, somarKatelyn, onSomar }) {
             </Typography>
           </Box>
 
-          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 400 }}>
-            {currency(dados.entra)} entrando − {currency(dados.sai)} saindo
-            {somarKatelyn && dados.katelyn > 0 && <> − {currency(dados.katelyn)} dos seus gastos</>}
-            {/* O QUE AINDA ESTÁ EM ABERTO, dos dois lados. A conta acima já
-                conta com eles; estas linhas dizem quanto ainda depende de
-                alguém pagar — de fora para dentro e de dentro para fora. */}
-            {(dados.a_receber > 0 || dados.a_pagar > 0) && <br />}
+          {/* A conta aberta: cada parcela numa linha, com o sinal na frente. */}
+          <Stack spacing={0.25}>
+            {linhas.map((l) => (
+              <Stack key={l.rotulo} direction="row" spacing={1} alignItems="baseline">
+                <Typography variant="body2" sx={{ width: 14, color: l.sinal === "+" ? "success.main" : "text.secondary" }}>
+                  {l.sinal}
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 96, fontVariantNumeric: "tabular-nums" }}>
+                  {currency(l.valor)}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {l.rotulo}
+                  {l.ajuda && (
+                    <Tooltip title={l.ajuda}>
+                      <Box component="span" sx={{ ml: 0.5, cursor: "help", textDecoration: "underline dotted" }}>?</Box>
+                    </Tooltip>
+                  )}
+                </Typography>
+              </Stack>
+            ))}
+          </Stack>
+
+          {/* O QUE AINDA ESTÁ EM ABERTO, dos dois lados. A conta acima já conta
+              com eles; estas linhas dizem quanto ainda depende de alguém pagar
+              — de fora para dentro e de dentro para fora. */}
+          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 320 }}>
             {dados.a_receber > 0 && (
               <>Ainda tenho <b>{currency(dados.a_receber)}</b> a receber</>
             )}
@@ -882,24 +922,10 @@ function Projecao({ dados, somarKatelyn, onSomar }) {
               <>falta pagar <b>{currency(dados.a_pagar)}</b></>
             )}
             {dados.me_devem > 0 && (
-              <><br />Fora isso, me devem {currency(dados.me_devem)} sem data marcada.</>
+              <>{(dados.a_receber > 0 || dados.a_pagar > 0) && <br />}
+                Fora isso, me devem {currency(dados.me_devem)} sem data marcada.</>
             )}
           </Typography>
-
-          <Box sx={{ flex: 1 }} />
-
-          {dados.katelyn > 0 && (
-            <FormControlLabel control={
-              <Switch size="small" checked={somarKatelyn} onChange={(e) => onSomar(e.target.checked)} />
-            } label={
-              <Typography variant="caption">
-                somar <b>Valores Katelyn</b> ({currency(dados.katelyn)})<br />
-                <Box component="span" sx={{ color: "text.secondary" }}>
-                  o que está em Minhas Finanças e não é da Perspectiva
-                </Box>
-              </Typography>
-            } />
-          )}
         </Stack>
       </CardContent>
     </Card>

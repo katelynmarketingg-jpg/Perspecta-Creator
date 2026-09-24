@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 export const CUSTOS_PERSPECTIVA = "Custos Perspectiva";
+export const SALARIOS = "Salários";
 
 /** Conta da agência: sem categoria, ou marcada como Perspectiva. As duas viram o mesmo tópico. */
 const ehCustoDaCasa = (categoria) => {
@@ -19,9 +20,31 @@ const ehCustoDaCasa = (categoria) => {
   return !c || /perspec/i.test(c);
 };
 
+/**
+ * Salário é salário, escrito como for. Na tela dela havia três linhas em dois
+ * tópicos ("Salário" e "Salários") só por causa da letra final — e o "Salário
+ * Katy" num terceiro. São a mesma coisa e ficam juntas.
+ */
+const ehSalario = (categoria, descricao) =>
+  /sal[áa]rios?\b/i.test(String(categoria ?? "")) || /^\s*sal[áa]rio\b/i.test(String(descricao ?? ""));
+
 /** Em que tópico esta linha entra. */
 export function topicoDaLinha(linha = {}) {
+  if (ehSalario(linha.category, linha.description)) return SALARIOS;
   return ehCustoDaCasa(linha.category) ? CUSTOS_PERSPECTIVA : linha.category.trim();
+}
+
+/**
+ * Os nomes que estão dentro do tópico, para o título dizer o que ele guarda.
+ * "Salários" sozinho não informa nada; "Salário Bruno, Salário Rafaela, Salário
+ * Katy" responde na hora. Com muita coisa dentro, mostra os primeiros e conta
+ * o resto — um título não pode virar parágrafo.
+ */
+export function nomesDoTopico(itens = [], limite = 3) {
+  const nomes = itens.map((i) => (i.description || "").trim()).filter(Boolean);
+  if (!nomes.length) return "";
+  if (nomes.length <= limite) return nomes.join(", ");
+  return `${nomes.slice(0, limite).join(", ")} +${nomes.length - limite}`;
 }
 
 /**
@@ -42,6 +65,7 @@ export function agrupaEmTopicos(linhas = []) {
   }
   return [...mapa.values()].map((g) => ({
     ...g,
+    nomes: nomesDoTopico(g.itens),
     total: +g.total.toFixed(2),
     pago: +g.pago.toFixed(2),
     aberto: +Math.max(0, g.total - g.pago).toFixed(2),
