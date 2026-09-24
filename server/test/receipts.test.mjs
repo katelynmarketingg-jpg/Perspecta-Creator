@@ -62,7 +62,9 @@ test("marcar como pago gera o recibo numerado, com os dados e a assinatura salva
   const r = ensureReceiptForEntry(id);
   assert.ok(r, "deve criar o recibo");
   assert.equal(r.status, "issued");
-  assert.match(r.number, /^\d{4}\/2026$/);
+  // O número traz o mês: "0001/09/2026" — é o que ela consegue ler num papel
+  // guardado, enquanto "0001/2026" sozinho não diz de quando é.
+  assert.match(r.number, /^\d{4}\/\d{2}\/2026$/);
   assert.equal(r.payer_name, "Cliente A");
   assert.equal(r.payer_document, "11122233344");
   assert.equal(r.emitter_document, "12345678000199");
@@ -153,7 +155,7 @@ test("os marcadores do modelo viram os dados do pagamento", () => {
   const id = lancamento(orgA, clienteA, { valor: 300, status: "paid" });
   const r = ensureReceiptForEntry(id);
   const texto = renderBody("{{cliente}} pagou {{valor}} ({{valor_extenso}}) — nº {{numero}}", r);
-  assert.match(texto, /Cliente A pagou R\$\s?300,00 \(trezentos reais\) — nº \d{4}\/2026/);
+  assert.match(texto, /Cliente A pagou R\$\s?300,00 \(trezentos reais\) — nº \d{4}\/\d{2}\/2026/);
   // A visão pronta para a tela já traz o corpo com os marcadores trocados.
   const v = receiptView(r);
   assert.ok(v.body_rendered.includes("Cliente A"));

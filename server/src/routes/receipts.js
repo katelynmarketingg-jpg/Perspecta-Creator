@@ -3,7 +3,7 @@ import { db } from "../db.js";
 import { authRequired, adminRequired, moduleAllowed } from "../auth.js";
 import {
   ensureReceiptForEntry, receiptView, receiptHash, valorPorExtenso, entryPago,
-  defaultTemplate, DEFAULT_BODY, DEFAULT_STYLE, parseStyle, mesExtenso,
+  defaultTemplate, DEFAULT_BODY, DEFAULT_STYLE, parseStyle, mesExtenso, formataNumero,
 } from "../receipts.js";
 
 const router = Router();
@@ -156,7 +156,8 @@ router.post("/templates/preview", (req, res) => {
   // aba Modelos exibe "como o recibo está hoje", e não o texto de fábrica.
   const salvo = defaultTemplate(req.orgId);
   const exemplo = {
-    id: 0, status: "issued", number: "0001/" + new Date().getFullYear(),
+    id: 0, status: "issued",
+    number: formataNumero(1, new Date().getFullYear(), new Date().getMonth() + 1),
     amount: 1250.9, amount_words: valorPorExtenso(1250.9),
     description: "Serviços de social media",
     reference: new Date().toISOString().slice(0, 7).split("-").reverse().join("/"),

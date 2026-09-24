@@ -213,8 +213,22 @@ function proximoSeq(orgId, ano) {
   return (row?.ultimo || 0) + 1;
 }
 
-export function formataNumero(seq, ano) {
-  return `${String(seq).padStart(4, "0")}/${ano}`;
+/**
+ * O NÚMERO DO RECIBO: 0003/09/2026.
+ *
+ * Antes era "0003/2026" e ela não conseguia ler: o 0003 sozinho não diz de
+ * quando é o recibo, e é isso que se procura ao achar um papel guardado. Agora
+ * o mês está no meio — "o terceiro recibo, de setembro de 2026".
+ *
+ * A sequência continua sendo do ANO, não do mês: renumerar por mês faria o
+ * "0001" voltar a existir várias vezes no mesmo ano, e recibo não repete
+ * número. Sem `mes`, devolve o formato antigo — é o que os recibos já emitidos
+ * têm, e documento emitido não se renumera.
+ */
+export function formataNumero(seq, ano, mes = null) {
+  const n = String(seq).padStart(4, "0");
+  if (!mes) return `${n}/${ano}`;
+  return `${n}/${String(mes).padStart(2, "0")}/${ano}`;
 }
 
 /** Só se pode ver/baixar recibo de lançamento PAGO — a regra vale no servidor. */
@@ -250,6 +264,7 @@ export function ensureReceiptForEntry(entryId, { userId = null, ip = null } = {}
   const hoje = new Date().toISOString().slice(0, 10);
   const dataRecibo = (entry.paid_at || hoje).slice(0, 10);
   const ano = Number(dataRecibo.slice(0, 4));
+  const mes = Number(dataRecibo.slice(5, 7));
 
   // Numeração + gravação na mesma transação: dois cliques ao mesmo tempo não
   // conseguem pegar o mesmo número.
@@ -260,8 +275,9 @@ export function ensureReceiptForEntry(entryId, { userId = null, ip = null } = {}
       entry_id: entry.id,
       client_id: entry.client_id || null,
       status: "issued",
-      number: formataNumero(seq, ano),
+      number: formataNumero(seq, ano, mes),
       year: ano,
+      month: mes,
       seq,
       amount: entry.amount,
       amount_words: valorPorExtenso(entry.amount),
@@ -292,12 +308,12 @@ export function ensureReceiptForEntry(entryId, { userId = null, ip = null } = {}
     };
     rec.content_hash = receiptHash(rec);
     const info = db.prepare(`
-      INSERT INTO receipts (org_id, entry_id, client_id, status, number, year, seq, amount, amount_words,
+      INSERT INTO receipts (org_id, entry_id, client_id, status, number, year, month, seq, amount, amount_words,
         description, reference, payment_method, place, receipt_date, notes,
         emitter_name, emitter_document, emitter_address, payer_name, payer_document, payer_address,
         logo, signature_img, signer_name, signer_document, signer_role,
         template_id, body, style, content_hash, version, issued_at, issued_by, issued_ip)
-      VALUES (@org_id, @entry_id, @client_id, @status, @number, @year, @seq, @amount, @amount_words,
+      VALUES (@org_id, @entry_id, @client_id, @status, @number, @year, @month, @seq, @amount, @amount_words,
         @description, @reference, @payment_method, @place, @receipt_date, @notes,
         @emitter_name, @emitter_document, @emitter_address, @payer_name, @payer_document, @payer_address,
         @logo, @signature_img, @signer_name, @signer_document, @signer_role,
