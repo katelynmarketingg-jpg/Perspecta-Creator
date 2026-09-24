@@ -229,6 +229,34 @@ CREATE TABLE IF NOT EXISTS personal_debt_payments (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- O QUE ME DEVEM, sem data. O espelho de "o que eu devo": alguém ficou de
+-- pagar, não há vencimento combinado, e ela vai recebendo aos poucos. Fica
+-- fora dos lançamentos com data de propósito — misturar os dois faria a
+-- previsão do mês mentir, porque isso não tem mês.
+CREATE TABLE IF NOT EXISTS a_receber_solto (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  quem        TEXT NOT NULL,                 -- quem está devendo
+  client_id   INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+  total       REAL NOT NULL DEFAULT 0,       -- quanto ficou de pagar
+  nota        TEXT,
+  arquivado   INTEGER NOT NULL DEFAULT 0,    -- some da lista quando quitado
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- Cada valor recebido daquilo. Quando vira lançamento no Financeiro, guarda
+-- qual — assim o dinheiro aparece uma vez só, e dá para desfazer.
+CREATE TABLE IF NOT EXISTS a_receber_baixa (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id       INTEGER NOT NULL,
+  a_receber_id INTEGER NOT NULL REFERENCES a_receber_solto(id) ON DELETE CASCADE,
+  valor        REAL NOT NULL DEFAULT 0,
+  recebido_em  TEXT,
+  entry_id     INTEGER,                      -- o lançamento gerado, se houver
+  nota         TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_a_receber ON a_receber_solto(org_id, arquivado);
+
 -- Documento de planejamento por cliente e mês (texto rico HTML, escrito no app).
 CREATE TABLE IF NOT EXISTS planning_docs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

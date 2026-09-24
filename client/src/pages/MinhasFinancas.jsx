@@ -6,7 +6,8 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
-import PriorityHighIcon from "@mui/icons-material/PriorityHigh";
+import StarIcon from "@mui/icons-material/Star";
+import StarBorderIcon from "@mui/icons-material/StarBorder";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -218,15 +219,45 @@ export default function MinhasFinancas() {
             </Stack>
           </CardContent>
         </Card>
+        {/* A PERGUNTA DO MÊS: "o que falta pagar do meu?"
+            Nas palavras dela: o que está em aberto MAIS o salário que ela ainda
+            quer tirar por cima. O cartão é maior porque é o número que importa;
+            os outros são o detalhe de como ele se forma. */}
+        <Card sx={{ gridColumn: { xs: "span 2", md: "span 2" }, bgcolor: "primary.main", color: "primary.contrastText" }}>
+          <CardContent>
+            <Typography variant="caption" sx={{ opacity: 0.85 }}>Falta pagar do meu</Typography>
+            <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
+              {s ? currency(s.meu?.total || 0) : "—"}
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+              {s
+                ? `${currency(s.meu?.emAberto || 0)} de contas em aberto` +
+                  (s.meu?.salarioAindaAPegar ? ` + ${currency(s.meu.salarioAindaAPegar)} de salário a pegar` : "")
+                : "\u00a0"}
+            </Typography>
+          </CardContent>
+        </Card>
+        {/* Quanto ela JÁ tirou — é exatamente o que aparece no Financeiro como
+            um tópico só, engordando a cada check. */}
+        <StatCard label={`Já peguei este mês (${s?.meu?.topico || "Salário Katy"})`} value={s ? currency(s.meu?.jaPeguei || 0) : undefined} />
         <StatCard label="Total do mês" value={s ? currency(s.total) : undefined} />
         <StatCard label="Comprometido do salário" value={s?.comprometido != null ? `${s.comprometido}%` : "—"} />
-        <StatCard label="A pagar" value={s ? currency(s.aPagar) : undefined} />
         {/* O segundo número é a pergunta do mês apertado: desse tanto que falta,
             quanto é do que ela já marcou que não vai dar para pagar. */}
         <StatCard
           label={s?.impagavelQuantos ? `Impagáveis a pagar (${s.impagavelQuantos})` : "Impagáveis a pagar"}
           value={s ? currency(s.impagavelAPagar || 0) : undefined} />
       </Box>
+
+      {/* A ponte com o Financeiro, dita em uma linha — pra ela saber que o
+          check aqui já virou lançamento lá, sem precisar conferir. */}
+      {s?.meu?.jaPeguei > 0 && (
+        <Alert severity="success" icon={false} sx={{ mb: 2 }}>
+          O que você já pagou este mês (<b>{currency(s.meu.jaPeguei)}</b>) está no{" "}
+          <b>Financeiro → Despesas</b> numa linha só, <b>{s.meu.topico || "Salário Katy"}</b>. Cada check aqui
+          engorda aquela linha; tirar o check desconta.
+        </Alert>
+      )}
 
       {/* Gráficos */}
       {s && s.total > 0 && (
@@ -317,7 +348,7 @@ export default function MinhasFinancas() {
                         <Tooltip title={e.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
                           <IconButton size="small" color={e.impagavel ? "warning" : "default"}
                             onClick={() => toggleImpagavel(e)}>
-                            <PriorityHighIcon sx={{ fontSize: 16 }} />
+                            {e.impagavel ? <StarIcon sx={{ fontSize: 16 }} /> : <StarBorderIcon sx={{ fontSize: 16 }} />}
                           </IconButton>
                         </Tooltip>
                         <IconButton size="small" onClick={() => setDraft({ ...e, paid: !!e.paid })}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
