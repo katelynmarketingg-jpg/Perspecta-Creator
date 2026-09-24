@@ -46,23 +46,25 @@ const lanc = db.prepare(
   "INSERT INTO financial_entries (org_id, type, description, amount, status, due_date) VALUES (?, ?, ?, ?, ?, ?)"
 );
 
-test("a projeção diz o que entra, o que sai, e o que sobra", async () => {
+test("saldo atual é o que JÁ entrou menos o que JÁ saiu", async () => {
   lanc.run(org, "income", "Mensalidade A", 6200, "paid", "2026-09-10");
   lanc.run(org, "expense", "Salários", 2600, "paid", "2026-09-15");
   const p = await (await chamar("GET", `/projecao?month=${MES}`)).json();
-  assert.equal(p.entra, 6200);
-  assert.equal(p.sai, 2600);
-  assert.equal(p.sobra, 3600);
+  assert.equal(p.entrou, 6200);
+  assert.equal(p.saiu, 2600);
+  assert.equal(p.saldo_atual, 3600, "dinheiro de verdade, não previsão");
 });
 
-test("o que ainda não foi pago aparece separado", async () => {
+test("o que ainda não foi pago fica em 'falta pagar', fora do saldo", async () => {
   lanc.run(org, "expense", "Fornecedor", 400, "pending", "2026-09-28");
   const p = await (await chamar("GET", `/projecao?month=${MES}`)).json();
-  assert.equal(p.a_pagar, 400, "é o que ainda falta pagar");
-  assert.equal(p.sobra, 3200, "e já entra na conta do que vai sobrar");
+  assert.equal(p.saldo_atual, 3600, "o saldo não muda: esse dinheiro ainda não saiu");
+  assert.equal(p.a_pagar_casa, 400);
+  assert.equal(p.falta_pagar, 400);
+  assert.equal(p.sobra_final, 3200, "3600 − 400");
 });
 
-test("os gastos dela em Minhas Finanças entram como conta separada", async () => {
+test("as contas dela em aberto entram no que falta pagar", async () => {
   db.prepare(
     "INSERT INTO personal_finance (org_id,user_id,ym,name,amount,category,paid) VALUES (?,?,?,?,?,?,0)"
   ).run(org, uid, MES, "Mercado", 900, "Casa");
@@ -71,16 +73,38 @@ test("os gastos dela em Minhas Finanças entram como conta separada", async () =
   ).run(org, uid, MES, "Domínio", 60, "Perspectiva");
 
   const p = await (await chamar("GET", `/projecao?month=${MES}`)).json();
-  assert.equal(p.katelyn, 900, "só o que NÃO é da Perspectiva — o resto já vive no Financeiro");
-  assert.equal(p.sobra_com_katelyn, 2300, "3200 − 900: o número que responde 'dá para pagar tudo?'");
+  assert.equal(p.meu_aberto, 900, "só o que NÃO é da Perspectiva — o resto já vive no Financeiro");
+  assert.equal(p.saldo_atual, 3600, "nada saiu ainda");
+  assert.equal(p.falta_pagar, 1300, "400 da casa + 900 dela");
+  assert.equal(p.sobra_final, 2300, "3600 − 1300");
 });
 
-test("gasto já pago dela não conta duas vezes", async () => {
+// A CONTA DOBRADA que ela sentiu: desde que o "Salário Katy" virou o total das
+// contas dela, esse total está entre as despesas do Financeiro. Somar as contas
+// dela outra vez por fora contaria a mesma coisa duas vezes.
+test("a linha do Salário não é contada junto com as contas que a formam", async () => {
+  const antes = await (await chamar("GET", `/projecao?month=${MES}`)).json();
+  lanc.run(org, "expense", "Salário K", 900, "pending", "2026-09-30");
+  db.prepare("UPDATE financial_entries SET category='Salário K' WHERE description='Salário K'").run();
+
+  const p = await (await chamar("GET", `/projecao?month=${MES}`)).json();
+  assert.equal(p.falta_pagar, antes.falta_pagar, "o espelho não soma de novo");
+  assert.equal(p.sobra_final, antes.sobra_final);
+});
+
+test("marcar uma conta dela como paga desconta do saldo na hora", async () => {
+  // É o pedido dela: "quando eu marcar algo como pago das minhas contas,
+  // desconte aquele valor do valor que entrou".
   db.prepare(
     "INSERT INTO personal_finance (org_id,user_id,ym,name,amount,category,paid) VALUES (?,?,?,?,?,?,1)"
   ).run(org, uid, MES, "Luz (paga)", 200, "Casa");
+
   const p = await (await chamar("GET", `/projecao?month=${MES}`)).json();
-  assert.equal(p.katelyn, 900, "o que já saiu não é mais 'a pagar'");
+  assert.equal(p.meu_pago, 200);
+  assert.equal(p.saldo_atual, 3400, "3600 − 200: o dinheiro saiu de verdade");
+  assert.equal(p.meu_aberto, 900, "e ela não aparece mais no que falta");
+  assert.equal(p.falta_pagar, 1300);
+  assert.equal(p.sobra_final, 2100, "3400 − 1300");
 });
 
 // ---------------------------------------------------------------------------
@@ -109,7 +133,7 @@ test("sem nome, não registra", async () => {
 
 test("isso NÃO entra na previsão do mês — não tem mês", async () => {
   const p = await (await chamar("GET", `/projecao?month=${MES}`)).json();
-  assert.equal(p.entra, 6200, "a previsão continua só com o que tem data");
+  assert.equal(p.entrou, 6200, "a conta do mês continua só com o que tem data");
   assert.equal(p.me_devem, 1200, "mas ela vê o número na hora de decidir");
 });
 
@@ -128,9 +152,9 @@ test("receber um pedaço abate o saldo E lança no Financeiro", async () => {
   assert.equal(e.client_id, cli, "vai pendurado no cliente certo");
 });
 
-test("e aí o dinheiro aparece na previsão — uma vez só", async () => {
+test("e aí o dinheiro entra no saldo — uma vez só", async () => {
   const p = await (await chamar("GET", `/projecao?month=${MES}`)).json();
-  assert.equal(p.entra, 6700, "6200 + 500");
+  assert.equal(p.entrou, 6700, "6200 + 500: a baixa vira receita paga");
   assert.equal(p.me_devem, 700, "e o saldo em aberto cai junto");
 });
 

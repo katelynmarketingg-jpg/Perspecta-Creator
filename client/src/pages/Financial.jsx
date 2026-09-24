@@ -915,89 +915,81 @@ export default function Financial() {
 // Finanças — porque o bolso é o mesmo, mesmo que a conta da empresa não os veja.
 // ---------------------------------------------------------------------------
 /**
- * VAI SOBRAR OU VAI FALTAR — a conta inteira, sem chavinha.
+ * AS TRÊS PERGUNTAS DO MÊS, nesta ordem.
  *
- * Antes os gastos dela ficavam atrás de um interruptor ("somar Valores
- * Katelyn"): o número grande mudava conforme o estado do botão, e para saber
- * se dava para pagar tudo era preciso lembrar de ligá-lo. Agora tudo que sai
- * do caixa está na conta, linha a linha, como as outras saídas. O total é um
- * só e não depende de ninguém lembrar de nada.
+ * A versão anterior mostrava "vai sobrar" a partir de TODA a receita do mês,
+ * paga ou não. Não era saldo nenhum: misturava o que já entrou com o que ainda
+ * vai entrar, e por isso a conta nunca fechava com o extrato.
+ *
+ * Agora:
+ *   SALDO ATUAL        o que já entrou menos o que já saiu — dinheiro de
+ *                      verdade. Marcar uma conta como paga desconta aqui.
+ *   AINDA FALTA PAGAR  o que está em aberto, dos dois lados, mais o lazer.
+ *   VAI SOBRAR         o que resta depois de tudo entrar e tudo ser pago.
  */
 function Projecao({ dados }) {
-  const sobra = dados.sobra_com_katelyn;
-  const falta = sobra < 0;
-  const linhas = [
-    { rotulo: "entrando", valor: dados.entra, sinal: "+" },
-    { rotulo: "saindo, da Perspectiva", valor: dados.sai, sinal: "−" },
-    { rotulo: "saindo, das suas contas", valor: dados.katelyn, sinal: "−", ajuda: "o que está em aberto nas Minhas Finanças e não é da Perspectiva" },
-  ].filter((l) => l.valor > 0);
+  const negativo = dados.saldo_atual < 0;
+  const vaiFaltar = dados.sobra_final < 0;
+
+  const Numero = ({ rotulo, valor, cor, destaque = false, children }) => (
+    <Box sx={{ minWidth: 170 }}>
+      <Typography variant="caption" color="text.secondary">{rotulo}</Typography>
+      <Typography sx={{ fontSize: destaque ? 26 : 20, fontWeight: destaque ? 700 : 600,
+                        lineHeight: 1.2, color: cor, fontVariantNumeric: "tabular-nums" }}>
+        {currency(Math.abs(valor))}
+      </Typography>
+      {children}
+    </Box>
+  );
+
+  const Detalhe = ({ children }) => (
+    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>{children}</Typography>
+  );
 
   return (
-    <Card variant="outlined" sx={{ mb: 3, borderColor: falta ? "error.main" : "divider" }}>
+    <Card variant="outlined" sx={{ mb: 3, borderColor: vaiFaltar ? "error.main" : "divider" }}>
       <CardContent sx={{ py: 2, "&:last-child": { pb: 2 } }}>
-        <Stack direction="row" spacing={3} alignItems="center" sx={{ flexWrap: "wrap", gap: 2 }}>
-          <Box sx={{ minWidth: 150 }}>
-            <Typography variant="caption" color="text.secondary">
-              {falta ? "Vai faltar este mês" : "Vai sobrar este mês"}
-            </Typography>
-            <Typography sx={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2,
-                              color: falta ? "error.main" : "success.main" }}>
-              {currency(Math.abs(sobra))}
-            </Typography>
-          </Box>
+        <Stack direction="row" spacing={4} sx={{ flexWrap: "wrap", gap: 3 }}>
+          {/* 1. O que existe agora. */}
+          <Numero rotulo="Saldo atual" valor={dados.saldo_atual} destaque
+                  cor={negativo ? "error.main" : "success.main"}>
+            <Detalhe>{currency(dados.entrou)} entrou − {currency(dados.saiu)} saiu</Detalhe>
+            {dados.meu_pago > 0 && (
+              <Detalhe>disso, {currency(dados.meu_pago)} foram contas suas</Detalhe>
+            )}
+          </Numero>
 
-          {/* A conta aberta: cada parcela numa linha, com o sinal na frente. */}
-          <Stack spacing={0.25}>
-            {linhas.map((l) => (
-              <Stack key={l.rotulo} direction="row" spacing={1} alignItems="baseline">
-                <Typography variant="body2" sx={{ width: 14, color: l.sinal === "+" ? "success.main" : "text.secondary" }}>
-                  {l.sinal}
-                </Typography>
-                <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 96, fontVariantNumeric: "tabular-nums" }}>
-                  {currency(l.valor)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {l.rotulo}
-                  {l.ajuda && (
-                    <Tooltip title={l.ajuda}>
-                      <Box component="span" sx={{ ml: 0.5, cursor: "help", textDecoration: "underline dotted" }}>?</Box>
-                    </Tooltip>
-                  )}
-                </Typography>
-              </Stack>
-            ))}
-          </Stack>
+          {/* 2. O que ainda tem de sair. */}
+          <Numero rotulo="Ainda falta pagar" valor={dados.falta_pagar} cor="warning.main">
+            {dados.a_pagar_casa > 0 && <Detalhe>{currency(dados.a_pagar_casa)} da Perspectiva</Detalhe>}
+            {dados.meu_aberto > 0 && <Detalhe>{currency(dados.meu_aberto)} das suas contas</Detalhe>}
+            {dados.lazer > 0 && <Detalhe>{currency(dados.lazer)} de lazer</Detalhe>}
+            {dados.falta_pagar === 0 && <Detalhe>tudo pago</Detalhe>}
+          </Numero>
 
-          {/* O QUE AINDA ESTÁ EM ABERTO, dos dois lados. A conta acima já conta
-              com eles; estas linhas dizem quanto ainda depende de alguém pagar
-              — de fora para dentro e de dentro para fora. */}
-          <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 320 }}>
-            {dados.a_receber > 0 && (
-              <>Ainda tenho <b>{currency(dados.a_receber)}</b> a receber</>
-            )}
-            {dados.a_receber > 0 && dados.a_pagar > 0 && " · "}
-            {dados.a_pagar > 0 && (
-              <>falta pagar <b>{currency(dados.a_pagar)}</b></>
-            )}
-            {dados.me_devem > 0 && (
-              <>{(dados.a_receber > 0 || dados.a_pagar > 0) && <br />}
-                Fora isso, me devem {currency(dados.me_devem)} sem data marcada.</>
-            )}
-          </Typography>
+          {/* 3. Como o mês termina. */}
+          <Numero rotulo={vaiFaltar ? "Vai faltar no fim do mês" : "Vai sobrar no fim do mês"}
+                  valor={dados.sobra_final} cor={vaiFaltar ? "error.main" : "success.main"}>
+            <Detalhe>
+              saldo {dados.a_receber > 0 ? `+ ${currency(dados.a_receber)} a receber ` : ""}
+              − {currency(dados.falta_pagar)} a pagar
+            </Detalhe>
+          </Numero>
+
+          <Box sx={{ flex: 1 }} />
+
+          {dados.me_devem > 0 && (
+            <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 210 }}>
+              Fora isso, me devem <b>{currency(dados.me_devem)}</b> sem data marcada — por não ter
+              mês, fica fora desta conta.
+            </Typography>
+          )}
         </Stack>
       </CardContent>
     </Card>
   );
 }
 
-// ---------------------------------------------------------------------------
-// O QUE ME DEVEM — sem data.
-//
-// O espelho de "o que eu devo", que já existe em Minhas Finanças. Alguém ficou
-// de pagar e não há vencimento combinado. Fica fora dos lançamentos com data de
-// propósito: isso não tem mês, e misturar faria a previsão mentir. Quando o
-// dinheiro entra de verdade, aí sim vira lançamento.
-// ---------------------------------------------------------------------------
 function QuemMeDeve({ lista, onNova, onBaixa, onApagar, onEditar }) {
   const total = lista.reduce((t, c) => t + (c.falta || 0), 0);
   return (
