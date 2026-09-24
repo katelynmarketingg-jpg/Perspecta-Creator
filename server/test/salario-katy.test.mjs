@@ -186,73 +186,106 @@ const linhaDoSalario = () => db.prepare(
       AND strftime('%Y-%m', due_date)=?`
 ).get(org, MES);
 
-test("dar check num gasto pessoal cria a linha do salário no Financeiro", async () => {
+// O SALÁRIO DELA é o mês inteiro mais o lazer — não "o que já saiu".
+// Palavras dela: "o meu vai ser o que está lá nas minhas finanças de gastos,
+// mais o que eu colocar de lazer. E daí, se eu mudar lá, muda aqui."
+
+test("lançar um gasto já cria a linha do salário, mesmo sem check nenhum", async () => {
   const mac = await (await chamar("POST", "/", { ym: MES, name: "MacBook", amount: 800, category: "Equipamento" })).json();
-  await chamar("POST", "/", { ym: MES, name: "Mercado", amount: 500, category: "Casa" });
-
-  assert.equal(linhaDoSalario(), undefined, "sem check, não existe linha nenhuma");
-
-  await chamar("PUT", `/${mac.id}`, { paid: true });
   const l = linhaDoSalario();
-  assert.ok(l, "o check criou a linha");
+  assert.ok(l, "a conta existe, então já faz parte do salário");
   assert.equal(l.description, "Salário Katy");
   assert.equal(l.amount, 800);
-  assert.equal(l.status, "paid", "o dinheiro já saiu do caixa");
+  assert.equal(l.status, "pending", "é o que a empresa ainda deve pagar a ela");
+  return mac;
 });
 
-test("o segundo check engorda a MESMA linha — não cria outra", async () => {
-  const linhas = db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND ym=? ORDER BY id").all(org, MES);
-  const mercado = linhas.find((l) => l.name === "Mercado");
-  await chamar("PUT", `/${mercado.id}`, { paid: true });
-
-  const todas = db.prepare(
-    "SELECT * FROM financial_entries WHERE org_id=? AND category='Salário Katy'"
-  ).all(org);
-  assert.equal(todas.length, 1, "continua sendo um tópico só");
+test("outro gasto engorda a MESMA linha — não cria outra", async () => {
+  await chamar("POST", "/", { ym: MES, name: "Mercado", amount: 500, category: "Casa" });
+  const todas = db.prepare("SELECT * FROM financial_entries WHERE org_id=? AND category='Salário Katy'").all(org);
+  assert.equal(todas.length, 1, "continua sendo uma linha só");
   assert.equal(todas[0].amount, 1300, "800 + 500");
 });
 
-test("tirar o check faz a linha encolher, e zerar faz ela sumir", async () => {
+test("dar ou tirar o check NÃO mexe no salário — a conta já estava contada", async () => {
   const linhas = db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND ym=? ORDER BY id").all(org, MES);
-  await chamar("PUT", `/${linhas.find((l) => l.name === "Mercado").id}`, { paid: false });
-  assert.equal(linhaDoSalario().amount, 800);
-
-  await chamar("PUT", `/${linhas.find((l) => l.name === "MacBook").id}`, { paid: false });
-  assert.equal(linhaDoSalario(), undefined, "zerou, some do Financeiro");
-});
-
-test("marcar a fatura inteira de um banco também atualiza o tópico", async () => {
-  const linhas = db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND ym=? ORDER BY id").all(org, MES);
-  for (const l of linhas) await chamar("PUT", `/${l.id}`, { method: "Nubank" });
-  await chamar("PUT", "/pay-method", { ym: MES, method: "Nubank", paid: true });
+  const mac = linhas.find((l) => l.name === "MacBook");
+  await chamar("PUT", `/${mac.id}`, { paid: true });
+  assert.equal(linhaDoSalario().amount, 1300);
+  await chamar("PUT", `/${mac.id}`, { paid: false });
   assert.equal(linhaDoSalario().amount, 1300);
 });
 
-test("o resumo responde 'o que falta pagar do meu'", async () => {
-  const linhas = db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND ym=? ORDER BY id").all(org, MES);
-  await chamar("PUT", `/${linhas.find((l) => l.name === "Mercado").id}`, { paid: false });
-  await chamar("PUT", "/config", { salary: 3000 });
+test("o lazer entra no salário, e mudar o lazer muda a linha na hora", async () => {
+  await chamar("PUT", "/config", { salary: 700, ym: MES });
+  assert.equal(linhaDoSalario().amount, 2000, "1.300 de contas + 700 de lazer");
 
-  const r = await (await chamar("GET", `/?ym=${MES}`)).json();
-  assert.equal(r.summary.meu.emAberto, 500, "o Mercado voltou pra aberto");
-  assert.equal(r.summary.meu.jaPeguei, 800, "o MacBook continua pago");
-  assert.equal(r.summary.meu.salarioAindaAPegar, 2200);
-  assert.equal(r.summary.meu.total, 2700, "500 em aberto + 2.200 de salário");
+  await chamar("PUT", "/config", { salary: 0, ym: MES });
+  assert.equal(linhaDoSalario().amount, 1300, "tirou o lazer, a linha encolhe");
+});
+
+test("mudar o valor de um gasto muda a linha junto", async () => {
+  const mercado = db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND ym=? AND name='Mercado'").get(org, MES);
+  await chamar("PUT", `/${mercado.id}`, { amount: 900 });
+  assert.equal(linhaDoSalario().amount, 1700, "800 + 900");
+});
+
+test("se ela marcar o salário como pago lá, continua pago quando a linha muda", async () => {
+  db.prepare("UPDATE financial_entries SET status='paid' WHERE id=?").run(linhaDoSalario().id);
+  await chamar("POST", "/", { ym: MES, name: "Farmácia", amount: 100, category: "Casa" });
+  const l = linhaDoSalario();
+  assert.equal(l.amount, 1800);
+  assert.equal(l.status, "paid", "o que ela marcou é dela e fica");
+  db.prepare("UPDATE financial_entries SET status='pending' WHERE id=?").run(l.id);
 });
 
 test("gasto da Perspectiva vai pro Financeiro e não entra no salário dela", async () => {
+  const antes = linhaDoSalario().amount;
   await chamar("POST", "/", { ym: MES, name: "Registro.br", amount: 90, category: "Perspectiva", paid: true });
-  assert.equal(linhaDoSalario().amount, 800, "o salário não mexeu");
+  assert.equal(linhaDoSalario().amount, antes, "o salário não mexeu");
   const dela = db.prepare(
     "SELECT * FROM financial_entries WHERE org_id=? AND category='Perspectiva' AND description='Registro.br'"
   ).get(org);
   assert.ok(dela, "a despesa da empresa foi pro Financeiro, no tópico Perspectiva");
 });
 
-test("apagar um gasto já pago desconta do tópico", async () => {
-  const mac = db.prepare("SELECT * FROM personal_finance WHERE org_id=? AND ym=? AND name='MacBook'").get(org, MES);
-  await chamar("DELETE", `/${mac.id}`);
-  assert.equal(linhaDoSalario(), undefined);
+test("apagar os gastos e zerar o lazer faz a linha sumir", async () => {
+  for (const l of db.prepare("SELECT id FROM personal_finance WHERE org_id=? AND ym=?").all(org, MES)) {
+    await chamar("DELETE", `/${l.id}`);
+  }
+  await chamar("PUT", "/config", { salary: 0, ym: MES });
+  assert.equal(linhaDoSalario(), undefined, "sem nada, não há salário a pagar");
+});
+
+// A VOLTA: marcar a conta da Perspectiva como paga AQUI marca lá no Financeiro.
+test("marcar a Perspectiva como paga aqui marca como paga no Financeiro", async () => {
+  const entry = db.prepare(
+    `INSERT INTO financial_entries (org_id, type, description, amount, category, status, due_date, card, impagavel)
+     VALUES (?, 'expense', 'Adobe', 55, 'Perspectiva', 'pending', ?, 'Nubank PJ', 0)`
+  ).run(org, `${MES}-10`).lastInsertRowid;
+
+  // ela aparece na fatura daqui, marcada
+  const antes = await (await chamar("GET", `/?ym=${MES}`)).json();
+  const naFatura = antes.entries.find((e) => e.name === "Adobe");
+  assert.ok(naFatura?.da_perspectiva, "está na lista, marcada como da Perspectiva");
+  assert.equal(naFatura.paid, false);
+
+  await chamar("PUT", `/perspectiva/${entry}`, { paid: true });
+  assert.equal(db.prepare("SELECT status FROM financial_entries WHERE id=?").get(entry).status, "paid",
+    "o lançamento do Financeiro ficou pago");
+
+  const depois = await (await chamar("GET", `/?ym=${MES}`)).json();
+  assert.equal(depois.entries.find((e) => e.name === "Adobe").paid, true, "e a fatura daqui mostra pago");
+
+  // e desmarcar volta atrás, dos dois lados
+  await chamar("PUT", `/perspectiva/${entry}`, { paid: false });
+  assert.equal(db.prepare("SELECT status FROM financial_entries WHERE id=?").get(entry).status, "pending");
+});
+
+test("a conta da Perspectiva não vira salário dela nem some do Financeiro", async () => {
+  assert.equal(linhaDoSalario(), undefined, "ela não tem gasto próprio neste mês");
+  assert.ok(db.prepare("SELECT 1 FROM financial_entries WHERE org_id=? AND description='Adobe'").get(org),
+    "a despesa da empresa continua lá, inteira");
 });
 
 after(() => { srv.close(); db.close(); rmSync(dir, { recursive: true, force: true }); });

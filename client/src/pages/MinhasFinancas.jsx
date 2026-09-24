@@ -139,7 +139,7 @@ export default function MinhasFinancas() {
   // O campo guarda-se como `salary` no servidor por história; na tela é o
   // lazer do mês — quanto ela vai tirar para si do que sobrou.
   async function salvarSalario() {
-    await api.put("/personal-finance/config", { salary: Number(salaryDraft) || 0 });
+    await api.put("/personal-finance/config", { salary: Number(salaryDraft) || 0, ym });
     load();
   }
   async function salvarEntry() {
@@ -280,7 +280,7 @@ export default function MinhasFinancas() {
         </Card>
         {/* Quanto ela JÁ tirou — é exatamente o que aparece no Financeiro como
             um tópico só, engordando a cada check. */}
-        <StatCard label={`Já peguei este mês (${s?.meu?.topico || "Salário Katy"})`} value={s ? currency(s.meu?.jaPeguei || 0) : undefined} />
+        <StatCard label="Já paguei deste mês" value={s ? currency(s.meu?.jaPeguei || 0) : undefined} />
         <StatCard label="Total do mês — só o meu" value={s ? currency(s.total) : undefined} />
         {/* A pergunta do mês apertado: desse tanto que falta, quanto é do que
             não pode esperar de jeito nenhum. É o que ela paga primeiro. */}
@@ -309,11 +309,12 @@ export default function MinhasFinancas() {
 
       {/* A ponte com o Financeiro, dita em uma linha — pra ela saber que o
           check aqui já virou lançamento lá, sem precisar conferir. */}
-      {s?.meu?.jaPeguei > 0 && (
+      {s?.total > 0 && (
         <Alert severity="success" icon={false} sx={{ mb: 2 }}>
-          O que você já pagou este mês (<b>{currency(s.meu.jaPeguei)}</b>) está no{" "}
-          <b>Financeiro → Despesas</b> numa linha só, <b>{s.meu.topico || "Salário Katy"}</b>. Cada check aqui
-          engorda aquela linha; tirar o check desconta.
+          O seu mês — <b>{currency(s.total)}</b> de contas
+          {s.meu?.salario > 0 && <> mais <b>{currency(s.meu.salario)}</b> de lazer</>} — aparece no{" "}
+          <b>Financeiro → Despesas</b> como <b>{s.meu?.topico || "Salário Katy"}</b>, junto dos outros salários.
+          Mudou aqui, muda lá.
         </Alert>
       )}
 

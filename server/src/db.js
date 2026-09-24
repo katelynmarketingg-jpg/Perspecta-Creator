@@ -1107,6 +1107,11 @@ ensureColumn("clients", "document", "document TEXT");
 // "quanto devo", é "o que eu pago PRIMEIRO". A estrelinha separa o que tem de
 // sair agora do que pode esperar, dos dois lados (as contas dela e as da casa).
 // ---------------------------------------------------------------------------
+// O mês do recibo, para o número poder dizer de quando ele é (0003/09/2026).
+// Os recibos já emitidos ficam sem: documento emitido não se renumera, e o
+// número antigo continua válido do jeito que foi entregue.
+ensureColumn("receipts", "month", "month INTEGER");
+
 ensureColumn("personal_finance", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
 ensureColumn("financial_entries", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
 ensureColumn("clients", "archived_at", "archived_at TEXT");            // quando foi arquivado

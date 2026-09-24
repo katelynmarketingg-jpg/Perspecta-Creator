@@ -34,6 +34,19 @@ export function quantoJaPeguei(linhas = []) {
   return soma(soMeus(linhas).filter((l) => l.paid));
 }
 
+/**
+ * O SALÁRIO DELA NO MÊS — o que a empresa precisa pagar para ela.
+ *
+ * Palavras dela: "o meu vai ser o que está lá nas minhas finanças de gastos,
+ * mais o que eu colocar de lazer". É o mês inteiro dela, pago ou não, mais o
+ * que ela quer tirar para si por cima. Não é "o que já saiu": é o tamanho do
+ * salário, e por isso não muda quando ela dá um check numa conta — muda quando
+ * ela mexe nas contas ou no lazer.
+ */
+export function quantoEhOMeu(linhas = [], lazer = 0) {
+  return +(soma(soMeus(linhas)) + Math.max(0, Number(lazer) || 0)).toFixed(2);
+}
+
 /** O que ainda está em aberto — o que falta pagar das contas dela. */
 export function quantoFaltaPagar(linhas = []) {
   return soma(soMeus(linhas).filter((l) => !l.paid));
