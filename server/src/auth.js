@@ -72,7 +72,7 @@ export function authRequired(req, res, next) {
     if (!fresh) return res.status(401).json({ error: "Usuário não existe mais." });
     if (!fresh.active) return res.status(403).json({ error: "Usuário desativado." });
 
-    req.user = { ...payload, role: fresh.role, org_id: fresh.org_id };
+    req.user = { ...payload, name: fresh.name, role: fresh.role, org_id: fresh.org_id };
     req.userPermissions = JSON.parse(fresh.permissions || "{}");
 
     // Escopo de escritório: cada um só enxerga os próprios dados. O master

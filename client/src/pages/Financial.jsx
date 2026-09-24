@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   Button, Card, Grid, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Tabs, Tab, Divider,
@@ -16,6 +16,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import PrintIcon from "@mui/icons-material/Print";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import Tooltip from "@mui/material/Tooltip";
 import { Alert } from "@mui/material";
 import api from "../api/client.js";
@@ -23,6 +25,7 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
 import { receiptHtml, printReceipt } from "../receipt.js";
+import { agrupaEmTopicos, valeAPenaAgrupar } from "../topicos.js";
 
 const EMPTY = {
   type: "income", description: "", amount: "", client_id: "", category: "", status: "pending",
@@ -66,6 +69,10 @@ export default function Financial() {
   const [baixando, setBaixando] = useState(null);
   // 'todos' | 'impagaveis' | 'resto' — o mês apertou e ela quer olhar um balão de cada vez.
   const [balao, setBalao] = useState("todos");
+  // Juntar as despesas em tópicos ("Perspectiva", "Salário Katy") em vez de
+  // vinte linhas soltas. Guarda a escolha — ela não precisa clicar todo dia.
+  const [porTopico, setPorTopico] = useState(() => localStorage.getItem("fin:porTopico") !== "0");
+  const [topicoAberto, setTopicoAberto] = useState({});
   const [gerarOpen, setGerarOpen] = useState(false);
   const [gerarMeses, setGerarMeses] = useState(12);
   const [parcial, setParcial] = useState(""); // valor do pagamento parcial
@@ -188,6 +195,87 @@ export default function Financial() {
     .filter((r) => balao === "todos"
       || (balao === "impagaveis" ? !!r.impagavel : !r.impagavel));
   const quantosImpagaveis = rows.filter((r) => r.impagavel).length;
+  // Tópicos só na aba de Despesas: é lá que a lista cresce e vira rolo.
+  const podeAgrupar = tab === "expense" && valeAPenaAgrupar(filtered);
+  const agrupado = porTopico && podeAgrupar;
+  const topicos = agrupado ? agrupaEmTopicos(filtered) : [];
+  const alternaTopico = (nome) => setTopicoAberto((t) => ({ ...t, [nome]: !t[nome] }));
+  function alternaAgrupar(v) {
+    setPorTopico(v);
+    localStorage.setItem("fin:porTopico", v ? "1" : "0");
+  }
+
+  // UMA LINHA DE LANÇAMENTO. Mora numa função porque agora ela aparece em dois
+  // lugares: solta na lista e por dentro de um tópico (aí entra recuada).
+  function linhaDeLancamento(f, dentroDeTopico = false) {
+    return (
+      <TableRow key={f.id} hover>
+      <TableCell sx={dentroDeTopico ? { pl: 6 } : undefined}>
+        {f.description}
+        {f.recurring ? (
+          <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
+            label="Mensal" sx={{ ml: 1, height: 20 }} />
+        ) : null}
+        {f.card ? (
+          <Chip size="small" variant="outlined" label={`💳 ${f.card}`} sx={{ ml: 1, height: 20 }} />
+        ) : null}
+        {/* Essa linha não é digitada: ela é a soma do que foi marcado como pago
+            nas Minhas Finanças. Mexer no valor aqui não adianta — o próximo
+            check reescreve. Melhor dizer isso do que deixar ela descobrir. */}
+        {/^Salário /.test(f.description || "") && f.category === f.description ? (
+          <Tooltip title="Soma do que você marcou como pago em Minhas Finanças. Cada check de lá atualiza este valor.">
+            <Chip size="small" color="info" variant="outlined" label="automático" sx={{ ml: 1, height: 20 }} />
+          </Tooltip>
+        ) : null}
+      </TableCell>
+      <TableCell>{f.client_name || "—"}</TableCell>
+      <TableCell>{formatDate(f.due_date)}</TableCell>
+      <TableCell>
+        {f.status === "paid"
+          ? <Chip size="small" label="Pago" color="success" />
+          : f.status === "partial"
+            ? <Chip size="small" color="info" label={`Parcial · ${currency(f.paid_amount || 0)}/${currency(f.amount)}`} />
+            : <Chip size="small" label="Pendente" color="warning" />}
+      </TableCell>
+      <TableCell align="right" sx={{ color: f.type === "income" ? "primary.main" : "text.secondary", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+        {f.type === "income" ? "+" : "−"} {currency(f.amount)}
+      </TableCell>
+      <TableCell align="right">
+        {f.status !== "paid" && (
+          <Tooltip title={f.type === "income" ? "Marcar como recebido" : "Marcar como pago"}>
+            <IconButton size="small" color="success" onClick={() => markPaid(f)}>
+              <CheckCircleIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {/* Recibo — só de receita, e só depois de marcada como paga. */}
+        {f.type === "income" && (
+          <Tooltip title={
+            f.status !== "paid"
+              ? "Disponível depois de marcar como pago"
+              : f.receipt_id ? `Ver / baixar recibo ${f.receipt_number || ""}` : "Gerar recibo"
+          }>
+            <span>
+              <IconButton size="small" color={f.receipt_id ? "primary" : "default"}
+                disabled={f.status !== "paid"} onClick={() => abrirRecibo(f)}>
+                <ReceiptLongIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+        <Tooltip title={f.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
+          <IconButton size="small" color={f.impagavel ? "warning" : "default"}
+            onClick={() => toggleImpagavel(f)}>
+            {f.impagavel ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
+        <IconButton size="small" color="error" onClick={() => remove(f.id)}><DeleteIcon fontSize="small" /></IconButton>
+      </TableCell>
+    </TableRow>
+    );
+  }
+
 
   async function toggleImpagavel(row) {
     await api.put(`/financial/${row.id}/impagavel`, { impagavel: !row.impagavel });
@@ -378,6 +466,14 @@ export default function Financial() {
               {currency(summary.impagavelAberto)} de impagável ainda em aberto
             </Typography>
           )}
+          {/* JUNTAR EM TÓPICOS. Em vez de vinte linhas soltas (MacBook, monitor,
+              Adobe, celular...), duas: "Perspectiva" e "Salário Katy". Quem quiser
+              o detalhe clica no tópico e ele abre. */}
+          {podeAgrupar && (
+            <FormControlLabel sx={{ ml: "auto", mr: 0 }}
+              control={<Switch size="small" checked={porTopico} onChange={(e) => alternaAgrupar(e.target.checked)} />}
+              label={<Typography variant="caption">Juntar em tópicos</Typography>} />
+          )}
         </Stack>
 
         <TableContainer>
@@ -395,63 +491,49 @@ export default function Financial() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {filtered.map((f) => (
-                <TableRow key={f.id} hover>
-                  <TableCell>
-                    {f.description}
-                    {f.recurring ? (
-                      <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
-                        label="Mensal" sx={{ ml: 1, height: 20 }} />
-                    ) : null}
-                    {f.card ? (
-                      <Chip size="small" variant="outlined" label={`💳 ${f.card}`} sx={{ ml: 1, height: 20 }} />
-                    ) : null}
-                  </TableCell>
-                  <TableCell>{f.client_name || "—"}</TableCell>
-                  <TableCell>{formatDate(f.due_date)}</TableCell>
-                  <TableCell>
-                    {f.status === "paid"
-                      ? <Chip size="small" label="Pago" color="success" />
-                      : f.status === "partial"
-                        ? <Chip size="small" color="info" label={`Parcial · ${currency(f.paid_amount || 0)}/${currency(f.amount)}`} />
-                        : <Chip size="small" label="Pendente" color="warning" />}
-                  </TableCell>
-                  <TableCell align="right" sx={{ color: f.type === "income" ? "primary.main" : "text.secondary", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                    {f.type === "income" ? "+" : "−"} {currency(f.amount)}
-                  </TableCell>
-                  <TableCell align="right">
-                    {f.status !== "paid" && (
-                      <Tooltip title={f.type === "income" ? "Marcar como recebido" : "Marcar como pago"}>
-                        <IconButton size="small" color="success" onClick={() => markPaid(f)}>
-                          <CheckCircleIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {/* Recibo — só de receita, e só depois de marcada como paga. */}
-                    {f.type === "income" && (
-                      <Tooltip title={
-                        f.status !== "paid"
-                          ? "Disponível depois de marcar como pago"
-                          : f.receipt_id ? `Ver / baixar recibo ${f.receipt_number || ""}` : "Gerar recibo"
-                      }>
-                        <span>
-                          <IconButton size="small" color={f.receipt_id ? "primary" : "default"}
-                            disabled={f.status !== "paid"} onClick={() => abrirRecibo(f)}>
-                            <ReceiptLongIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    )}
-                    <Tooltip title={f.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
-                      <IconButton size="small" color={f.impagavel ? "warning" : "default"}
-                        onClick={() => toggleImpagavel(f)}>
-                        {f.impagavel ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
-                      </IconButton>
-                    </Tooltip>
-                    <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
-                    <IconButton size="small" color="error" onClick={() => remove(f.id)}><DeleteIcon fontSize="small" /></IconButton>
-                  </TableCell>
-                </TableRow>
+              {/* Lista solta (do jeito de sempre) ou juntada em tópicos. */}
+              {!agrupado && filtered.map((f) => linhaDeLancamento(f))}
+              {agrupado && topicos.map((g) => (
+                <Fragment key={g.topico}>
+                  {/* Tópico de um item só com o mesmo nome (é o caso do Salário
+                      Katy) já É a linha — abrir mostraria a mesma coisa. */}
+                  {g.itens.length === 1 && g.itens[0].description === g.topico
+                    ? linhaDeLancamento(g.itens[0])
+                    : (<>
+                  {/* A LINHA DO TÓPICO. É o que ela pediu ver: "Perspectiva" e
+                      "Salário Katy" numa linha só, com o total do mês. Clicou,
+                      abre os itens por dentro. */}
+                  <TableRow hover sx={{ cursor: "pointer", bgcolor: "action.hover" }} onClick={() => alternaTopico(g.topico)}>
+                    <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        {topicoAberto[g.topico] ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                        <Typography sx={{ fontWeight: 700 }}>{g.topico}</Typography>
+                        <Chip size="small" variant="outlined" label={`${g.itens.length} ${g.itens.length === 1 ? "item" : "itens"}`} sx={{ height: 20 }} />
+                        {g.impagaveis > 0 && (
+                          <Chip size="small" color="warning" variant="outlined" icon={<StarIcon sx={{ fontSize: 13 }} />}
+                            label={g.impagaveis} sx={{ height: 20 }} />
+                        )}
+                      </Stack>
+                    </TableCell>
+                    <TableCell>—</TableCell>
+                    <TableCell>—</TableCell>
+                    <TableCell>
+                      {g.aberto <= 0
+                        ? <Chip size="small" label="Tudo pago" color="success" />
+                        : <Chip size="small" color="warning" label={`Falta ${currency(g.aberto)}`} />}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+                      − {currency(g.total)}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button size="small" onClick={(e) => { e.stopPropagation(); alternaTopico(g.topico); }}>
+                        {topicoAberto[g.topico] ? "Fechar" : "Ver itens"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  {topicoAberto[g.topico] && g.itens.map((f) => linhaDeLancamento(f, true))}
+                    </>)}
+                </Fragment>
               ))}
               {filtered.length === 0 && (
                 <TableRow><TableCell colSpan={6} align="center" style={{ padding: 32, color: "#888" }}>Nenhum lançamento.</TableCell></TableRow>

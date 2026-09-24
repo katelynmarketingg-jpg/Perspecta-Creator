@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired } from "../auth.js";
+import { topicoDoSalario, quantoJaPeguei, oQueFaltaDoMeu, ultimoDiaDoMes } from "../salario-katy.js";
 
 // ---------------------------------------------------------------------------
 // Finanças pessoais — PRIVADO por usuário. Toda query filtra por req.user.id,
@@ -12,6 +13,8 @@ router.use(authRequired);
 const uid = (req) => req.user.id;
 
 function summary(rows, salary) {
+  // "o que falta pagar do meu" — a conta que ela pediu pra ver em cima.
+  const meu = oQueFaltaDoMeu(rows.map((r) => ({ ...r, paid: !!r.paid })), salary);
   const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const pago = rows.filter((r) => r.paid).reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const byCat = {}, byMethod = {};
@@ -31,6 +34,7 @@ function summary(rows, salary) {
     impagavelTotal, impagavelAPagar, impagavelQuantos: impagaveis.length,
     salary: Number(salary) || 0,
     comprometido: salary > 0 ? Math.round((total / salary) * 100) : null,
+    meu,
     porCategoria: Object.entries(byCat).map(([k, v]) => ({ nome: k, valor: +v.toFixed(2) })).sort((a, b) => b.valor - a.valor),
     porMetodo: Object.entries(byMethod).map(([k, v]) => ({ nome: k, valor: +v.toFixed(2) })).sort((a, b) => b.valor - a.valor),
   };
@@ -45,7 +49,9 @@ router.get("/", (req, res) => {
   ).all(req.orgId, uid(req), ym);
   const cfg = db.prepare("SELECT salary FROM personal_finance_config WHERE org_id=? AND user_id=?").get(req.orgId, uid(req));
   const salary = cfg?.salary || 0;
-  res.json({ ym, salary, entries: rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel })), summary: summary(rows, salary) });
+  const resumo = summary(rows, salary);
+  resumo.meu.topico = topicoDoSalario(req.user.name); // o nome da linha lá no Financeiro
+  res.json({ ym, salary, entries: rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel })), summary: resumo });
 });
 
 // PUT /api/personal-finance/config { salary }
@@ -136,6 +142,47 @@ function mandarParaOFinanceiro(orgId, userId, linha) {
   const criadas = pushExpenseSeries(orgId, linha, linha.ym);
   db.prepare("DELETE FROM personal_finance WHERE id=? AND user_id=?").run(linha.id, userId);
   return criadas;
+}
+
+/**
+ * SALÁRIO KATY — uma linha só no Financeiro, que vai engordando.
+ *
+ * Cada check que ela dá num gasto pessoal é dinheiro que já saiu do caixa da
+ * empresa. Em vez de mandar pro Financeiro vinte linhas soltas (MacBook,
+ * monitor, Adobe...), mantemos UMA despesa por mês com o total do que ela já
+ * pegou — e ela é reescrita a cada check, pra cima ou pra baixo. Zerou, some.
+ *
+ * Gasto da Perspectiva não entra: aquilo é da empresa, não é salário dela.
+ */
+function sincronizaSalarioKaty(orgId, userId, ym, nome) {
+  const topico = topicoDoSalario(nome);
+  const linhas = db.prepare(
+    "SELECT amount, paid, category FROM personal_finance WHERE org_id=? AND user_id=? AND ym=?"
+  ).all(orgId, userId, ym).map((l) => ({ ...l, paid: !!l.paid }));
+  const total = quantoJaPeguei(linhas);
+
+  const atual = db.prepare(
+    `SELECT id FROM financial_entries
+      WHERE org_id=? AND type='expense' AND category=? AND strftime('%Y-%m', due_date)=?
+      ORDER BY id LIMIT 1`
+  ).get(orgId, topico, ym);
+
+  if (total <= 0) {
+    if (atual) db.prepare("DELETE FROM financial_entries WHERE id=?").run(atual.id);
+    return { topico, total: 0 };
+  }
+  if (atual) {
+    db.prepare(
+      "UPDATE financial_entries SET description=?, amount=?, status='paid', paid_at=COALESCE(paid_at, datetime('now')) WHERE id=?"
+    ).run(topico, total, atual.id);
+  } else {
+    insertExpense.run({
+      description: topico, amount: total, category: topico,
+      status: "paid", due_date: ultimoDiaDoMes(ym), paid_at: new Date().toISOString(),
+      recurring: 0, recurring_day: null, card: null, impagavel: 0, org_id: orgId,
+    });
+  }
+  return { topico, total };
 }
 
 const ymNext = (ym) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
@@ -256,6 +303,7 @@ router.post("/", (req, res) => {
   // Se é fixa/parcelada, já leva pros próximos meses que existem (os vazios são
   // preenchidos sozinhos quando ela entrar neles).
   if (created.recurring) propagateForward(req.orgId, uid(req), ym, created);
+  sincronizaSalarioKaty(req.orgId, uid(req), ym, req.user.name);
   res.status(201).json(created);
 });
 
@@ -294,6 +342,7 @@ router.post("/import", (req, res) => {
     db.prepare("UPDATE personal_finance_imports SET count=? WHERE id=?").run(n, importId);
   });
   tx();
+  sincronizaSalarioKaty(req.orgId, uid(req), ym, req.user.name);
   res.json({ imported: n, toFinanceiro, ym, importId });
 });
 
@@ -337,6 +386,7 @@ router.delete("/imports/:id", (req, res) => {
     db.prepare("DELETE FROM personal_finance_imports WHERE id=?").run(imp.id);
   });
   tx();
+  sincronizaSalarioKaty(req.orgId, uid(req), imp.ym, req.user.name);
   res.json({ ok: true });
 });
 
@@ -351,7 +401,8 @@ router.put("/pay-method", (req, res) => {
   db.prepare(
     `UPDATE personal_finance SET paid=@paid WHERE org_id=@org AND user_id=@uid AND ym=@ym AND (${where})`
   ).run({ paid, org: req.orgId, uid: uid(req), ym, method });
-  res.json({ ok: true });
+  const salario = sincronizaSalarioKaty(req.orgId, uid(req), ym, req.user.name);
+  res.json({ ok: true, salario });
 });
 
 // PUT /api/personal-finance/rename-method { ym, from, to } — renomeia o banco/
@@ -433,11 +484,15 @@ router.put("/:id", (req, res) => {
   if (updated.recurring && (b.parcela !== undefined || b.recurring !== undefined)) {
     propagateForward(req.orgId, uid(req), updated.ym, updated);
   }
-  res.json(updated);
+  // Deu (ou tirou) o check: a linha "Salário Katy" do Financeiro acompanha.
+  const salario = sincronizaSalarioKaty(req.orgId, uid(req), updated.ym, req.user.name);
+  res.json({ ...updated, salario });
 });
 
 router.delete("/:id", (req, res) => {
+  const linha = db.prepare("SELECT ym FROM personal_finance WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
   db.prepare("DELETE FROM personal_finance WHERE id=? AND org_id=? AND user_id=?").run(req.params.id, req.orgId, uid(req));
+  if (linha) sincronizaSalarioKaty(req.orgId, uid(req), linha.ym, req.user.name);
   res.json({ ok: true });
 });
 
