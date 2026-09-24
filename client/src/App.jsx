@@ -55,6 +55,7 @@ const SignContract = lazy(() => import("./pages/SignContract.jsx"));
 const Intelligence = lazy(() => import("./pages/Intelligence.jsx"));
 const Briefing = lazy(() => import("./pages/Briefing.jsx"));
 const Onboarding = lazy(() => import("./pages/Onboarding.jsx"));
+const LandingPages = lazy(() => import("./pages/LandingPages.jsx"));
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -104,6 +105,7 @@ export default function App() {
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/clients" element={<Clients />} />
+        <Route path="/landing-pages" element={<LandingPages />} />
         <Route path="/services" element={<Services />} />
         <Route path="/prospects" element={<Prospects />} />
         <Route path="/projects" element={<Projects />} />

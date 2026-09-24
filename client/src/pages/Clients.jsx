@@ -3,7 +3,7 @@ import {
   Button, Card, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack,
   MenuItem, Link, Tooltip, Divider, Autocomplete, Box, Typography,
-  FormControlLabel, Switch, Alert, Grid,
+  FormControlLabel, Switch, Alert, Grid, Tabs, Tab,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -54,7 +54,6 @@ export default function Clients() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
   const [busca, setBusca] = useState("");
-  const [filtroStatus, setFiltroStatus] = useState("");
   const [escopo, setEscopo] = useState("ativos");
   // O logo da casa, para o contrato que não trouxe um próprio.
   const [logoDaCasa, setLogoDaCasa] = useState(null);     // 'ativos' | 'arquivados'
@@ -127,7 +126,6 @@ export default function Clients() {
   }
 
   const filtrados = rows.filter((c) => {
-    if (filtroStatus && c.status !== filtroStatus) return false;
     if (busca) {
       const alvo = `${c.name} ${c.company || ""} ${c.segment || ""}`.toLowerCase();
       if (!alvo.includes(busca.toLowerCase())) return false;
@@ -137,14 +135,16 @@ export default function Clients() {
 
   // "escopo" decide quem a lista traz: os do dia a dia ou os arquivados.
   // Arquivado não some do sistema — só sai da frente.
-  const load = () => api.get("/clients", { params: { escopo } })
+  // Com busca, procura nas DUAS abas: quem digita um nome quer achar aquela
+  // pessoa, não descobrir em qual aba ela está.
+  const load = () => api.get("/clients", { params: { escopo: busca.trim() ? "todos" : escopo } })
     .then((r) => { setRows(r.data); setLoading(false); });
   useEffect(() => {
     load();
     api.get("/services").then((r) => setAllServices(r.data)).catch(() => {});
     api.get("/branding").then((r) => setLogoDaCasa(r.data?.logo || null)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [escopo]);
+  }, [escopo, busca]);
 
   // Ao vivo: recarrega a lista quando alguém mexe em clientes.
   const vClients = useLiveVersion("clients");
@@ -299,31 +299,26 @@ export default function Clients() {
         action={<Button variant="contained" startIcon={<AddIcon />} onClick={openNew}>Novo cliente</Button>}
       />
 
-      {!loading && rows.length > 0 && (
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2.5 }}>
-          <TextField size="small" placeholder="Buscar por nome, empresa ou segmento…"
-            value={busca} onChange={(e) => setBusca(e.target.value)} sx={{ flex: 1, minWidth: 240 }} />
-          <TextField select size="small" label="Status" value={filtroStatus}
-            onChange={(e) => setFiltroStatus(e.target.value)} sx={{ minWidth: 150 }}>
-            <MenuItem value="">Todos</MenuItem>
-            <MenuItem value="active">Ativos</MenuItem>
-            <MenuItem value="inactive">Inativos</MenuItem>
-          </TextField>
-          {/* Onde ficam os encerrados. Eles não somem do sistema: mudam de aba. */}
-          <TextField select size="small" label="Mostrar" value={escopo}
-            onChange={(e) => setEscopo(e.target.value)} sx={{ minWidth: 170 }}>
-            <MenuItem value="ativos">Clientes atuais</MenuItem>
-            <MenuItem value="arquivados">Arquivados</MenuItem>
-          </TextField>
-        </Stack>
-      )}
+      {/* DUAS ABAS: quem está em andamento e quem já passou. Ativos vem
+          primeiro e é onde a tela abre — é o trabalho de hoje. Inativo não
+          some do sistema: sai da lista principal e o histórico fica inteiro. */}
+      <Tabs value={escopo} onChange={(_, v) => setEscopo(v)} sx={{ mb: 2 }}>
+        <Tab value="ativos" label="Ativos" />
+        <Tab value="inativos" label="Inativos" />
+      </Tabs>
+
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2.5 }}>
+        <TextField size="small" placeholder="Buscar por nome, empresa ou segmento…"
+          value={busca} onChange={(e) => setBusca(e.target.value)} sx={{ flex: 1, minWidth: 240 }}
+          helperText={busca ? "Procurando nas duas abas." : " "} />
+      </Stack>
 
       {loading ? (
         <TableSkeleton rows={4} cols={5} />
       ) : rows.length === 0 ? (
-        escopo === "arquivados"
-          ? <EmptyState message="Nenhum cliente arquivado. Quando você encerrar um contrato, ele fica guardado aqui." />
-          : <EmptyState message="Nenhum cliente cadastrado." action={<Button onClick={openNew}>Adicionar</Button>} />
+        escopo === "inativos"
+          ? <EmptyState message="Nenhum cliente inativo. Quando você encerrar um contrato, ele fica guardado aqui." />
+          : <EmptyState message="Nenhum cliente ativo." action={<Button onClick={openNew}>Adicionar</Button>} />
       ) : filtrados.length === 0 ? (
         <EmptyState message="Nenhum cliente encontrado com esse filtro." />
       ) : (

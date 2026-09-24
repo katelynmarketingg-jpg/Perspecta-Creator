@@ -4,6 +4,13 @@ import { authRequired, moduleAllowed } from "../auth.js";
 import { encrypt, decrypt } from "../central.js";
 
 const router = Router();
+
+/** Quem está pedindo, por nome — o token só carrega o id e o e-mail. */
+function nomeDeQuemPediu(req) {
+  if (!req.user?.id) return null;
+  const u = db.prepare("SELECT name, username FROM users WHERE id = ?").get(req.user.id);
+  return u?.name || u?.username || req.user.email || null;
+}
 router.use(authRequired, moduleAllowed("central"));
 
 /**
@@ -50,7 +57,30 @@ router.get("/:id/secret", (req, res) => {
     // que devolver vazio e a pessoa achar que a senha sumiu.
     return res.status(409).json({ error: "Não consegui abrir esta senha — ela foi guardada com outra chave do sistema." });
   }
+  // QUEM VIU, E QUANDO. Guardar criptografada não basta: sem testemunha,
+  // "mostrar senha" é um buraco silencioso. O registro não pode derrubar a
+  // consulta — se falhar, ela ainda vê a senha, mas o erro aparece no log.
+  try {
+    db.prepare(
+      "INSERT INTO segredo_aberto (org_id, item_id, user_id, quem) VALUES (?, ?, ?, ?)"
+    ).run(req.orgId, Number(req.params.id), req.user?.id ?? null, nomeDeQuemPediu(req));
+  } catch (e) {
+    console.error("[central] não consegui registrar quem viu a senha:", e.message);
+  }
+
   res.json({ secret: valor });
+});
+
+// GET /api/workspace/:id/aberturas — quem já abriu esta senha.
+// Fica à vista de propósito: saber que alguém vai ver muda o cuidado de quem
+// abre, e é o que permite reagir se uma senha vazar.
+router.get("/:id/aberturas", (req, res) => {
+  const item = db.prepare("SELECT id FROM workspace_items WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!item) return res.status(404).json({ error: "Item não encontrado." });
+  res.json(db.prepare(
+    "SELECT quem, quando FROM segredo_aberto WHERE org_id = ? AND item_id = ? ORDER BY id DESC LIMIT 50"
+  ).all(req.orgId, item.id));
 });
 
 router.post("/", (req, res) => {

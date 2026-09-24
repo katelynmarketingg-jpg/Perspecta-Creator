@@ -401,6 +401,88 @@ ensureColumn("services", "contract_style", "contract_style TEXT");
 // hora de imprimir, de propósito: mexer no modelo hoje não pode mudar a cara
 // de um contrato que já foi assinado.
 ensureColumn("contracts", "style", "style TEXT");
+
+// ---------------------------------------------------------------------------
+// LANDING PAGES — a venda única que vira obrigação anual.
+//
+// Não é o mesmo negócio do contrato mensal: vende-se uma vez, o site vai ao ar,
+// e a partir daí o que importa é a RENOVAÇÃO — o domínio vence, e alguém tem de
+// cobrar antes disso. Por isso mora em tabela própria, e não como um serviço
+// mensal com valor diferente.
+//
+// Tudo conta a partir de `publicado_em`: é o dia em que o site entrou no ar que
+// marca o ano, não a venda nem a assinatura do contrato.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS landing_pages (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id              INTEGER NOT NULL,
+  client_id           INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  nicho               TEXT,
+  valor               REAL NOT NULL DEFAULT 1000,
+  forma_pagamento     TEXT,
+  parcelas            INTEGER NOT NULL DEFAULT 1,
+  status_pagamento    TEXT NOT NULL DEFAULT 'pendente',  -- pendente | parcial | pago
+  contrato_assinado_em TEXT,
+  publicado_em        TEXT,                              -- AAAA-MM-DD: marca o ano
+  endereco            TEXT,                              -- advogadomarcelolemos.com.br
+  contrato_url        TEXT,
+  entrega_url         TEXT,
+  valor_renovacao     REAL NOT NULL DEFAULT 300,
+  -- O domínio no Registro.br pode vencer em data DIFERENTE da publicação:
+  -- ela confere no painel dele e anota aqui.
+  dominio_vence_em    TEXT,
+  vercel_projeto      TEXT,
+  vercel_url          TEXT,
+  status              TEXT NOT NULL DEFAULT 'ativa',     -- ativa | cancelada
+  observacoes         TEXT,
+  created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_lp_org ON landing_pages(org_id);
+CREATE INDEX IF NOT EXISTS idx_lp_cliente ON landing_pages(org_id, client_id);
+
+CREATE TABLE IF NOT EXISTS lp_renovacoes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  lp_id       INTEGER NOT NULL REFERENCES landing_pages(id) ON DELETE CASCADE,
+  ano         INTEGER NOT NULL,                          -- 1 = 1º aniversário
+  vence_em    TEXT NOT NULL,
+  valor       REAL NOT NULL DEFAULT 300,
+  status      TEXT NOT NULL DEFAULT 'em_dia',            -- em_dia|avisado|pago|cancelado
+  pago_em     TEXT,
+  avisado_em  TEXT,
+  -- Quais avisos já saíram (JSON), para o mesmo não sair todo dia.
+  avisos      TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (lp_id, ano)
+);
+CREATE INDEX IF NOT EXISTS idx_lp_renov ON lp_renovacoes(org_id, vence_em);
+
+-- Pedidos de alteração depois do site no ar, e quanto foi cobrado por eles.
+CREATE TABLE IF NOT EXISTS lp_alteracoes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id     INTEGER NOT NULL,
+  lp_id      INTEGER NOT NULL REFERENCES landing_pages(id) ON DELETE CASCADE,
+  data       TEXT NOT NULL DEFAULT (date('now')),
+  descricao  TEXT NOT NULL,
+  valor      REAL NOT NULL DEFAULT 0,
+  cobrado    INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_lp_alt ON lp_alteracoes(org_id, lp_id);
+
+-- QUEM VIU QUAL SENHA. Guardar senha criptografada não basta: é preciso saber
+-- quem abriu, quando. Sem isto, "mostrar senha" é um buraco sem testemunha.
+CREATE TABLE IF NOT EXISTS segredo_aberto (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id   INTEGER NOT NULL,
+  item_id  INTEGER NOT NULL,
+  user_id  INTEGER,
+  quem     TEXT,
+  quando   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_segredo_aberto ON segredo_aberto(org_id, item_id);
+`);
 // Acesso do cliente ao portal.
 ensureColumn("clients", "portal_email", "portal_email TEXT");
 ensureColumn("clients", "portal_password_hash", "portal_password_hash TEXT");
