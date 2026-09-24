@@ -40,6 +40,15 @@ export function apareceNoFinanceiro(cliente, hoje = new Date().toISOString().sli
 export function filtroDeClientes(escopo, hoje = new Date().toISOString().slice(0, 10)) {
   if (escopo === "todos") return { sql: "", params: [] };
   if (escopo === "arquivados") return { sql: " AND archived_at IS NOT NULL", params: [] };
+  // ATIVOS e INATIVOS são as duas abas da tela de Clientes. Inativo é quem já
+  // passou: arquivado OU marcado como inativo à mão. O histórico continua
+  // inteiro — ele só sai da lista principal.
+  if (escopo === "inativos") {
+    return { sql: " AND (archived_at IS NOT NULL OR status <> 'active')", params: [] };
+  }
+  if (escopo === "ativos") {
+    return { sql: " AND archived_at IS NULL AND status = 'active'", params: [] };
+  }
   if (escopo === "financeiro") {
     // date(pagamento_ate,'start of month','+1 month','-1 day') = fim daquele mês.
     return {
