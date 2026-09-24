@@ -87,13 +87,27 @@ test("as despesas se juntam em tópicos, com total, pago e em aberto", () => {
     { id: 5, category: null, amount: 30, status: "pending" },
   ]);
   // do maior pro menor: o tópico mais pesado do mês encabeça a lista
-  assert.deepEqual(g.map((x) => x.topico), ["Salário Katy", "Perspectiva", "Sem tópico"]);
-  const p = g.find((x) => x.topico === "Perspectiva");
-  assert.equal(p.total, 700);
+  assert.deepEqual(g.map((x) => x.topico), ["Salário Katy", "Custos Perspectiva"]);
+  const p = g.find((x) => x.topico === "Custos Perspectiva");
+  assert.equal(p.total, 730, "os 700 da Perspectiva + os 30 sem categoria");
   assert.equal(p.pago, 150);   // 100 pago + 50 do parcial
-  assert.equal(p.aberto, 550);
+  assert.equal(p.aberto, 580);
   assert.equal(p.impagaveis, 1);
-  assert.equal(p.itens.length, 3);
+  assert.equal(p.itens.length, 4);
+});
+
+test("despesa sem categoria é conta da casa — cai em Custos Perspectiva", () => {
+  // Era exatamente a tela dela: dez assinaturas soltas, nenhuma com categoria.
+  const g = agrupaEmTopicos([
+    { id: 1, description: "Netcomet", amount: 119.9, status: "pending" },
+    { id: 2, description: "Adobe", amount: 55, status: "pending", category: "" },
+    { id: 3, description: "Claude+ chat+ dropbox+ apple", amount: 530, status: "pending", category: null },
+    { id: 4, description: "Apple + Canva", amount: 85, status: "pending", category: "  " },
+  ]);
+  assert.equal(g.length, 1, "vira uma linha só");
+  assert.equal(g[0].topico, "Custos Perspectiva");
+  assert.equal(g[0].total, 789.9);
+  assert.equal(g[0].itens.length, 4, "e o detalhe continua guardado, pra abrir");
 });
 
 test("com pouca coisa na tela, juntar em tópicos só atrapalha", () => {
@@ -104,6 +118,16 @@ test("com pouca coisa na tela, juntar em tópicos só atrapalha", () => {
   // oito linhas, oito tópicos diferentes: agrupar não junta nada
   const espalhadas = Array.from({ length: 8 }, (_, i) => ({ category: `Tópico ${i}`, amount: 10 }));
   assert.ok(!valeAPenaAgrupar(espalhadas));
+});
+
+test("a linha do salário dela não se mistura com os custos da casa", () => {
+  const g = agrupaEmTopicos([
+    { id: 1, description: "Salário Katy", category: "Salário Katy", amount: 1600, status: "paid" },
+    { id: 2, description: "Netcomet", amount: 119.9, status: "pending" },
+    { id: 3, description: "Registro.br", category: "Perspectiva", amount: 89, status: "pending" },
+  ]);
+  assert.deepEqual(g.map((x) => x.topico), ["Salário Katy", "Custos Perspectiva"]);
+  assert.equal(g[1].total, 208.9);
 });
 
 // --- a ponte de verdade, com banco e rotas ---------------------------------

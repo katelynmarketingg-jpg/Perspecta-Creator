@@ -154,4 +154,79 @@ test("cobrança de outra casa não aparece", async () => {
   assert.ok(!lista.some((x) => x.quem === "Alguém"));
 });
 
+// --- EDITAR A DÍVIDA -------------------------------------------------------
+// Nome errado, valor digitado torto, nota vaga. Antes só dava para apagar e
+// cadastrar de novo — e aí ia junto o histórico do que já tinha sido recebido.
+
+test("dá para consertar o nome, o valor e a nota sem perder o histórico", async () => {
+  const c = await (await chamar("POST", "/a-receber", { quem: "RAF", total: "1,80", nota: "Mensalidades atrasadas" })).json();
+  await chamar("POST", `/a-receber/${c.id}/baixa`, { valor: "0,80" });
+
+  const d = await (await chamar("PUT", `/a-receber/${c.id}`, { quem: "RAF Comunicação", total: "1.800,00" })).json();
+  assert.equal(d.quem, "RAF Comunicação");
+  assert.equal(d.total, 1800);
+  assert.equal(d.nota, "Mensalidades atrasadas", "o que não veio no corpo fica como estava");
+  assert.equal(d.recebido, 0.8, "o que já entrou continua contado");
+  assert.equal(d.falta, 1799.2);
+});
+
+test("editar sem nome não passa", async () => {
+  const c = await (await chamar("POST", "/a-receber", { quem: "Fulano", total: 100 })).json();
+  assert.equal((await chamar("PUT", `/a-receber/${c.id}`, { quem: "   " })).status, 400);
+  assert.equal((await chamar("PUT", "/a-receber/999999", { quem: "X" })).status, 404);
+});
+
+test("baixar o total pra menos do que já entrou dá a dívida por quitada", async () => {
+  const c = await (await chamar("POST", "/a-receber", { quem: "Beltrano", total: 1000 })).json();
+  await chamar("POST", `/a-receber/${c.id}/baixa`, { valor: 400 });
+  const d = await (await chamar("PUT", `/a-receber/${c.id}`, { total: 300 })).json();
+  assert.equal(d.quitado, true);
+  const lista = await (await chamar("GET", "/a-receber")).json();
+  assert.ok(!lista.some((x) => x.id === c.id));
+});
+
+test("dívida nova com total zerado continua na lista — é rascunho, não quitação", async () => {
+  const c = await (await chamar("POST", "/a-receber", { quem: "A combinar", total: 0 })).json();
+  const d = await (await chamar("PUT", `/a-receber/${c.id}`, { nota: "ver quanto é" })).json();
+  assert.ok(!d.quitado);
+  const lista = await (await chamar("GET", "/a-receber")).json();
+  assert.ok(lista.some((x) => x.id === c.id));
+});
+
+test("o histórico mostra cada valor recebido", async () => {
+  const c = await (await chamar("POST", "/a-receber", { quem: "Cicrano", total: 900 })).json();
+  await chamar("POST", `/a-receber/${c.id}/baixa`, { valor: 300, recebido_em: "2026-09-10" });
+  await chamar("POST", `/a-receber/${c.id}/baixa`, { valor: 200, recebido_em: "2026-09-18" });
+  const h = await (await chamar("GET", `/a-receber/${c.id}/baixas`)).json();
+  assert.equal(h.length, 2);
+  assert.equal(h[0].valor, 200, "do mais novo pro mais velho");
+  assert.equal(h[1].valor, 300);
+});
+
+test("desfazer um valor lançado tira o saldo E a entrada do Financeiro", async () => {
+  const c = await (await chamar("POST", "/a-receber", { quem: "Enganei", total: 500 })).json();
+  const baixa = await (await chamar("POST", `/a-receber/${c.id}/baixa`, { valor: 500 })).json();
+  const entryId = baixa.lancamento_id;
+  assert.ok(db.prepare("SELECT 1 FROM financial_entries WHERE id = ?").get(entryId), "a entrada existe");
+
+  const h = await (await chamar("GET", `/a-receber/${c.id}/baixas`)).json();
+  const d = await (await chamar("DELETE", `/a-receber/${c.id}/baixa/${h[0].id}`)).json();
+  assert.equal(d.recebido, 0);
+  assert.equal(d.falta, 500);
+  assert.equal(db.prepare("SELECT 1 FROM financial_entries WHERE id = ?").get(entryId), undefined,
+    "a entrada fantasma não fica no Financeiro");
+
+  // tinha sumido por estar quitada: voltou a faltar, volta pra lista
+  const lista = await (await chamar("GET", "/a-receber")).json();
+  assert.ok(lista.some((x) => x.id === c.id));
+});
+
+test("dívida de outra casa não se edita nem se desfaz", async () => {
+  const outra = db.prepare("INSERT INTO organizations (name,is_master) VALUES ('Vizinha 2',0)").run().lastInsertRowid;
+  const alheia = db.prepare("INSERT INTO a_receber_solto (org_id, quem, total) VALUES (?, 'Outro', 50)").run(outra).lastInsertRowid;
+  assert.equal((await chamar("PUT", `/a-receber/${alheia}`, { total: 1 })).status, 404);
+  assert.equal((await chamar("GET", `/a-receber/${alheia}/baixas`)).status, 404);
+  assert.equal((await chamar("DELETE", `/a-receber/${alheia}/baixa/1`)).status, 404);
+});
+
 after(() => { srv.close(); db.close(); rmSync(dir, { recursive: true, force: true }); });

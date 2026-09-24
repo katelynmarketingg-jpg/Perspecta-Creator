@@ -67,7 +67,9 @@ export default function Financial() {
   const [aReceber, setAReceber] = useState([]);   // o que me devem, sem data
   const [novaCobranca, setNovaCobranca] = useState(null);
   const [baixando, setBaixando] = useState(null);
-  // 'todos' | 'impagaveis' | 'resto' — o mês apertou e ela quer olhar um balão de cada vez.
+  const [historico, setHistorico] = useState([]);  // o que já foi recebido da dívida em edição
+  // 'todos' | 'impagaveis' | 'resto' — quando o dinheiro está curto ela quer ver
+  // primeiro o que NÃO pode deixar de pagar, e só depois o que pode esperar.
   const [balao, setBalao] = useState("todos");
   // Juntar as despesas em tópicos ("Perspectiva", "Salário Katy") em vez de
   // vinte linhas soltas. Guarda a escolha — ela não precisa clicar todo dia.
@@ -153,11 +155,43 @@ export default function Financial() {
     api.get("/financial/a-receber").then((r) => setAReceber(r.data)).catch(() => {});
   };
 
+  // O mesmo formulário cria e conserta: com id, edita; sem id, registra.
   async function salvarCobranca() {
     try {
-      await api.post("/financial/a-receber", novaCobranca);
-      setNovaCobranca(null); load();
-    } catch (e) { setFlash(e.response?.data?.error || "Não consegui registrar."); }
+      if (novaCobranca.id) {
+        const r = await api.put(`/financial/a-receber/${novaCobranca.id}`, novaCobranca);
+        if (r.data?.quitado) {
+          setFlash("Como o total ficou menor do que você já recebeu, dei a dívida por quitada.");
+          setTimeout(() => setFlash(""), 7000);
+        }
+      } else {
+        await api.post("/financial/a-receber", novaCobranca);
+      }
+      setNovaCobranca(null); setHistorico([]); load();
+    } catch (e) { setFlash(e.response?.data?.error || "Não consegui salvar."); }
+  }
+
+  // Abre a dívida para conserto, já com o histórico do que entrou. O valor volta
+  // escrito do jeito daqui (1.800,00), não como o banco guarda (1800) — senão
+  // ela reescreve o número toda vez que abre.
+  async function editarCobranca(c) {
+    const total = Number(c.total || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    setNovaCobranca({ id: c.id, quem: c.quem, total, nota: c.nota || "", client_id: c.client_id || "" });
+    try {
+      const r = await api.get(`/financial/a-receber/${c.id}/baixas`);
+      setHistorico(r.data || []);
+    } catch { setHistorico([]); }
+  }
+
+  // Lançou errado: some o valor daqui E a entrada que ele criou no Financeiro.
+  async function desfazerBaixa(b) {
+    if (!window.confirm(`Desfazer o recebimento de ${currency(b.valor)}?\n\nO valor volta a faltar na dívida e a entrada sai do Financeiro.`)) return;
+    try {
+      await api.delete(`/financial/a-receber/${novaCobranca.id}/baixa/${b.id}`);
+      const r = await api.get(`/financial/a-receber/${novaCobranca.id}/baixas`);
+      setHistorico(r.data || []);
+      load();
+    } catch (e) { setFlash(e.response?.data?.error || "Não consegui desfazer."); }
   }
 
   async function darBaixa() {
@@ -188,17 +222,21 @@ export default function Financial() {
   }, []);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
-  // IMPAGÁVEIS: o que ela marcou como "não vai dar para pagar este mês". Os dois
+  // IMPAGÁVEIS: o que ela marcou como "não posso deixar de pagar". Os dois
   // balões somam o total — nada some, só muda de lado.
   const filtered = rows
     .filter((r) => tab === "all" || r.type === tab)
     .filter((r) => balao === "todos"
       || (balao === "impagaveis" ? !!r.impagavel : !r.impagavel));
   const quantosImpagaveis = rows.filter((r) => r.impagavel).length;
-  // Tópicos só na aba de Despesas: é lá que a lista cresce e vira rolo.
-  const podeAgrupar = tab === "expense" && valeAPenaAgrupar(filtered);
+  // Quem vira tópico é DESPESA. Receita fica linha a linha — cada uma é de um
+  // cliente, e é isso que ela quer ver. Vale na aba Todos também: foi lá que ela
+  // reclamou do rolo de assinaturas.
+  const despesas = filtered.filter((r) => r.type === "expense");
+  const receitas = filtered.filter((r) => r.type !== "expense");
+  const podeAgrupar = tab !== "income" && valeAPenaAgrupar(despesas);
   const agrupado = porTopico && podeAgrupar;
-  const topicos = agrupado ? agrupaEmTopicos(filtered) : [];
+  const topicos = agrupado ? agrupaEmTopicos(despesas) : [];
   const alternaTopico = (nome) => setTopicoAberto((t) => ({ ...t, [nome]: !t[nome] }));
   function alternaAgrupar(v) {
     setPorTopico(v);
@@ -263,7 +301,7 @@ export default function Financial() {
             </span>
           </Tooltip>
         )}
-        <Tooltip title={f.impagavel ? "Marcado como impagável — clique para tirar" : "Não vou conseguir pagar este mês"}>
+        <Tooltip title={f.impagavel ? "Impagável: não pode deixar de pagar — clique para tirar" : "Marcar como impagável: esta eu não posso deixar de pagar"}>
           <IconButton size="small" color={f.impagavel ? "warning" : "default"}
             onClick={() => toggleImpagavel(f)}>
             {f.impagavel ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
@@ -439,7 +477,7 @@ export default function Financial() {
       {/* O QUE ME DEVEM — sem data. O espelho de "o que eu devo". */}
       <QuemMeDeve lista={aReceber} onNova={() => setNovaCobranca({ quem: "", total: "", nota: "", client_id: "" })}
         onBaixa={(c) => setBaixando({ cobranca: c, valor: "", recebido_em: new Date().toISOString().slice(0, 10) })}
-        onApagar={apagarCobranca} />
+        onApagar={apagarCobranca} onEditar={editarCobranca} />
 
       <Card>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2, borderBottom: 1, borderColor: "divider" }}>
@@ -458,12 +496,12 @@ export default function Financial() {
           <Chip label={`Só impagáveis${quantosImpagaveis ? ` (${quantosImpagaveis})` : ""}`}
             size="small" color={balao === "impagaveis" ? "warning" : "default"}
             variant={balao === "impagaveis" ? "filled" : "outlined"} onClick={() => setBalao("impagaveis")} />
-          <Chip label="O restante" size="small"
+          <Chip label="O que pode esperar" size="small"
             color={balao === "resto" ? "primary" : "default"}
             variant={balao === "resto" ? "filled" : "outlined"} onClick={() => setBalao("resto")} />
           {summary?.impagavelAberto > 0 && (
             <Typography variant="caption" color="warning.main" sx={{ fontWeight: 700, ml: 0.5 }}>
-              {currency(summary.impagavelAberto)} de impagável ainda em aberto
+              {currency(summary.impagavelAberto)} que não pode deixar de pagar, ainda em aberto
             </Typography>
           )}
           {/* JUNTAR EM TÓPICOS. Em vez de vinte linhas soltas (MacBook, monitor,
@@ -493,6 +531,8 @@ export default function Financial() {
             <TableBody>
               {/* Lista solta (do jeito de sempre) ou juntada em tópicos. */}
               {!agrupado && filtered.map((f) => linhaDeLancamento(f))}
+              {/* Agrupado: as receitas continuam soltas, e as despesas viram tópico. */}
+              {agrupado && receitas.map((f) => linhaDeLancamento(f))}
               {agrupado && topicos.map((g) => (
                 <Fragment key={g.topico}>
                   {/* Tópico de um item só com o mesmo nome (é o caso do Salário
@@ -725,9 +765,9 @@ export default function Financial() {
         </DialogActions>
       </Dialog>
 
-      {/* Nova cobrança: quem me deve, sem data. */}
-      <Dialog open={Boolean(novaCobranca)} onClose={() => setNovaCobranca(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Quem está me devendo</DialogTitle>
+      {/* Quem me deve — o mesmo formulário registra e conserta. */}
+      <Dialog open={Boolean(novaCobranca)} onClose={() => { setNovaCobranca(null); setHistorico([]); }} fullWidth maxWidth="xs">
+        <DialogTitle>{novaCobranca?.id ? "Editar a dívida" : "Quem está me devendo"}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 0.5 }}>
             <TextField size="small" fullWidth label="Quem" autoFocus value={novaCobranca?.quem || ""}
@@ -742,12 +782,37 @@ export default function Financial() {
             </TextField>
             <TextField size="small" fullWidth label="Do que se trata" value={novaCobranca?.nota || ""}
               onChange={(e) => setNovaCobranca((c) => ({ ...c, nota: e.target.value }))} />
+
+            {/* O QUE JÁ ENTROU. Aparece só na edição, porque é aqui que ela vem
+                quando lançou um valor errado — e sem poder desfazer, mexer no
+                total não conserta: a entrada errada continuaria no Financeiro. */}
+            {novaCobranca?.id && historico.length > 0 && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">Já recebido</Typography>
+                <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                  {historico.map((b) => (
+                    <Stack key={b.id} direction="row" alignItems="center" spacing={1}
+                      sx={{ px: 1, py: 0.5, borderRadius: 1, bgcolor: "action.hover" }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{currency(b.valor)}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                        {formatDate(b.recebido_em)}
+                      </Typography>
+                      <Tooltip title="Desfazer — tira daqui e do Financeiro">
+                        <IconButton size="small" color="error" onClick={() => desfazerBaixa(b)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Box>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setNovaCobranca(null)}>Cancelar</Button>
+          <Button onClick={() => { setNovaCobranca(null); setHistorico([]); }}>Cancelar</Button>
           <Button variant="contained" onClick={salvarCobranca}
-            disabled={!novaCobranca?.quem?.trim()}>Registrar</Button>
+            disabled={!novaCobranca?.quem?.trim()}>{novaCobranca?.id ? "Salvar" : "Registrar"}</Button>
         </DialogActions>
       </Dialog>
 
@@ -849,7 +914,7 @@ function Projecao({ dados, somarKatelyn, onSomar }) {
 // propósito: isso não tem mês, e misturar faria a previsão mentir. Quando o
 // dinheiro entra de verdade, aí sim vira lançamento.
 // ---------------------------------------------------------------------------
-function QuemMeDeve({ lista, onNova, onBaixa, onApagar }) {
+function QuemMeDeve({ lista, onNova, onBaixa, onApagar, onEditar }) {
   const total = lista.reduce((t, c) => t + (c.falta || 0), 0);
   return (
     <Card variant="outlined" sx={{ mb: 3 }}>
@@ -888,9 +953,16 @@ function QuemMeDeve({ lista, onNova, onBaixa, onApagar }) {
                   )}
                 </Typography>
                 <Button size="small" onClick={() => onBaixa(c)}>Lançar um valor</Button>
-                <IconButton size="small" onClick={() => onApagar(c)}>
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
+                <Tooltip title="Editar — nome, valor, do que se trata">
+                  <IconButton size="small" onClick={() => onEditar(c)}>
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Tirar da lista">
+                  <IconButton size="small" onClick={() => onApagar(c)}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               </Stack>
             ))}
           </Stack>

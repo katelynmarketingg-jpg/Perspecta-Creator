@@ -27,8 +27,8 @@ router.get("/", (req, res) => {
   // Filtro de período pela data de vencimento (ou criação, se sem vencimento).
   if (from) { where.push("date(COALESCE(f.due_date, f.created_at)) >= @from"); params.from = from; }
   if (to) { where.push("date(COALESCE(f.due_date, f.created_at)) <= @to"); params.to = to; }
-  // ?impagavel=1 traz só o que ela marcou como "não vai dar para pagar";
-  // ?impagavel=0 traz só o resto. Sem o parâmetro, traz tudo.
+  // ?impagavel=1 traz só o que ela marcou como "não posso deixar de pagar";
+  // ?impagavel=0 traz só o que pode esperar. Sem o parâmetro, traz tudo.
   if (req.query.impagavel === "1") where.push("f.impagavel = 1");
   if (req.query.impagavel === "0") where.push("COALESCE(f.impagavel,0) = 0");
   const sql = `${SELECT} WHERE ${where.join(" AND ")} ORDER BY f.due_date DESC, f.id DESC`;
@@ -69,7 +69,7 @@ router.get("/summary", (req, res) => {
     WHERE org_id = ? AND COALESCE(due_date, created_at) >= date('now','-6 months')
     GROUP BY month ORDER BY month`).all(org);
 
-  // IMPAGÁVEIS: o que ela marcou como "não vai dar para pagar este mês".
+  // IMPAGÁVEIS: o que ela marcou como "não posso deixar de pagar".
   // Dois números, porque são duas perguntas diferentes: quanto foi marcado, e
   // quanto disso ainda está em aberto.
   const impagavelTotal = sum("AND impagavel = 1");
@@ -89,7 +89,7 @@ router.get("/summary", (req, res) => {
 
 // PUT /api/financial/:id/impagavel { impagavel: true|false }
 //
-// Rota própria, e não um campo do editar: marcar "não vou conseguir pagar" é um
+// Rota própria, e não um campo do editar: marcar "não posso deixar de pagar" é um
 // gesto de um clique no meio do aperto, e não pode exigir abrir a ficha inteira
 // do lançamento para salvar.
 router.put("/:id/impagavel", (req, res) => {
@@ -468,6 +468,74 @@ router.post("/a-receber", (req, res) => {
   ).run(req.orgId, quem, Number(req.body?.client_id) || null,
         numeroBR(req.body?.total) || 0, String(req.body?.nota || "").slice(0, 300) || null);
   res.status(201).json(comSaldo(db.prepare("SELECT * FROM a_receber_solto WHERE id = ?").get(info.lastInsertRowid)));
+});
+
+/**
+ * EDITAR A DÍVIDA. Nome errado, valor digitado torto, a nota que ficou vaga —
+ * tudo isso se conserta aqui, sem precisar apagar e cadastrar de novo (o que
+ * levaria junto o histórico do que já foi recebido).
+ *
+ * Só mexe no que veio no corpo: mandar `total` sozinho não apaga a nota.
+ */
+router.put("/a-receber/:id", (req, res) => {
+  const atual = db.prepare("SELECT * FROM a_receber_solto WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!atual) return res.status(404).json({ error: "Cobrança não encontrada." });
+
+  const b = req.body || {};
+  const quem = b.quem !== undefined ? String(b.quem).trim().slice(0, 120) : atual.quem;
+  if (!quem) return res.status(400).json({ error: "Diga quem está devendo." });
+  const total = b.total !== undefined ? numeroBR(b.total) || 0 : atual.total;
+  const nota = b.nota !== undefined ? (String(b.nota).slice(0, 300) || null) : atual.nota;
+  const client_id = b.client_id !== undefined ? (Number(b.client_id) || null) : atual.client_id;
+
+  db.prepare("UPDATE a_receber_solto SET quem = ?, total = ?, nota = ?, client_id = ? WHERE id = ? AND org_id = ?")
+    .run(quem, total, nota, client_id, atual.id, req.orgId);
+
+  const depois = comSaldo(db.prepare("SELECT * FROM a_receber_solto WHERE id = ?").get(atual.id));
+  // Baixou o total para menos do que já entrou: a dívida está quitada, e some
+  // da lista como sempre fez. Sem baixa nenhuma, um total zerado é só rascunho
+  // — continua na tela para ela terminar de preencher.
+  if (depois.recebido > 0 && depois.falta <= 0.005) {
+    db.prepare("UPDATE a_receber_solto SET arquivado = 1 WHERE id = ?").run(atual.id);
+    return res.json({ ...depois, arquivado: 1, quitado: true });
+  }
+  res.json(depois);
+});
+
+/** O histórico do que já foi recebido daquela dívida, do mais novo pro mais velho. */
+router.get("/a-receber/:id/baixas", (req, res) => {
+  const alvo = db.prepare("SELECT id FROM a_receber_solto WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!alvo) return res.status(404).json({ error: "Cobrança não encontrada." });
+  res.json(db.prepare(
+    "SELECT * FROM a_receber_baixa WHERE a_receber_id = ? AND org_id = ? ORDER BY recebido_em DESC, id DESC"
+  ).all(alvo.id, req.orgId));
+});
+
+/**
+ * DESFAZER UM VALOR LANÇADO. Lançar errado acontece — e o estrago é duplo: o
+ * saldo da dívida fica torto E sobra uma entrada fantasma no Financeiro. Por
+ * isso desfazer apaga as duas coisas de uma vez.
+ */
+router.delete("/a-receber/:id/baixa/:bid", (req, res) => {
+  const baixa = db.prepare(
+    "SELECT * FROM a_receber_baixa WHERE id = ? AND a_receber_id = ? AND org_id = ?"
+  ).get(req.params.bid, req.params.id, req.orgId);
+  if (!baixa) return res.status(404).json({ error: "Lançamento não encontrado." });
+
+  const tx = db.transaction(() => {
+    if (baixa.entry_id) {
+      db.prepare("DELETE FROM financial_entries WHERE id = ? AND org_id = ?").run(baixa.entry_id, req.orgId);
+    }
+    db.prepare("DELETE FROM a_receber_baixa WHERE id = ?").run(baixa.id);
+    // Se a dívida tinha sumido por estar quitada, ela volta pra lista: voltou a
+    // faltar dinheiro, e some da tela é a última coisa que ajuda.
+    db.prepare("UPDATE a_receber_solto SET arquivado = 0 WHERE id = ?").run(req.params.id);
+  });
+  tx();
+
+  res.json(comSaldo(db.prepare("SELECT * FROM a_receber_solto WHERE id = ?").get(req.params.id)));
 });
 
 router.delete("/a-receber/:id", (req, res) => {
