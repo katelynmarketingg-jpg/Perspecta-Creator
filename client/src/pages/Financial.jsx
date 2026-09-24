@@ -353,13 +353,24 @@ export default function Financial() {
     load();
   }
 
+  // O mês que o botão vai usar — o mesmo para a prévia e para a geração.
+  const mesEmFoco = () => (periodo === "mes"
+    ? `${mesCursor.getFullYear()}-${String(mesCursor.getMonth() + 1).padStart(2, "0")}`
+    : new Date().toISOString().slice(0, 7));
+
+  // Ao abrir o diálogo (e ao trocar de mês), mostra o que vai acontecer.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!gerarOpen) { setPrevia(null); return; }
+    api.get("/financial/generate-monthly/previa", { params: { month: mesEmFoco() } })
+      .then((r) => setPrevia(r.data)).catch(() => setPrevia(null));
+  }, [gerarOpen, periodo, mesCursor]);
+
   // Gera as mensalidades (receita recorrente) a partir do que está cadastrado
   // nos clientes: valor dos serviços + dia de pagamento. `meses` = quantos meses
   // à frente (a partir do mês em foco). Idempotente por cliente/mês.
   async function gerarMensalidades(meses) {
-    const month = periodo === "mes"
-      ? `${mesCursor.getFullYear()}-${String(mesCursor.getMonth() + 1).padStart(2, "0")}`
-      : new Date().toISOString().slice(0, 7);
+    const month = mesEmFoco();
     setGerarOpen(false);
     try {
       const r = await api.post("/financial/generate-monthly", { month, months: meses });

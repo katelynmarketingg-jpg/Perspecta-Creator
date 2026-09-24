@@ -126,4 +126,61 @@ test("a migração traz a data de quem foi arquivado na versão antiga", async (
   assert.ok(lancadas("2026-09").includes("Mensalidade — Grãos"), "e aí a mensalidade sai");
 });
 
+// A PRÉVIA: o que vai acontecer, ANTES de clicar em Gerar.
+// Nasceu deste caso: duas mensalidades não saíam e não havia como descobrir o
+// motivo sem abrir o banco.
+
+test("a prévia diz, cliente por cliente, quem entra e por que o outro não", async () => {
+  const p = await (await fetch(`${B}/generate-monthly/previa?month=2026-09`, { headers: auth })).json();
+  assert.equal(p.mes, "2026-09");
+  const porNome = Object.fromEntries(p.linhas.map((l) => [l.cliente, l]));
+
+  // já lançadas nos testes acima
+  assert.equal(porNome["Natural Light"].entra, false);
+  assert.equal(porNome["Natural Light"].motivo, "já lançada neste mês");
+
+  assert.equal(porNome["Camila"].entra, false);
+  assert.equal(porNome["Camila"].motivo, "cliente inativo");
+
+  assert.equal(porNome["Sem Data"].motivo, "cliente arquivado (sem último pagamento definido)");
+  assert.match(porNome["Contrato Curto"].motivo, /contrato encerrou em 2026-07/);
+});
+
+test("a prévia mostra o valor cadastrado — é o que costuma faltar", async () => {
+  const semValor = db.prepare(
+    "INSERT INTO clients (name, status, org_id, payment_day) VALUES ('Sem Serviço', 'active', ?, 10)"
+  ).run(org).lastInsertRowid;
+
+  const p = await (await fetch(`${B}/generate-monthly/previa?month=2026-09`, { headers: auth })).json();
+  const l = p.linhas.find((x) => x.id === semValor);
+  assert.equal(l.valor, 0);
+  assert.equal(l.motivo, "sem valor de serviço cadastrado");
+});
+
+test("a prévia usa a MESMA regra da geração — não uma segunda cópia", async () => {
+  // Se divergissem, a tela explicaria uma coisa e o botão faria outra.
+  const mes = "2026-11";
+  const p = await (await fetch(`${B}/generate-monthly/previa?month=${mes}`, { headers: auth })).json();
+  const esperados = p.linhas.filter((l) => l.entra).map((l) => l.cliente).sort();
+
+  const r = await (await gerar(mes)).json();
+  assert.equal(r.created, esperados.length, "cria exatamente quem a prévia disse");
+  const criados = db.prepare(
+    `SELECT description FROM financial_entries
+      WHERE org_id=? AND category='Mensalidade' AND strftime('%Y-%m', due_date)=?`
+  ).all(org, mes).map((x) => x.description.replace("Mensalidade — ", "")).sort();
+  assert.deepEqual(criados, esperados);
+});
+
+test("cliente apagado não aparece na prévia — é assim que se descobre", async () => {
+  const id = db.prepare("INSERT INTO clients (name, status, org_id) VALUES ('Fantasma','active',?)").run(org).lastInsertRowid;
+  assert.ok((await (await fetch(`${B}/generate-monthly/previa?month=2026-09`, { headers: auth })).json())
+    .linhas.some((l) => l.cliente === "Fantasma"));
+
+  db.prepare("DELETE FROM clients WHERE id = ?").run(id);
+  const p = await (await fetch(`${B}/generate-monthly/previa?month=2026-09`, { headers: auth })).json();
+  assert.ok(!p.linhas.some((l) => l.cliente === "Fantasma"),
+    "sumiu da lista: não há cadastro, e por isso não há mensalidade");
+});
+
 after(() => { srv.close(); db.close(); rmSync(dir, { recursive: true, force: true }); });

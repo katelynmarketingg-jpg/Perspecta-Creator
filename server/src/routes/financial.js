@@ -136,6 +136,88 @@ function dueForMonth(year, monthIndex, day) {
 // de serviços > 0, no dia de pagamento do cliente. `months` (1..36, padrão 1)
 // gera esse mesmo mês e os seguintes — cada parcela fica marcada como "Mensal".
 // Idempotente: nunca duplica a mensalidade de um cliente no mesmo mês.
+/**
+ * A REGRA, num lugar só — quem entra na geração e, quando não entra, por quê.
+ *
+ * Ela mora fora da rota porque a PRÉVIA usa exatamente esta função. Se a
+ * explicação da tela fosse uma segunda cópia da regra, ela ia divergir no
+ * primeiro conserto e passar a mentir justamente quando mais importa.
+ */
+const mesDe = (data) => (data ? String(data).slice(0, 7) : null);
+
+function porQueNaoEntra(c, mes) {
+  if ((c.billing_type || "pagante") !== "pagante") return "não é cliente pagante";
+  if (!c.valor || c.valor <= 0) return "sem valor de serviço cadastrado";
+
+  const fimContrato = mesDe(c.work_end);
+  if (fimContrato && fimContrato < mes) return `contrato encerrou em ${fimContrato}`;
+
+  // QUEM MANDA É O ÚLTIMO PAGAMENTO COMBINADO.
+  //
+  // Antes essa data só era lida quando o cliente tinha `archived_at`, e há
+  // mais de um jeito de um cliente ficar inativo sem isso: mudando o status
+  // na ficha, ou vindo da migração dos que foram arquivados na versão antiga.
+  // Nesses casos a regra "cliente inativo" batia primeiro e a data que ela
+  // preencheu de propósito nem era olhada — a mensalidade do último mês
+  // simplesmente não saía. Agora o campo mais específico vence: se tem
+  // último pagamento, ele decide; o resto são os casos em que ele falta.
+  if (c.archived_at || c.status !== "active") {
+    const ate = mesDe(c.pagamento_ate);
+    if (ate) {
+      if (mes > ate) return `último pagamento em ${ate}`;
+    } else if (c.archived_at) {
+      return "cliente arquivado (sem último pagamento definido)";
+    } else {
+      return "cliente inativo";
+    }
+  }
+  return null;
+}
+
+/** Todos os clientes da casa, com o valor somado dos serviços. */
+const clientesDaCasa = (orgId) => db.prepare(`
+  SELECT c.id, c.name, c.payment_day, c.status, c.billing_type, c.work_end,
+         c.archived_at, c.pagamento_ate,
+         (SELECT COALESCE(SUM(cs.price),0) FROM client_services cs WHERE cs.client_id = c.id) AS valor
+  FROM clients c WHERE c.org_id = ? ORDER BY c.name
+`).all(orgId);
+
+/**
+ * GET /api/financial/generate-monthly/previa?month=AAAA-MM
+ *
+ * O que vai acontecer se clicar: quem entra, quem não entra e por quê — ANTES
+ * de gerar. Nasceu de um caso real: duas mensalidades não saíam e não havia
+ * como descobrir o motivo sem abrir o banco. Aqui a tela mostra o que o
+ * gerador está vendo, cliente por cliente, incluindo o valor cadastrado.
+ */
+router.get("/generate-monthly/previa", (req, res) => {
+  const mes = (req.query.month || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const jaExisteAqui = db.prepare(`
+    SELECT 1 FROM financial_entries
+    WHERE org_id = ? AND client_id = ? AND category = 'Mensalidade'
+      AND strftime('%Y-%m', due_date) = ? LIMIT 1`);
+
+  const linhas = clientesDaCasa(req.orgId).map((c) => {
+    const motivo = porQueNaoEntra(c, mes);
+    const jaTem = !motivo && !!jaExisteAqui.get(req.orgId, c.id, mes);
+    return {
+      id: c.id, cliente: c.name, valor: c.valor,
+      entra: !motivo && !jaTem,
+      motivo: motivo || (jaTem ? "já lançada neste mês" : null),
+      // O que a regra olhou, para ela conseguir conferir o cadastro sozinha.
+      status: c.status, arquivado_em: c.archived_at, pagamento_ate: c.pagamento_ate,
+      fim_contrato: c.work_end,
+    };
+  });
+
+  res.json({
+    mes,
+    total: linhas.length,
+    entram: linhas.filter((l) => l.entra).length,
+    linhas,
+  });
+});
+
 router.post("/generate-monthly", (req, res) => {
   const startMonth = (req.body?.month || new Date().toISOString().slice(0, 7)).slice(0, 7);
   const meses = Math.min(Math.max(Number(req.body?.months) || 1, 1), 36);
@@ -145,12 +227,7 @@ router.post("/generate-monthly", (req, res) => {
   // um por um, COM MOTIVO. Antes a consulta já filtrava status = 'active' e
   // ninguém ficava sabendo de nada: o botão dizia só "N já existiam ou sem
   // valor definido", juntando num número só razões completamente diferentes.
-  const clientes = db.prepare(`
-    SELECT c.id, c.name, c.payment_day, c.status, c.billing_type, c.work_end,
-           c.archived_at, c.pagamento_ate,
-           (SELECT COALESCE(SUM(cs.price),0) FROM client_services cs WHERE cs.client_id = c.id) AS valor
-    FROM clients c WHERE c.org_id = ?
-  `).all(req.orgId);
+  const clientes = clientesDaCasa(req.orgId);
 
   const jaExiste = db.prepare(`
     SELECT 1 FROM financial_entries
@@ -159,42 +236,6 @@ router.post("/generate-monthly", (req, res) => {
 
   // O lançamento é "recorrente" quando marca mais de um mês de uma vez.
   const recorrente = meses > 1 ? 1 : 0;
-
-  // POR QUE ESTE CLIENTE NÃO ENTRA NESTE MÊS? (null = entra)
-  //
-  // A regra do fim de contrato é INCLUSIVA, e é o ponto que faltava: marcar
-  // "Fim: setembro" quer dizer que setembro É o último mês cobrado, não que a
-  // cobrança para antes dele. Antes o campo não era nem consultado aqui — dava
-  // para preencher e não acontecia nada.
-  const mesDe = (data) => (data ? String(data).slice(0, 7) : null);
-  function porQueNaoEntra(c, mes) {
-    if ((c.billing_type || "pagante") !== "pagante") return "não é cliente pagante";
-    if (!c.valor || c.valor <= 0) return "sem valor de serviço cadastrado";
-
-    const fimContrato = mesDe(c.work_end);
-    if (fimContrato && fimContrato < mes) return `contrato encerrou em ${fimContrato}`;
-
-    // QUEM MANDA É O ÚLTIMO PAGAMENTO COMBINADO.
-    //
-    // Antes essa data só era lida quando o cliente tinha `archived_at`, e há
-    // mais de um jeito de um cliente ficar inativo sem isso: mudando o status
-    // na ficha, ou vindo da migração dos que foram arquivados na versão antiga.
-    // Nesses casos a regra "cliente inativo" batia primeiro e a data que ela
-    // preencheu de propósito nem era olhada — a mensalidade do último mês
-    // simplesmente não saía. Agora o campo mais específico vence: se tem
-    // último pagamento, ele decide; o resto são os casos em que ele falta.
-    if (c.archived_at || c.status !== "active") {
-      const ate = mesDe(c.pagamento_ate);
-      if (ate) {
-        if (mes > ate) return `último pagamento em ${ate}`;
-      } else if (c.archived_at) {
-        return "cliente arquivado (sem último pagamento definido)";
-      } else {
-        return "cliente inativo";
-      }
-    }
-    return null;
-  }
 
   let criadas = 0, puladas = 0;
   const motivos = new Map();       // "cliente — motivo" -> contagem de meses
