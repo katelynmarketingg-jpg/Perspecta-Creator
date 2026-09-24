@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired } from "../auth.js";
-import { topicoDoSalario, quantoJaPeguei, oQueFaltaDoMeu, ultimoDiaDoMes } from "../salario-katy.js";
+import { topicoDoSalario, quantoJaPeguei, quantoEhOMeu, oQueFaltaDoMeu, ultimoDiaDoMes } from "../salario-katy.js";
 
 // ---------------------------------------------------------------------------
 // Finanças pessoais — PRIVADO por usuário. Toda query filtra por req.user.id,
@@ -180,7 +180,11 @@ router.put("/config", (req, res) => {
     `INSERT INTO personal_finance_config (org_id, user_id, salary) VALUES (?, ?, ?)
      ON CONFLICT(org_id, user_id) DO UPDATE SET salary = excluded.salary`
   ).run(req.orgId, uid(req), salary);
-  res.json({ ok: true, salary });
+  // O lazer entra no salário dela: mexer aqui refaz a linha do Financeiro.
+  // Sem mês no corpo, vale o mês aberto na tela; sem ele, o mês de hoje.
+  const ym = (req.body?.ym || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const salario = sincronizaSalarioKaty(req.orgId, uid(req), ym, req.user.name);
+  res.json({ ok: true, salary, salario });
 });
 
 const insert = db.prepare(
@@ -264,21 +268,26 @@ function mandarParaOFinanceiro(orgId, userId, linha) {
 }
 
 /**
- * SALÁRIO KATY — uma linha só no Financeiro, que vai engordando.
+ * SALÁRIO KATY — uma linha só no Financeiro, ao lado dos outros salários.
  *
- * Cada check que ela dá num gasto pessoal é dinheiro que já saiu do caixa da
- * empresa. Em vez de mandar pro Financeiro vinte linhas soltas (MacBook,
- * monitor, Adobe...), mantemos UMA despesa por mês com o total do que ela já
- * pegou — e ela é reescrita a cada check, pra cima ou pra baixo. Zerou, some.
+ * O que a empresa paga para ela no mês é, nas palavras dela, "o que está lá nas
+ * minhas finanças de gastos, mais o que eu colocar de lazer". Então esta linha
+ * é o total do mês dela — pago ou não — mais o lazer. Mexeu lá, muda aqui.
  *
- * Gasto da Perspectiva não entra: aquilo é da empresa, não é salário dela.
+ * Não é "o que já saiu": dar um check numa conta não aumenta o salário, porque
+ * a conta já estava contada. O que muda o número é mudar as contas ou o lazer.
+ *
+ * Gasto da Perspectiva não entra: aquilo é da empresa, não é salário dela. E o
+ * "pago" da linha é dela: quando a reescrevemos, o status fica como estava.
  */
 function sincronizaSalarioKaty(orgId, userId, ym, nome) {
   const topico = topicoDoSalario(nome);
   const linhas = db.prepare(
     "SELECT amount, paid, category FROM personal_finance WHERE org_id=? AND user_id=? AND ym=?"
   ).all(orgId, userId, ym).map((l) => ({ ...l, paid: !!l.paid }));
-  const total = quantoJaPeguei(linhas);
+  const cfg = db.prepare("SELECT salary FROM personal_finance_config WHERE org_id=? AND user_id=?")
+    .get(orgId, userId);
+  const total = quantoEhOMeu(linhas, cfg?.salary || 0);
 
   const atual = db.prepare(
     `SELECT id FROM financial_entries
@@ -291,13 +300,13 @@ function sincronizaSalarioKaty(orgId, userId, ym, nome) {
     return { topico, total: 0 };
   }
   if (atual) {
-    db.prepare(
-      "UPDATE financial_entries SET description=?, amount=?, status='paid', paid_at=COALESCE(paid_at, datetime('now')) WHERE id=?"
-    ).run(topico, total, atual.id);
+    // Só o valor e o nome. Se ela marcou como pago lá, continua pago.
+    db.prepare("UPDATE financial_entries SET description=?, amount=? WHERE id=?")
+      .run(topico, total, atual.id);
   } else {
     insertExpense.run({
       description: topico, amount: total, category: topico,
-      status: "paid", due_date: ultimoDiaDoMes(ym), paid_at: new Date().toISOString(),
+      status: "pending", due_date: ultimoDiaDoMes(ym), paid_at: null,
       recurring: 0, recurring_day: null, card: null, impagavel: 0, org_id: orgId,
     });
   }
