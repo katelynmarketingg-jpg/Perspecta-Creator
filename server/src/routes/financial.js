@@ -174,14 +174,24 @@ router.post("/generate-monthly", (req, res) => {
     const fimContrato = mesDe(c.work_end);
     if (fimContrato && fimContrato < mes) return `contrato encerrou em ${fimContrato}`;
 
-    if (c.archived_at) {
-      // Arquivado ainda é cobrado até o mês do último pagamento combinado — é a
-      // mesma regra que mantém ele visível no Financeiro até lá.
+    // QUEM MANDA É O ÚLTIMO PAGAMENTO COMBINADO.
+    //
+    // Antes essa data só era lida quando o cliente tinha `archived_at`, e há
+    // mais de um jeito de um cliente ficar inativo sem isso: mudando o status
+    // na ficha, ou vindo da migração dos que foram arquivados na versão antiga.
+    // Nesses casos a regra "cliente inativo" batia primeiro e a data que ela
+    // preencheu de propósito nem era olhada — a mensalidade do último mês
+    // simplesmente não saía. Agora o campo mais específico vence: se tem
+    // último pagamento, ele decide; o resto são os casos em que ele falta.
+    if (c.archived_at || c.status !== "active") {
       const ate = mesDe(c.pagamento_ate);
-      if (!ate) return "cliente arquivado (sem último pagamento definido)";
-      if (mes > ate) return `arquivado, último pagamento em ${ate}`;
-    } else if (c.status !== "active") {
-      return "cliente inativo";
+      if (ate) {
+        if (mes > ate) return `último pagamento em ${ate}`;
+      } else if (c.archived_at) {
+        return "cliente arquivado (sem último pagamento definido)";
+      } else {
+        return "cliente inativo";
+      }
     }
     return null;
   }

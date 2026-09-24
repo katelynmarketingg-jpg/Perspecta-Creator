@@ -20,7 +20,7 @@ import {
   ultimoDiaDoMes, souDaPerspectiva,
 } from "../src/salario-katy.js";
 // A tela do Financeiro é quem junta as despesas em tópicos.
-import { agrupaEmTopicos, valeAPenaAgrupar } from "../../client/src/topicos.js";
+import { agrupaEmTopicos, valeAPenaAgrupar, nomesDoTopico } from "../../client/src/topicos.js";
 
 // --- a conta, sem banco nenhum ---------------------------------------------
 
@@ -87,7 +87,7 @@ test("as despesas se juntam em tópicos, com total, pago e em aberto", () => {
     { id: 5, category: null, amount: 30, status: "pending" },
   ]);
   // do maior pro menor: o tópico mais pesado do mês encabeça a lista
-  assert.deepEqual(g.map((x) => x.topico), ["Salário Katy", "Custos Perspectiva"]);
+  assert.deepEqual(g.map((x) => x.topico), ["Salários", "Custos Perspectiva"]);
   const p = g.find((x) => x.topico === "Custos Perspectiva");
   assert.equal(p.total, 730, "os 700 da Perspectiva + os 30 sem categoria");
   assert.equal(p.pago, 150);   // 100 pago + 50 do parcial
@@ -120,14 +120,34 @@ test("com pouca coisa na tela, juntar em tópicos só atrapalha", () => {
   assert.ok(!valeAPenaAgrupar(espalhadas));
 });
 
-test("a linha do salário dela não se mistura com os custos da casa", () => {
+test("os salários ficam num tópico só, escritos como forem", () => {
+  // Na tela dela havia três linhas em dois tópicos ("Salário" e "Salários"),
+  // separadas só pela letra final, e o "Salário Katy" num terceiro.
   const g = agrupaEmTopicos([
-    { id: 1, description: "Salário Katy", category: "Salário Katy", amount: 1600, status: "paid" },
-    { id: 2, description: "Netcomet", amount: 119.9, status: "pending" },
-    { id: 3, description: "Registro.br", category: "Perspectiva", amount: 89, status: "pending" },
+    { id: 1, description: "Salário Bruno", category: "Salário", amount: 2000, status: "paid" },
+    { id: 2, description: "Salário Rafaela", category: "Salários", amount: 600, status: "paid" },
+    { id: 3, description: "Salário Katy", category: "Salário Katy", amount: 1600, status: "paid" },
+    { id: 4, description: "Netcomet", amount: 119.9, status: "pending" },
+    { id: 5, description: "Registro.br", category: "Perspectiva", amount: 89, status: "pending" },
   ]);
-  assert.deepEqual(g.map((x) => x.topico), ["Salário Katy", "Custos Perspectiva"]);
-  assert.equal(g[1].total, 208.9);
+  assert.deepEqual(g.map((x) => x.topico), ["Salários", "Custos Perspectiva"]);
+  assert.equal(g[0].total, 4200, "os três salários somados");
+  assert.equal(g[1].total, 208.9, "e a casa continua separada");
+});
+
+test("o título do tópico diz o que tem dentro", () => {
+  const g = agrupaEmTopicos([
+    { id: 1, description: "Salário Bruno", category: "Salário", amount: 2000, status: "paid" },
+    { id: 2, description: "Salário Rafaela", category: "Salários", amount: 600, status: "paid" },
+    { id: 3, description: "Salário Katy", category: "Salário Katy", amount: 1600, status: "paid" },
+  ]);
+  assert.equal(g[0].nomes, "Salário Bruno, Salário Rafaela, Salário Katy");
+});
+
+test("com muita coisa dentro, o título mostra os primeiros e conta o resto", () => {
+  const itens = ["Netcomet", "Adobe", "Celular", "Curso", "Canva"].map((d) => ({ description: d }));
+  assert.equal(nomesDoTopico(itens), "Netcomet, Adobe, Celular +2");
+  assert.equal(nomesDoTopico([]), "");
 });
 
 // --- a ponte de verdade, com banco e rotas ---------------------------------
