@@ -16,9 +16,13 @@ import MovieIcon from "@mui/icons-material/Movie";
 import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ContentCutIcon from "@mui/icons-material/ContentCut";
 import api from "../api/client.js";
 import { thumbFromElement } from "../upload/thumbnail.js";
-import { guardarPrevia } from "../upload/previa-envio.js";
+import { guardarPrevia, reforcarPrevia } from "../upload/previa-envio.js";
+import { fatiarEmSlides } from "../upload/carousel.js";
 import { sugerirSlides } from "../upload/carousel.js";
 import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
@@ -109,6 +113,13 @@ function converterHeic(f) {
 // ---------------------------------------------------------------------------
 const FORMA_DO_POST = 4 / 5;
 
+// A setinha fica sobre a arte, dos dois lados, com fundo escuro para aparecer
+// tanto numa capa clara quanto numa escura.
+const setaSx = (lado) => ({
+  position: "absolute", top: "50%", [lado]: 4, transform: "translateY(-50%)",
+  bgcolor: "rgba(0,0,0,0.5)", color: "#fff", "&:hover": { bgcolor: "rgba(0,0,0,0.72)" },
+});
+
 /** A arte é uma tira de carrossel? Devolve quantas slides, ou 1. */
 function slidesDaTira(w, h) {
   if (!w || !h) return 1;
@@ -174,10 +185,45 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const [medida, setMedida] = useState(null);      // { w, h, n }
   function medir(el) {
     const w = el.naturalWidth || el.videoWidth, h = el.naturalHeight || el.videoHeight;
-    if (w && h) setMedida({ w, h, n: slidesDaTira(w, h) });
+    if (!w || !h) return;
+    const n = slidesDaTira(w, h);
+    setMedida({ w, h, n });
+    // PRÉVIA GROSSA DEMAIS PARA UMA TIRA. A prévia antiga tinha 1080px na arte
+    // inteira; numa tira de 7 slides isso dá 154px por slide, e ampliar para
+    // preencher o quadro sai borrado. Quando a conta não fecha, pede uma prévia
+    // nova, feita a partir do original — uma vez por arquivo.
+    if (n > 1 && w / n < 420) reforcarPrevia(f.id);
+  }
+
+  // BAIXAR CORTADO: a tira vira N arquivos, um por slide, prontos para publicar.
+  // O corte é o mesmo da Distribuição, feito aqui no navegador — o original na
+  // nuvem não é tocado.
+  async function baixarCortado() {
+    if (!grandao || cortando) return;
+    setCortando(true);
+    try {
+      const resp = await fetch(grandao);
+      const blob = await resp.blob();
+      const arquivo = new File([blob], f.original_name || "carrossel.png", { type: blob.type });
+      const fatias = await fatiarEmSlides(arquivo, slides);
+      for (const fatia of fatias) {
+        const url = URL.createObjectURL(fatia);
+        const a = document.createElement("a");
+        a.href = url; a.download = fatia.name;
+        document.body.appendChild(a); a.click(); a.remove();
+        // Um instante entre os downloads: disparar todos juntos faz o navegador
+        // engolir os últimos sem avisar.
+        await new Promise((r) => setTimeout(r, 250));
+        URL.revokeObjectURL(url);
+      }
+    } catch { /* o botão volta ao normal; o download inteiro continua ali */ }
+    setCortando(false);
   }
   const slides = medida?.n || 1;
   const ehCarrossel = slides > 1;
+  const [lamina, setLamina] = useState(0);            // qual slide está à frente
+  const atual = Math.min(lamina, slides - 1);
+  const [cortando, setCortando] = useState(false);
 
   // O QUADRO: sempre a forma de um post. A mídia preenche, cortando o mínimo.
   const quadroSx = { position: "relative", width: "100%", aspectRatio: "4 / 5", overflow: "hidden",
@@ -195,10 +241,12 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
     ? (rSlide >= FORMA_DO_POST
       // Slide "larga": altura cheia, e a tira fica com n × fator da largura.
       ? { position: "absolute", top: 0, left: 0, height: "100%", width: `${slides * 100 * fator}%`,
-          maxWidth: "none", display: "block" }
+          maxWidth: "none", display: "block",
+          transform: `translateX(-${atual * (100 / slides)}%)`, transition: "transform .2s ease" }
       // Slide "alta": largura cheia, o que sobra em cima e embaixo é cortado.
       : { position: "absolute", top: "50%", left: 0, width: `${slides * 100}%`, height: "auto",
-          maxWidth: "none", transform: "translateY(-50%)", display: "block" })
+          maxWidth: "none", display: "block",
+          transform: `translate(-${atual * (100 / slides)}%, -50%)`, transition: "transform .2s ease" })
     : null;
 
   // Imagem ou vídeo comum: preenche o quadro. É o "pequeno zoom" que tira a
@@ -248,12 +296,33 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
           <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{fileIcon(f.mime)}</Box>
         )}
 
-        {/* Que é um carrossel, e de quantas slides — o corte esconde o resto,
-            então o quadro precisa dizer que tem mais atrás. */}
+        {/* Que é um carrossel, e em qual lâmina estamos. O corte esconde o
+            resto, então o quadro precisa dizer que tem mais atrás. */}
         {ehCarrossel && (
-          <Chip size="small" label={`${slides} slides`}
+          <Chip size="small" label={`${atual + 1}/${slides}`}
             sx={{ position: "absolute", top: 6, right: 6, height: 20, bgcolor: "rgba(0,0,0,0.62)",
                   color: "#fff", fontWeight: 600, pointerEvents: "none" }} />
+        )}
+
+        {/* AS SETINHAS. Passar as lâminas sem sair da Galeria — o clique nelas
+            não pode abrir a arte em tela cheia, por isso o stopPropagation. */}
+        {ehCarrossel && (
+          <>
+            {atual > 0 && (
+              <IconButton size="small" aria-label="lâmina anterior"
+                onClick={(e) => { e.stopPropagation(); setLamina(atual - 1); }}
+                sx={setaSx("left")}>
+                <ChevronLeftIcon fontSize="small" />
+              </IconButton>
+            )}
+            {atual < slides - 1 && (
+              <IconButton size="small" aria-label="próxima lâmina"
+                onClick={(e) => { e.stopPropagation(); setLamina(atual + 1); }}
+                sx={setaSx("right")}>
+                <ChevronRightIcon fontSize="small" />
+              </IconButton>
+            )}
+          </>
         )}
       </Box>
       <Box sx={{ p: 1 }}>
@@ -275,8 +344,10 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
           <Tooltip title="Baixar original">
             <IconButton size="small" color="primary" onClick={() => onDownload(f)}><DownloadIcon sx={{ fontSize: 17 }} /></IconButton>
           </Tooltip>
-          {onMoveFolder && (
-            <Tooltip title="Mover para pasta">
+          {/* O carrossel também precisa do menu, pelo "baixar cortado" — antes
+              ele só existia quando dava para mover de pasta. */}
+          {(onMoveFolder || ehCarrossel) && (
+            <Tooltip title={ehCarrossel ? "Mais: baixar cortado, mover…" : "Mover para pasta"}>
               <IconButton size="small" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreVertIcon sx={{ fontSize: 17 }} /></IconButton>
             </Tooltip>
           )}
@@ -285,11 +356,22 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
           </Tooltip>
         </Stack>
       </Box>
-      {onMoveFolder && (
+      {(onMoveFolder || ehCarrossel) && (
         <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
-          <MenuItem onClick={() => { setMoreAnchor(null); onMoveFolder(f); }}>
-            <DriveFileMoveIcon sx={{ fontSize: 17, mr: 1 }} /> Mover para pasta
-          </MenuItem>
+          {/* BAIXAR CORTADO: a tira vira N arquivos, um por lâmina, prontos
+              para publicar — em vez de baixar a tira e cortar na mão. */}
+          {ehCarrossel && (
+            <MenuItem disabled={cortando}
+              onClick={() => { setMoreAnchor(null); baixarCortado(); }}>
+              <ContentCutIcon sx={{ fontSize: 17, mr: 1 }} />
+              {cortando ? "Cortando…" : `Baixar cortado (${slides} lâminas)`}
+            </MenuItem>
+          )}
+          {onMoveFolder && (
+            <MenuItem onClick={() => { setMoreAnchor(null); onMoveFolder(f); }}>
+              <DriveFileMoveIcon sx={{ fontSize: 17, mr: 1 }} /> Mover para pasta
+            </MenuItem>
+          )}
         </Menu>
       )}
       {/* Abrir em tela cheia: foto amplia, vídeo toca (na proporção real). */}

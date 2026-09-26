@@ -54,16 +54,37 @@ test("a grade usa a forma de post e corta, em vez de encolher", () => {
     "o ajuste antigo (que deixava tarja preta no vídeo) saiu");
 });
 
-test("a tira é ancorada na primeira slide, sem deslizar", () => {
-  // Na Galeria o quadro mostra a CAPA e pronto: quem quiser ver o resto abre a
-  // arte. Por isso não há translate por índice como na Distribuição.
-  const trecho = fonte.slice(fonte.indexOf("const tiraSx"), fonte.indexOf("const midiaSx"));
-  assert.match(trecho, /left: 0/, "ancorada na esquerda — a capa é a primeira slide");
-  assert.ok(!/translateX\(-\$\{/.test(trecho), "não desliza para outras slides");
+test("a tira abre na capa e desliza pelas outras lâminas", () => {
+  const trecho = fonte.slice(fonte.indexOf("const tiraSx"), fonte.indexOf("if (erro)"));
+  assert.match(trecho, /left: 0/, "ancorada na esquerda — a capa é a primeira lâmina");
+  assert.match(trecho, /atual \* \(100 \/ slides\)/, "e desliza conforme a lâmina escolhida");
+  assert.match(fonte, /const atual = Math\.min\(lamina, slides - 1\)/, "nunca passa da última");
 });
 
-test("o quadro avisa quantas slides estão escondidas atrás do corte", () => {
-  assert.match(fonte, /\$\{slides\} slides/, "o selo diz quantas são");
+test("as setinhas passam as lâminas sem abrir a arte em tela cheia", () => {
+  const trecho = fonte.slice(fonte.indexOf("AS SETINHAS"), fonte.indexOf("</Box>", fonte.indexOf("AS SETINHAS")));
+  assert.match(trecho, /setLamina\(atual - 1\)/);
+  assert.match(trecho, /setLamina\(atual \+ 1\)/);
+  // O quadro inteiro abre a tela cheia no clique; a seta precisa segurar o dela.
+  assert.equal((trecho.match(/stopPropagation\(\)/g) || []).length, 2,
+    "as duas setas seguram o clique");
+});
+
+test("o selo mostra em qual lâmina estamos", () => {
+  assert.match(fonte, /\$\{atual \+ 1\}\/\$\{slides\}/);
+});
+
+test("baixar cortado gera um arquivo por lâmina, sem tocar no original", () => {
+  const trecho = fonte.slice(fonte.indexOf("async function baixarCortado"), fonte.indexOf("// Imagem ou vídeo comum"));
+  assert.match(trecho, /fatiarEmSlides\(arquivo, slides\)/, "usa o mesmo corte da Distribuição");
+  assert.match(trecho, /a\.download = fatia\.name/, "baixa cada lâmina");
+  assert.ok(!/api\.(put|post|delete)/.test(trecho), "não mexe no arquivo guardado");
+});
+
+test("prévia grossa demais para uma tira pede uma nova, feita do original", () => {
+  // A prévia antiga tinha 1080px na arte INTEIRA: numa tira de 7 slides isso dá
+  // 154px por slide, e ampliar para preencher o quadro sai borrado.
+  assert.match(fonte, /if \(n > 1 && w \/ n < 420\) reforcarPrevia\(f\.id\)/);
 });
 
 test("a grade prefere a prévia à miniatura — o quadro maior exige resolução", () => {
@@ -92,4 +113,25 @@ test("arquivo antigo sem prévia ganha uma ao aparecer na grade", () => {
   // É o conserto do que já subiu: quem foi enviado antes da prévia existir só
   // tem a miniatura de 480px e aparece estourado no quadro maior.
   assert.match(fonte, /if \(!f\.preview_url\) guardarPrevia\(f\.id, e\.currentTarget\)/);
+});
+
+// --- a conta da resolução da prévia -----------------------------------------
+
+const { ladoDaPrevia } = await import("../../client/src/upload/thumbnail.js");
+
+test("a prévia de um post continua em 1080", () => {
+  assert.equal(ladoDaPrevia(2160, 2700), 1080, "retrato 4:5");
+  assert.equal(ladoDaPrevia(1080, 1920), 1080, "story");
+});
+
+test("a prévia de uma tira cresce com o número de lâminas", () => {
+  // O que importa é a resolução POR LÂMINA, não a da arte inteira.
+  const porLamina = (w, h, n) => ladoDaPrevia(w, h) / n;
+  assert.ok(porLamina(1080 * 5, 1350, 5) >= 540, "5 lâminas");
+  assert.ok(porLamina(1080 * 7, 1350, 7) >= 540, "7 lâminas — o caso dela");
+  assert.ok(porLamina(2970 * 6, 3712.5, 6) >= 540, "6 lâminas exportadas em alta");
+});
+
+test("mas tem teto: uma tira de dez lâminas não vira um arquivo gigante", () => {
+  assert.ok(ladoDaPrevia(1080 * 10, 1350) <= 4320);
 });

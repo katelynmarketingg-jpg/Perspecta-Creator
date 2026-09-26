@@ -208,6 +208,59 @@ router.get("/", async (req, res) => {
 
 // POST /api/distribution/:id/schedule — programa (manda para "Programados").
 // Publicação automática no Instagram depende do app Meta; por ora, organiza aqui.
+/**
+ * POST /api/distribution — cria uma peça a mais, direto daqui.
+ *
+ * Pedido dela: "quero poder criar daqui direto mais um também, se eu quiser
+ * postar a mais do que está no projeto". Essa peça nasce marcada como BÔNUS e
+ * com o mês que ela escolhe — é isso que o relatório lê depois para mostrar o
+ * extra sem inflar a entrega do contrato.
+ *
+ * A peça é uma tarefa na etapa Distribuição, igual às outras: a partir daqui
+ * ela recebe arte, legenda e aprovação pelo mesmo caminho de sempre.
+ */
+router.post("/", (req, res) => {
+  const stage = stageByName("%Distribui%", req.orgId);
+  if (!stage) return res.status(400).json({ error: "Crie a etapa 'Distribuição' no quadro de Tarefas." });
+
+  const b = req.body || {};
+  const client_id = Number(b.client_id) || null;
+  if (!client_id) return res.status(400).json({ error: "Escolha o cliente." });
+  const dono = db.prepare("SELECT id, name FROM clients WHERE id = ? AND org_id = ?").get(client_id, req.orgId);
+  if (!dono) return res.status(404).json({ error: "Cliente não encontrado." });
+
+  const tipo = ["post", "foto", "reel", "stories", "carrossel"].includes(b.content_type) ? b.content_type : "post";
+  // O mês vem como 'AAAA-MM'. A data fica no dia 1 por padrão: ela ajusta
+  // depois arrastando no calendário, como faz com as outras peças.
+  const mes = /^\d{4}-\d{2}$/.test(String(b.month || "")) ? b.month : new Date().toISOString().slice(0, 7);
+  const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(b.scheduled_at || "")) ? b.scheduled_at : `${mes}-01`;
+  const titulo = String(b.title || "").trim()
+    || `Bônus — ${dono.name} (${mes.split("-").reverse().join("/")})`;
+
+  const info = db.prepare(
+    `INSERT INTO tasks (org_id, stage_id, client_id, title, content_type, scheduled_at, bonus, position)
+     VALUES (?, ?, ?, ?, ?, ?, 1,
+             (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE org_id = ? AND stage_id = ?))`
+  ).run(req.orgId, stage.id, client_id, titulo, tipo, dia, req.orgId, stage.id);
+
+  res.status(201).json(db.prepare("SELECT * FROM tasks WHERE id = ?").get(info.lastInsertRowid));
+});
+
+/**
+ * DELETE /api/distribution/:id — tira a peça da lista.
+ *
+ * Existe porque dá para lançar duplicado (o mês de setembro dela veio em
+ * dobro) e não havia como desfazer sem ir até o quadro de Tarefas. Apaga a
+ * tarefa; a arte fica na Galeria, que é onde ela mora.
+ */
+router.delete("/:id", (req, res) => {
+  const t = db.prepare("SELECT id FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!t) return res.status(404).json({ error: "Peça não encontrada." });
+  db.prepare("DELETE FROM task_attachments WHERE task_id = ?").run(t.id);
+  db.prepare("DELETE FROM tasks WHERE id = ?").run(t.id);
+  res.json({ ok: true });
+});
+
 router.post("/:id/schedule", (req, res) => {
   const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });

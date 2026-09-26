@@ -802,6 +802,14 @@ ensureColumn("tasks", "last_reminder_at", "last_reminder_at TEXT");
 ensureColumn("tasks", "published_at", "published_at TEXT");
 ensureColumn("tasks", "publish_error", "publish_error TEXT");
 ensureColumn("tasks", "external_post_id", "external_post_id TEXT");
+
+// POST BÔNUS: peça publicada ALÉM do que o contrato do cliente prevê.
+//
+// O relatório compara o combinado (X posts, Y vídeos por mês) com o que saiu.
+// Um extra contado junto inflaria a entrega e esconderia um post do contrato
+// que ficou faltando. Marcado como bônus, ele aparece à parte: o combinado
+// continua sendo cobrado, e o que você deu a mais fica visível.
+ensureColumn("tasks", "bonus", "bonus INTEGER NOT NULL DEFAULT 0");
 // Publicar sozinho na hora marcada é opcional e desligado por padrão.
 ensureColumn("clients", "auto_publish", "auto_publish INTEGER NOT NULL DEFAULT 0");
 
