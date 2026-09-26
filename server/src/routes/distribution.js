@@ -2,7 +2,7 @@ import { Router } from "express";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
-import { syncTaskMediaToStage } from "../gallery-sync.js";
+import { syncTaskMediaToStage, syncTaskMediaToCurrentStage } from "../gallery-sync.js";
 import { bilheteDeMidia, enderecosDeMidia, previasDe } from "../midia-url.js";
 import { avisarAprovacoesPendentes } from "../aviso-aprovacao.js";
 
@@ -409,6 +409,16 @@ router.put("/:id", (req, res) => {
     });
     tx();
   }
+  // A ARTE NOVA JÁ NASCE NA PASTA CERTA.
+  //
+  // Antes só a mudança de ETAPA avisava a Galeria. Só que o caminho comum é o
+  // contrário: a peça já está programada (ou em aprovação) e a arte é escolhida
+  // DEPOIS. Aí a arte ficava parada na pasta antiga e voltava a aparecer no
+  // "Da galeria" — era o "isso não está funcionando".
+  //
+  // Enquanto a peça está em preparação isto não mexe em nada: a arte fica onde
+  // a pessoa a deixou.
+  syncTaskMediaToCurrentStage(req.orgId, req.params.id);
   res.json({ ok: true });
 });
 

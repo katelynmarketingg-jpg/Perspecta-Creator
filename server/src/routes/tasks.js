@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { stopTimersForTask } from "./time.js";
-import { syncTaskMediaToStage } from "../gallery-sync.js";
+import { syncTaskMediaToCurrentStage } from "../gallery-sync.js";
 import { broadcast } from "../live.js";
 import { confere } from "../pertence.js";
 
@@ -241,9 +241,11 @@ router.put("/:id/status", (req, res) => {
   if (stage_id != null && String(stage_id) !== String(task.stage_id)) {
     stopTimersForTask(req.params.id, req.orgId);
   }
-  // A mídia acompanha a peça pela Galeria conforme a etapa do quadro.
-  if (stage?.is_done) syncTaskMediaToStage(req.orgId, req.params.id, "programados");
-  else if (entrouNaAprovacao) syncTaskMediaToStage(req.orgId, req.params.id, "aprovacao");
+  // A ARTE ACOMPANHA A PEÇA PELA GALERIA, seja qual for a etapa para onde ela
+  // foi. Antes só dois casos avisavam (concluída e entrou em aprovação);
+  // arrastar a peça de volta, ou para qualquer outra coluna, deixava a arte na
+  // pasta errada. Em preparação não mexe em nada.
+  syncTaskMediaToCurrentStage(req.orgId, req.params.id);
   syncCaptureEvent(req.params.id, req.orgId);
   res.json(hydrate(db.prepare(`${SELECT} WHERE t.id = ?`).get(req.params.id)));
 });
