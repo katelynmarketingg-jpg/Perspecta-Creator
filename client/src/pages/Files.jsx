@@ -26,7 +26,7 @@ import { guardarPrevia, reforcarPrevia } from "../upload/previa-envio.js";
 import { fatiarEmSlides } from "../upload/carousel.js";
 import { agruparPosts, oQueArrastar, aplicarUniao, aplicarSeparacao, aplicarRemocao }
   from "../upload/unir-carrossel.js";
-import { useRolarAoArrastar } from "../upload/rolar-arrastando.js";
+import { ligarRolagemAoArrastar } from "../upload/rolar-arrastando.js";
 import { sugerirSlides } from "../upload/carousel.js";
 import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
@@ -536,7 +536,7 @@ export default function Files() {
   const [unindo, setUnindo] = useState(false);
   // Arrastando perto do rodapé, a página desce sozinha — sem precisar
   // encostar na borda da tela, que no Mac é onde o Dock abre por cima.
-  useRolarAoArrastar();
+  useEffect(() => ligarRolagemAoArrastar(), []);
 
   const currentFolder = path[path.length - 1]?.id || null;
 

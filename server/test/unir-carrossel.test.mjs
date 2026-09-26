@@ -422,7 +422,48 @@ test("no meio da tela não rola, e perto do topo sobe", () => {
 });
 
 test("as duas telas que têm arrasto ligam a rolagem", () => {
-  assert.match(tela, /useRolarAoArrastar\(\)/, "Galeria");
+  assert.match(tela, /ligarRolagemAoArrastar\(\)/, "Galeria");
   const dist = readFileSync(join(aqui, "../../client/src/pages/Distribution.jsx"), "utf8");
-  assert.match(dist, /useRolarAoArrastar\(\)/, "Distribuição");
+  assert.match(dist, /ligarRolagemAoArrastar\(\)/, "Distribuição");
+});
+
+// --- O POST UNIDO CHEGA UNIDO NA DISTRIBUIÇÃO --------------------------------
+//
+// Pedido dela: "juntar os slides lá na galeria é justamente para, aqui na
+// distribuição, quando eu clicar em 'da galeria', eles estarem agrupados. Tipo,
+// 'Frases' tem vários slides; eu preciso poder selecionar todos de uma vez e
+// virar carrossel aqui também."
+//
+// Antes as sete lâminas apareciam como sete itens soltos no seletor e tinham de
+// ser escolhidas uma a uma. Agora o seletor usa o MESMO agrupamento da Galeria.
+
+const dist = readFileSync(join(aqui, "../../client/src/pages/Distribution.jsx"), "utf8");
+
+test("o seletor da Distribuição agrupa igual à Galeria", () => {
+  const seletor = dist.slice(dist.indexOf("function GalleryPicker"), dist.indexOf("ESCOLHER A CAPA DO VÍDEO"));
+  assert.match(seletor, /agruparPosts\(files\)/, "a mesma conta da Galeria");
+  assert.ok(!/\{files\.map\(\(f\) =>/.test(seletor), "a lista solta, item por item, saiu");
+  assert.match(seletor, /label=\{`\$\{laminas\.length\} lâminas`\}/, "e o item diz quantas lâminas leva");
+});
+
+test("escolher um post unido monta o carrossel inteiro, na ordem", () => {
+  const trecho = dist.slice(dist.indexOf("async function pickFromGallery"), dist.indexOf("// TIRAR A ARTE"));
+  assert.match(trecho, /laminas\?\.length > 1/);
+  assert.match(trecho, /await saveSlides\(laminas\)/, "vira carrossel de uma vez");
+  // saveSlides já faz a 1ª lâmina virar capa e arte da peça.
+  assert.match(dist, /if \(next\[0\]\) \{ setCoverId\(next\[0\]\); setFileId\(next\[0\]\); \}/);
+});
+
+test("adicionar slide a partir de um post unido entra com todas as lâminas", () => {
+  const trecho = dist.slice(dist.indexOf("async function addSlide"), dist.indexOf("const removeSlide"));
+  assert.match(trecho, /laminas\?\.length > 1/);
+  assert.match(trecho, /saveSlides\(\[\.\.\.slides, \.\.\.novas\]\)/);
+  assert.match(trecho, /!slides\.includes\(l\)/, "sem repetir o que já está lá");
+});
+
+test("o post unido não passa pelo corte — as lâminas já são arquivos separados", () => {
+  const trecho = dist.slice(dist.indexOf("async function addSlide"), dist.indexOf("const removeSlide"));
+  const antesDoCorte = trecho.slice(0, trecho.indexOf("medirImagem"));
+  assert.ok(antesDoCorte.includes("laminas?.length > 1"),
+    "o caminho do post unido sai antes de qualquer medição/corte");
 });

@@ -10,8 +10,6 @@
 // passa a rolar quando o cursor entra numa FAIXA perto do rodapé (ou do topo),
 // sem precisar chegar na borda: quanto mais fundo na faixa, mais rápido rola.
 // ---------------------------------------------------------------------------
-import { useEffect } from "react";
-
 export const FAIXA = 160;        // px do topo/rodapé que já fazem rolar
 export const VELOCIDADE_MAX = 26; // px por quadro, no fim da faixa
 
@@ -38,38 +36,41 @@ function quemRola(el) {
 }
 
 /**
- * Liga a rolagem por arrasto na janela inteira. Vale para arrastar um cartão
- * daqui de dentro e para arrastar arquivos do computador.
+ * Liga a rolagem por arrasto na janela inteira e devolve como desligar. Vale
+ * para arrastar um cartão daqui de dentro e para arrastar arquivos do
+ * computador.
+ *
+ * Sem React de propósito: este arquivo é lido pelos testes do servidor, que
+ * rodam sem as dependências do client instaladas. Na tela, é só chamar dentro
+ * de um useEffect — o retorno já é a função de limpeza.
  */
-export function useRolarAoArrastar(ligado = true) {
-  useEffect(() => {
-    if (!ligado) return undefined;
-    let y = null, quadro = 0;
+export function ligarRolagemAoArrastar() {
+  if (typeof window === "undefined") return () => {};
+  let y = null, quadro = 0;
 
-    const passo = () => {
-      quadro = 0;
-      if (y == null) return;
-      const v = velocidadeDaRolagem(y, window.innerHeight);
-      if (v) {
-        const alvo = quemRola(document.elementFromPoint(window.innerWidth / 2, y) || document.body);
-        if (alvo) alvo.scrollTop += v;
-        else window.scrollBy(0, v);
-      }
-      agendar();
-    };
-    const agendar = () => { if (!quadro) quadro = requestAnimationFrame(passo); };
+  const passo = () => {
+    quadro = 0;
+    if (y == null) return;
+    const v = velocidadeDaRolagem(y, window.innerHeight);
+    if (v) {
+      const alvo = quemRola(document.elementFromPoint(window.innerWidth / 2, y) || document.body);
+      if (alvo) alvo.scrollTop += v;
+      else window.scrollBy(0, v);
+    }
+    agendar();
+  };
+  const agendar = () => { if (!quadro) quadro = requestAnimationFrame(passo); };
 
-    const porCima = (e) => { y = e.clientY; agendar(); };
-    const parar = () => { y = null; if (quadro) cancelAnimationFrame(quadro); quadro = 0; };
+  const porCima = (e) => { y = e.clientY; agendar(); };
+  const parar = () => { y = null; if (quadro) cancelAnimationFrame(quadro); quadro = 0; };
 
-    window.addEventListener("dragover", porCima);
-    window.addEventListener("dragend", parar);
-    window.addEventListener("drop", parar);
-    return () => {
-      parar();
-      window.removeEventListener("dragover", porCima);
-      window.removeEventListener("dragend", parar);
-      window.removeEventListener("drop", parar);
-    };
-  }, [ligado]);
+  window.addEventListener("dragover", porCima);
+  window.addEventListener("dragend", parar);
+  window.addEventListener("drop", parar);
+  return () => {
+    parar();
+    window.removeEventListener("dragover", porCima);
+    window.removeEventListener("dragend", parar);
+    window.removeEventListener("drop", parar);
+  };
 }
