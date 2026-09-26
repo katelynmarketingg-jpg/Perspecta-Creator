@@ -130,7 +130,29 @@ const tela = lerArquivo(juntar(aqui, "../../client/src/pages/Distribution.jsx"),
 test("existe uma visão compacta, com muitos por linha", () => {
   assert.match(tela, /value="compacto"/, "o botão de visão");
   assert.match(tela, /GRADE_COMPACTA/, "e a grade densa");
-  assert.match(tela, /repeat\(7, 1fr\)/, "sete por linha nas telas largas");
+});
+
+// A VISÃO COMPACTA TEM QUE SER, DE FATO, MENOR.
+//
+// Pedido dela: "essa visualização ficou igual à outra, mesmo tamanho; quero que
+// fique igual mas beeeem menor". A causa era a grade por NÚMERO de colunas:
+// numa janela entre dois tamanhos de tela caíam cinco por linha e a peça ficava
+// do tamanho da visão normal.
+test("a visão compacta mede pela largura da peça, não por número de colunas", () => {
+  assert.match(tela, /const LARGURA_COMPACTA = 110/, "cada peça tem ~110px");
+  assert.match(tela, /repeat\(auto-fill, minmax\(\$\{LARGURA_COMPACTA\}px, 1fr\)\)/,
+    "a linha se enche com quantas couberem");
+  const grade = tela.slice(tela.indexOf("const GRADE_COMPACTA"), tela.indexOf("function rotuloCurto"));
+  assert.ok(!/repeat\(7, 1fr\)|repeat\(5, 1fr\)/.test(grade),
+    "as colunas fixas por tamanho de tela saíram — eram elas que deixavam a peça grande");
+});
+
+test("num selo de 110px o nome sai curto, sem o cliente e o mês repetidos", () => {
+  const trecho = tela.slice(tela.indexOf("function rotuloCurto"), tela.indexOf("function CartaoCompacto"));
+  assert.match(trecho, /split\(" — "\)/, "corta no travessão");
+  const cartao = tela.slice(tela.indexOf("function CartaoCompacto"), tela.indexOf("/** Desenha os itens em blocos de mês"));
+  assert.match(cartao, /rotuloCurto\(item\.title\)/);
+  assert.match(cartao, /<Tooltip title=\{item\.title \|\| ""\}/, "o nome inteiro fica no repousar do mouse");
 });
 
 test("a barra de seleção é uma só, e tem o apagar", () => {

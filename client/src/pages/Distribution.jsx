@@ -1440,20 +1440,37 @@ const GRADE = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr"
 // alto, e a fileira fica reta sempre.
 const GRADE_IGUAL = { ...GRADE, alignItems: "stretch" };
 
-// GRADE COMPACTA: os mesmos cards, só que muitos por linha.
+// GRADE COMPACTA: os mesmos cards, só que BEM menores e muitos por linha.
 //
 // Com vinte peças no mês, três por linha viram uma rolagem longa para uma
-// conferida que é de olho — "o que já tem arte, o que falta". Aqui cabem seis
-// ou sete, e a peça inteira continua clicável como nas outras visões.
+// conferida que é de olho — "o que já tem arte, o que falta".
+//
+// A medida é por LARGURA DA PEÇA, não por número de colunas. Com colunas fixas
+// por tamanho de tela, numa janela no meio de dois tamanhos caíam cinco por
+// linha e a peça ficava do mesmo tamanho da visão normal — foi o "ficou igual
+// à outra". Assim cada peça tem ~110px e a linha se enche com quantas couberem:
+// numa tela de trabalho dá uma dúzia.
+const LARGURA_COMPACTA = 110;
 const GRADE_COMPACTA = {
-  display: "grid", alignItems: "stretch", gap: 1.25,
-  gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(3, 1fr)", md: "repeat(5, 1fr)", lg: "repeat(7, 1fr)" },
+  display: "grid", alignItems: "stretch", gap: 0.75,
+  gridTemplateColumns: {
+    xs: "repeat(3, 1fr)",
+    sm: `repeat(auto-fill, minmax(${LARGURA_COMPACTA}px, 1fr))`,
+  },
 };
+
+// O título de uma peça é "Post 5/6 — KN Advocacia Criminal (Setembro/2026)".
+// Numa peça de 110px só cabe o começo — e o resto já está na tela: o cliente
+// está escolhido ali em cima e o mês é o do bloco.
+function rotuloCurto(titulo = "") {
+  const curto = String(titulo).split(" — ")[0].trim();
+  return curto || String(titulo);
+}
 // Vai no <Card> dessas listas, para ele de fato ocupar a altura que a grade deu.
 const CARD_IGUAL = { height: "100%", display: "flex", flexDirection: "column" };
 
 /**
- * CARTÃO COMPACTO: a arte, o tipo e o status, no tamanho de um post.
+ * CARTÃO COMPACTO: a arte, o tipo e o status, num selo pequeno.
  *
  * Não é o PieceCard encolhido — é outra peça de tela, com o mínimo para a
  * conferida de olho: dá para ver o que já tem arte, o que falta e o que foi
@@ -1473,20 +1490,28 @@ function CartaoCompacto({ item, onSelect }) {
             sx={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         ) : (
           <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", p: 0.5 }}>
-            <Typography variant="caption" color="text.secondary" align="center">sem arte</Typography>
+            <Typography color="text.secondary" align="center" sx={{ fontSize: 10, lineHeight: 1.2 }}>sem arte</Typography>
           </Box>
         )}
         {item.bonus ? (
           <Chip size="small" label="bônus" color="secondary"
-            sx={{ position: "absolute", top: 4, left: 4, height: 18, fontSize: 10, fontWeight: 700 }} />
+            sx={{ position: "absolute", top: 2, left: 2, height: 15, fontSize: 9, fontWeight: 700,
+                  "& .MuiChip-label": { px: 0.5 } }} />
         ) : null}
       </Box>
-      <Box sx={{ p: 0.75, minWidth: 0 }}>
-        <Typography variant="caption" noWrap sx={{ display: "block", fontWeight: 600 }}>{item.title}</Typography>
-        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>
-          {item.scheduled_at ? formatDate(item.scheduled_at) : "sem data"}
-        </Typography>
-      </Box>
+      {/* O nome inteiro não cabe num selo de 110px — e o que foi cortado já
+          está na tela: o cliente ali em cima, o mês no título do bloco. O nome
+          completo continua no repousar do mouse. */}
+      <Tooltip title={item.title || ""} placement="top">
+        <Box sx={{ px: 0.5, py: 0.4, minWidth: 0 }}>
+          <Typography noWrap sx={{ display: "block", fontWeight: 700, fontSize: 11, lineHeight: 1.25 }}>
+            {rotuloCurto(item.title)}
+          </Typography>
+          <Typography noWrap color="text.secondary" sx={{ display: "block", fontSize: 10, lineHeight: 1.25 }}>
+            {item.scheduled_at ? formatDate(item.scheduled_at) : "sem data"}
+          </Typography>
+        </Box>
+      </Tooltip>
     </Card>
   );
 }
@@ -2082,7 +2107,8 @@ export default function Distribution() {
               <Box key={it.id} sx={{ position: "relative" }}>
                 {selectMode && (
                   <Checkbox size="small" checked={checked.has(it.id)} onChange={() => toggleCheck(it.id)}
-                    sx={{ position: "absolute", top: 2, right: 2, zIndex: 2, p: 0.25,
+                    sx={{ position: "absolute", top: 1, right: 1, zIndex: 2, p: 0.15,
+                          "& .MuiSvgIcon-root": { fontSize: 16 },
                           bgcolor: "background.paper", borderRadius: 1, "&:hover": { bgcolor: "background.paper" } }} />
                 )}
                 <Box onClick={selectMode ? () => toggleCheck(it.id) : undefined}
