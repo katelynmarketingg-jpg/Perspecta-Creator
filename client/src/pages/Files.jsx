@@ -296,7 +296,9 @@ function FileCard({ f, laminas, onDownload, onDelete, onSaveName, onMoveFolder,
 
   return (
     <Card variant="outlined"
-      draggable
+      // Enquanto o nome está sendo editado, o cartão não é alça de arrastar —
+      // senão não dá para selecionar o texto dentro do campo.
+      draggable={!editing}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = "move";
         // Arrastar um cartão marcado leva a seleção inteira, na ordem em que foi
