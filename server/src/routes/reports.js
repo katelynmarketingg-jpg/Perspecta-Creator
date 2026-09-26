@@ -106,14 +106,22 @@ router.get("/planned-vs-delivered", (req, res) => {
     SELECT c.id, c.name AS client_name,
            COALESCE(c.posts_per_month, 0) AS posts_planejados,
            COALESCE(c.videos_per_month, 0) AS videos_planejados,
+           -- O BÔNUS FICA DE FORA DA ENTREGA DO CONTRATO. Contado junto, ele
+           -- inflaria o número e esconderia um post do combinado que faltou.
            (SELECT COUNT(*) FROM tasks t
              WHERE t.client_id = c.id AND t.org_id = c.org_id
                AND t.content_type IN ('post','foto')
+               AND COALESCE(t.bonus, 0) = 0
                AND strftime('%Y-%m', t.scheduled_at) = @month) AS posts_entregues,
            (SELECT COUNT(*) FROM tasks t
              WHERE t.client_id = c.id AND t.org_id = c.org_id
                AND t.content_type IN ('reel','stories')
+               AND COALESCE(t.bonus, 0) = 0
                AND strftime('%Y-%m', t.scheduled_at) = @month) AS videos_entregues,
+           (SELECT COUNT(*) FROM tasks t
+             WHERE t.client_id = c.id AND t.org_id = c.org_id
+               AND COALESCE(t.bonus, 0) = 1
+               AND strftime('%Y-%m', t.scheduled_at) = @month) AS bonus_entregues,
            (SELECT COUNT(*) FROM tasks t
              WHERE t.client_id = c.id AND t.org_id = c.org_id
                AND strftime('%Y-%m', t.scheduled_at) = @month

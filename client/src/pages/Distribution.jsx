@@ -11,6 +11,9 @@ import UploadIcon from "@mui/icons-material/Upload";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import ViewModuleIcon from "@mui/icons-material/ViewModule";
 import ViewListIcon from "@mui/icons-material/ViewList";
+import ViewComfyIcon from "@mui/icons-material/ViewComfy";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteIcon from "@mui/icons-material/Delete";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import CalendarViewMonthIcon from "@mui/icons-material/CalendarViewMonth";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -27,7 +30,7 @@ import { makeThumbnail } from "../upload/thumbnail.js";
 import { medirImagem, fatiarEmSlides, sugerirSlides, LARGURA_ALVO } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
-import { CONTENT_TYPES, formatTime, whatsappLink } from "../utils.js";
+import { CONTENT_TYPES, formatDate, formatTime, whatsappLink } from "../utils.js";
 import PlanningRefDialog from "../components/PlanningRefDialog.jsx";
 import { thumbFromElement } from "../upload/thumbnail.js";
 import { guardarPrevia } from "../upload/previa-envio.js";
@@ -1365,7 +1368,11 @@ function ListView({ items, onSelect, selectMode, checked, onToggle }) {
       {items.map((it) => {
         const ct = CONTENT_TYPES[it.content_type];
         const st = statusOf(it);
-        const marcavel = st === "nao_enviado" && it.scheduled_at; // só o "laranja" pode ser enviado
+        // Antes só a "laranja" podia ser marcada, porque marcar servia só para
+        // enviar. Agora marcar também serve para APAGAR — e a duplicada que ela
+        // precisa tirar pode estar em qualquer estado. Quem não pode ser
+        // enviada o servidor recusa, e o envio em lote já diz qual e por quê.
+        const marcavel = true;
         const marcada = checked?.has(it.id);
         return (
           <Card key={it.id} sx={selectMode && marcada ? { outline: "2px solid", outlineColor: "primary.main" } : undefined}>
@@ -1432,8 +1439,57 @@ const GRADE = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr"
 // parte, mas não tudo. Aqui os cards da fileira esticam até a altura do mais
 // alto, e a fileira fica reta sempre.
 const GRADE_IGUAL = { ...GRADE, alignItems: "stretch" };
+
+// GRADE COMPACTA: os mesmos cards, só que muitos por linha.
+//
+// Com vinte peças no mês, três por linha viram uma rolagem longa para uma
+// conferida que é de olho — "o que já tem arte, o que falta". Aqui cabem seis
+// ou sete, e a peça inteira continua clicável como nas outras visões.
+const GRADE_COMPACTA = {
+  display: "grid", alignItems: "stretch", gap: 1.25,
+  gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(3, 1fr)", md: "repeat(5, 1fr)", lg: "repeat(7, 1fr)" },
+};
 // Vai no <Card> dessas listas, para ele de fato ocupar a altura que a grade deu.
 const CARD_IGUAL = { height: "100%", display: "flex", flexDirection: "column" };
+
+/**
+ * CARTÃO COMPACTO: a arte, o tipo e o status, no tamanho de um post.
+ *
+ * Não é o PieceCard encolhido — é outra peça de tela, com o mínimo para a
+ * conferida de olho: dá para ver o que já tem arte, o que falta e o que foi
+ * aprovado sem rolar a página inteira. Clicar abre a peça como nas outras
+ * visões.
+ */
+function CartaoCompacto({ item, onSelect }) {
+  const arte = item.preview_url || item.cover_preview_url || item.cover_url || item.media_url;
+  const st = statusOf(item);
+  const cor = { aprovado: "success.main", aguardando: "warning.main", ajuste: "error.main" }[st] || "divider";
+  return (
+    <Card variant="outlined" sx={{ ...CARD_IGUAL, cursor: "pointer", borderColor: cor }}
+      onClick={() => onSelect?.(item)}>
+      <Box sx={{ position: "relative", width: "100%", aspectRatio: "4 / 5", bgcolor: "action.hover" }}>
+        {arte ? (
+          <Box component="img" src={arte} alt={item.title} loading="lazy"
+            sx={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        ) : (
+          <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", p: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" align="center">sem arte</Typography>
+          </Box>
+        )}
+        {item.bonus ? (
+          <Chip size="small" label="bônus" color="secondary"
+            sx={{ position: "absolute", top: 4, left: 4, height: 18, fontSize: 10, fontWeight: 700 }} />
+        ) : null}
+      </Box>
+      <Box sx={{ p: 0.75, minWidth: 0 }}>
+        <Typography variant="caption" noWrap sx={{ display: "block", fontWeight: 600 }}>{item.title}</Typography>
+        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>
+          {item.scheduled_at ? formatDate(item.scheduled_at) : "sem data"}
+        </Typography>
+      </Box>
+    </Card>
+  );
+}
 
 /** Desenha os itens em blocos de mês. `children` é como cada item vira cartão. */
 function PorMes({ itens, children, grade = GRADE }) {
@@ -1504,7 +1560,16 @@ function MonthGrid({ items, onSelect }) {
                     {(byDay[day] || []).slice(0, 2).map((it) => (
                       <Box key={it.id} onClick={() => onSelect(it)} sx={{ cursor: "pointer", borderRadius: 1, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
                         <Box sx={{ position: "relative", aspectRatio: "1" }}>
+                          {/* O ENDEREÇO DIRETO TAMBÉM AQUI.
+                              Esta era a única visão que chamava o <Media> sem
+                              ele: caía no download pelo servidor e, quando esse
+                              caminho falha, TODA peça do mês virava "Arte não
+                              carregou (reenvie)" — inclusive as que estavam
+                              perfeitas nas outras visões. */}
                           <Media fileId={it.cover_file_id || it.file_id} height="100%"
+                            streamUrl={enderecoDoArquivo(it, it.cover_file_id || it.file_id) || enderecoDaPeca(it)}
+                            previaUrl={it.cover_preview_url || it.preview_url}
+                            ehVideoDica={pecaEhVideo(it)}
                             comecoDaTira={it.content_type === "carrossel"} />
                           <Box sx={{ position: "absolute", left: 3, bottom: 3, px: 0.5, borderRadius: 0.5, bgcolor: "rgba(0,0,0,0.62)", color: "#fff", fontSize: 10, fontWeight: 700 }}>
                             {formatTime(it.scheduled_at)}
@@ -1745,6 +1810,9 @@ export default function Distribution() {
   const [selected, setSelected] = useState(null); // peça no editor (lista/perfil/calendário)
   const [selectMode, setSelectMode] = useState(false); // seleção múltipla na visão "Por post"
   const [checked, setChecked] = useState(() => new Set()); // ids marcados
+  const [apagando, setApagando] = useState(false);
+  const [bonusOpen, setBonusOpen] = useState(false);
+  const [bonus, setBonus] = useState({ client_id: "", content_type: "post", month: "" });
   const [sendingBulk, setSendingBulk] = useState(false);
   const [approved, setApproved] = useState([]); // aprovados aguardando programação
   const [programmed, setProgrammed] = useState([]); // já programados
@@ -1803,6 +1871,88 @@ export default function Distribution() {
     setChecked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
   function sairDaSelecao() { setSelectMode(false); setChecked(new Set()); }
+
+  /**
+   * APAGAR AS MARCADAS. Nasceu de um lançamento duplicado: setembro veio em
+   * dobro e não havia como desfazer sem ir até o quadro de Tarefas. Pergunta
+   * antes e diz quantas — apagar peça é coisa que não volta.
+   */
+  async function apagarSelecionadas() {
+    const ids = [...checked];
+    if (!ids.length) return;
+    if (!window.confirm(
+      `Apagar ${ids.length} peça(s) da Distribuição?\n\n`
+      + "As artes continuam na Galeria; o que sai é a peça da lista. Não dá para desfazer."
+    )) return;
+    setApagando(true);
+    let erros = 0;
+    for (const id of ids) {
+      try { await api.delete(`/distribution/${id}`); } catch { erros++; }
+    }
+    setApagando(false);
+    sairDaSelecao();
+    flash(erros
+      ? `${ids.length - erros} apagada(s); ${erros} não deu.`
+      : `${ids.length} peça(s) apagada(s).`, erros ? "error" : "success");
+    load();
+  }
+
+  /**
+   * POST BÔNUS: uma peça a mais, além do que o contrato prevê. Ela escolhe o
+   * cliente, o tipo e o mês; o relatório mostra esse extra à parte, sem inflar
+   * a entrega do combinado.
+   */
+  async function criarBonus() {
+    if (!bonus.client_id) return;
+    try {
+      await api.post("/distribution", {
+        client_id: bonus.client_id,
+        content_type: bonus.content_type,
+        month: bonus.month || new Date().toISOString().slice(0, 7),
+      });
+      setBonusOpen(false);
+      flash("Post bônus criado — já aparece na lista para receber a arte.", "success");
+      load();
+    } catch (e) {
+      flash(e.response?.data?.error || "Não consegui criar o post bônus.", "error");
+    }
+  }
+
+  /**
+   * A BARRA DE SELEÇÃO, uma só para as três visões.
+   *
+   * Eram duas cópias quase iguais, e o botão de apagar teria virado uma
+   * terceira. `todas` é o que "Marcar todas" seleciona naquela visão.
+   */
+  function BarraDeSelecao({ todas = null }) {
+    const marcarTodas = () => setChecked(new Set((todas || items).map((i) => i.id)));
+    return (
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
+        {!selectMode ? (
+          <Button size="small" variant="outlined" startIcon={<CheckBoxIcon />} onClick={() => setSelectMode(true)}>
+            Selecionar
+          </Button>
+        ) : (
+          <>
+            <Button size="small" color="inherit" onClick={sairDaSelecao}>Cancelar</Button>
+            <Button size="small" onClick={marcarTodas}>Marcar todas</Button>
+            <Typography variant="body2" color="text.secondary">{checked.size} marcada(s)</Typography>
+            <Box sx={{ flex: 1 }} />
+            {/* APAGAR: o conserto do lançamento duplicado. Fica antes do enviar
+                e em vermelho, para não ser clicado por engano. */}
+            <Button size="small" color="error" startIcon={<DeleteIcon />}
+              disabled={apagando || checked.size === 0} onClick={apagarSelecionadas}>
+              {apagando ? "Apagando..." : `Apagar ${checked.size || ""}`}
+            </Button>
+            <Button size="small" variant="contained" startIcon={<SendIcon />}
+              disabled={sendingBulk || checked.size === 0} onClick={enviarSelecionadas}>
+              {sendingBulk ? "Enviando..." : `Enviar ${checked.size || ""} para aprovação`}
+            </Button>
+          </>
+        )}
+      </Stack>
+    );
+  }
 
   // Envia todas as peças marcadas para aprovação (uma a uma). Cada peça precisa
   // ter mídia e data; as que não tiverem são reportadas.
@@ -1867,8 +2017,13 @@ export default function Distribution() {
               <MenuItem value="">Todas</MenuItem>
               {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
             </TextField>
+            <Button size="small" variant="outlined" startIcon={<AddIcon />}
+              onClick={() => { setBonus({ client_id: clientFilter || "", content_type: "post", month: new Date().toISOString().slice(0, 7) }); setBonusOpen(true); }}>
+              Post bônus
+            </Button>
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
               <ToggleButton value="post" aria-label="Por post"><ViewModuleIcon fontSize="small" /></ToggleButton>
+              <ToggleButton value="compacto" aria-label="Compacto"><ViewComfyIcon fontSize="small" /></ToggleButton>
               <ToggleButton value="list" aria-label="Lista"><ViewListIcon fontSize="small" /></ToggleButton>
               <ToggleButton value="feed" aria-label="Perfil"><GridOnIcon fontSize="small" /></ToggleButton>
               <ToggleButton value="calendar" aria-label="Calendário"><CalendarViewMonthIcon fontSize="small" /></ToggleButton>
@@ -1878,10 +2033,71 @@ export default function Distribution() {
 
       {msg && <Alert severity={msg.tipo} sx={{ mb: 2 }}>{msg.texto}</Alert>}
 
+      {/* POST BÔNUS: uma peça além do que o contrato do cliente prevê. */}
+      <Dialog open={bonusOpen} onClose={() => setBonusOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Post bônus</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">
+              Uma peça <b>além</b> do combinado do mês. Ela entra na lista como as outras — recebe arte,
+              legenda e aprovação do mesmo jeito — e no relatório aparece à parte, sem contar como
+              entrega do contrato.
+            </Typography>
+            <TextField select size="small" fullWidth label="Cliente" value={bonus.client_id}
+              onChange={(e) => setBonus((b) => ({ ...b, client_id: e.target.value }))}>
+              {clients.map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+            </TextField>
+            <TextField select size="small" fullWidth label="Tipo" value={bonus.content_type}
+              onChange={(e) => setBonus((b) => ({ ...b, content_type: e.target.value }))}>
+              {/* CONTENT_TYPES é um objeto (chave -> {label, emoji}), não uma
+                  lista. E só os tipos que viram post entram aqui: "reunião" ou
+                  "captação" não são peça publicada. */}
+              {["post", "carrossel", "reel", "stories", "foto"].map((k) => (
+                <MenuItem key={k} value={k}>
+                  {CONTENT_TYPES[k]?.emoji} {CONTENT_TYPES[k]?.label || k}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField size="small" fullWidth type="month" label="Mês" value={bonus.month}
+              onChange={(e) => setBonus((b) => ({ ...b, month: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+              helperText="Cai no dia 1; depois é só arrastar no calendário." />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBonusOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={criarBonus} disabled={!bonus.client_id}>Criar</Button>
+        </DialogActions>
+      </Dialog>
+
       {!stage && !loading ? (
         <EmptyState message="Crie uma etapa chamada 'Distribuição' no quadro de Tarefas para usar esta aba." />
       ) : loading ? (
         <Box sx={{ display: "grid", placeItems: "center", py: 6 }}><CircularProgress /></Box>
+      ) : view === "compacto" ? (
+        <>
+          <BarraDeSelecao />
+          <PorMes itens={items} grade={GRADE_COMPACTA}>
+            {(it) => (
+              <Box key={it.id} sx={{ position: "relative" }}>
+                {selectMode && (
+                  <Checkbox size="small" checked={checked.has(it.id)} onChange={() => toggleCheck(it.id)}
+                    sx={{ position: "absolute", top: 2, right: 2, zIndex: 2, p: 0.25,
+                          bgcolor: "background.paper", borderRadius: 1, "&:hover": { bgcolor: "background.paper" } }} />
+                )}
+                <Box onClick={selectMode ? () => toggleCheck(it.id) : undefined}
+                  sx={selectMode ? {
+                    cursor: "pointer",
+                    outline: checked.has(it.id) ? "2px solid" : "2px solid transparent",
+                    outlineColor: "primary.main", borderRadius: 2,
+                    "& *": { pointerEvents: "none" },
+                  } : undefined}>
+                  <CartaoCompacto item={it} onSelect={setSelected} />
+                </Box>
+              </Box>
+            )}
+          </PorMes>
+        </>
       ) : view === "post" ? (
         <>
           {/* Filtro: para aprovar (preparar/enviar) x aprovados (programar) */}
@@ -2028,25 +2244,7 @@ export default function Distribution() {
             <EmptyState message="Nenhuma peça para preparar. Mova as tarefas prontas para a coluna 'Distribuição' no quadro de Tarefas." />
           ) : (
           <>
-            {/* Barra de seleção: marcar várias peças e enviar de uma vez. */}
-            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
-              {!selectMode ? (
-                <Button size="small" variant="outlined" startIcon={<CheckBoxIcon />} onClick={() => setSelectMode(true)}>
-                  Selecionar para enviar
-                </Button>
-              ) : (
-                <>
-                  <Button size="small" color="inherit" onClick={sairDaSelecao}>Cancelar</Button>
-                  <Button size="small" onClick={() => setChecked(new Set(items.map((i) => i.id)))}>Marcar todas</Button>
-                  <Typography variant="body2" color="text.secondary">{checked.size} marcada(s)</Typography>
-                  <Box sx={{ flex: 1 }} />
-                  <Button size="small" variant="contained" startIcon={<SendIcon />}
-                    disabled={sendingBulk || checked.size === 0} onClick={enviarSelecionadas}>
-                    {sendingBulk ? "Enviando..." : `Enviar ${checked.size || ""} para aprovação`}
-                  </Button>
-                </>
-              )}
-            </Stack>
+            <BarraDeSelecao />
             <PorMes itens={items}>
               {(it) => (
                 <Box key={it.id} sx={{ position: "relative" }}>
@@ -2075,27 +2273,8 @@ export default function Distribution() {
       ) : view === "list" ? (
         <>
           <StatusLegend />
-          {/* Seleção também na Lista: marca as "laranja" (não enviadas) e manda de uma vez. */}
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
-            {!selectMode ? (
-              <Button size="small" variant="outlined" startIcon={<CheckBoxIcon />} onClick={() => setSelectMode(true)}>
-                Selecionar para enviar
-              </Button>
-            ) : (
-              <>
-                <Button size="small" color="inherit" onClick={sairDaSelecao}>Cancelar</Button>
-                <Button size="small" onClick={() => setChecked(new Set(scheduled.filter((i) => statusOf(i) === "nao_enviado" && i.scheduled_at).map((i) => i.id)))}>
-                  Marcar todas
-                </Button>
-                <Typography variant="body2" color="text.secondary">{checked.size} marcada(s)</Typography>
-                <Box sx={{ flex: 1 }} />
-                <Button size="small" variant="contained" startIcon={<SendIcon />}
-                  disabled={sendingBulk || checked.size === 0} onClick={enviarSelecionadas}>
-                  {sendingBulk ? "Enviando..." : `Enviar ${checked.size || ""} para aprovação`}
-                </Button>
-              </>
-            )}
-          </Stack>
+          {/* Na Lista, "Marcar todas" pega as do panorama, não só as de preparar. */}
+          <BarraDeSelecao todas={scheduled} />
           <ListView items={scheduled} onSelect={setSelected}
             selectMode={selectMode} checked={checked} onToggle={toggleCheck} />
         </>
