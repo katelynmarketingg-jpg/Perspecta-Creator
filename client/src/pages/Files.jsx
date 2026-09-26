@@ -24,7 +24,9 @@ import api from "../api/client.js";
 import { thumbFromElement } from "../upload/thumbnail.js";
 import { guardarPrevia, reforcarPrevia } from "../upload/previa-envio.js";
 import { fatiarEmSlides } from "../upload/carousel.js";
-import { agruparPosts, oQueArrastar } from "../upload/unir-carrossel.js";
+import { agruparPosts, oQueArrastar, aplicarUniao, aplicarSeparacao, aplicarRemocao }
+  from "../upload/unir-carrossel.js";
+import { useRolarAoArrastar } from "../upload/rolar-arrastando.js";
 import { sugerirSlides } from "../upload/carousel.js";
 import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
@@ -532,6 +534,9 @@ export default function Files() {
   // qual lâmina vem primeiro quando a seleção vira um carrossel.
   const [selecionados, setSelecionados] = useState([]);
   const [unindo, setUnindo] = useState(false);
+  // Arrastando perto do rodapé, a página desce sozinha — sem precisar
+  // encostar na borda da tela, que no Mac é onde o Dock abre por cima.
+  useRolarAoArrastar();
 
   const currentFolder = path[path.length - 1]?.id || null;
 
@@ -564,6 +569,18 @@ export default function Files() {
   // alguém mexer nos arquivos (vFiles) sai normalmente.
   const ultimaLista = useRef(null);
 
+  // MEXIDA EM VOO. Enquanto um pedido nosso não voltou, a lista não é
+  // recarregada por aviso do canal ao vivo: a resposta desse recarregamento
+  // chegaria com o estado de ANTES da mexida seguinte e faria o cartão piscar
+  // de volta. O que está na tela já é o resultado — as mesmas regras do
+  // servidor rodam aqui.
+  const emVoo = useRef(0);
+  async function mexendo(tarefa) {
+    emVoo.current += 1;
+    try { return await tarefa(); }
+    finally { emVoo.current = Math.max(0, emVoo.current - 1); }
+  }
+
   const loadFolders = () => {
     if (!clientId) { setFolders([]); return; }
     const fParams = { client_id: clientId };
@@ -573,6 +590,7 @@ export default function Files() {
 
   const loadDocs = (forcar = false) => {
     if (!clientId) { setFolders([]); setFiles([]); ultimaLista.current = null; return; }
+    if (emVoo.current > 0 && !forcar) return;
     loadFolders();
     const marca = `${clientId}|${currentFolder || ""}|${vFilesRef.current}`;
     if (!forcar && ultimaLista.current === marca) return;
@@ -701,10 +719,14 @@ export default function Files() {
       ? `Excluir o post inteiro (${ids.length} lâminas)?`
       : "Excluir arquivo?";
     if (!confirm(pergunta)) return;
-    if (ids.length > 1) await api.post("/files/lote", { acao: "apagar", ids });
-    else await api.delete(`/files/${id}`);
+    const antes = files;
+    setFiles((atual) => aplicarRemocao(atual, ids));
     tirarDaSelecao(ids);
-    loadDocs(true);
+    try {
+      await mexendo(() => (ids.length > 1
+        ? api.post("/files/lote", { acao: "apagar", ids })
+        : api.delete(`/files/${id}`)));
+    } catch { setFiles(antes); loadDocs(true); }
   }
   function download(file) {
     // Devolve a promessa: quem baixa várias lâminas seguidas precisa esperar
@@ -725,14 +747,21 @@ export default function Files() {
     setSelecionados((atual) => atual.filter((x) => !ids.includes(x)));
   }
 
-  // UNIR: o que foi arrastado entra como próxima lâmina do post que recebeu.
+  // UNIR, NA HORA.
+  //
+  // Antes a tela esperava o pedido voltar e recarregava a lista INTEIRA da
+  // pasta — que leva a miniatura de cada arquivo embutida. Era a demora para a
+  // arte arrastada sumir. Agora a união é aplicada aqui, na lista que já está
+  // na mão: a arte vira lâmina no mesmo instante. O pedido segue por trás e, se
+  // falhar, a lista volta ao que era.
   async function unir(capa, ids) {
-    if (!ids?.length || unindo) return;
-    setUnindo(true);
-    try { await api.post(`/files/${capa.id}/carrossel`, { ids }); }
-    finally { setUnindo(false); }
+    if (!ids?.length) return;
+    const capaId = capa.carrossel_id || capa.id;
+    const antes = files;
+    setFiles((atual) => aplicarUniao(atual, capaId, ids));
     setSelecionados([]);
-    loadDocs(true);
+    try { await mexendo(() => api.post(`/files/${capaId}/carrossel`, { ids })); }
+    catch { setFiles(antes); loadDocs(true); }
   }
 
   // UNIR OS SELECIONADOS: o primeiro marcado vira a capa, os outros entram na
@@ -741,24 +770,31 @@ export default function Files() {
   async function unirSelecionados() {
     if (selecionados.length < 2 || unindo) return;
     const [capa, ...resto] = selecionados;
+    const antes = files;
     setUnindo(true);
-    try { await api.post(`/files/${capa}/carrossel`, { ids: resto }); }
-    finally { setUnindo(false); }
+    setFiles((atual) => aplicarUniao(atual, capa, resto));
     setSelecionados([]);
-    loadDocs(true);
+    try { await mexendo(() => api.post(`/files/${capa}/carrossel`, { ids: resto })); }
+    catch { setFiles(antes); loadDocs(true); }
+    finally { setUnindo(false); }
   }
 
   async function separar(capa) {
-    await api.delete(`/files/${capa.id}/carrossel`);
-    loadDocs(true);
+    const antes = files;
+    setFiles((atual) => aplicarSeparacao(atual, capa.id));
+    try { await mexendo(() => api.delete(`/files/${capa.id}/carrossel`)); }
+    catch { setFiles(antes); loadDocs(true); }
   }
 
   async function apagarSelecionados() {
     if (!selecionados.length) return;
     if (!confirm(`Excluir ${selecionados.length} ${selecionados.length === 1 ? "arquivo" : "arquivos"}?`)) return;
-    await api.post("/files/lote", { acao: "apagar", ids: selecionados });
+    const ids = selecionados;
+    const antes = files;
+    setFiles((atual) => aplicarRemocao(atual, ids));
     setSelecionados([]);
-    loadDocs(true);
+    try { await mexendo(() => api.post("/files/lote", { acao: "apagar", ids })); }
+    catch { setFiles(antes); loadDocs(true); }
   }
 
   const vazio = folders.length === 0 && files.length === 0;

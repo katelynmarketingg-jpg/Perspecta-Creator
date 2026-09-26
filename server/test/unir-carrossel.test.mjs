@@ -299,7 +299,7 @@ test("a seleção serve para apagar, mover e unir", () => {
 });
 
 test("apagar/mover vários sai num pedido só, não em vinte", () => {
-  assert.match(tela, /api\.post\("\/files\/lote", \{ acao: "apagar", ids: selecionados \}\)/);
+  assert.match(tela, /api\.post\("\/files\/lote", \{ acao: "apagar", ids \}\)/);
   assert.match(tela, /api\.post\("\/files\/lote", \{ acao: "mover", ids: moveTarget\.ids/);
 });
 
@@ -311,4 +311,118 @@ test("recarregar a tela não volta para o começo da Galeria", () => {
   assert.match(tela, /const \[path, setPath\] = useState\(lugar\?\.path \|\| \[\]\)/);
   // E se o cliente guardado não existir mais, volta para a lista.
   assert.match(tela, /setClientId\(""\); setPath\(\[\]\);/);
+});
+
+// --- UNIR NA HORA, SEM ESPERAR O SERVIDOR ------------------------------------
+//
+// Pedido dela: "ainda demora quando arrasto um post pra cima do outro, demora
+// pra sumir; consegue deixar instantâneo?".
+//
+// Demorava porque a tela esperava o pedido voltar e então recarregava a lista
+// INTEIRA da pasta — que leva a miniatura de cada arquivo embutida. A união
+// passa a ser aplicada na tela, na hora, com as MESMAS regras do servidor. Os
+// testes abaixo comparam os dois lados: o que a tela mostra na hora tem de ser
+// igual ao que o servidor grava.
+
+const { aplicarUniao, aplicarSeparacao, aplicarRemocao } =
+  await import("../../client/src/upload/unir-carrossel.js");
+
+const comoNaTela = (linhas) => linhas.map((f) => [f.id, f.carrossel_id, f.carrossel_pos]);
+
+test("a tela e o servidor chegam à mesma união", async () => {
+  const a = novo("i1.png"), b2 = novo("i2.png"), c = novo("i3.png");
+  const lista = [a, b2, c].map((id) => ({ id, carrossel_id: null, carrossel_pos: 0 }));
+
+  const naTela = aplicarUniao(lista, a, [b2, c]);
+  const r = await pedir("POST", `/api/files/${a}/carrossel`, { ids: [b2, c] });
+
+  assert.deepEqual(comoNaTela(naTela), [[a, a, 1], [b2, a, 2], [c, a, 3]]);
+  assert.deepEqual(r.corpo.laminas.map((l) => [l.id, l.carrossel_pos]), [[a, 1], [b2, 2], [c, 3]]);
+});
+
+test("na tela, soltar em cima de uma lâmina do meio também vale pelo post", () => {
+  const lista = [
+    { id: 1, carrossel_id: 1, carrossel_pos: 1 },
+    { id: 2, carrossel_id: 1, carrossel_pos: 2 },
+    { id: 3, carrossel_id: null, carrossel_pos: 0 },
+  ];
+  assert.deepEqual(comoNaTela(aplicarUniao(lista, 2, [3])),
+    [[1, 1, 1], [2, 1, 2], [3, 1, 3]]);
+});
+
+test("na tela, arrastar um post inteiro leva as lâminas dele junto", () => {
+  const lista = [
+    { id: 1, carrossel_id: 1, carrossel_pos: 1 },
+    { id: 2, carrossel_id: 1, carrossel_pos: 2 },
+    { id: 8, carrossel_id: 8, carrossel_pos: 1 },
+    { id: 9, carrossel_id: 8, carrossel_pos: 2 },
+  ];
+  assert.deepEqual(comoNaTela(aplicarUniao(lista, 1, [8])),
+    [[1, 1, 1], [2, 1, 2], [8, 1, 3], [9, 1, 4]]);
+});
+
+test("na tela, soltar dentro do próprio post não mexe em nada", () => {
+  const lista = [
+    { id: 1, carrossel_id: 1, carrossel_pos: 1 },
+    { id: 2, carrossel_id: 1, carrossel_pos: 2 },
+  ];
+  assert.deepEqual(aplicarUniao(lista, 1, [2]), lista, "a mesma lista, sem cópia nova");
+});
+
+test("na tela, a ordem é a em que foram arrastados", () => {
+  const lista = [3, 1, 2].map((id) => ({ id, carrossel_id: null, carrossel_pos: 0 }));
+  const r = aplicarUniao(lista, 3, [2, 1]);
+  assert.deepEqual(r.find((f) => f.id === 2).carrossel_pos, 2);
+  assert.deepEqual(r.find((f) => f.id === 1).carrossel_pos, 3);
+});
+
+test("separar e apagar também acontecem na hora", () => {
+  const lista = [
+    { id: 1, carrossel_id: 1, carrossel_pos: 1 },
+    { id: 2, carrossel_id: 1, carrossel_pos: 2 },
+    { id: 3, carrossel_id: 1, carrossel_pos: 3 },
+  ];
+  assert.deepEqual(comoNaTela(aplicarSeparacao(lista, 1)), [[1, null, 0], [2, null, 0], [3, null, 0]]);
+  // Apagando uma, sobram duas: continua sendo post.
+  assert.deepEqual(comoNaTela(aplicarRemocao(lista, [3])), [[1, 1, 1], [2, 1, 2]]);
+  // Apagando duas, sobra uma: arte sozinha não é carrossel — igual ao servidor.
+  assert.deepEqual(comoNaTela(aplicarRemocao(lista, [2, 3])), [[1, null, 0]]);
+});
+
+test("a tela não espera o pedido para a arte sumir da grade", () => {
+  const trecho = tela.slice(tela.indexOf("async function unir(capa, ids)"), tela.indexOf("async function unirSelecionados"));
+  // O setFiles vem ANTES do await: é isso que faz o cartão sumir na hora.
+  assert.ok(trecho.indexOf("setFiles((atual) => aplicarUniao") < trecho.indexOf("await mexendo"),
+    "a lista muda antes do pedido sair");
+  assert.match(trecho, /catch \{ setFiles\(antes\); loadDocs\(true\); \}/, "e volta atrás se falhar");
+  assert.ok(!/^\s*loadDocs\(true\);\s*$/m.test(trecho),
+    "não recarrega a lista inteira no caminho feliz — era essa a demora");
+});
+
+test("aviso do canal ao vivo não recarrega a lista no meio de uma mexida", () => {
+  assert.match(tela, /if \(emVoo\.current > 0 && !forcar\) return;/);
+});
+
+// --- rolar a página enquanto se arrasta --------------------------------------
+
+const { velocidadeDaRolagem, FAIXA } = await import("../../client/src/upload/rolar-arrastando.js");
+
+test("perto do rodapé a página desce sozinha, sem encostar na borda", () => {
+  // No Mac, a borda de baixo é onde o Dock abre por cima — então a rolagem tem
+  // de começar ANTES de chegar lá.
+  const altura = 900;
+  assert.ok(velocidadeDaRolagem(altura - FAIXA + 10, altura) > 0, "já dentro da faixa, desce");
+  assert.ok(velocidadeDaRolagem(altura - 5, altura) > velocidadeDaRolagem(altura - FAIXA + 10, altura),
+    "quanto mais fundo, mais rápido");
+});
+
+test("no meio da tela não rola, e perto do topo sobe", () => {
+  assert.equal(velocidadeDaRolagem(450, 900), 0);
+  assert.ok(velocidadeDaRolagem(10, 900) < 0);
+});
+
+test("as duas telas que têm arrasto ligam a rolagem", () => {
+  assert.match(tela, /useRolarAoArrastar\(\)/, "Galeria");
+  const dist = readFileSync(join(aqui, "../../client/src/pages/Distribution.jsx"), "utf8");
+  assert.match(dist, /useRolarAoArrastar\(\)/, "Distribuição");
 });

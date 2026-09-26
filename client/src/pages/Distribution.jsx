@@ -27,6 +27,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "../api/client.js";
 import { makeThumbnail } from "../upload/thumbnail.js";
+import { useRolarAoArrastar } from "../upload/rolar-arrastando.js";
 import { medirImagem, fatiarEmSlides, sugerirSlides, LARGURA_ALVO } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -1823,6 +1824,9 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
 }
 
 export default function Distribution() {
+  // Arrastando uma peça perto do rodapé, a página desce sozinha — sem precisar
+  // encostar na borda da tela, que no Mac é onde o Dock abre por cima.
+  useRolarAoArrastar();
   const [clients, setClients] = useState([]);
   const [clientFilter, setClientFilter] = useState("");
   const [items, setItems] = useState([]);
