@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import { syncTaskMediaToStage, syncTaskMediaToCurrentStage } from "../gallery-sync.js";
+import { abrirAgrupadasDaEtapa } from "../abrir-agrupadas.js";
 import { bilheteDeMidia, enderecosDeMidia, previasDe } from "../midia-url.js";
 import { avisarAprovacoesPendentes } from "../aviso-aprovacao.js";
 
@@ -90,6 +91,16 @@ function ensureStage(orgId, pattern, name, isDone = 0) {
 router.get("/", async (req, res) => {
   const stage = stageByName("%Distribui%", req.orgId);
   if (!stage) return res.json({ stage: null, items: [] });
+
+  // "Quando chega na aba de Distribuição, tem que abrir todos os posts."
+  //
+  // Um mês de conteúdo é UM cartão com "×8" no quadro de Tarefas; aqui cada
+  // post é uma peça. A abertura existia só no ARRASTAR do quadro, então a
+  // tarefa que chegou à coluna por outro caminho — criada direto ali, trazida
+  // do Planejamento — ficava agrupada e a Distribuição mostrava uma peça no
+  // lugar de oito. Abrir aqui também resolve isso e conserta o que já está
+  // parado, sem ninguém precisar arrastar de novo.
+  abrirAgrupadasDaEtapa(req.orgId, stage.id);
 
   const where = [
     "t.org_id = @org_id",
