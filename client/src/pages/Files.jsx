@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, IconButton, Stack, TextField,
   MenuItem, Breadcrumbs, Link, Dialog, DialogTitle, DialogContent, DialogActions,
-  Grid, Tooltip, Menu, Alert, CircularProgress,
+  Grid, Tooltip, Menu, Alert, CircularProgress, Chip,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -18,6 +18,8 @@ import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import api from "../api/client.js";
 import { thumbFromElement } from "../upload/thumbnail.js";
+import { guardarPrevia } from "../upload/previa-envio.js";
+import { sugerirSlides } from "../upload/carousel.js";
 import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
@@ -88,6 +90,35 @@ function converterHeic(f) {
   return heicConvertidos.get(f.id);
 }
 
+// ---------------------------------------------------------------------------
+// A GRADE TEM A FORMA DE UM POST (4:5).
+//
+// Antes cada quadro se ajustava à mídia (`contain`), e isso estragava os dois
+// casos mais comuns dela:
+//
+//  · O CARROSSEL é salvo como UMA arte larga — a tira com as slides lado a
+//    lado. Ajustado pela largura, virava um filete de 2 cm de altura, sem dar
+//    para ver nada. Agora a tira é recortada na primeira slide, que é a capa —
+//    o mesmo que a Distribuição já fazia.
+//
+//  · O VÍDEO vertical ganhava tarja preta dos lados. Agora preenche o quadro,
+//    com o corte mínimo para a borda sumir ("um pequeno zoom", nas palavras
+//    dela).
+//
+// O corte é só na grade. Clicar abre a mídia inteira, sem corte nenhum.
+// ---------------------------------------------------------------------------
+const FORMA_DO_POST = 4 / 5;
+
+/** A arte é uma tira de carrossel? Devolve quantas slides, ou 1. */
+function slidesDaTira(w, h) {
+  if (!w || !h) return 1;
+  // Só vale a pena perguntar quando a arte é mais larga que um post; assim um
+  // retrato comum nem passa pela dedução.
+  if (w / h <= 1.05) return 1;
+  const { n } = sugerirSlides(w, h);
+  return n > 1 ? n : 1;
+}
+
 function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const [moreAnchor, setMoreAnchor] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -121,29 +152,86 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   // A grade usa a miniatura; sem ela, a PRÉVIA (arte reduzida); só em último
   // caso a arte inteira. Antes um arquivo sem miniatura fazia o quadradinho
   // baixar os 6 MB do original.
-  const previa = f.thumb || (heic ? heicUrl : (f.preview_url || f.media_url));
+  // QUAL IMAGEM A GRADE USA.
+  //
+  // A miniatura tem 480px no lado maior. Isso bastava quando o quadro era um
+  // selo de 150px; com o quadro maior E com o corte preenchendo (`cover`), ela
+  // aparece esticada — foi o "ficou com a qualidade ruim". Numa tira de
+  // carrossel é pior ainda: os 480px são da TIRA INTEIRA, então cada slide fica
+  // com 96px e é ampliada para o dobro.
+  //
+  // Então a ordem passa a ser a PRÉVIA primeiro (1080px, feita no envio), e a
+  // miniatura só como reserva rápida enquanto a prévia não existe. O original
+  // continua sendo o último recurso — ele tem megabytes e não é para a grade.
+  const previa = heic
+    ? (heicUrl || f.thumb)
+    : (f.preview_url || f.thumb || f.media_url);
   const convertendo = heic && !f.thumb && !heicUrl;
   // Em tela cheia vale a mesma regra: o .HEIC precisa da versão convertida.
   const grandao = heic ? (heicUrl || f.thumb) : f.media_url;
-  const midiaSx = { width: "100%", height: "auto", maxHeight: 280, objectFit: "contain", display: "block", bgcolor: ehVideo ? "#000" : "action.hover" };
+  // Mede a arte quando ela carrega: é a medida que diz se é uma tira de
+  // carrossel e, se for, de quantas slides.
+  const [medida, setMedida] = useState(null);      // { w, h, n }
+  function medir(el) {
+    const w = el.naturalWidth || el.videoWidth, h = el.naturalHeight || el.videoHeight;
+    if (w && h) setMedida({ w, h, n: slidesDaTira(w, h) });
+  }
+  const slides = medida?.n || 1;
+  const ehCarrossel = slides > 1;
+
+  // O QUADRO: sempre a forma de um post. A mídia preenche, cortando o mínimo.
+  const quadroSx = { position: "relative", width: "100%", aspectRatio: "4 / 5", overflow: "hidden",
+                     bgcolor: "action.hover", cursor: podeAbrir ? "zoom-in" : "default" };
+
+  // A TIRA DO CARROSSEL ancorada na primeira slide.
+  //
+  // A slide tem que preencher o quadro: se ela é mais larga que 4:5 (uma capa
+  // quadrada, por exemplo), encaixa pela altura e o que sobra dos lados é
+  // cortado; se é mais alta, encaixa pela largura. `fator` é o quanto UMA slide
+  // ocupa da largura do quadro depois desse encaixe.
+  const rSlide = medida ? (medida.w / slides) / medida.h : FORMA_DO_POST;
+  const fator = rSlide / FORMA_DO_POST;
+  const tiraSx = ehCarrossel
+    ? (rSlide >= FORMA_DO_POST
+      // Slide "larga": altura cheia, e a tira fica com n × fator da largura.
+      ? { position: "absolute", top: 0, left: 0, height: "100%", width: `${slides * 100 * fator}%`,
+          maxWidth: "none", display: "block" }
+      // Slide "alta": largura cheia, o que sobra em cima e embaixo é cortado.
+      : { position: "absolute", top: "50%", left: 0, width: `${slides * 100}%`, height: "auto",
+          maxWidth: "none", transform: "translateY(-50%)", display: "block" })
+    : null;
+
+  // Imagem ou vídeo comum: preenche o quadro. É o "pequeno zoom" que tira a
+  // tarja preta dos vídeos verticais.
+  const midiaSx = { position: "absolute", inset: 0, width: "100%", height: "100%",
+                    objectFit: "cover", display: "block", bgcolor: ehVideo ? "#000" : "action.hover" };
 
   return (
     <Card variant="outlined" sx={{ overflow: "hidden" }}>
-      <Box sx={{ position: "relative", minHeight: 90, bgcolor: "action.hover", display: "grid", placeItems: "center",
-        cursor: podeAbrir ? "zoom-in" : "default" }}
-        onClick={() => podeAbrir && setViewing(true)}>
+      <Box sx={quadroSx} onClick={() => podeAbrir && setViewing(true)}>
         {ehImg && previa ? (
-          <Box component="img" src={previa} alt={f.original_name} loading="lazy" sx={midiaSx}
-            onLoad={(e) => { if (!f.thumb) guardarMiniatura(f.id, e.currentTarget); }} />
+          <Box component="img" src={previa} alt={f.original_name} loading="lazy"
+            sx={ehCarrossel ? tiraSx : midiaSx}
+            onLoad={(e) => {
+              medir(e.currentTarget);
+              if (!f.thumb) guardarMiniatura(f.id, e.currentTarget);
+              // CONSERTA O QUE JÁ SUBIU. A prévia (1080px) é o que a grade usa
+              // agora; quem foi enviado antes dela existir só tem a miniatura
+              // de 480px e aparece estourado no quadro maior. Ao desenhar a
+              // arte aqui, a prévia é gerada e guardada — uma vez por arquivo,
+              // e da próxima visita já vem pronta.
+              if (!f.preview_url) guardarPrevia(f.id, e.currentTarget);
+            }} />
         ) : convertendo ? (
-          <Stack alignItems="center" spacing={1} sx={{ py: 3, color: "text.secondary" }}>
+          <Stack alignItems="center" spacing={1} sx={{ position: "absolute", inset: 0, justifyContent: "center", color: "text.secondary" }}>
             <CircularProgress size={20} />
             <Typography variant="caption">preparando a foto do iPhone…</Typography>
           </Stack>
         ) : ehVideo && f.thumb ? (
           <>
             <Box component="img" src={f.thumb} alt={f.original_name} loading="lazy" sx={midiaSx} />
-            <PlayCircleIcon sx={{ position: "absolute", fontSize: 44, color: "rgba(255,255,255,0.92)",
+            <PlayCircleIcon sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+              fontSize: 44, color: "rgba(255,255,255,0.92)",
               filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
           </>
         ) : ehVideo && f.media_url ? (
@@ -152,11 +240,20 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
           <>
             <Box component="video" src={`${f.media_url}#t=0.1`} preload="metadata" muted playsInline sx={midiaSx}
               onLoadedData={(e) => guardarMiniatura(f.id, e.currentTarget)} />
-            <PlayCircleIcon sx={{ position: "absolute", fontSize: 44, color: "rgba(255,255,255,0.92)",
+            <PlayCircleIcon sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+              fontSize: 44, color: "rgba(255,255,255,0.92)",
               filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
           </>
         ) : (
-          <Box sx={{ py: 2 }}>{fileIcon(f.mime)}</Box>
+          <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{fileIcon(f.mime)}</Box>
+        )}
+
+        {/* Que é um carrossel, e de quantas slides — o corte esconde o resto,
+            então o quadro precisa dizer que tem mais atrás. */}
+        {ehCarrossel && (
+          <Chip size="small" label={`${slides} slides`}
+            sx={{ position: "absolute", top: 6, right: 6, height: 20, bgcolor: "rgba(0,0,0,0.62)",
+                  color: "#fff", fontWeight: 600, pointerEvents: "none" }} />
         )}
       </Box>
       <Box sx={{ p: 1 }}>
@@ -293,6 +390,20 @@ export default function Files() {
   useEffect(() => { loadDocs(); }, [clientId, currentFolder, vFiles]);
   useEffect(() => { loadAllFolders(); }, [clientId, vFiles]);
 
+  // O ENVIO TERMINOU: recarrega, sem depender do canal ao vivo.
+  //
+  // A Galeria só sabia de arquivo novo pelo SSE. Quando esse aviso não chega —
+  // e durante um envio ele é justamente o que mais corre risco, porque as
+  // conexões do navegador estão ocupadas — a fila sumia do canto da tela e os
+  // arquivos não apareciam: só com F5. O envio já anuncia que terminou; agora
+  // a tela escuta.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const aoTerminar = () => loadDocs(true);
+    window.addEventListener("files-uploaded", aoTerminar);
+    return () => window.removeEventListener("files-uploaded", aoTerminar);
+  }, [clientId, currentFolder]);
+
   // Renomear direto pelo nome embaixo da foto (inline). Atualiza na hora.
   async function salvarNome(id, nome) {
     setFiles((prev) => prev.map((x) => (x.id === id ? { ...x, original_name: nome } : x)));
@@ -392,7 +503,7 @@ export default function Files() {
         clients.length === 0 ? (
           <Typography color="text.secondary" sx={{ py: 2 }}>Nenhum cliente cadastrado ainda.</Typography>
         ) : (
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 2 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 2 }}>
             {clients.map((c) => (
               <Card key={c.id} onClick={() => selectClient(c.id)}
                 sx={{ cursor: "pointer", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>

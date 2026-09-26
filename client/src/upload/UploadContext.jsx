@@ -98,10 +98,23 @@ async function mandaPreviaDepois(fileId, file) {
   } catch { /* sem prévia a tela ainda funciona, só mais pesada */ }
 }
 
+// Acima disto o arquivo é "pesado": a miniatura demora a ser feita e o envio
+// ocupa a internet por bastante tempo. Os dois casos pedem tratamento diferente.
+const PESADO = 5 * 1024 * 1024;   // 5 MB
+export const ehPesado = (file) => ehVideo(file) || (file?.size || 0) > PESADO;
+
 async function uploadOne(file, { clientId, folderId, stage }, onProgress) {
-  // Foto: a miniatura sai em milissegundos, então vai junto no mesmo envio e a
-  // grade já nasce leve. Vídeo: vai depois (veja acima).
-  const thumb = ehVideo(file) ? null : await makeThumbnail(file);
+  // A MINIATURA SÓ VAI JUNTO QUANDO É BARATA.
+  //
+  // Ela era feita ANTES de abrir a conexão, sempre. Numa arte de 12 MB isso é
+  // decodificar, desenhar no canvas e recomprimir — segundos em que a vaga de
+  // envio fica ocupada e a internet, parada. Com três vagas, três arquivos
+  // pesados paravam a fila inteira para fazer contas.
+  //
+  // Agora o arquivo pesado sobe primeiro e manda a miniatura depois, do mesmo
+  // jeito que o vídeo já fazia. A grade fica um instante sem miniatura e nada
+  // mais — a prévia e a miniatura chegam logo atrás.
+  const thumb = ehPesado(file) ? null : await makeThumbnail(file);
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("files", file);
@@ -167,10 +180,23 @@ export function UploadProvider({ children }) {
 
   // Enfileira uma lista de arquivos. Retorna na hora — o envio roda por trás.
   //
-  // De três em três, não todos de uma vez: mandar 20 arquivos juntos faz eles
-  // disputarem a mesma internet e TODOS ficarem lentos (e o navegador ainda
-  // segura as conexões extras numa fila invisível, sem mostrar progresso).
-  // Em blocos, os primeiros terminam rápido e a barra anda de verdade.
+  // DUAS FILAS, não uma. Antes eram três vagas para todo mundo, e um vídeo de
+  // 200 MB segurava uma delas por minutos: catorze artes de 900 KB ficavam
+  // esperando atrás de coisa que não tem nada a ver com elas.
+  //
+  // Agora o leve e o pesado correm em raias separadas — e é a SEPARAÇÃO que
+  // resolve: as artes deixam de esperar atrás de coisa que não tem nada a ver
+  // com elas.
+  //
+  // O total tem teto de propósito. O navegador abre no máximo SEIS conexões
+  // por site, e uma delas é o canal ao vivo (SSE) que avisa as telas de que
+  // chegou arquivo novo. Ocupando as seis com envio, o canal fica sem vaga e a
+  // Galeria para de saber que algo mudou — era preciso apertar F5. Então:
+  // quatro vagas para o leve, uma para o pesado, e uma sobra para o canal e
+  // para a própria tela.
+  //
+  // Um só para o pesado não custa nada: dois vídeos grandes ao mesmo tempo
+  // dividem a mesma banda e terminam no mesmo tempo que em fila.
   const enqueue = useCallback((fileList, opts = {}) => {
     const files = [...(fileList || [])];
     if (!files.length) return;
@@ -180,12 +206,22 @@ export function UploadProvider({ children }) {
     }));
     setJobs((prev) => [...novos, ...prev]);
 
-    const AO_MESMO_TEMPO = 3;
-    let proximo = 0;
-    const roda = async () => {
-      while (proximo < novos.length) {
-        const job = novos[proximo++];
-        patch(job.id, { status: "enviando" });
+    const leves = novos.filter((j) => !ehPesado(j._file));
+    const pesados = novos.filter((j) => ehPesado(j._file));
+
+    const rodaFila = (fila, vagas) => {
+      let proximo = 0;
+      const roda = async () => {
+        while (proximo < fila.length) {
+          const job = fila[proximo++];
+          await enviaUm(job);
+        }
+      };
+      for (let i = 0; i < Math.min(vagas, fila.length); i++) roda();
+    };
+
+    const enviaUm = async (job) => {
+      patch(job.id, { status: "enviando" });
         try {
           const criados = await uploadOne(job._file, opts, (p) => patch(job.id, { progress: p }));
           // O servidor avisa quando já havia um arquivo igual (mesmo nome e
@@ -196,20 +232,23 @@ export function UploadProvider({ children }) {
             status: "pronto", progress: 100,
             aviso: criados?.[0]?.repetida ? "já havia uma igual nesta pasta" : null,
           });
-          // Vídeo: agora que ele já está guardado, a miniatura pode demorar o
-          // quanto precisar — não segura mais ninguém na fila.
-          if (ehVideo(job._file)) mandaMiniaturaDepois(criados?.[0]?.id, job._file);
-          else mandaPreviaDepois(criados?.[0]?.id, job._file);
+          // O pesado subiu sem miniatura (ela não cabia no caminho crítico):
+          // ela vai agora, com o arquivo já guardado. O leve já mandou a dele
+          // junto e só precisa da prévia.
+          const id = criados?.[0]?.id;
+          if (ehPesado(job._file)) mandaMiniaturaDepois(id, job._file);
+          if (!ehVideo(job._file)) mandaPreviaDepois(id, job._file);
           // Dica extra pras telas que não usam SSE (o canal ao vivo já avisa).
           window.dispatchEvent(new CustomEvent("files-uploaded", { detail: opts }));
           removeLater(job.id, criados?.[0]?.repetida ? 10000 : 4000);
-        } catch (err) {
-          patch(job.id, { status: "erro", error: err.message || "Falha no envio." });
-          removeLater(job.id, 12000);
-        }
+      } catch (err) {
+        patch(job.id, { status: "erro", error: err.message || "Falha no envio." });
+        removeLater(job.id, 12000);
       }
     };
-    for (let i = 0; i < Math.min(AO_MESMO_TEMPO, novos.length); i++) roda();
+
+    rodaFila(leves, 4);
+    rodaFila(pesados, 1);
   }, [patch, removeLater]);
 
   const ativos = jobs.filter((j) => j.status === "enviando" || j.status === "aguardando").length;

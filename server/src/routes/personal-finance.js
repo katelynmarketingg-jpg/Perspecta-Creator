@@ -280,7 +280,7 @@ function mandarParaOFinanceiro(orgId, userId, linha) {
  * Gasto da Perspectiva não entra: aquilo é da empresa, não é salário dela. E o
  * "pago" da linha é dela: quando a reescrevemos, o status fica como estava.
  */
-function sincronizaSalarioKaty(orgId, userId, ym, nome) {
+export function sincronizaSalarioKaty(orgId, userId, ym, nome) {
   const topico = topicoDoSalario(nome);
   const linhas = db.prepare(
     "SELECT amount, paid, category FROM personal_finance WHERE org_id=? AND user_id=? AND ym=?"
