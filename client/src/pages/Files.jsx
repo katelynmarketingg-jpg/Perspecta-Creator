@@ -18,6 +18,7 @@ import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import api from "../api/client.js";
 import { thumbFromElement } from "../upload/thumbnail.js";
+import { guardarPrevia } from "../upload/previa-envio.js";
 import { sugerirSlides } from "../upload/carousel.js";
 import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
@@ -211,7 +212,16 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
         {ehImg && previa ? (
           <Box component="img" src={previa} alt={f.original_name} loading="lazy"
             sx={ehCarrossel ? tiraSx : midiaSx}
-            onLoad={(e) => { medir(e.currentTarget); if (!f.thumb) guardarMiniatura(f.id, e.currentTarget); }} />
+            onLoad={(e) => {
+              medir(e.currentTarget);
+              if (!f.thumb) guardarMiniatura(f.id, e.currentTarget);
+              // CONSERTA O QUE JÁ SUBIU. A prévia (1080px) é o que a grade usa
+              // agora; quem foi enviado antes dela existir só tem a miniatura
+              // de 480px e aparece estourado no quadro maior. Ao desenhar a
+              // arte aqui, a prévia é gerada e guardada — uma vez por arquivo,
+              // e da próxima visita já vem pronta.
+              if (!f.preview_url) guardarPrevia(f.id, e.currentTarget);
+            }} />
         ) : convertendo ? (
           <Stack alignItems="center" spacing={1} sx={{ position: "absolute", inset: 0, justifyContent: "center", color: "text.secondary" }}>
             <CircularProgress size={20} />
@@ -379,6 +389,20 @@ export default function Files() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadDocs(); }, [clientId, currentFolder, vFiles]);
   useEffect(() => { loadAllFolders(); }, [clientId, vFiles]);
+
+  // O ENVIO TERMINOU: recarrega, sem depender do canal ao vivo.
+  //
+  // A Galeria só sabia de arquivo novo pelo SSE. Quando esse aviso não chega —
+  // e durante um envio ele é justamente o que mais corre risco, porque as
+  // conexões do navegador estão ocupadas — a fila sumia do canto da tela e os
+  // arquivos não apareciam: só com F5. O envio já anuncia que terminou; agora
+  // a tela escuta.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const aoTerminar = () => loadDocs(true);
+    window.addEventListener("files-uploaded", aoTerminar);
+    return () => window.removeEventListener("files-uploaded", aoTerminar);
+  }, [clientId, currentFolder]);
 
   // Renomear direto pelo nome embaixo da foto (inline). Atualiza na hora.
   async function salvarNome(id, nome) {

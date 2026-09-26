@@ -75,3 +75,21 @@ test("a grade prefere a prévia à miniatura — o quadro maior exige resoluçã
   assert.ok(!/const previa = f\.thumb \|\|/.test(fonte),
     "a ordem antiga (miniatura primeiro) saiu");
 });
+
+// --- a lista tem de aparecer sozinha depois do envio -------------------------
+
+test("a Galeria recarrega quando o envio termina, sem depender do canal ao vivo", () => {
+  // Era só o SSE. Durante um envio ele é justamente o que mais corre risco (as
+  // conexões do navegador estão ocupadas), e aí a fila sumia do canto e os
+  // arquivos não apareciam — só com F5.
+  assert.match(fonte, /window\.addEventListener\("files-uploaded"/);
+  assert.match(fonte, /window\.removeEventListener\("files-uploaded"/, "e solta o ouvinte ao sair");
+  const trecho = fonte.slice(fonte.indexOf('const aoTerminar'), fonte.indexOf('removeEventListener'));
+  assert.match(trecho, /loadDocs\(true\)/, "recarrega de verdade, sem cair no cache da lista");
+});
+
+test("arquivo antigo sem prévia ganha uma ao aparecer na grade", () => {
+  // É o conserto do que já subiu: quem foi enviado antes da prévia existir só
+  // tem a miniatura de 480px e aparece estourado no quadro maior.
+  assert.match(fonte, /if \(!f\.preview_url\) guardarPrevia\(f\.id, e\.currentTarget\)/);
+});

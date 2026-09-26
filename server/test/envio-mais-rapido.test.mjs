@@ -19,12 +19,22 @@ const fonte = readFileSync(join(aqui, "../../client/src/upload/UploadContext.jsx
 test("leve e pesado têm filas separadas", () => {
   assert.match(fonte, /const leves = novos\.filter\(\(j\) => !ehPesado/);
   assert.match(fonte, /const pesados = novos\.filter\(\(j\) => ehPesado/);
-  assert.match(fonte, /rodaFila\(leves, 6\)/, "arte pequena vai de seis em seis");
-  assert.match(fonte, /rodaFila\(pesados, 2\)/, "pesado continua contido, para não disputar a banda");
+  assert.match(fonte, /rodaFila\(leves, 4\)/, "arte pequena vai de quatro em quatro");
+  assert.match(fonte, /rodaFila\(pesados, 1\)/, "pesado um de cada vez — dois juntos dividem a mesma banda");
 });
 
 test("não sobrou a vaga única de antes", () => {
   assert.ok(!/AO_MESMO_TEMPO/.test(fonte), "a fila única foi embora");
+});
+
+test("o total deixa uma conexão livre para o canal ao vivo", () => {
+  // O navegador abre no máximo SEIS conexões por site. Ocupando as seis com
+  // envio, o SSE fica sem vaga e a Galeria para de saber que chegou arquivo —
+  // era preciso apertar F5.
+  const leves = Number(fonte.match(/rodaFila\(leves, (\d+)\)/)[1]);
+  const pesados = Number(fonte.match(/rodaFila\(pesados, (\d+)\)/)[1]);
+  assert.ok(leves + pesados <= 5, `${leves} + ${pesados} não deixa vaga para o canal ao vivo`);
+  assert.ok(leves > 3, "mas continua bem mais rápido que as três vagas de antes");
 });
 
 test("vídeo e arte grande contam como pesados", () => {

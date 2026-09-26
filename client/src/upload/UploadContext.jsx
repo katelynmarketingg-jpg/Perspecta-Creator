@@ -184,11 +184,19 @@ export function UploadProvider({ children }) {
   // 200 MB segurava uma delas por minutos: catorze artes de 900 KB ficavam
   // esperando atrás de coisa que não tem nada a ver com elas.
   //
-  // Agora o leve e o pesado correm em raias separadas. O leve vai de seis em
-  // seis — num arquivo pequeno o que pesa é a ida e volta, não a banda, e seis
-  // conexões pequenas cabem folgadas. O pesado continua de dois em dois, que é
-  // o que protege a internet de ficar disputada. Assim as artes terminam quase
-  // juntas em vez de uma a uma, e o vídeo não atrapalha ninguém.
+  // Agora o leve e o pesado correm em raias separadas — e é a SEPARAÇÃO que
+  // resolve: as artes deixam de esperar atrás de coisa que não tem nada a ver
+  // com elas.
+  //
+  // O total tem teto de propósito. O navegador abre no máximo SEIS conexões
+  // por site, e uma delas é o canal ao vivo (SSE) que avisa as telas de que
+  // chegou arquivo novo. Ocupando as seis com envio, o canal fica sem vaga e a
+  // Galeria para de saber que algo mudou — era preciso apertar F5. Então:
+  // quatro vagas para o leve, uma para o pesado, e uma sobra para o canal e
+  // para a própria tela.
+  //
+  // Um só para o pesado não custa nada: dois vídeos grandes ao mesmo tempo
+  // dividem a mesma banda e terminam no mesmo tempo que em fila.
   const enqueue = useCallback((fileList, opts = {}) => {
     const files = [...(fileList || [])];
     if (!files.length) return;
@@ -239,8 +247,8 @@ export function UploadProvider({ children }) {
       }
     };
 
-    rodaFila(leves, 6);
-    rodaFila(pesados, 2);
+    rodaFila(leves, 4);
+    rodaFila(pesados, 1);
   }, [patch, removeLater]);
 
   const ativos = jobs.filter((j) => j.status === "enviando" || j.status === "aguardando").length;
