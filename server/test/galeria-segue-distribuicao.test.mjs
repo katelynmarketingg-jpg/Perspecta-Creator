@@ -240,3 +240,80 @@ test("mover a arte avisa as telas abertas da Galeria", () => {
   // E só avisa quando algo REALMENTE saiu do lugar.
   assert.match(fonte, /if \(!mexer\) return 0;/);
 });
+
+// --- "já subi essa?" — a bolinha verde no seletor ------------------------------
+//
+// Pedido dela: "tem como aparecer um círculo verde pequeno nos posts que já
+// foram vinculados a algum post? assim eu já sei o que eu já subi".
+
+const files = (await import("../src/routes/files.js")).default;
+const app2 = express();
+app2.use(express.json());
+app2.use("/api/files", files);
+const srv2 = app2.listen(0);
+await new Promise((r) => srv2.once("listening", r));
+const B2 = `http://127.0.0.1:${srv2.address().port}/api`;
+after(() => srv2.close());
+const listar = async (pasta) => (await (await fetch(
+  `${B2}/files?client_id=${cli}&folder_id=${pasta}`, { headers: H })).json());
+
+test("a listagem diz quais arquivos já estão pendurados em alguma peça", async () => {
+  const usado = novoArquivo("usado.png");
+  const livre = novoArquivo("livre.png");
+  const peca = novaPeca(DISTRIB);
+  anexar(peca, usado);
+
+  const lista = await listar(EDITADOS);
+  assert.equal(lista.find((f) => f.id === usado).em_uso, true);
+  assert.equal(lista.find((f) => f.id === livre).em_uso, false);
+});
+
+test("lâmina de carrossel e capa do perfil também contam como em uso", async () => {
+  const lamina = novoArquivo("lam.png");
+  const capa = novoArquivo("cap.png");
+  const peca = novaPeca(DISTRIB);
+  db.prepare("UPDATE tasks SET media_ids = ?, cover_file_id = ? WHERE id = ?")
+    .run(JSON.stringify([lamina]), capa, peca);
+
+  const lista = await listar(EDITADOS);
+  assert.equal(lista.find((f) => f.id === lamina).em_uso, true, "lâmina");
+  assert.equal(lista.find((f) => f.id === capa).em_uso, true, "capa do perfil");
+});
+
+test("lista de lâminas torta no banco não derruba a listagem", async () => {
+  const peca = novaPeca(DISTRIB);
+  db.prepare("UPDATE tasks SET media_ids = 'isso não é json' WHERE id = ?").run(peca);
+  const lista = await listar(EDITADOS);
+  assert.ok(Array.isArray(lista) && lista.length, "a listagem continua respondendo");
+});
+
+// --- o que a tela do seletor promete ------------------------------------------
+
+test("o seletor tem a bolinha verde, o quadradinho e o arrasto", () => {
+  const fonte = ler("../../client/src/pages/Distribution.jsx");
+  const seletor = fonte.slice(fonte.indexOf("function GalleryPicker"), fonte.indexOf("ESCOLHER A CAPA DO VÍDEO"));
+  assert.match(seletor, /bgcolor: "success\.main"/, "a bolinha é verde");
+  assert.match(seletor, /const jaUsado = laminas \? laminas\.some\(\(l\) => l\.em_uso\) : f\.em_uso/,
+    "num post unido basta uma lâmina já usada");
+  assert.match(seletor, /<Checkbox size="small" checked=\{marcado\}/, "quadradinho de seleção");
+  assert.match(seletor, /onClick=\{apagarMarcados\}/, "dá para apagar daqui");
+  assert.match(seletor, /moverPara\(fd\.id, ids\)/, "e arrastar para cima de uma pasta move");
+  assert.match(seletor, /draggable/, "o cartão é alça de arrastar");
+});
+
+test("marcar um post unido marca o post inteiro", () => {
+  const fonte = ler("../../client/src/pages/Distribution.jsx");
+  const seletor = fonte.slice(fonte.indexOf("function GalleryPicker"), fonte.indexOf("ESCOLHER A CAPA DO VÍDEO"));
+  assert.match(seletor, /const idsDoCartao = \(f, laminas\) => \(laminas\?\.length \? laminas\.map\(\(l\) => l\.id\) : \[f\.id\]\)/);
+});
+
+// --- peça com várias lâminas é carrossel, diga o rótulo o que disser ----------
+
+test("peça marcada como 'Post' que recebeu um carrossel ganha a setinha", () => {
+  // Pedido dela: "aqui tá sem a setinha de passar para o próximo". A peça era
+  // do tipo "Post" e tinha várias lâminas salvas — só a capa aparecia.
+  const fonte = ler("../../client/src/pages/Distribution.jsx");
+  assert.match(fonte, /const isCarousel = item\.content_type === "carrossel" \|\| slides\.length > 1/);
+  assert.ok(!/const isCarousel = item\.content_type === "carrossel";/.test(fonte),
+    "a regra antiga, que olhava só o rótulo, saiu");
+});

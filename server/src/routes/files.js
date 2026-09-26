@@ -247,6 +247,34 @@ router.delete("/folders/:id", async (req, res) => {
 
 // ---- Arquivos ---------------------------------------------------------------
 // GET /api/files?client_id=&folder_id=&all=1  (all=1 ignora pastas)
+// JÁ FOI USADO EM ALGUM POST?
+//
+// Pedido dela: "tem como aparecer um círculo verde pequeno nos posts que já
+// foram vinculados a algum post? assim eu já sei o que eu já subi".
+//
+// A arte de uma peça mora em três lugares: o anexo, a lista de lâminas do
+// carrossel e a capa do perfil. Esta conta junta os três de uma vez só — em vez
+// de uma pergunta por arquivo — e devolve o conjunto de ids em uso.
+function arquivosEmUso(orgId) {
+  const usados = new Set();
+  for (const a of db.prepare(
+    `SELECT ta.file_id FROM task_attachments ta
+     JOIN tasks t ON t.id = ta.task_id WHERE t.org_id = ?`).all(orgId)) {
+    if (a.file_id) usados.add(Number(a.file_id));
+  }
+  for (const t of db.prepare(
+    `SELECT media_ids, cover_file_id FROM tasks
+     WHERE org_id = ? AND (cover_file_id IS NOT NULL OR (media_ids IS NOT NULL AND media_ids <> '[]'))`
+  ).all(orgId)) {
+    if (t.cover_file_id) usados.add(Number(t.cover_file_id));
+    try {
+      const v = JSON.parse(t.media_ids || "[]");
+      if (Array.isArray(v)) for (const id of v) { const n = Number(id); if (Number.isFinite(n)) usados.add(n); }
+    } catch { /* lista torta não derruba a listagem */ }
+  }
+  return usados;
+}
+
 router.get("/", async (req, res) => {
   const { client_id, folder_id, all } = req.query;
   const where = ["f.org_id = @org_id"];
@@ -272,9 +300,11 @@ router.get("/", async (req, res) => {
   // endereço DIRETO da Cloudflare — assim a galeria não faz o navegador bater
   // no nosso servidor uma vez por foto antes de começar a carregar.
   const previas = previasDe(db, rows.map((f) => f.id), req.orgId);
+  const emUso = arquivosEmUso(req.orgId);
   await Promise.all(rows.map(async (f) => {
     f.media_url = await enderecoDeMidia(f, req.orgId);
     f.preview_url = previas.get(f.id) || null;
+    f.em_uso = emUso.has(f.id);     // já está pendurado em alguma peça
     delete f.stored_path;   // caminho interno não sai daqui
   }));
   res.json(rows);

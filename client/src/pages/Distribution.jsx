@@ -6,6 +6,7 @@ import {
 } from "@mui/material";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import ViewCarouselIcon from "@mui/icons-material/ViewCarousel";
+import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
 import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
 import SendIcon from "@mui/icons-material/Send";
 import UploadIcon from "@mui/icons-material/Upload";
@@ -485,11 +486,17 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
   const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
+  // Marcados para apagar ou mover. Lista, não conjunto: a ordem é a de marcar.
+  const [marcados, setMarcados] = useState([]);
+  const [pastaAlvo, setPastaAlvo] = useState(null);   // pasta acesa no arrasto
   const currentFolder = path[path.length - 1]?.id || null;
 
-  useEffect(() => { if (open) setPath([]); }, [open, clientId]);
+  useEffect(() => { if (open) { setPath([]); setMarcados([]); } }, [open, clientId]);
+  useEffect(() => { setMarcados([]); }, [currentFolder]);
+  // Arrastando perto do rodapé, a janela desce sozinha.
+  useEffect(() => (open ? ligarRolagemAoArrastar() : undefined), [open]);
 
-  useEffect(() => {
+  const carregar = useCallback(() => {
     if (!open || !clientId) return;
     setLoading(true);
     const params = { client_id: clientId };
@@ -503,6 +510,34 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
       .catch(() => setFiles([]));
     Promise.all([pf, ff]).finally(() => setLoading(false));
   }, [open, clientId, currentFolder]);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  // Marcar um post unido é marcar o post inteiro: as lâminas andam juntas.
+  const idsDoCartao = (f, laminas) => (laminas?.length ? laminas.map((l) => l.id) : [f.id]);
+  function marcar(f, laminas, ligado) {
+    const ids = idsDoCartao(f, laminas);
+    setMarcados((atual) => (ligado
+      ? [...atual.filter((x) => !ids.includes(x)), ...ids]
+      : atual.filter((x) => !ids.includes(x))));
+  }
+
+  async function apagarMarcados() {
+    if (!marcados.length) return;
+    if (!confirm(`Excluir ${marcados.length} ${marcados.length === 1 ? "arquivo" : "arquivos"} da Galeria?`)) return;
+    await api.post("/files/lote", { acao: "apagar", ids: marcados });
+    setMarcados([]);
+    carregar();
+  }
+
+  async function moverPara(folderId, ids = marcados) {
+    if (!ids.length) return;
+    await api.post("/files/lote", { acao: "mover", ids, folder_id: folderId || null });
+    setMarcados([]);
+    carregar();
+  }
+
+  const TIPO = "application/x-perspecta-arte";
+  const temArte = (e) => Array.from(e.dataTransfer?.types || []).includes(TIPO);
 
   const vazio = !loading && folders.length === 0 && files.length === 0;
   return (
@@ -517,6 +552,26 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
               onClick={() => setPath(path.slice(0, i + 1))}>/ {p.name}</Typography>
           ))}
         </Stack>
+        {/* A BARRA DA SELEÇÃO. Some quando nada está marcado. */}
+        {marcados.length > 0 && (
+          <Stack direction="row" spacing={1} alignItems="center"
+            sx={{ mb: 1.5, p: 1, borderRadius: 1.5, border: 1, borderColor: "primary.main", flexWrap: "wrap", gap: 1 }}>
+            <Typography sx={{ fontWeight: 700, fontSize: 14 }}>
+              {marcados.length} {marcados.length === 1 ? "marcado" : "marcados"}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              arraste para uma pasta para mover
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            {path.length > 0 && (
+              <Button size="small" variant="outlined" startIcon={<DriveFileMoveIcon />}
+                onClick={() => moverPara(null)}>Mover para a raiz</Button>
+            )}
+            <Button size="small" variant="outlined" color="error" startIcon={<DeleteIcon />}
+              onClick={apagarMarcados}>Apagar</Button>
+            <Button size="small" onClick={() => setMarcados([])}>Limpar</Button>
+          </Stack>
+        )}
         {loading ? (
           <Box sx={{ display: "grid", placeItems: "center", py: 4 }}><CircularProgress /></Box>
         ) : vazio ? (
@@ -525,9 +580,23 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
           </Typography>
         ) : (
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 1.5, pt: 1 }}>
+            {/* A PASTA RECEBE O QUE FOR ARRASTADO EM CIMA DELA. */}
             {folders.map((fd) => (
               <Box key={`d${fd.id}`} onClick={() => setPath([...path, { id: fd.id, name: fd.name }])}
-                sx={{ cursor: "pointer", borderRadius: 1.5, p: 1, border: 1, borderColor: "divider", display: "grid", placeItems: "center", gap: 0.5, "&:hover": { borderColor: "primary.main" } }}>
+                onDragOver={(e) => { if (!temArte(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; setPastaAlvo(fd.id); }}
+                onDragLeave={() => setPastaAlvo((a) => (a === fd.id ? null : a))}
+                onDrop={(e) => {
+                  if (!temArte(e)) return;
+                  e.preventDefault(); e.stopPropagation();
+                  setPastaAlvo(null);
+                  let ids = [];
+                  try { ids = JSON.parse(e.dataTransfer.getData(TIPO)) || []; } catch { ids = []; }
+                  if (ids.length) moverPara(fd.id, ids);
+                }}
+                sx={{ cursor: "pointer", borderRadius: 1.5, p: 1, border: 1,
+                      borderColor: pastaAlvo === fd.id ? "success.main" : "divider",
+                      borderWidth: pastaAlvo === fd.id ? 2 : 1,
+                      display: "grid", placeItems: "center", gap: 0.5, "&:hover": { borderColor: "primary.main" } }}>
                 <Typography sx={{ fontSize: 34, lineHeight: 1 }}>📁</Typography>
                 <Typography variant="caption" noWrap sx={{ maxWidth: "100%" }}>{fd.name}</Typography>
               </Box>
@@ -538,11 +607,26 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
                 apareciam como sete itens soltos e tinham de ser escolhidas uma
                 a uma. Agora é um item só, e escolher já monta o carrossel na
                 ordem em que foi montado lá. */}
-            {agruparPosts(files).map(({ f, laminas }) => (
+            {agruparPosts(files).map(({ f, laminas }) => {
+              const ids = idsDoCartao(f, laminas);
+              const marcado = ids.every((id) => marcados.includes(id));
+              // "Já subi essa?" — basta uma lâmina estar pendurada em alguma
+              // peça para o post inteiro contar como já usado.
+              const jaUsado = laminas ? laminas.some((l) => l.em_uso) : f.em_uso;
+              return (
               <Box key={`f${f.id}`}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  // Cartão marcado leva a seleção inteira; não marcado vai sozinho.
+                  const vao = marcado ? marcados : ids;
+                  e.dataTransfer.setData(TIPO, JSON.stringify(vao));
+                }}
                 onClick={() => { onPick(f.id, laminas?.map((l) => l.id) || null); onClose(); }}
-                sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1,
-                      borderColor: laminas ? "primary.main" : "divider", "&:hover": { borderColor: "primary.main" } }}>
+                sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1, position: "relative",
+                      borderColor: marcado ? "primary.main" : laminas ? "primary.main" : "divider",
+                      borderWidth: marcado ? 2 : 1,
+                      "&:hover": { borderColor: "primary.main" } }}>
                 {/* A CAPA É SEMPRE A PRIMEIRA LÂMINA.
                     O quadro tem a forma de um post e a arte preenche cortando,
                     como na Galeria. Numa TIRA (carrossel salvo como uma imagem
@@ -563,10 +647,34 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
                       sx={{ position: "absolute", top: 4, right: 4, height: 19, fontSize: 10, fontWeight: 700,
                             bgcolor: "rgba(0,0,0,0.66)", color: "#fff", "& .MuiChip-label": { px: 0.6 } }} />
                   )}
+                  {/* A BOLINHA VERDE: esta arte já está pendurada em alguma
+                      peça. É o "já sei o que eu já subi". Fica embaixo do selo
+                      de lâminas quando os dois aparecem. */}
+                  {jaUsado && (
+                    <Tooltip title="Já vinculada a um post">
+                      <Box sx={{ position: "absolute", top: laminas ? 27 : 4, right: 6,
+                                 width: 11, height: 11, borderRadius: "50%",
+                                 bgcolor: "success.main", border: "2px solid #fff",
+                                 boxShadow: "0 0 0 1px rgba(0,0,0,.25)" }} />
+                    </Tooltip>
+                  )}
+                  {/* O QUADRADINHO DE SELEÇÃO — para apagar ou mover daqui
+                      mesmo, sem ter de ir até a Galeria. O clique nele não pode
+                      escolher a arte para a peça. */}
+                  <Checkbox size="small" checked={marcado}
+                    inputProps={{ "aria-label": `Marcar ${f.original_name}` }}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => marcar(f, laminas, e.target.checked)}
+                    sx={{ position: "absolute", top: 1, left: 1, p: 0.4, zIndex: 2,
+                          color: "#fff", "&.Mui-checked": { color: "#fff" },
+                          bgcolor: marcado ? "primary.main" : "rgba(0,0,0,0.42)", borderRadius: 1,
+                          "& .MuiSvgIcon-root": { fontSize: 16 },
+                          "&:hover": { bgcolor: marcado ? "primary.dark" : "rgba(0,0,0,0.6)" } }} />
                 </Box>
                 <Typography variant="caption" noWrap sx={{ display: "block", px: 0.5, py: 0.25 }}>{f.original_name}</Typography>
               </Box>
-            ))}
+              );
+            })}
           </Box>
         )}
       </DialogContent>
@@ -788,7 +896,14 @@ function PieceCard({ item, onChanged, flash }) {
   // Visualizador do carrossel (setinha): qual slide está na frente.
   const [viewIdx, setViewIdx] = useState(0);
   const ct = CONTENT_TYPES[item.content_type];
-  const isCarousel = item.content_type === "carrossel";
+  // PEÇA COM MAIS DE UMA LÂMINA É CARROSSEL, diga o rótulo o que disser.
+  //
+  // Antes isto olhava SÓ o tipo escolhido na peça ("Post", "Reel",
+  // "Carrossel"). Então uma peça marcada como "Post" que recebeu um carrossel
+  // da Galeria ficava sem a setinha de passar para a próxima lâmina e sem a
+  // lista de slides: só a capa aparecia, e as outras lâminas ficavam
+  // invisíveis, mesmo estando salvas na peça.
+  const isCarousel = item.content_type === "carrossel" || slides.length > 1;
 
   // Gera a legenda com IA OLHANDO a arte (foto ou 1º quadro do vídeo) + a persona
   // e o planejamento do cliente. O resultado entra no campo pra você ajustar.
