@@ -7,6 +7,7 @@ import {
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import ViewCarouselIcon from "@mui/icons-material/ViewCarousel";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
+import CheckIcon from "@mui/icons-material/Check";
 import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
 import SendIcon from "@mui/icons-material/Send";
 import UploadIcon from "@mui/icons-material/Upload";
@@ -31,6 +32,7 @@ import api from "../api/client.js";
 import { makeThumbnail } from "../upload/thumbnail.js";
 import { ligarRolagemAoArrastar } from "../upload/rolar-arrastando.js";
 import { agruparPosts } from "../upload/unir-carrossel.js";
+import { ordenarFeed, reencaixar, aindaNoPerfil } from "../feed-ordem.js";
 import { medirImagem, fatiarEmSlides, sugerirSlides, LARGURA_ALVO } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -613,6 +615,7 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
               // "Já subi essa?" — basta uma lâmina estar pendurada em alguma
               // peça para o post inteiro contar como já usado.
               const jaUsado = laminas ? laminas.some((l) => l.em_uso) : f.em_uso;
+              const jaPostado = laminas ? laminas.some((l) => l.ja_postado) : f.ja_postado;
               return (
               <Box key={`f${f.id}`}
                 draggable
@@ -650,13 +653,25 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
                   {/* A BOLINHA VERDE: esta arte já está pendurada em alguma
                       peça. É o "já sei o que eu já subi". Fica embaixo do selo
                       de lâminas quando os dois aparecem. */}
-                  {jaUsado && (
-                    <Tooltip title="Já vinculada a um post">
-                      <Box sx={{ position: "absolute", top: laminas ? 27 : 4, right: 6,
-                                 width: 11, height: 11, borderRadius: "50%",
-                                 bgcolor: "success.main", border: "2px solid #fff",
-                                 boxShadow: "0 0 0 1px rgba(0,0,0,.25)" }} />
-                    </Tooltip>
+                  {(jaUsado || jaPostado) && (
+                    <Stack direction="row" spacing={0.4}
+                      sx={{ position: "absolute", top: laminas ? 27 : 4, right: 6 }}>
+                      {jaUsado && (
+                        <Tooltip title="Já vinculada a um post">
+                          <Box sx={{ width: 11, height: 11, borderRadius: "50%",
+                                     bgcolor: "success.main", border: "2px solid #fff",
+                                     boxShadow: "0 0 0 1px rgba(0,0,0,.25)" }} />
+                        </Tooltip>
+                      )}
+                      {/* Laranja: esse post JÁ FOI AO AR. */}
+                      {jaPostado && (
+                        <Tooltip title="Esse post já foi ao ar">
+                          <Box sx={{ width: 11, height: 11, borderRadius: "50%",
+                                     bgcolor: "warning.main", border: "2px solid #fff",
+                                     boxShadow: "0 0 0 1px rgba(0,0,0,.25)" }} />
+                        </Tooltip>
+                      )}
+                    </Stack>
                   )}
                   {/* O QUADRADINHO DE SELEÇÃO — para apagar ou mover daqui
                       mesmo, sem ter de ir até a Galeria. O clique nele não pode
@@ -1869,7 +1884,7 @@ const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
 // Prévia do perfil ARRASTÁVEL: organiza o feed (salva a ORDEM). As datas ficam
 // paradas — cada peça mantém a sua. Sem data ou no passado aparece em vermelho
 // (clique para ajustar). O 1º fica em cima à esquerda; enche → direita → baixo.
-function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorData, titulo }) {
+function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorData, onMarcarPostado, titulo }) {
   // O PERFIL só tem o que já existe. Peça sem arte não é um quadrado cinza no
   // Instagram — ela simplesmente não está lá. Deixá-la na grade dava um perfil
   // falso, cheio de buracos que ninguém vai ver.
@@ -1883,6 +1898,10 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
   useEffect(() => { if (dragIndex.current == null) setOrder(comArte); }, [comArte]);
 
   const now = Date.now();
+  // LARANJA, NÃO VERMELHO. Sem data ou data no passado não é erro: é peça que
+  // já era para ter ido ao ar. O laranja combina com o botão de confirmar —
+  // "marco o laranja de certinho, confirmando que realmente entrou, daí vai
+  // saindo".
   const errada = (p) => { const d = dtISO(p.scheduled_at); return !d || d.getTime() < now; };
 
   // Ao passar por cima de outro quadrado, já reencaixa ao vivo (os outros se
@@ -1890,12 +1909,10 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
   function onEnter(i) {
     const from = dragIndex.current;
     if (from == null || from === i) return;
-    setOrder((arr) => {
-      const next = [...arr];
-      const [m] = next.splice(from, 1);
-      next.splice(i, 0, m);
-      return next;
-    });
+    // ENCAIXE, NÃO TROCA. Quem estava aqui anda um lugar para a DIREITA — vira
+    // um post "mais antigo" —, em vez de pular para o buraco que a arrastada
+    // deixou lá embaixo.
+    setOrder((arr) => reencaixar(arr, from, i));
     dragIndex.current = i;
     movedRef.current = true;
   }
@@ -1926,13 +1943,31 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
           </Button>
         )}
       </Stack>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-        O mais recente em cima à esquerda, como no perfil. Arraste para organizar (encaixa entre um e
-        outro) — a ordem fica salva e as datas não mudam. Em vermelho = sem data ou no passado
-        (clique para ajustar). Mudar a data de uma peça devolve ela para o lugar que a data manda.
-        {semArte > 0 && ` ${semArte} peça(s) ainda sem arte ficam de fora daqui.`}
-      </Typography>
-      <Box sx={{ maxWidth: 380, mx: "auto", border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
+      {/* O texto longo virou uma linha. Ele empurrava a grade para baixo e ela
+          já começava fora da tela — "quero que já fique os quadrados mais pra
+          cima". O detalhe continua aqui, no repousar do mouse. */}
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 1 }}>
+        <Typography variant="caption" color="text.secondary">
+          O último postado em cima à esquerda. Arraste para organizar.
+          {semArte > 0 && ` ${semArte} sem arte ficam de fora.`}
+        </Typography>
+        <Tooltip title={
+          <span>
+            A ordem é a do perfil: de cima para baixo, da esquerda para a direita — o canto de baixo à
+            direita é o mais antigo. Arrastar ENCAIXA entre um e outro: quem estava no lugar anda para
+            a direita, virando um post mais antigo. Peça sem data ainda não tem hora marcada e fica em
+            cima. Em laranja = sem data ou já passou da hora — quando ela entrar mesmo, clique no
+            certinho laranja do quadrado para confirmar, e ela sai da grade sem bagunçar o resto. A
+            ordem fica salva e as datas não mudam; mudar a data devolve a peça para o lugar que a
+            data manda.
+          </span>
+        }>
+          <Typography variant="caption" sx={{ color: "primary.main", fontWeight: 700, cursor: "help" }}>
+            como funciona
+          </Typography>
+        </Tooltip>
+      </Stack>
+      <Box sx={{ maxWidth: 460, mx: "auto", border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
           {(() => {
             // Igual ao perfil real (e à Área do Cliente): a folga (quando o total
@@ -1952,16 +1987,34 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
                 sx={{
                   position: "relative", aspectRatio: "1080 / 1440", cursor: "grab", bgcolor: "action.hover", overflow: "hidden",
                   opacity: dragId === p.id ? 0.35 : 1, transition: "opacity .12s ease",
-                  outline: errada(p) ? "2px solid" : "none", outlineColor: "error.main", outlineOffset: "-2px",
+                  outline: errada(p) ? "2px solid" : "none", outlineColor: "warning.main", outlineOffset: "-2px",
                 }}>
                 <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
                   streamUrl={enderecoDoArquivo(p, p.cover_file_id || p.file_id) || enderecoDaPeca(p)}
                   previaUrl={previaDoArquivo(p, p.cover_file_id || p.file_id)}
                   ehVideo={pecaEhVideo(p)}
                   comecoDaTira={p.content_type === "carrossel"} />
+                {/* A BOLINHA LARANJA: "já postei esse". Clicou, a peça sai da
+                    grade do perfil — e o resto não perde a ordem, porque sair
+                    não mexe na posição de ninguém. Dá para voltar atrás no
+                    editor da peça. */}
+                {onMarcarPostado && (
+                  <Tooltip title="Confirmar que entrou mesmo — sai da grade do perfil">
+                    <Box role="button" aria-label={`Confirmar que "${p.title}" já foi postado`}
+                      onClick={(e) => { e.stopPropagation(); onMarcarPostado(p); }}
+                      onDragStart={(e) => e.preventDefault()}
+                      sx={{ position: "absolute", top: 5, right: 5, width: 22, height: 22, borderRadius: "50%",
+                            display: "grid", placeItems: "center",
+                            bgcolor: "warning.main", color: "#fff", border: "2px solid #fff", cursor: "pointer",
+                            boxShadow: "0 1px 4px rgba(0,0,0,.35)", opacity: 0.85,
+                            "&:hover": { opacity: 1, transform: "scale(1.12)" }, transition: "all .12s ease" }}>
+                      <CheckIcon sx={{ fontSize: 14 }} />
+                    </Box>
+                  </Tooltip>
+                )}
                 <Box sx={{
                   position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
-                  bgcolor: errada(p) ? "error.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
+                  bgcolor: errada(p) ? "warning.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
                 }}>
                   {p.scheduled_at ? dtISO(p.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "sem data"}
                 </Box>
@@ -2038,6 +2091,19 @@ export default function Distribution() {
   }
 
   // Organiza o feed salvando SÓ a ordem (posição) — as datas ficam paradas.
+  // JÁ FOI POSTADO: a peça sai da grade do perfil. Não mexe na ordem de
+  // ninguém — as outras mantêm a posição que têm. E dá para voltar atrás no
+  // editor da peça, que tem o mesmo interruptor.
+  async function marcarPostado(p) {
+    try {
+      await api.post(`/distribution/${p.id}/mark-posted`, { posted: true });
+      flash("Marcado como já postado — saiu da grade do perfil.", "success");
+      load({ silent: true });
+    } catch (e) {
+      flash(e.response?.data?.error || "Não foi possível marcar.", "error");
+    }
+  }
+
   async function reorderPosition(ids) {
     // A ordem já foi aplicada na tela (otimista). Só persiste — sem recarregar,
     // pra não piscar. A sincronização entre telas vem pelo SSE, silenciosa.
@@ -2173,13 +2239,12 @@ export default function Distribution() {
     [...scheduled, ...approved, ...items].forEach((i) => {
       if (!map.has(i.id)) map.set(i.id, { ...i, file_id: i.cover_file_id || i.file_id });
     });
-    return [...map.values()].sort((a, b) => {
-      // position 0 = nunca arrastada. Quem foi arrumada à mão vem na ordem que
-      // ela deu; o resto segue a data, mais recente primeiro.
-      const pa = a.position || 1e9, pb = b.position || 1e9;
-      if (pa !== pb) return pa - pb;
-      return (b.scheduled_at || "") > (a.scheduled_at || "") ? 1 : -1;
-    });
+    // A conta mora em feed-ordem.js, com o desempate que faltava: sem ele,
+    // duas peças com a mesma data (ou duas sem data) ficavam em ordem
+    // imprevisível e podiam trocar de lugar sozinhas entre um desenho e outro.
+    // O que já foi postado sai da grade — e sair não mexe na `position` de
+    // ninguém, então o resto continua exatamente onde estava.
+    return ordenarFeed(aindaNoPerfil([...map.values()]));
   }, [scheduled, approved, items]);
 
   // Um perfil é de UM cliente. Sem filtro ("Todas"), agrupa por cliente para
@@ -2470,7 +2535,7 @@ export default function Distribution() {
         clientFilter ? (
           <Card><CardContent>
             <ReorderableFeed posts={feedPosts} onSelect={setSelected} onReorder={reorderPosition}
-                  onVoltarPorData={voltarPorData}
+                  onVoltarPorData={voltarPorData} onMarcarPostado={marcarPostado}
               titulo="Como o perfil vai ficar" />
           </CardContent></Card>
         ) : feedGroups.length === 0 ? (

@@ -255,24 +255,35 @@ router.delete("/folders/:id", async (req, res) => {
 // A arte de uma peça mora em três lugares: o anexo, a lista de lâminas do
 // carrossel e a capa do perfil. Esta conta junta os três de uma vez só — em vez
 // de uma pergunta por arquivo — e devolve o conjunto de ids em uso.
+// Devolve dois conjuntos: o que já está pendurado em alguma peça (bolinha
+// verde) e o que está numa peça JÁ POSTADA (bolinha laranja).
 function arquivosEmUso(orgId) {
   const usados = new Set();
+  const postados = new Set();
   for (const a of db.prepare(
-    `SELECT ta.file_id FROM task_attachments ta
+    `SELECT ta.file_id, t.published_at FROM task_attachments ta
      JOIN tasks t ON t.id = ta.task_id WHERE t.org_id = ?`).all(orgId)) {
-    if (a.file_id) usados.add(Number(a.file_id));
+    if (!a.file_id) continue;
+    usados.add(Number(a.file_id));
+    if (a.published_at) postados.add(Number(a.file_id));
   }
   for (const t of db.prepare(
-    `SELECT media_ids, cover_file_id FROM tasks
+    `SELECT media_ids, cover_file_id, published_at FROM tasks
      WHERE org_id = ? AND (cover_file_id IS NOT NULL OR (media_ids IS NOT NULL AND media_ids <> '[]'))`
   ).all(orgId)) {
-    if (t.cover_file_id) usados.add(Number(t.cover_file_id));
+    const marcar = (id) => {
+      const n = Number(id);
+      if (!Number.isFinite(n)) return;
+      usados.add(n);
+      if (t.published_at) postados.add(n);
+    };
+    if (t.cover_file_id) marcar(t.cover_file_id);
     try {
       const v = JSON.parse(t.media_ids || "[]");
-      if (Array.isArray(v)) for (const id of v) { const n = Number(id); if (Number.isFinite(n)) usados.add(n); }
+      if (Array.isArray(v)) for (const id of v) marcar(id);
     } catch { /* lista torta não derruba a listagem */ }
   }
-  return usados;
+  return { usados, postados };
 }
 
 router.get("/", async (req, res) => {
@@ -300,11 +311,12 @@ router.get("/", async (req, res) => {
   // endereço DIRETO da Cloudflare — assim a galeria não faz o navegador bater
   // no nosso servidor uma vez por foto antes de começar a carregar.
   const previas = previasDe(db, rows.map((f) => f.id), req.orgId);
-  const emUso = arquivosEmUso(req.orgId);
+  const { usados, postados } = arquivosEmUso(req.orgId);
   await Promise.all(rows.map(async (f) => {
     f.media_url = await enderecoDeMidia(f, req.orgId);
     f.preview_url = previas.get(f.id) || null;
-    f.em_uso = emUso.has(f.id);     // já está pendurado em alguma peça
+    f.em_uso = usados.has(f.id);        // já está pendurado em alguma peça
+    f.ja_postado = postados.has(f.id);  // e essa peça já foi ao ar
     delete f.stored_path;   // caminho interno não sai daqui
   }));
   res.json(rows);
