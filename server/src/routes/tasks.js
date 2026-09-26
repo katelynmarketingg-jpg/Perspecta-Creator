@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { stopTimersForTask } from "./time.js";
 import { syncTaskMediaToCurrentStage } from "../gallery-sync.js";
+import { abrirAgrupada, ehDistribuicao } from "../abrir-agrupadas.js";
 import { broadcast } from "../live.js";
 import { confere } from "../pertence.js";
 
@@ -191,27 +192,11 @@ router.put("/:id/status", (req, res) => {
   }
 
   // Ao entrar na DISTRIBUIÇÃO, uma tarefa agrupada (quantity > 1) se abre em N
-  // peças individuais (quantity = 1), prontas para programar uma a uma.
-  if (stage && /Distribui/i.test(stage.name || "") && Number(task.quantity) > 1) {
-    const n = Number(task.quantity);
-    const base = (task.title || "").replace(/\s+—.*$/, "");   // "Post — Cliente (Mês)" -> "Post"
-    const suffix = (task.title || "").match(/—.*$/)?.[0] || ""; // "— Cliente (Mês)"
-    const insPiece = db.prepare(
-      `INSERT INTO tasks (title, description, client_id, project_id, assignee_id, stage_id, priority,
-         tags, due_date, ref_month, content_type, caption, quantity, position, org_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-    );
-    const split = db.transaction(() => {
-      for (let i = 1; i <= n; i++) {
-        insPiece.run(
-          `${base} ${i}/${n}${suffix ? " " + suffix : ""}`.trim(),
-          task.description, task.client_id, task.project_id, task.assignee_id, stage_id,
-          task.priority, task.tags, task.due_date, task.ref_month, task.content_type, task.caption, i, req.orgId
-        );
-      }
-      db.prepare("DELETE FROM tasks WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
-    });
-    split();
+  // peças individuais (quantity = 1), prontas para programar uma a uma. A conta
+  // mora em abrir-agrupadas.js, porque a Distribuição também a chama ao listar
+  // — a tarefa pode ter chegado à coluna sem passar por aqui.
+  if (stage && ehDistribuicao(stage.name) && Number(task.quantity) > 1) {
+    const n = abrirAgrupada(req.orgId, { ...task, stage_id });
     return res.json({ split: true, count: n });
   }
 
