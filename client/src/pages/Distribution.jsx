@@ -543,9 +543,20 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
                 onClick={() => { onPick(f.id, laminas?.map((l) => l.id) || null); onClose(); }}
                 sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1,
                       borderColor: laminas ? "primary.main" : "divider", "&:hover": { borderColor: "primary.main" } }}>
-                {/* Miniatura leve (não baixa a arte inteira) → galeria abre rápido. */}
-                <Box sx={{ height: 110, bgcolor: "action.hover", position: "relative" }}>
-                  <FeedThumb fileId={f.id} />
+                {/* A CAPA É SEMPRE A PRIMEIRA LÂMINA.
+                    O quadro tem a forma de um post e a arte preenche cortando,
+                    como na Galeria. Numa TIRA (carrossel salvo como uma imagem
+                    larga) o quadro é ancorado na ESQUERDA: antes aparecia uma
+                    lâmina do meio, espremida, e não dava para saber que post
+                    era. Numa arte comum a âncora não muda nada — a largura já
+                    encaixa certo.
+                    A prévia entra no lugar da arte original: a mesma nitidez
+                    aqui, com uma fração do que a internet tem de carregar. */}
+                <Box sx={{ aspectRatio: "4 / 5", bgcolor: "action.hover", position: "relative" }}>
+                  <FeedThumb fileId={f.id} comecoDaTira
+                    previaUrl={f.preview_url || null}
+                    streamUrl={f.media_url || null}
+                    ehVideo={/^video\//.test(f.mime || "")} />
                   {laminas && (
                     <Chip size="small" icon={<ViewCarouselIcon sx={{ fontSize: 13, color: "#fff !important" }} />}
                       label={`${laminas.length} lâminas`}

@@ -467,3 +467,21 @@ test("o post unido não passa pelo corte — as lâminas já são arquivos separ
   assert.ok(antesDoCorte.includes("laminas?.length > 1"),
     "o caminho do post unido sai antes de qualquer medição/corte");
 });
+
+test("no seletor, a capa é sempre a PRIMEIRA lâmina, na forma de um post", () => {
+  // Pedido dela: "tem como aqui já aparecer o primeiro slide como capa?".
+  // Numa TIRA (carrossel salvo como uma imagem larga) o quadro vinha centrado:
+  // aparecia uma lâmina do meio, espremida, e não dava para saber que post era.
+  const seletor = dist.slice(dist.indexOf("function GalleryPicker"), dist.indexOf("ESCOLHER A CAPA DO VÍDEO"));
+  assert.match(seletor, /<FeedThumb fileId=\{f\.id\} comecoDaTira/, "ancorado na primeira lâmina");
+  assert.match(seletor, /aspectRatio: "4 \/ 5"/, "e com a forma de um post, como na Galeria");
+  assert.ok(!/height: 110, bgcolor: "action\.hover"/.test(seletor), "o quadro baixinho e centrado saiu");
+  // É `objectFit: cover` + âncora na esquerda que faz a primeira lâmina preencher.
+  assert.match(dist, /objectPosition: comecoDaTira \? "left center" : "center"/);
+});
+
+test("o seletor usa a prévia, não a arte inteira", () => {
+  const seletor = dist.slice(dist.indexOf("function GalleryPicker"), dist.indexOf("ESCOLHER A CAPA DO VÍDEO"));
+  assert.match(seletor, /previaUrl=\{f\.preview_url \|\| null\}/);
+  assert.match(seletor, /streamUrl=\{f\.media_url \|\| null\}/, "e o endereço direto, sem passar pelo servidor");
+});
