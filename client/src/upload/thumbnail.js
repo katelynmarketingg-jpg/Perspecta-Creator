@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import { ehHeic, heicParaJpeg } from "./heic.js";
+import { sugerirSlides } from "./carousel.js";
 
 // A miniatura é o RASCUNHO que aparece na hora, enquanto a arte de verdade
 // carrega por cima (é a arte original que a grade desenha, em resolução cheia).
@@ -162,6 +163,27 @@ export async function makeThumbnail(file) {
 const PREVIA_LADO = 1080;
 const PREVIA_QUALIDADE = 0.82;
 
+// ---------------------------------------------------------------------------
+// A TIRA DE CARROSSEL PRECISA DE MAIS RESOLUÇÃO QUE UM POST.
+//
+// 1080px no lado maior é a medida certa para UM post. Numa tira de 7 slides,
+// esses mesmos 1080px são a largura da TIRA INTEIRA: cada slide fica com 154px
+// e, ao ser ampliada para preencher o quadro da Galeria, sai borrada.
+//
+// Então o alvo passa a ser por SLIDE, não pela arte. 640px por slide cobre com
+// folga o quadro da grade (190px em tela retina são 380px), e o teto impede
+// que uma tira de dez slides vire um arquivo gigante para uma miniatura.
+// ---------------------------------------------------------------------------
+const ALVO_POR_SLIDE = 640;
+const PREVIA_TETO = 4320;
+
+/** O lado maior que a prévia desta arte deve ter. */
+export function ladoDaPrevia(w, h) {
+  const n = (w && h && w / h > 1.05) ? (sugerirSlides(w, h).n || 1) : 1;
+  if (n <= 1) return PREVIA_LADO;
+  return Math.min(n * ALVO_POR_SLIDE, PREVIA_TETO);
+}
+
 function reduzir(fonte, w, h, lado, qualidade) {
   if (!w || !h) return null;
   // Arte menor que o alvo não é ampliada — só seria peso a mais, sem ganho.
@@ -193,8 +215,9 @@ export function previaDeElemento(el) {
     const h = el.naturalHeight || el.videoHeight;
     // Arte que já é pequena não precisa de prévia: seria um arquivo a mais para
     // guardar e servir, do mesmo tamanho.
-    if (!w || !h || Math.max(w, h) <= PREVIA_LADO * 1.1) return null;
-    return reduzir(el, w, h, PREVIA_LADO, PREVIA_QUALIDADE);
+    const lado = ladoDaPrevia(w, h);
+    if (!w || !h || Math.max(w, h) <= lado * 1.1) return null;
+    return reduzir(el, w, h, lado, PREVIA_QUALIDADE);
   } catch { return null; }
 }
 
@@ -210,8 +233,9 @@ export async function fazerPrevia(file) {
     }
     const bmp = await createImageBitmap(fonte);
     try {
-      if (Math.max(bmp.width, bmp.height) <= PREVIA_LADO * 1.1) return null;
-      return reduzir(bmp, bmp.width, bmp.height, PREVIA_LADO, PREVIA_QUALIDADE);
+      const lado = ladoDaPrevia(bmp.width, bmp.height);
+      if (Math.max(bmp.width, bmp.height) <= lado * 1.1) return null;
+      return reduzir(bmp, bmp.width, bmp.height, lado, PREVIA_QUALIDADE);
     } finally { bmp.close?.(); }
   } catch { return null; }
 }

@@ -55,6 +55,24 @@ async function trabalhar() {
 }
 
 /**
+ * REFAZ a prévia a partir do ORIGINAL, mesmo que já exista uma.
+ *
+ * É o caso da tira de carrossel que ganhou prévia quando o alvo era 1080px na
+ * arte inteira: com 7 slides, cada uma ficou com 154px e sai borrada no quadro
+ * da Galeria. Aqui não dá para reaproveitar o que está na tela — o que está na
+ * tela é justamente a prévia ruim. Por isso vai direto para a fila, que busca o
+ * arquivo cheio pelo nosso servidor e desenha a partir dele.
+ */
+export function reforcarPrevia(fileId) {
+  if (!fileId || enviadas.has(fileId)) return;
+  enviadas.add(fileId);
+  if (fila.length < 40 && !fila.includes(fileId)) {
+    fila.push(fileId);
+    trabalhar();
+  }
+}
+
+/**
  * Gera a prévia a partir do elemento na tela e manda para o servidor. Se o
  * canvas estiver sujo (arte vinda da nuvem), entra na fila de conserto.
  */
