@@ -91,13 +91,39 @@ test("bilhete de mídia comum não vale como bilhete de prévia", async () => {
   assert.equal(r.status, 403);
 });
 
-test("a prévia não é reescrita por cima, e lixo é recusado", async () => {
-  const outroJpeg = JPEG.replace("/9j/", "/9j/A");
-  const r = await fetch(`${B}/files/${arquivo}/previa`, { method: "PUT", headers: H, body: JSON.stringify({ previa: outroJpeg }) });
-  assert.deepEqual(await r.json(), { ok: true, ja_tinha: true });
+// UMA PRÉVIA MELHOR SUBSTITUI A ANTIGA.
+//
+// Antes esta rota recusava QUALQUER prévia quando já havia uma: respondia "já
+// tinha" e jogava a nova fora. Era isso que travava o conserto das tiras de
+// carrossel — o navegador refazia a prévia em alta a partir do original e o
+// servidor descartava em silêncio, sem erro nenhum na tela.
+//
+// O critério é o tamanho: para a mesma arte, mais resolução é mais bytes.
+test("prévia melhor entra no lugar da antiga; pior não estraga o que já está bom", async () => {
+  const antes = db.prepare("SELECT preview FROM files WHERE id = ?").get(arquivo).preview;
 
+  // Uma prévia MAIOR (mais resolução) substitui.
+  const melhor = `${JPEG}${"A".repeat(400)}`;
+  const r = await fetch(`${B}/files/${arquivo}/previa`, { method: "PUT", headers: H, body: JSON.stringify({ previa: melhor }) });
+  assert.deepEqual(await r.json(), { ok: true });
+  assert.equal(db.prepare("SELECT preview FROM files WHERE id = ?").get(arquivo).preview, melhor);
+
+  // Uma prévia MENOR (tela antiga, com a conta velha) não desfaz o conserto.
+  const pior = await fetch(`${B}/files/${arquivo}/previa`, { method: "PUT", headers: H, body: JSON.stringify({ previa: JPEG }) });
+  assert.deepEqual(await pior.json(), { ok: true, ja_tinha: true });
+  assert.equal(db.prepare("SELECT preview FROM files WHERE id = ?").get(arquivo).preview, melhor);
+  assert.notEqual(melhor, antes);
+});
+
+test("lixo e prévia gigante são recusados", async () => {
   const novo = db.prepare("INSERT INTO files (client_id, original_name, mime, size, stored_path, stage, org_id) VALUES (?,?,?,?,?,?,?)")
     .run(cli, "b.png", "image/png", 10, "x", "editados", org).lastInsertRowid;
   const ruim = await fetch(`${B}/files/${novo}/previa`, { method: "PUT", headers: H, body: JSON.stringify({ previa: "<script>alert(1)</script>" }) });
   assert.equal(ruim.status, 400);
+
+  // O teto existe para a tira larga caber; acima dele, recusa.
+  const gigante = `data:image/jpeg;base64,${"A".repeat(1700 * 1024)}`;
+  const grande = await fetch(`${B}/files/${novo}/previa`, { method: "PUT", headers: H, body: JSON.stringify({ previa: gigante }) });
+  assert.equal(grande.status, 400);
+  assert.equal(db.prepare("SELECT preview FROM files WHERE id = ?").get(novo).preview, null);
 });

@@ -112,7 +112,7 @@ test("a Galeria recarrega quando o envio termina, sem depender do canal ao vivo"
 test("arquivo antigo sem prévia ganha uma ao aparecer na grade", () => {
   // É o conserto do que já subiu: quem foi enviado antes da prévia existir só
   // tem a miniatura de 480px e aparece estourado no quadro maior.
-  assert.match(fonte, /if \(!f\.preview_url\) guardarPrevia\(f\.id, e\.currentTarget\)/);
+  assert.match(fonte, /if \(!laminaAtual\.preview_url\) guardarPrevia\(laminaAtual\.id, e\.currentTarget\)/);
 });
 
 // --- a conta da resolução da prévia -----------------------------------------

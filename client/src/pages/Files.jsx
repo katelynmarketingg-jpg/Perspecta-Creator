@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Box, Button, Card, CardContent, Typography, IconButton, Stack, TextField,
   MenuItem, Breadcrumbs, Link, Dialog, DialogTitle, DialogContent, DialogActions,
-  Grid, Tooltip, Menu, Alert, CircularProgress, Chip,
+  Grid, Tooltip, Alert, CircularProgress, Chip, Checkbox,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import FolderIcon from "@mui/icons-material/Folder";
@@ -15,14 +15,16 @@ import ImageIcon from "@mui/icons-material/Image";
 import MovieIcon from "@mui/icons-material/Movie";
 import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import DriveFileMoveIcon from "@mui/icons-material/DriveFileMove";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ContentCutIcon from "@mui/icons-material/ContentCut";
+import LinkOffIcon from "@mui/icons-material/LinkOff";
+import ViewCarouselIcon from "@mui/icons-material/ViewCarousel";
 import api from "../api/client.js";
 import { thumbFromElement } from "../upload/thumbnail.js";
 import { guardarPrevia, reforcarPrevia } from "../upload/previa-envio.js";
 import { fatiarEmSlides } from "../upload/carousel.js";
+import { agruparPosts, oQueArrastar } from "../upload/unir-carrossel.js";
 import { sugerirSlides } from "../upload/carousel.js";
 import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
@@ -130,8 +132,11 @@ function slidesDaTira(w, h) {
   return n > 1 ? n : 1;
 }
 
-function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
-  const [moreAnchor, setMoreAnchor] = useState(null);
+function FileCard({ f, laminas, onDownload, onDelete, onSaveName, onMoveFolder,
+                    onUnir, onSeparar, marcado, onMarcar, selecionados = [] }) {
+  // POST UNIDO: as lâminas são arquivos separados, etiquetados na ordem.
+  const ehGrupo = Array.isArray(laminas) && laminas.length > 1;
+  const [recebendo, setRecebendo] = useState(false);   // tem arte pairando em cima
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(f.original_name || "");
   const [viewing, setViewing] = useState(false);
@@ -184,6 +189,7 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   // carrossel e, se for, de quantas slides.
   const [medida, setMedida] = useState(null);      // { w, h, n }
   function medir(el) {
+    if (ehGrupo) return;   // post unido já sabe quantas lâminas tem
     const w = el.naturalWidth || el.videoWidth, h = el.naturalHeight || el.videoHeight;
     if (!w || !h) return;
     const n = slidesDaTira(w, h);
@@ -219,11 +225,37 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
     } catch { /* o botão volta ao normal; o download inteiro continua ali */ }
     setCortando(false);
   }
-  const slides = medida?.n || 1;
+  // BAIXAR UM POST UNIDO: as lâminas nunca viraram um arquivo só, então elas
+  // saem como estão — uma de cada vez, na ordem. É o "baixa já separado como
+  // foi juntado", e sem passar por nenhum corte que perca qualidade.
+  async function baixarLaminas() {
+    if (cortando) return;
+    setCortando(true);
+    for (const l of laminas) {
+      await onDownload(l);
+      // Um instante entre os downloads: disparar todos juntos faz o navegador
+      // engolir os últimos sem avisar.
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    setCortando(false);
+  }
+
+  const slides = ehGrupo ? laminas.length : (medida?.n || 1);
+  // Dois jeitos de ser carrossel: a TIRA (uma arte larga com as lâminas lado a
+  // lado, que veio pronta do Canva) e o POST UNIDO aqui na Galeria (vários
+  // arquivos etiquetados). O que muda é o baixar: a tira precisa ser cortada,
+  // o unido já está separado.
+  const ehTira = !ehGrupo && slides > 1;
   const ehCarrossel = slides > 1;
   const [lamina, setLamina] = useState(0);            // qual slide está à frente
   const atual = Math.min(lamina, slides - 1);
   const [cortando, setCortando] = useState(false);
+  // Num post unido, cada lâmina é um arquivo: a que aparece é a do momento.
+  const laminaAtual = ehGrupo ? laminas[atual] : f;
+  const previaDaLamina = ehGrupo
+    ? (laminaAtual.preview_url || laminaAtual.thumb || laminaAtual.media_url)
+    : previa;
+  const grandaoDaLamina = ehGrupo ? laminaAtual.media_url : grandao;
 
   // O QUADRO: sempre a forma de um post. A mídia preenche, cortando o mínimo.
   const quadroSx = { position: "relative", width: "100%", aspectRatio: "4 / 5", overflow: "hidden",
@@ -237,7 +269,7 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   // ocupa da largura do quadro depois desse encaixe.
   const rSlide = medida ? (medida.w / slides) / medida.h : FORMA_DO_POST;
   const fator = rSlide / FORMA_DO_POST;
-  const tiraSx = ehCarrossel
+  const tiraSx = ehTira
     ? (rSlide >= FORMA_DO_POST
       // Slide "larga": altura cheia, e a tira fica com n × fator da largura.
       ? { position: "absolute", top: 0, left: 0, height: "100%", width: `${slides * 100 * fator}%`,
@@ -254,21 +286,56 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   const midiaSx = { position: "absolute", inset: 0, width: "100%", height: "100%",
                     objectFit: "cover", display: "block", bgcolor: ehVideo ? "#000" : "action.hover" };
 
+  // ARRASTAR UM POST PARA CIMA DE OUTRO UNE OS DOIS.
+  //
+  // O tipo é nosso ("arte da galeria"): a área que recebe arquivos do
+  // computador só acende quando vêm "Files", então um arrasto daqui de dentro
+  // não dispara a tela de envio por engano.
+  const TIPO = "application/x-perspecta-arte";
+  const temArte = (e) => Array.from(e.dataTransfer?.types || []).includes(TIPO);
+
   return (
-    <Card variant="outlined" sx={{ overflow: "hidden" }}>
+    <Card variant="outlined"
+      // Enquanto o nome está sendo editado, o cartão não é alça de arrastar —
+      // senão não dá para selecionar o texto dentro do campo.
+      draggable={!editing}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        // Arrastar um cartão marcado leva a seleção inteira, na ordem em que foi
+        // marcada; arrastar um não marcado leva só ele.
+        e.dataTransfer.setData(TIPO, JSON.stringify(oQueArrastar(f.id, selecionados)));
+      }}
+      onDragOver={(e) => { if (!temArte(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; setRecebendo(true); }}
+      onDragLeave={() => setRecebendo(false)}
+      onDrop={(e) => {
+        if (!temArte(e)) return;
+        e.preventDefault(); e.stopPropagation();
+        setRecebendo(false);
+        let ids = [];
+        try { ids = JSON.parse(e.dataTransfer.getData(TIPO)) || []; } catch { ids = []; }
+        ids = ids.filter((id) => id !== f.id);
+        if (ids.length && onUnir) onUnir(f, ids);
+      }}
+      sx={{
+        overflow: "hidden", cursor: "grab",
+        // Enquanto a arte paira em cima, o cartão diz que vai receber.
+        outline: recebendo ? "3px solid" : marcado ? "2px solid" : "none",
+        outlineColor: recebendo ? "success.main" : "primary.main",
+        outlineOffset: -1,
+      }}>
       <Box sx={quadroSx} onClick={() => podeAbrir && setViewing(true)}>
-        {ehImg && previa ? (
-          <Box component="img" src={previa} alt={f.original_name} loading="lazy"
-            sx={ehCarrossel ? tiraSx : midiaSx}
+        {ehImg && previaDaLamina ? (
+          <Box component="img" src={previaDaLamina} alt={laminaAtual.original_name} loading="lazy"
+            sx={ehTira ? tiraSx : midiaSx}
             onLoad={(e) => {
               medir(e.currentTarget);
-              if (!f.thumb) guardarMiniatura(f.id, e.currentTarget);
+              if (!laminaAtual.thumb) guardarMiniatura(laminaAtual.id, e.currentTarget);
               // CONSERTA O QUE JÁ SUBIU. A prévia (1080px) é o que a grade usa
               // agora; quem foi enviado antes dela existir só tem a miniatura
               // de 480px e aparece estourado no quadro maior. Ao desenhar a
               // arte aqui, a prévia é gerada e guardada — uma vez por arquivo,
               // e da próxima visita já vem pronta.
-              if (!f.preview_url) guardarPrevia(f.id, e.currentTarget);
+              if (!laminaAtual.preview_url) guardarPrevia(laminaAtual.id, e.currentTarget);
             }} />
         ) : convertendo ? (
           <Stack alignItems="center" spacing={1} sx={{ position: "absolute", inset: 0, justifyContent: "center", color: "text.secondary" }}>
@@ -296,12 +363,32 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
           <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{fileIcon(f.mime)}</Box>
         )}
 
+        {/* O QUADRADINHO DE SELEÇÃO. Pedido dela: "pode já deixar quadradinho em
+            cada um, no canto superior; se eu clicar é pq to selecionando, pode
+            ser pra apagar, mover…". Fica sempre à mostra, e o clique nele não
+            pode abrir a arte em tela cheia. */}
+        {onMarcar && (
+          <Checkbox size="small" checked={marcado}
+            inputProps={{ "aria-label": `Selecionar ${f.original_name || "arquivo"}` }}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onMarcar(f.id, e.target.checked)}
+            sx={{
+              position: "absolute", top: 2, left: 2, p: 0.5, zIndex: 2,
+              color: "#fff", "&.Mui-checked": { color: "#fff" },
+              bgcolor: marcado ? "primary.main" : "rgba(0,0,0,0.42)",
+              borderRadius: 1,
+              "&:hover": { bgcolor: marcado ? "primary.dark" : "rgba(0,0,0,0.6)" },
+            }} />
+        )}
+
         {/* Que é um carrossel, e em qual lâmina estamos. O corte esconde o
             resto, então o quadro precisa dizer que tem mais atrás. */}
         {ehCarrossel && (
-          <Chip size="small" label={`${atual + 1}/${slides}`}
+          <Chip size="small" icon={ehGrupo ? <ViewCarouselIcon sx={{ fontSize: 13, color: "#fff !important" }} /> : undefined}
+            label={`${atual + 1}/${slides}`}
             sx={{ position: "absolute", top: 6, right: 6, height: 20, bgcolor: "rgba(0,0,0,0.62)",
-                  color: "#fff", fontWeight: 600, pointerEvents: "none" }} />
+                  color: "#fff", fontWeight: 600, pointerEvents: "none",
+                  "& .MuiChip-label": { px: 0.6 } }} />
         )}
 
         {/* AS SETINHAS. Passar as lâminas sem sair da Galeria — o clique nelas
@@ -340,57 +427,64 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
           </Tooltip>
         )}
         <Typography variant="caption" color="text.secondary">{fileSize(f.size)}</Typography>
+        {/* TUDO EM ÍCONES, LADO A LADO. Pedido dela: "essas opções podem
+            aparecer em ícones ao lado de baixar". O menu "⋮" saiu. */}
         <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
-          <Tooltip title="Baixar original">
-            <IconButton size="small" color="primary" onClick={() => onDownload(f)}><DownloadIcon sx={{ fontSize: 17 }} /></IconButton>
+          <Tooltip title={ehGrupo ? `Baixar as ${slides} lâminas, separadas` : "Baixar original"}>
+            <span>
+              <IconButton size="small" color="primary" disabled={cortando}
+                onClick={() => (ehGrupo ? baixarLaminas() : onDownload(f))}>
+                {cortando && ehGrupo
+                  ? <CircularProgress size={15} />
+                  : <DownloadIcon sx={{ fontSize: 17 }} />}
+              </IconButton>
+            </span>
           </Tooltip>
-          {/* O carrossel também precisa do menu, pelo "baixar cortado" — antes
-              ele só existia quando dava para mover de pasta. */}
-          {(onMoveFolder || ehCarrossel) && (
-            <Tooltip title={ehCarrossel ? "Mais: baixar cortado, mover…" : "Mover para pasta"}>
-              <IconButton size="small" onClick={(e) => setMoreAnchor(e.currentTarget)}><MoreVertIcon sx={{ fontSize: 17 }} /></IconButton>
+          {/* A TIRA precisa ser cortada para virar lâminas; o post unido já
+              está separado, e por isso aqui não tem tesoura. */}
+          {ehTira && (
+            <Tooltip title={cortando ? "Cortando…" : `Baixar cortado (${slides} lâminas)`}>
+              <span>
+                <IconButton size="small" disabled={cortando} onClick={baixarCortado}>
+                  {cortando ? <CircularProgress size={15} /> : <ContentCutIcon sx={{ fontSize: 17 }} />}
+                </IconButton>
+              </span>
             </Tooltip>
           )}
-          <Tooltip title="Excluir">
-            <IconButton size="small" color="error" onClick={() => onDelete(f.id)}><DeleteIcon sx={{ fontSize: 17 }} /></IconButton>
+          {ehGrupo && onSeparar && (
+            <Tooltip title="Separar: cada lâmina volta a ser um arquivo solto">
+              <IconButton size="small" onClick={() => onSeparar(f)}><LinkOffIcon sx={{ fontSize: 17 }} /></IconButton>
+            </Tooltip>
+          )}
+          {onMoveFolder && (
+            <Tooltip title="Mover para pasta">
+              <IconButton size="small" onClick={() => onMoveFolder(f)}><DriveFileMoveIcon sx={{ fontSize: 17 }} /></IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title={ehGrupo ? `Excluir o post (${slides} lâminas)` : "Excluir"}>
+            <IconButton size="small" color="error" onClick={() => onDelete(f.id, laminas)}><DeleteIcon sx={{ fontSize: 17 }} /></IconButton>
           </Tooltip>
         </Stack>
       </Box>
-      {(onMoveFolder || ehCarrossel) && (
-        <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
-          {/* BAIXAR CORTADO: a tira vira N arquivos, um por lâmina, prontos
-              para publicar — em vez de baixar a tira e cortar na mão. */}
-          {ehCarrossel && (
-            <MenuItem disabled={cortando}
-              onClick={() => { setMoreAnchor(null); baixarCortado(); }}>
-              <ContentCutIcon sx={{ fontSize: 17, mr: 1 }} />
-              {cortando ? "Cortando…" : `Baixar cortado (${slides} lâminas)`}
-            </MenuItem>
-          )}
-          {onMoveFolder && (
-            <MenuItem onClick={() => { setMoreAnchor(null); onMoveFolder(f); }}>
-              <DriveFileMoveIcon sx={{ fontSize: 17, mr: 1 }} /> Mover para pasta
-            </MenuItem>
-          )}
-        </Menu>
-      )}
       {/* Abrir em tela cheia: foto amplia, vídeo toca (na proporção real). */}
       <Dialog open={viewing} onClose={() => setViewing(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ pr: 6 }}>
-          {f.original_name}
+          {laminaAtual.original_name}{ehGrupo ? ` — lâmina ${atual + 1} de ${slides}` : ""}
           <IconButton onClick={() => setViewing(false)} sx={{ position: "absolute", right: 8, top: 8 }}>✕</IconButton>
         </DialogTitle>
         <DialogContent sx={{ display: "grid", placeItems: "center", bgcolor: "#000", p: 1 }}>
           {ehVideo ? (
-            <Box component="video" src={f.media_url} controls autoPlay playsInline
+            <Box component="video" src={laminaAtual.media_url} controls autoPlay playsInline
               sx={{ width: "100%", maxHeight: "72vh", objectFit: "contain" }} />
           ) : (
-            <Box component="img" src={grandao} alt={f.original_name}
+            <Box component="img" src={grandaoDaLamina} alt={laminaAtual.original_name}
               sx={{ width: "100%", maxHeight: "72vh", objectFit: "contain" }} />
           )}
         </DialogContent>
         <DialogActions>
-          <Button startIcon={<DownloadIcon />} onClick={() => onDownload(f)}>Baixar original</Button>
+          <Button startIcon={<DownloadIcon />} onClick={() => (ehGrupo ? baixarLaminas() : onDownload(f))}>
+            {ehGrupo ? `Baixar as ${slides} lâminas` : "Baixar original"}
+          </Button>
           <Button onClick={() => setViewing(false)}>Fechar</Button>
         </DialogActions>
       </Dialog>
@@ -398,11 +492,31 @@ function FileCard({ f, onDownload, onDelete, onSaveName, onMoveFolder }) {
   );
 }
 
+// ONDE EU ESTAVA.
+//
+// Pedido dela: "cada vez que eu dou command shift r, a tela volta pra inicial
+// da galeria; quero que quando recarregue, fique na mesma tela". Então o
+// cliente aberto e a trilha de pastas ficam guardados aqui no navegador e
+// voltam do jeito que estavam. Se algo mudou no meio tempo, a lista vem
+// atualizada — o que não acontece mais é voltar para o começo.
+const ONDE_EU_ESTAVA = "galeria:onde-eu-estava";
+
+function lerLugar() {
+  try {
+    const j = JSON.parse(localStorage.getItem(ONDE_EU_ESTAVA) || "null");
+    if (j && Array.isArray(j.path) && j.path.every((x) => x && x.id)) {
+      return { clientId: j.clientId ? String(j.clientId) : "", path: j.path };
+    }
+  } catch { /* navegador sem localStorage, ou lixo guardado: começa do zero */ }
+  return null;
+}
+
 export default function Files() {
+  const lugar = lerLugar();
   const [clients, setClients] = useState([]);
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(lugar?.clientId || "");
   // Navegação por pastas: trilha [{id,name}], pastas e arquivos da pasta atual.
-  const [path, setPath] = useState([]);
+  const [path, setPath] = useState(lugar?.path || []);
   const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
@@ -413,11 +527,29 @@ export default function Files() {
   const zipInputRef = useRef(null);
   const [zipMsg, setZipMsg] = useState("");
   const [allFolders, setAllFolders] = useState([]); // todas as pastas do cliente (p/ mover)
-  const [moveTarget, setMoveTarget] = useState(null); // { id, folder_id }
+  const [moveTarget, setMoveTarget] = useState(null); // { id, folder_id } ou { ids }
+  // SELEÇÃO: lista (não conjunto) porque a ORDEM importa — é ela que decide
+  // qual lâmina vem primeiro quando a seleção vira um carrossel.
+  const [selecionados, setSelecionados] = useState([]);
+  const [unindo, setUnindo] = useState(false);
 
   const currentFolder = path[path.length - 1]?.id || null;
 
   useEffect(() => { api.get("/clients").then((r) => setClients(r.data)); }, []);
+
+  // Guarda o lugar a cada passo. É só isto: na próxima abertura (ou no
+  // Command+Shift+R) a tela volta no mesmo cliente e na mesma pasta.
+  useEffect(() => {
+    try { localStorage.setItem(ONDE_EU_ESTAVA, JSON.stringify({ clientId, path })); }
+    catch { /* sem localStorage, a tela só não lembra — nada quebra */ }
+  }, [clientId, path]);
+
+  // Cliente guardado que não existe mais (arquivado, apagado): volta para a
+  // lista em vez de ficar numa tela vazia sem explicação.
+  useEffect(() => {
+    if (!clientId || !clients.length) return;
+    if (!clients.some((c) => String(c.id) === String(clientId))) { setClientId(""); setPath([]); }
+  }, [clients, clientId]);
 
   // A LISTA DE ARQUIVOS É A RESPOSTA MAIS PESADA DO SISTEMA.
   //
@@ -493,7 +625,15 @@ export default function Files() {
     catch { loadDocs(true); }
   }
   async function moverArquivoPasta() {
-    await api.put(`/files/${moveTarget.id}`, { folder_id: moveTarget.folder_id || null });
+    const destino = moveTarget.folder_id || null;
+    if (moveTarget.ids?.length) {
+      // Vários de uma vez: um pedido só. Vinte marcados viravam vinte pedidos,
+      // e o navegador só deixa seis conversas abertas de cada vez.
+      await api.post("/files/lote", { acao: "mover", ids: moveTarget.ids, folder_id: destino });
+      setSelecionados([]);
+    } else {
+      await api.put(`/files/${moveTarget.id}`, { folder_id: destino });
+    }
     setMoveTarget(null); loadDocs(true);
   }
 
@@ -553,17 +693,72 @@ export default function Files() {
     }
   }
 
-  async function removeFile(id) {
-    if (!confirm("Excluir arquivo?")) return;
-    await api.delete(`/files/${id}`); loadDocs(true);
+  async function removeFile(id, laminas) {
+    // Num post unido, apagar o cartão apaga as lâminas todas — é o que está na
+    // tela. O aviso diz quantas são, para ninguém levar sete por engano.
+    const ids = laminas?.length ? laminas.map((l) => l.id) : [id];
+    const pergunta = ids.length > 1
+      ? `Excluir o post inteiro (${ids.length} lâminas)?`
+      : "Excluir arquivo?";
+    if (!confirm(pergunta)) return;
+    if (ids.length > 1) await api.post("/files/lote", { acao: "apagar", ids });
+    else await api.delete(`/files/${id}`);
+    tirarDaSelecao(ids);
+    loadDocs(true);
   }
   function download(file) {
-    authFetchBlob(file.id).then((blob) => {
+    // Devolve a promessa: quem baixa várias lâminas seguidas precisa esperar
+    // uma terminar antes de pedir a próxima.
+    return authFetchBlob(file.id).then((blob) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = file.original_name; a.click();
       URL.revokeObjectURL(url);
     });
+  }
+
+  // ---- Seleção, unir e separar ----
+  function marcar(id, ligado) {
+    setSelecionados((atual) => (ligado ? [...atual.filter((x) => x !== id), id] : atual.filter((x) => x !== id)));
+  }
+  function tirarDaSelecao(ids = []) {
+    setSelecionados((atual) => atual.filter((x) => !ids.includes(x)));
+  }
+
+  // UNIR: o que foi arrastado entra como próxima lâmina do post que recebeu.
+  async function unir(capa, ids) {
+    if (!ids?.length || unindo) return;
+    setUnindo(true);
+    try { await api.post(`/files/${capa.id}/carrossel`, { ids }); }
+    finally { setUnindo(false); }
+    setSelecionados([]);
+    loadDocs(true);
+  }
+
+  // UNIR OS SELECIONADOS: o primeiro marcado vira a capa, os outros entram na
+  // ordem em que foram marcados. É o mesmo de arrastar, para quem prefere
+  // marcar os quadradinhos.
+  async function unirSelecionados() {
+    if (selecionados.length < 2 || unindo) return;
+    const [capa, ...resto] = selecionados;
+    setUnindo(true);
+    try { await api.post(`/files/${capa}/carrossel`, { ids: resto }); }
+    finally { setUnindo(false); }
+    setSelecionados([]);
+    loadDocs(true);
+  }
+
+  async function separar(capa) {
+    await api.delete(`/files/${capa.id}/carrossel`);
+    loadDocs(true);
+  }
+
+  async function apagarSelecionados() {
+    if (!selecionados.length) return;
+    if (!confirm(`Excluir ${selecionados.length} ${selecionados.length === 1 ? "arquivo" : "arquivos"}?`)) return;
+    await api.post("/files/lote", { acao: "apagar", ids: selecionados });
+    setSelecionados([]);
+    loadDocs(true);
   }
 
   const vazio = folders.length === 0 && files.length === 0;
@@ -654,14 +849,53 @@ export default function Files() {
             </Grid>
           )}
 
-          {/* Arquivos da pasta atual (na raiz, os soltos) */}
+          {/* A BARRA DA SELEÇÃO. Aparece assim que o primeiro quadradinho é
+              marcado e some quando a seleção esvazia. */}
+          {selecionados.length > 0 && (
+            <Card variant="outlined" sx={{ mb: 1.5, position: "sticky", top: 8, zIndex: 3,
+                                          borderColor: "primary.main" }}>
+              <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+                  <Typography sx={{ fontWeight: 700, fontSize: 14 }}>
+                    {selecionados.length} {selecionados.length === 1 ? "selecionado" : "selecionados"}
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Tooltip title="O primeiro marcado vira a capa; os outros entram como lâminas, na ordem em que foram marcados">
+                    <span>
+                      <Button size="small" variant="contained" startIcon={<ViewCarouselIcon />}
+                        disabled={selecionados.length < 2 || unindo} onClick={unirSelecionados}>
+                        {unindo ? "Unindo…" : `Unir em carrossel (${selecionados.length})`}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Button size="small" variant="outlined" startIcon={<DriveFileMoveIcon />}
+                    onClick={() => setMoveTarget({ ids: selecionados, folder_id: "" })}>
+                    Mover
+                  </Button>
+                  <Button size="small" variant="outlined" color="error" startIcon={<DeleteIcon />}
+                    onClick={apagarSelecionados}>
+                    Apagar
+                  </Button>
+                  <Button size="small" onClick={() => setSelecionados([])}>Limpar</Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Arquivos da pasta atual (na raiz, os soltos). O que foi unido
+              aparece como UM cartão, com as lâminas dentro. */}
           {files.length > 0 && (
             <Grid container spacing={1.5}>
-              {files.map((f) => (
+              {agruparPosts(files).map(({ f, laminas }) => (
                 <Grid item xs={4} sm={3} md={2} key={f.id}>
-                  <FileCard f={f} onDownload={download}
+                  <FileCard f={f} laminas={laminas} onDownload={download}
                     onDelete={removeFile}
                     onSaveName={salvarNome}
+                    onUnir={unir}
+                    onSeparar={separar}
+                    marcado={selecionados.includes(f.id)}
+                    onMarcar={marcar}
+                    selecionados={selecionados}
                     onMoveFolder={(file) => setMoveTarget({ id: file.id, folder_id: file.folder_id || "" })} />
                 </Grid>
               ))}
@@ -683,7 +917,9 @@ export default function Files() {
 
       {/* Mover arquivo para outra pasta */}
       <Dialog open={Boolean(moveTarget)} onClose={() => setMoveTarget(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Mover para pasta</DialogTitle>
+        <DialogTitle>
+          {moveTarget?.ids?.length > 1 ? `Mover ${moveTarget.ids.length} arquivos` : "Mover para pasta"}
+        </DialogTitle>
         <DialogContent>
           <TextField select label="Pasta de destino" fullWidth sx={{ mt: 1 }}
             value={moveTarget?.folder_id ?? ""}
