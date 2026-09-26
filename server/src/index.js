@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import "dotenv/config";
 
 import { pegarPromessasSoltas } from "./promessa-solta.js";
+import { arrumarPastasAtrasadas } from "./gallery-sync.js";
 
 // Antes de montar qualquer rota: erro em rota async vira resposta, não
 // bolinha girando para sempre. Ver o comentário em promessa-solta.js.
@@ -218,5 +219,9 @@ app.listen(PORT, () => {
   // Exclusão automática de arquivos DESLIGADA: a limpeza é manual, na aba
   // Arquivos. (startRetention não é mais chamado.)
   startPlanMonitor(); // vigia limites de plano e testes acabando
+  // Uma vez: leva para a pasta certa a arte das peças que já foram para
+  // aprovação ou já foram programadas antes de a Galeria passar a acompanhar.
+  const arrumadas = arrumarPastasAtrasadas();
+  if (arrumadas) console.log(`[galeria] arte de ${arrumadas} peça(s) levada para a pasta da etapa`);
   startBackups();     // cópia diária do banco (mantém as últimas 7)
 });
