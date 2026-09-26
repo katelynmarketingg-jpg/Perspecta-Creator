@@ -134,11 +134,23 @@ export function syncTaskMediaToStage(orgId, taskId, key) {
 }
 
 /**
+ * É uma PEÇA DE CONTEÚDO (post, reel, carrossel…) ou uma tarefa comum do
+ * quadro? Só peça de conteúdo arrasta a arte pelas pastas da Galeria: uma
+ * tarefa qualquer com um anexo — um contrato, uma referência — não tem nada
+ * que fazer numa pasta chamada "Programados".
+ */
+function ehPecaDeConteudo(orgId, taskId) {
+  const t = db.prepare("SELECT content_type FROM tasks WHERE id = ? AND org_id = ?").get(taskId, orgId);
+  return Boolean(t && t.content_type);
+}
+
+/**
  * A arte mudou numa peça: leva a arte NOVA para a pasta da etapa em que a peça
  * já está. É o caso de escolher "Da galeria" numa peça que já foi programada —
  * antes nada se movia, porque só a mudança de etapa avisava.
  */
 export function syncTaskMediaToCurrentStage(orgId, taskId) {
+  if (!ehPecaDeConteudo(orgId, taskId)) return 0;
   const key = etapaDaPeca(orgId, taskId);
   return key ? syncTaskMediaToStage(orgId, taskId, key) : 0;
 }
@@ -163,10 +175,11 @@ export function arrumarPastasAtrasadas() {
   );`);
   if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE_CONSERTO)) return 0;
 
-  // Só peças com cliente e com arte: as outras não têm o que mover.
+  // Só PEÇAS DE CONTEÚDO, com cliente e com arte. Uma tarefa comum do quadro
+  // com um anexo pendurado não entra: o anexo dela não é material de post.
   const pecas = db.prepare(
     `SELECT t.id, t.org_id FROM tasks t
-     WHERE t.client_id IS NOT NULL
+     WHERE t.client_id IS NOT NULL AND t.content_type IS NOT NULL AND t.content_type <> ''
        AND (t.cover_file_id IS NOT NULL
             OR (t.media_ids IS NOT NULL AND t.media_ids <> '[]')
             OR EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id))`

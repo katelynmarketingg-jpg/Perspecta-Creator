@@ -56,9 +56,14 @@ const novoArquivo = (nome, pasta = EDITADOS) => db.prepare(
    VALUES (?,?,?,'image/png',32,?,'editados',?)`
 ).run(pasta, cli, nome, arte, org).lastInsertRowid;
 
-const novaPeca = (stageId, titulo = "Post 1/6") => db.prepare(
-  "INSERT INTO tasks (title,stage_id,client_id,org_id) VALUES (?,?,?,?)"
-).run(titulo, stageId, cli, org).lastInsertRowid;
+// Peça de conteúdo: é o content_type que a distingue de uma tarefa comum do
+// quadro. Só peça de conteúdo arrasta a arte pelas pastas da Galeria.
+const novaPeca = (stageId, titulo = "Post 1/6", tipo = "post") => db.prepare(
+  "INSERT INTO tasks (title,stage_id,client_id,content_type,org_id) VALUES (?,?,?,?,?)"
+).run(titulo, stageId, cli, tipo, org).lastInsertRowid;
+const novaTarefaComum = (stageId) => db.prepare(
+  "INSERT INTO tasks (title,stage_id,client_id,org_id) VALUES ('Reunião',?,?,?)"
+).run(stageId, cli, org).lastInsertRowid;
 
 const anexar = (taskId, fileId) =>
   db.prepare("INSERT OR IGNORE INTO task_attachments (task_id,file_id) VALUES (?,?)").run(taskId, fileId);
@@ -316,4 +321,18 @@ test("peça marcada como 'Post' que recebeu um carrossel ganha a setinha", () =>
   assert.match(fonte, /const isCarousel = item\.content_type === "carrossel" \|\| slides\.length > 1/);
   assert.ok(!/const isCarousel = item\.content_type === "carrossel";/.test(fonte),
     "a regra antiga, que olhava só o rótulo, saiu");
+});
+
+test("tarefa comum do quadro NÃO arrasta o anexo para as pastas de conteúdo", async () => {
+  // Um contrato ou uma referência pendurada numa tarefa qualquer não é material
+  // de post — não tem o que fazer numa pasta chamada "Programados".
+  const tarefa = novaTarefaComum(PROGRAMADOS);
+  const anexo = novoArquivo("contrato-scan.png");
+  anexar(tarefa, anexo);
+  assert.equal(syncTaskMediaToCurrentStage(org, tarefa), 0);
+  assert.equal(ondeEsta(anexo), "Editados");
+  // E o conserto de uma vez também a ignora.
+  db.prepare("DELETE FROM migracoes WHERE chave LIKE 'galeria-segue%'").run();
+  arrumarPastasAtrasadas();
+  assert.equal(ondeEsta(anexo), "Editados");
 });
