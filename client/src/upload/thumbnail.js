@@ -166,16 +166,24 @@ const PREVIA_QUALIDADE = 0.82;
 // ---------------------------------------------------------------------------
 // A TIRA DE CARROSSEL PRECISA DE MAIS RESOLUÇÃO QUE UM POST.
 //
-// 1080px no lado maior é a medida certa para UM post. Numa tira de 7 slides,
-// esses mesmos 1080px são a largura da TIRA INTEIRA: cada slide fica com 154px
-// e, ao ser ampliada para preencher o quadro da Galeria, sai borrada.
+// 1080px no lado maior é a medida certa para UM post. Numa tira de 7 lâminas,
+// esses mesmos 1080px são a largura da TIRA INTEIRA: cada lâmina fica com
+// 154px e, ao ser ampliada para preencher o quadro da Galeria, sai borrada. Era
+// esse o "a qualidade dos carrosséis ficou ruim".
 //
-// Então o alvo passa a ser por SLIDE, não pela arte. 640px por slide cobre com
-// folga o quadro da grade (190px em tela retina são 380px), e o teto impede
-// que uma tira de dez slides vire um arquivo gigante para uma miniatura.
+// Então o alvo passa a ser por LÂMINA, não pela arte inteira. 540px por lâmina
+// cobre com folga o quadro da grade (190px numa tela retina são 380px), e o
+// teto impede que uma tira de dez lâminas vire um arquivo enorme só para servir
+// de miniatura.
 // ---------------------------------------------------------------------------
-const ALVO_POR_SLIDE = 640;
+const ALVO_POR_SLIDE = 540;
 const PREVIA_TETO = 4320;
+
+// Teto de bytes do que sai daqui. O servidor aceita prévia de até 1,6 MB; se a
+// arte for detalhada demais e passar disso, vale mais baixar um pouco a
+// qualidade do JPEG do que perder a prévia inteira e voltar ao borrado.
+const PREVIA_TETO_BYTES = 1500 * 1024;
+const QUALIDADES_DE_RECUO = [0.72, 0.62];
 
 /** O lado maior que a prévia desta arte deve ter. */
 export function ladoDaPrevia(w, h) {
@@ -196,7 +204,15 @@ function reduzir(fonte, w, h, lado, qualidade) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(fonte, 0, 0, cv.width, cv.height);
-  try { return cv.toDataURL("image/jpeg", qualidade); } catch { return null; }
+  try {
+    let saida = cv.toDataURL("image/jpeg", qualidade);
+    // Passou do teto? Recomprime, em vez de deixar o servidor recusar.
+    for (const q of QUALIDADES_DE_RECUO) {
+      if (!saida || saida.length <= PREVIA_TETO_BYTES) break;
+      saida = cv.toDataURL("image/jpeg", q);
+    }
+    return saida;
+  } catch { return null; }
 }
 
 /**

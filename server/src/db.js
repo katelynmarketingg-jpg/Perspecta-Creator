@@ -1160,6 +1160,12 @@ ensureColumn("files", "thumb", "thumb TEXT");
 // arte original para desenhar — 12,6 MB com nove peças. Esta não vai embutida
 // na listagem: é servida por endereço, para o navegador guardar no cache dele.
 ensureColumn("files", "preview", "preview TEXT");
+// CARROSSEL MONTADO NA GALERIA: arrastar uma arte para cima de outra une as
+// duas num post só. Nada é recortado nem regravado — cada lâmina continua
+// sendo o arquivo original, inteiro. `carrossel_id` é o id da CAPA (a primeira
+// lâmina), e a própria capa também o carrega; `carrossel_pos` é a ordem.
+ensureColumn("files", "carrossel_id", "carrossel_id INTEGER");
+ensureColumn("files", "carrossel_pos", "carrossel_pos INTEGER NOT NULL DEFAULT 0");
 ensureColumn("clients", "rep_doc_type", "rep_doc_type TEXT NOT NULL DEFAULT 'cpf'"); // 'cpf' | 'oab' 
 
 // Toda tabela de dados carrega o escritório dona da linha.

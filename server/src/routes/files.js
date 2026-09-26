@@ -263,7 +263,8 @@ router.get("/", async (req, res) => {
     // inteira passava por dentro do Render, uma ida por foto, em vez de ir
     // direto na Cloudflare. O endereço direto existia e não estava sendo usado.
     `SELECT f.id, f.original_name, f.mime, f.size, f.created_at, f.folder_id, f.client_id,
-            f.expires_at, f.keep_forever, f.stage, f.thumb, f.stored_path, c.name AS client_name
+            f.expires_at, f.keep_forever, f.stage, f.thumb, f.stored_path,
+            f.carrossel_id, f.carrossel_pos, c.name AS client_name
      FROM files f LEFT JOIN clients c ON c.id = f.client_id
      WHERE ${where.join(" AND ")} ORDER BY f.original_name`
   ).all(params);
@@ -580,20 +581,195 @@ router.put("/:id/previa", (req, res) => {
   const file = db.prepare("SELECT id, preview FROM files WHERE id = ? AND org_id = ?")
     .get(req.params.id, req.orgId);
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
-  if (file.preview) { res.locals.semAviso = true; return res.json({ ok: true, ja_tinha: true }); }
-
   const p = req.body?.previa;
   if (typeof p !== "string" || !p.startsWith("data:image/")) {
     return res.status(400).json({ error: "Prévia inválida." });
   }
-  // 900 KB de folga: a prévia de uma arte cheia de detalhe passa dos 150 KB,
-  // mas nunca chega perto do arquivo original.
-  if (p.length > 900 * 1024) return res.status(400).json({ error: "Prévia grande demais." });
+  // 1,6 MB de folga. A prévia de um post passa longe disso; a de uma TIRA de
+  // carrossel é maior de propósito, porque ela guarda várias lâminas lado a
+  // lado — e ainda assim é uma fração do arquivo original.
+  if (p.length > 1600 * 1024) return res.status(400).json({ error: "Prévia grande demais." });
+
+  // UMA PRÉVIA MELHOR SUBSTITUI A ANTIGA.
+  //
+  // Antes esta rota recusava qualquer prévia quando já havia uma: respondia
+  // "já tinha" e jogava a nova fora. Era o que travava o conserto das tiras de
+  // carrossel — o navegador refazia a prévia em alta a partir do original, e o
+  // servidor descartava em silêncio. A tela continuava borrada e ninguém via
+  // erro nenhum.
+  //
+  // O critério é o tamanho: para a mesma arte, mais resolução é mais bytes.
+  // Prévia menor ou igual não substitui, então uma tela antiga não estraga o
+  // que já está bom.
+  if (file.preview && file.preview.length >= p.length) {
+    res.locals.semAviso = true;
+    return res.json({ ok: true, ja_tinha: true });
+  }
 
   db.prepare("UPDATE files SET preview = ? WHERE id = ? AND org_id = ?").run(p, file.id, req.orgId);
   res.locals.semAviso = true;   // conserto interno, igual à miniatura acima
   res.json({ ok: true });
 });
+
+// --- CARROSSEL MONTADO NA GALERIA -------------------------------------------
+//
+// Pedido dela: "se eu segurar um e arrastar pra cima de outro, o que eu
+// arrastar vira o segundo slide daquele post; se arrasto mais um, fica como o
+// terceiro... e aí vai. Unifica."
+//
+// NADA É RECORTADO NEM REGRAVADO. Unir é só pendurar uma etiqueta: quem é a
+// CAPA (a primeira lâmina) e em que ordem vêm as outras. Cada lâmina continua
+// sendo o arquivo original, inteiro, com a qualidade que subiu. É por isso que
+// o "baixar" já sai separado — as lâminas nunca chegaram a virar um arquivo só.
+
+const UNIVEL = /^(image|video)\//;   // só arte vira lâmina de post
+
+function laminasDe(orgId, capaId) {
+  return db.prepare(
+    `SELECT id, original_name, carrossel_pos FROM files
+     WHERE org_id = ? AND carrossel_id = ? ORDER BY carrossel_pos, id`
+  ).all(orgId, capaId);
+}
+
+// Renumera 1, 2, 3… para não sobrar buraco quando uma lâmina sai do meio.
+function arrumarOrdem(orgId, capaId) {
+  const laminas = laminasDe(orgId, capaId);
+  if (laminas.length <= 1) {
+    // Carrossel de uma lâmina só não é carrossel: desfaz a etiqueta.
+    db.prepare("UPDATE files SET carrossel_id = NULL, carrossel_pos = 0 WHERE org_id = ? AND carrossel_id = ?")
+      .run(orgId, capaId);
+    return [];
+  }
+  const passo = db.prepare("UPDATE files SET carrossel_pos = ? WHERE id = ? AND org_id = ?");
+  laminas.forEach((l, i) => passo.run(i + 1, l.id, orgId));
+  return laminasDe(orgId, capaId);
+}
+
+// POST /api/files/:id/carrossel — { ids: [...] } entram como próximas lâminas
+// do post cuja capa é :id. Arrastar um carrossel inteiro leva as lâminas dele
+// junto, na ordem em que estavam.
+router.post("/:id/carrossel", (req, res) => {
+  const alvo = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!alvo) return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (!UNIVEL.test(alvo.mime || "")) return res.status(400).json({ error: "Só foto e vídeo viram carrossel." });
+
+  // Soltar em cima de uma lâmina do meio vale como soltar no post inteiro.
+  const capaId = alvo.carrossel_id || alvo.id;
+
+  const pedidos = (Array.isArray(req.body?.ids) ? req.body.ids : [req.body?.id])
+    .map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
+  if (!pedidos.length) return res.status(400).json({ error: "Nenhuma arte para unir." });
+
+  // Quem já é lâmina deste mesmo post não entra de novo (soltar dentro do
+  // próprio carrossel não faz nada).
+  const jaSao = new Set(laminasDe(req.orgId, capaId).map((l) => l.id));
+
+  // Abre cada pedido nas lâminas que ele representa, na ordem certa.
+  const entrando = [];
+  for (const id of pedidos) {
+    const f = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(id, req.orgId);
+    if (!f) continue;
+    if (!UNIVEL.test(f.mime || "")) continue;
+    const grupo = f.carrossel_id ? laminasDe(req.orgId, f.carrossel_id).map((l) => l.id) : [f.id];
+    for (const gid of grupo) {
+      if (gid === capaId || jaSao.has(gid)) continue;   // não se une a si mesmo
+      if (!entrando.includes(gid)) entrando.push(gid);
+    }
+  }
+  if (!entrando.length) return res.status(400).json({ error: "Nenhuma arte para unir." });
+
+  const capa = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(capaId, req.orgId);
+  const jaTem = laminasDe(req.orgId, capaId);
+  let pos = jaTem.length ? jaTem[jaTem.length - 1].carrossel_pos : 0;
+  if (!jaTem.length) {
+    // A capa entra como lâmina 1 do próprio carrossel.
+    db.prepare("UPDATE files SET carrossel_id = ?, carrossel_pos = 1 WHERE id = ? AND org_id = ?")
+      .run(capaId, capaId, req.orgId);
+    pos = 1;
+  }
+  // A lâmina acompanha a capa de pasta: o post não fica partido em duas telas.
+  const juntar = db.prepare(
+    "UPDATE files SET carrossel_id = ?, carrossel_pos = ?, folder_id = ? WHERE id = ? AND org_id = ?"
+  );
+  db.transaction(() => {
+    for (const id of entrando) juntar.run(capaId, ++pos, capa.folder_id, id, req.orgId);
+  })();
+
+  res.json({ ok: true, capa_id: capaId, laminas: arrumarOrdem(req.orgId, capaId) });
+});
+
+// DELETE /api/files/:id/carrossel — separa de novo. Na capa, desfaz o post
+// inteiro; numa lâmina do meio, tira só ela e as outras se reordenam.
+router.delete("/:id/carrossel", (req, res) => {
+  const f = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!f) return res.status(404).json({ error: "Arquivo não encontrado." });
+  if (!f.carrossel_id) return res.json({ ok: true, laminas: [] });
+  const capaId = f.carrossel_id;
+  if (capaId === f.id) {
+    db.prepare("UPDATE files SET carrossel_id = NULL, carrossel_pos = 0 WHERE org_id = ? AND carrossel_id = ?")
+      .run(req.orgId, capaId);
+    return res.json({ ok: true, laminas: [] });
+  }
+  db.prepare("UPDATE files SET carrossel_id = NULL, carrossel_pos = 0 WHERE id = ? AND org_id = ?")
+    .run(f.id, req.orgId);
+  res.json({ ok: true, capa_id: capaId, laminas: arrumarOrdem(req.orgId, capaId) });
+});
+
+// POST /api/files/lote — apagar ou mover várias de uma vez. É o que os
+// quadradinhos de seleção da Galeria usam: 20 arquivos marcados viravam 20
+// pedidos, e o navegador só deixa seis conversas abertas de cada vez.
+router.post("/lote", async (req, res) => {
+  const ids = (Array.isArray(req.body?.ids) ? req.body.ids : [])
+    .map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
+  const acao = req.body?.acao;
+  if (!ids.length) return res.status(400).json({ error: "Nenhum arquivo selecionado." });
+
+  const marcas = ids.map(() => "?").join(",");
+  const alvos = db.prepare(`SELECT * FROM files WHERE org_id = ? AND id IN (${marcas})`).all(req.orgId, ...ids);
+
+  if (acao === "apagar") {
+    // Apagar a capa levaria o post inteiro junto sem querer: as lâminas ficam,
+    // e a próxima vira capa.
+    const capas = new Set(alvos.map((f) => f.carrossel_id).filter(Boolean));
+    for (const f of alvos) await removeStored(f.stored_path);
+    db.prepare(`DELETE FROM files WHERE org_id = ? AND id IN (${marcas})`).run(req.orgId, ...ids);
+    for (const capaId of capas) promoverCapa(req.orgId, capaId);
+    return res.json({ ok: true, apagados: alvos.length });
+  }
+
+  if (acao === "mover") {
+    let destino = null;
+    if (req.body?.folder_id) {
+      const pasta = db.prepare("SELECT id FROM folders WHERE id = ? AND org_id = ?").get(req.body.folder_id, req.orgId);
+      if (!pasta) return res.status(400).json({ error: "Pasta de destino inválida." });
+      destino = pasta.id;
+    }
+    // Mover a capa leva o post inteiro: um carrossel partido entre duas pastas
+    // não é um carrossel.
+    const todos = new Set(ids);
+    for (const f of alvos) {
+      if (f.carrossel_id) for (const l of laminasDe(req.orgId, f.carrossel_id)) todos.add(l.id);
+    }
+    const lista = [...todos];
+    const m2 = lista.map(() => "?").join(",");
+    db.prepare(`UPDATE files SET folder_id = ? WHERE org_id = ? AND id IN (${m2})`).run(destino, req.orgId, ...lista);
+    return res.json({ ok: true, movidos: lista.length });
+  }
+
+  res.status(400).json({ error: "Ação desconhecida." });
+});
+
+// Sobrou lâmina sem capa? A primeira que restou assume — o post não some
+// porque a primeira arte foi apagada.
+function promoverCapa(orgId, capaId) {
+  const capa = db.prepare("SELECT id FROM files WHERE id = ? AND org_id = ?").get(capaId, orgId);
+  if (capa) { arrumarOrdem(orgId, capaId); return; }
+  const restantes = laminasDe(orgId, capaId);
+  if (!restantes.length) return;
+  const nova = restantes[0].id;
+  db.prepare("UPDATE files SET carrossel_id = ? WHERE org_id = ? AND carrossel_id = ?").run(nova, orgId, capaId);
+  arrumarOrdem(orgId, nova);
+}
 
 router.put("/:id", (req, res) => {
   const file = db.prepare("SELECT * FROM files WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
@@ -635,6 +811,7 @@ router.delete("/:id", async (req, res) => {
   if (file) {
     await removeStored(file.stored_path);
     db.prepare("DELETE FROM files WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
+    if (file.carrossel_id) promoverCapa(req.orgId, file.carrossel_id);
   }
   res.json({ ok: true });
 });
