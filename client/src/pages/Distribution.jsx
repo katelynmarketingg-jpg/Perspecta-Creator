@@ -5,6 +5,7 @@ import {
   ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox, Tooltip, Slider,
 } from "@mui/material";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
+import ViewCarouselIcon from "@mui/icons-material/ViewCarousel";
 import ScheduleSendIcon from "@mui/icons-material/ScheduleSend";
 import SendIcon from "@mui/icons-material/Send";
 import UploadIcon from "@mui/icons-material/Upload";
@@ -27,6 +28,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "../api/client.js";
 import { makeThumbnail } from "../upload/thumbnail.js";
+import { ligarRolagemAoArrastar } from "../upload/rolar-arrastando.js";
+import { agruparPosts } from "../upload/unir-carrossel.js";
 import { medirImagem, fatiarEmSlides, sugerirSlides, LARGURA_ALVO } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -529,11 +532,27 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
                 <Typography variant="caption" noWrap sx={{ maxWidth: "100%" }}>{fd.name}</Typography>
               </Box>
             ))}
-            {files.map((f) => (
-              <Box key={`f${f.id}`} onClick={() => { onPick(f.id); onClose(); }}
-                sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1, borderColor: "divider", "&:hover": { borderColor: "primary.main" } }}>
+            {/* O QUE FOI UNIDO NA GALERIA CHEGA AQUI UNIDO.
+                Juntar as lâminas lá era justamente para poder escolher o post
+                inteiro aqui, de uma vez — antes as sete lâminas de "Frases"
+                apareciam como sete itens soltos e tinham de ser escolhidas uma
+                a uma. Agora é um item só, e escolher já monta o carrossel na
+                ordem em que foi montado lá. */}
+            {agruparPosts(files).map(({ f, laminas }) => (
+              <Box key={`f${f.id}`}
+                onClick={() => { onPick(f.id, laminas?.map((l) => l.id) || null); onClose(); }}
+                sx={{ cursor: "pointer", borderRadius: 1.5, overflow: "hidden", border: 1,
+                      borderColor: laminas ? "primary.main" : "divider", "&:hover": { borderColor: "primary.main" } }}>
                 {/* Miniatura leve (não baixa a arte inteira) → galeria abre rápido. */}
-                <Box sx={{ height: 110, bgcolor: "action.hover" }}><FeedThumb fileId={f.id} /></Box>
+                <Box sx={{ height: 110, bgcolor: "action.hover", position: "relative" }}>
+                  <FeedThumb fileId={f.id} />
+                  {laminas && (
+                    <Chip size="small" icon={<ViewCarouselIcon sx={{ fontSize: 13, color: "#fff !important" }} />}
+                      label={`${laminas.length} lâminas`}
+                      sx={{ position: "absolute", top: 4, right: 4, height: 19, fontSize: 10, fontWeight: 700,
+                            bgcolor: "rgba(0,0,0,0.66)", color: "#fff", "& .MuiChip-label": { px: 0.6 } }} />
+                  )}
+                </Box>
                 <Typography variant="caption" noWrap sx={{ display: "block", px: 0.5, py: 0.25 }}>{f.original_name}</Typography>
               </Box>
             ))}
@@ -833,7 +852,14 @@ function PieceCard({ item, onChanged, flash }) {
   // uma tira larga, pergunta em quantas slides cortar em vez de enfiar a tira
   // inteira como uma slide só. Antes o corte só existia ao subir arquivo novo —
   // quem já tinha a arte na galeria não tinha como cortar.
-  async function addSlide(id) {
+  async function addSlide(id, laminas) {
+    // Post unido: entram todas as lâminas, na ordem, sem passar pelo corte —
+    // elas já são arquivos separados.
+    if (laminas?.length > 1) {
+      const novas = laminas.filter((l) => !slides.includes(l));
+      if (novas.length) saveSlides([...slides, ...novas]);
+      return;
+    }
     if (!id || slides.includes(id)) return;
     try {
       const blob = (await api.get(`/files/${id}/download`, { responseType: "blob" })).data;
@@ -967,7 +993,14 @@ function PieceCard({ item, onChanged, flash }) {
     setUploading(false);
   }
 
-  async function pickFromGallery(id) {
+  async function pickFromGallery(id, laminas) {
+    // POST UNIDO NA GALERIA: entra como carrossel pronto, na ordem em que foi
+    // montado lá. Nada é cortado — cada lâmina já é um arquivo inteiro.
+    if (laminas?.length > 1) {
+      await saveSlides(laminas);
+      flash(`Carrossel de ${laminas.length} lâminas anexado.`, "success");
+      return;
+    }
     setFileId(id);
     try { await api.put(`/distribution/${item.id}`, { file_id: id }); }
     catch (err) { flash(err.response?.data?.error || "Não foi possível anexar.", "error"); }
@@ -1823,6 +1856,9 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
 }
 
 export default function Distribution() {
+  // Arrastando uma peça perto do rodapé, a página desce sozinha — sem precisar
+  // encostar na borda da tela, que no Mac é onde o Dock abre por cima.
+  useEffect(() => ligarRolagemAoArrastar(), []);
   const [clients, setClients] = useState([]);
   const [clientFilter, setClientFilter] = useState("");
   const [items, setItems] = useState([]);
