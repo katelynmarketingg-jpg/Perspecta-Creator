@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
-import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2, enderecoAssinado, nomeParaBaixar } from "../storage.js";
+import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2, enderecoAssinado, nomeParaBaixar, enderecoParaEnviar, conferirObjeto, chaveEhDoEscritorio } from "../storage.js";
 import { confere } from "../pertence.js";
 import { bilheteDeMidia, enderecoDeMidia, enderecoDePrevia, previasDe } from "../midia-url.js";
 import { emParalelo } from "../em-paralelo.js";
@@ -324,6 +324,108 @@ router.get("/", async (req, res) => {
 
 // POST /api/files/upload — multipart; aceita vários arquivos de uma vez.
 const STAGES = ["originais", "editados", "aprovacao", "aprovados", "programados"];
+
+// ---------------------------------------------------------------------------
+// ENVIO DIRETO PARA A NUVEM, EM DOIS TEMPOS.
+//
+// 1. AUTORIZAR: o navegador diz o que vai mandar; o servidor escolhe a chave
+//    (sempre dentro da pasta do escritório) e devolve um endereço de entrega
+//    assinado, válido por algumas horas — tempo de sobra para um vídeo grande
+//    em internet ruim.
+// 2. REGISTRAR: entregue o arquivo, o navegador avisa. O servidor confere na
+//    nuvem que ele chegou, pega o TAMANHO REAL de lá e só então grava a linha.
+//
+// Por que conferir: entre o "autorizar" e o "registrar" quem fala é o
+// navegador, do outro lado do mundo. Chave e tamanho vindos dele são pedido,
+// não verdade. A chave é validada contra o escritório de quem pediu, e o
+// tamanho vem da nuvem.
+//
+// Sem R2 configurado, "autorizar" responde que não dá — e a tela volta sozinha
+// pelo caminho de sempre, que continua inteiro logo abaixo.
+// ---------------------------------------------------------------------------
+
+const MAX_POR_VEZ = 20;
+const MAX_ARQUIVO = 2 * 1024 * 1024 * 1024;   // o mesmo teto do envio comum
+
+router.post("/upload-direto/autorizar", async (req, res) => {
+  // O PEDIDO É CONFERIDO ANTES DE ESCOLHER O CAMINHO.
+  //
+  // "Grande demais" é grande demais pelos dois caminhos — o antigo tem o mesmo
+  // teto. Recusar aqui dá o motivo certo na hora, em vez de deixar a pessoa
+  // subir 3 GB pelo caminho longo para levar um não no fim.
+  const pedidos = Array.isArray(req.body?.arquivos) ? req.body.arquivos.slice(0, MAX_POR_VEZ) : [];
+  if (!pedidos.length) return res.status(400).json({ error: "Nada para enviar." });
+
+  const grande = pedidos.find((a) => Number(a?.tamanho) > MAX_ARQUIVO);
+  if (grande) {
+    return res.status(413).json({ error: `“${grande.nome || "arquivo"}” passa de 2 GB.` });
+  }
+
+  if (!storageConfigured()) return res.json({ direto: false, motivo: "sem nuvem configurada" });
+
+  const autorizacoes = [];
+  for (const a of pedidos) {
+    // A chave é do SERVIDOR, não do navegador: nome sorteado, dentro da pasta
+    // deste escritório. É o mesmo formato que o envio comum já usa.
+    const key = `uploads/${req.orgId}/${Date.now()}-${randomUUID()}`;
+    const url = await enderecoParaEnviar(key, { tipo: a?.mime || undefined });
+    if (!url) return res.json({ direto: false, motivo: "não consegui assinar a entrega" });
+    autorizacoes.push({ key, url, mime: a?.mime || null });
+  }
+  res.locals.semAviso = true;   // ainda não mudou nada: não é notícia para ninguém
+  res.json({ direto: true, autorizacoes });
+});
+
+router.post("/upload-direto/registrar", async (req, res) => {
+  if (!storageConfigured()) return res.status(400).json({ error: "Sem nuvem configurada." });
+  const { client_id, folder_id } = req.body || {};
+  const stage = STAGES.includes(req.body?.stage) ? req.body.stage : "originais";
+  const entregues = Array.isArray(req.body?.arquivos) ? req.body.arquivos.slice(0, MAX_POR_VEZ) : [];
+  if (!entregues.length) return res.status(400).json({ error: "Nada para registrar." });
+
+  const stmt = db.prepare(
+    `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, thumb, org_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const jaTinha = db.prepare(
+    `SELECT id FROM files
+      WHERE org_id = ? AND original_name = ? AND size = ?
+        AND client_id IS ? AND folder_id IS ?
+      LIMIT 1`
+  );
+  const LIMITE_THUMB = 400 * 1024;
+
+  const created = [];
+  for (const a of entregues) {
+    const key = String(a?.key || "");
+    // A CHAVE TEM DE SER DESTE ESCRITÓRIO. Sem esta conferência, bastaria
+    // mandar a chave de outra casa para pendurar o arquivo dela na sua galeria.
+    if (!chaveEhDoEscritorio(key, req.orgId)) {
+      return res.status(400).json({ error: "Entrega inválida." });
+    }
+    const naNuvem = await conferirObjeto(key);
+    if (!naNuvem) return res.status(400).json({ error: "O arquivo não chegou na nuvem. Tente de novo." });
+
+    const nome = String(a?.nome || "arquivo").slice(0, 255);
+    const mime = String(a?.mime || naNuvem.tipo || "application/octet-stream").slice(0, 120);
+    const tamanho = naNuvem.tamanho;          // o tamanho REAL, vindo da nuvem
+    const repetida = Boolean(jaTinha.get(req.orgId, nome, tamanho, client_id || null, folder_id || null));
+    const t = a?.thumb;
+    const thumb = typeof t === "string" && t.startsWith("data:image/") && t.length <= LIMITE_THUMB ? t : null;
+
+    const storedPath = `r2:${key}`;
+    const info = stmt.run(folder_id || null, client_id || null, nome, mime, tamanho, storedPath, stage, thumb, req.orgId);
+    const novo = db.prepare("SELECT id, original_name, mime, size, created_at, thumb FROM files WHERE id = ?")
+      .get(info.lastInsertRowid);
+    novo.media_url = await enderecoDeMidia(
+      { id: novo.id, mime: novo.mime, original_name: novo.original_name, stored_path: storedPath },
+      req.orgId,
+    );
+    novo.repetida = repetida;
+    created.push(novo);
+  }
+  res.status(201).json(created);
+});
 
 router.post("/upload", upload.array("files", 20), async (req, res) => {
   const { client_id, folder_id } = req.body || {};

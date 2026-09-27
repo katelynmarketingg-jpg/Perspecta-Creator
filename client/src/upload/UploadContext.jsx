@@ -9,6 +9,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import { makeThumbnail, fazerPrevia } from "./thumbnail.js";
+import { enviarDireto } from "./envio-direto.js";
 
 // ---------------------------------------------------------------------------
 // Envio em SEGUNDO PLANO. Fica montado no topo do app (fora das páginas), então
@@ -103,7 +104,28 @@ async function mandaPreviaDepois(fileId, file) {
 const PESADO = 5 * 1024 * 1024;   // 5 MB
 export const ehPesado = (file) => ehVideo(file) || (file?.size || 0) > PESADO;
 
+// A miniatura só é feita na hora quando sai barato. No arquivo pesado ela
+// custa segundos de conta (decodificar, desenhar, recomprimir) com a internet
+// parada esperando — então ele sobe primeiro e manda a miniatura depois.
+const miniaturaBarata = (file) => (ehPesado(file) ? null : makeThumbnail(file));
+
 async function uploadOne(file, { clientId, folderId, stage }, onProgress) {
+  // PRIMEIRO, O CAMINHO CURTO.
+  //
+  // O envio direto manda o arquivo do navegador para a nuvem sem escala — em
+  // vez de passar pelo nosso servidor, que fica na costa oeste dos EUA, e de lá
+  // seguir para a Cloudflare. Se ele não servir (sem nuvem configurada, entrega
+  // recusada, rede que bloqueia), devolve null e o caminho de sempre, logo
+  // abaixo, continua valendo inteiro.
+  try {
+    const direto = await enviarDireto(file, { clientId, folderId, stage, thumb: await miniaturaBarata(file) }, onProgress);
+    if (direto) return direto;
+  } catch (e) {
+    // Recusa de verdade (arquivo grande demais) não melhora pelo outro caminho.
+    if (/grande demais/i.test(e?.message || "")) throw e;
+    // Qualquer outra coisa: tenta do jeito antigo, sem incomodar ninguém.
+  }
+
   // A MINIATURA SÓ VAI JUNTO QUANDO É BARATA.
   //
   // Ela era feita ANTES de abrir a conexão, sempre. Numa arte de 12 MB isso é
@@ -114,7 +136,7 @@ async function uploadOne(file, { clientId, folderId, stage }, onProgress) {
   // Agora o arquivo pesado sobe primeiro e manda a miniatura depois, do mesmo
   // jeito que o vídeo já fazia. A grade fica um instante sem miniatura e nada
   // mais — a prévia e a miniatura chegam logo atrás.
-  const thumb = ehPesado(file) ? null : await makeThumbnail(file);
+  const thumb = await miniaturaBarata(file);
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("files", file);

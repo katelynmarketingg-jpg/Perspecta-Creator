@@ -43,8 +43,13 @@ test("vídeo e arte grande contam como pesados", () => {
 });
 
 test("a miniatura do pesado sai do caminho crítico do envio", () => {
-  assert.match(fonte, /const thumb = ehPesado\(file\) \? null : await makeThumbnail\(file\)/,
+  // A regra virou uma função só, usada pelos dois caminhos de envio (o direto
+  // para a nuvem e o antigo, pelo servidor) — antes a conta estava escrita à
+  // mão no meio do envio, e o caminho novo teria que repeti-la.
+  assert.match(fonte, /const miniaturaBarata = \(file\) => \(ehPesado\(file\) \? null : makeThumbnail\(file\)\)/,
     "só o leve gera a miniatura antes de abrir a conexão");
+  assert.equal((fonte.match(/await miniaturaBarata\(file\)/g) || []).length, 2,
+    "e os dois caminhos de envio usam a mesma regra");
   assert.match(fonte, /if \(ehPesado\(job\._file\)\) mandaMiniaturaDepois/,
     "e o pesado manda a dele depois, com o arquivo já guardado");
 });
