@@ -1,4 +1,5 @@
-import { S3Client, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand,
+         DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
 import { createReadStream } from "node:fs";
@@ -121,6 +122,75 @@ export async function enderecoAssinado(key, { segundos = 3600, tipo, baixarComoN
     });
   } catch {
     return null;   // não deu para assinar: quem chamou serve pelo caminho antigo
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ENVIO DIRETO: o arquivo vai do navegador para a nuvem, sem escala.
+//
+// Até aqui, todo arquivo fazia a viagem DUAS vezes: celular → nosso servidor
+// (que fica em Oregon, na costa oeste dos EUA) → Cloudflare. E entre as duas, o
+// servidor ainda gravava o arquivo inteiro no disco dele. Num vídeo editado de
+// 1 GB subindo pelo 4G do Brasil, isso é atravessar o continente duas vezes.
+//
+// Com a autorização de entrega abaixo, o navegador manda o arquivo DIRETO para
+// a Cloudflare, que tem ponto de entrada em São Paulo. Uma viagem curta no
+// lugar de duas longas.
+//
+// O servidor continua no comando: é ele que decide a chave (a pasta do
+// escritório), assina a autorização, e só registra o arquivo depois de
+// conferir que ele chegou mesmo. O que muda é só por onde os BYTES passam —
+// o arquivo em si não é tocado, nem recomprimido.
+// ---------------------------------------------------------------------------
+
+/**
+ * A chave é mesmo deste escritório?
+ *
+ * Entre o "autorizar" e o "registrar" quem fala é o navegador, do outro lado do
+ * mundo. A chave que volta de lá é PEDIDO, não verdade: sem esta conferência,
+ * bastaria mandar a chave de outra casa para pendurar o arquivo dela na sua
+ * galeria. Mora aqui, separada, para ser testável sem tocar na rede.
+ */
+export function chaveEhDoEscritorio(key, orgId) {
+  if (!orgId) return false;
+  const k = String(key ?? "");
+  const pasta = `uploads/${orgId}/`;
+  if (!k.startsWith(pasta)) return false;
+  const resto = k.slice(pasta.length);
+  // Nada de subir na árvore nem de pasta dentro de pasta: o nome é sorteado
+  // pelo servidor e é um só.
+  return Boolean(resto) && !resto.includes("/") && !resto.includes("..");
+}
+
+/** Autorização de entrega: um endereço para o navegador ENVIAR aquele arquivo. */
+export async function enderecoParaEnviar(key, { tipo, segundos = 6 * 3600 } = {}) {
+  if (!configured) return null;
+  const comando = new PutObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+    ...(tipo ? { ContentType: tipo } : {}),
+  });
+  try {
+    return await getSignedUrl(client, comando, { expiresIn: segundos });
+  } catch {
+    return null;   // não deu para assinar: quem chamou volta pelo caminho antigo
+  }
+}
+
+/**
+ * O arquivo chegou mesmo? Devolve o tamanho REAL que está na nuvem.
+ *
+ * Isto não é zelo à toa: na hora de registrar, quem diz o tamanho é o
+ * navegador — e navegador é do outro lado do mundo, fora do nosso alcance.
+ * Perguntar para a nuvem é a única forma de gravar um número que é verdade.
+ */
+export async function conferirObjeto(key) {
+  if (!configured) return null;
+  try {
+    const r = await client.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+    return { tamanho: Number(r.ContentLength) || 0, tipo: r.ContentType || null };
+  } catch {
+    return null;   // não está lá
   }
 }
 
