@@ -479,11 +479,19 @@ router.post("/:id/arquivar", (req, res) => {
 router.post("/:id/reativar", (req, res) => {
   const cliente = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!cliente) return res.status(404).json({ error: "Cliente não encontrado." });
+  // A MARCA QUE QUEBRA O LAÇO.
+  //
+  // A rotina que move para "Inativos" roda de hora em hora, e o motivo dela (um
+  // contrato com data de fim no passado) continua lá depois de reativar — e
+  // deve continuar, é histórico. Sem esta marca, o cliente voltava para
+  // Inativos na passada seguinte, todo dia, sem fim. Aqui fica registrado que
+  // uma PESSOA decidiu que ele fica; a automação não discute com isso.
   db.prepare(
     `UPDATE clients SET archived_at = NULL, entrega_ate = NULL, pagamento_ate = NULL,
-       ultimo_projeto_id = NULL, archive_note = NULL, status = 'active'
+       ultimo_projeto_id = NULL, archive_note = NULL, status = 'active',
+       reativado_em = ?
      WHERE id = ? AND org_id = ?`
-  ).run(cliente.id, req.orgId);
+  ).run(new Date().toISOString(), cliente.id, req.orgId);
   res.json({ ok: true });
 });
 

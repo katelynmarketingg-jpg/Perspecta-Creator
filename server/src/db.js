@@ -1167,6 +1167,14 @@ ensureColumn("files", "preview", "preview TEXT");
 ensureColumn("files", "carrossel_id", "carrossel_id INTEGER");
 ensureColumn("files", "carrossel_pos", "carrossel_pos INTEGER NOT NULL DEFAULT 0");
 ensureColumn("clients", "rep_doc_type", "rep_doc_type TEXT NOT NULL DEFAULT 'cpf'"); // 'cpf' | 'oab' 
+// QUEM VOLTOU À MÃO NÃO É ARQUIVADO DE NOVO SOZINHO.
+//
+// A rotina que move para "Inativos" roda de hora em hora. Reativar limpava o
+// arquivamento mas não o MOTIVO (um contrato com data de fim no passado), então
+// na passada seguinte o cliente voltava para Inativos — e assim todo dia, sem
+// fim. Esta marca registra que uma PESSOA decidiu que ele fica; decisão de
+// gente ganha da automação.
+ensureColumn("clients", "reativado_em", "reativado_em TEXT");
 
 // Toda tabela de dados carrega o escritório dona da linha.
 export const TENANT_TABLES = [
