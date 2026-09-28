@@ -7,6 +7,7 @@ import "dotenv/config";
 
 import { pegarPromessasSoltas } from "./promessa-solta.js";
 import { arrumarPastasAtrasadas } from "./gallery-sync.js";
+import { desfazInativacoesAutomaticas } from "./inativar-sozinho.js";
 
 // Antes de montar qualquer rota: erro em rota async vira resposta, não
 // bolinha girando para sempre. Ver o comentário em promessa-solta.js.
@@ -223,5 +224,12 @@ app.listen(PORT, () => {
   // aprovação ou já foram programadas antes de a Galeria passar a acompanhar.
   const arrumadas = arrumarPastasAtrasadas();
   if (arrumadas) console.log(`[galeria] arte de ${arrumadas} peça(s) levada para a pasta da etapa`);
+  // Uma vez: traz de volta quem a rotina de inativação arquivou sozinha
+  // enquanto o laço existia (reativar não limpava o motivo, então ela
+  // arquivava de novo na hora seguinte).
+  const devolvidos = desfazInativacoesAutomaticas();
+  if (devolvidos.voltaram) {
+    console.log(`[clientes] ${devolvidos.voltaram} voltaram para Ativos: ${devolvidos.nomes.join(", ")}`);
+  }
   startBackups();     // cópia diária do banco (mantém as últimas 7)
 });

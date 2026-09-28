@@ -17,6 +17,17 @@ import { situacaoDaRenovacao } from "./landing.js";
 //
 // E nada é silencioso: cada movimentação vira um aviso na sineta, dizendo por
 // quê e lembrando que "Reativar" existe.
+//
+// DECISÃO DE GENTE GANHA DA AUTOMAÇÃO.
+//
+// Faltava isto, e virou um laço: reativar limpava o arquivamento mas não o
+// MOTIVO (o contrato com data de fim no passado continua lá, e deve continuar —
+// é histórico). Uma hora depois a rotina passava, via o mesmo motivo e
+// arquivava de novo. Ela reativava no dia seguinte, e de novo, e de novo.
+//
+// Agora, quando uma pessoa reativa, fica registrado que ela decidiu. A partir
+// daí esta rotina não encosta mais nesse cliente — nem hoje, nem nunca. Se ele
+// tiver mesmo que sair, quem manda nisso é o botão de arquivar, à mão.
 // ---------------------------------------------------------------------------
 
 const hojeISO = () => new Date().toISOString().slice(0, 10);
@@ -29,6 +40,8 @@ export function motivoParaInativar(cliente, { lps = [], hoje = new Date() } = {}
   if (!cliente) return null;
   if (cliente.archived_at) return null;                 // já está lá
   if (cliente.status !== "active") return null;         // já não está na lista de ativos
+  // Alguém já o trouxe de volta à mão: a automação não discute com isso.
+  if (cliente.reativado_em) return null;
 
   const dia = hoje.toISOString().slice(0, 10);
   const contratoTerminou = Boolean(cliente.work_end) && cliente.work_end < dia;
@@ -57,7 +70,8 @@ export function motivoParaInativar(cliente, { lps = [], hoje = new Date() } = {}
 /** A passada: move quem já pode ir, e avisa. */
 export function inativaQuemAcabou(hoje = new Date()) {
   const clientes = db.prepare(
-    "SELECT id, org_id, name, status, work_end, archived_at FROM clients WHERE archived_at IS NULL AND status = 'active'"
+    `SELECT id, org_id, name, status, work_end, archived_at, reativado_em
+       FROM clients WHERE archived_at IS NULL AND status = 'active' AND reativado_em IS NULL`
   ).all();
   if (!clientes.length) return { movidos: 0 };
 
@@ -87,4 +101,42 @@ export function inativaQuemAcabou(hoje = new Date()) {
   });
   tx();
   return { movidos };
+}
+
+// ---------------------------------------------------------------------------
+// DESFAZ O LAÇO — roda uma vez.
+//
+// Enquanto o conserto acima não existia, esta rotina arquivava os mesmos
+// clientes de hora em hora. Quem foi movido POR ELA carrega a marca no recado
+// de arquivamento; é por ela que dá para achar exatamente quem foi, sem tocar
+// em quem ela arquivou à mão.
+//
+// Os que ela moveu voltam para Ativos, já com a marca de "uma pessoa decidiu" —
+// então não voltam a sair sozinhos. Se algum realmente tiver de ficar em
+// Inativos, arquivar à mão agora resolve, e desta vez fica.
+// ---------------------------------------------------------------------------
+export const MARCA_AUTOMATICA = "Movido para Inativos sozinho:";
+const CHAVE_CONSERTO = "desfaz-inativacao-automatica-2026-09";
+
+export function desfazInativacoesAutomaticas() {
+  db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
+    chave      TEXT PRIMARY KEY,
+    rodou_em   TEXT NOT NULL DEFAULT (datetime('now'))
+  );`);
+  if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE_CONSERTO)) return { voltaram: 0 };
+
+  const alvos = db.prepare(
+    "SELECT id, org_id, name FROM clients WHERE archived_at IS NOT NULL AND archive_note LIKE ?"
+  ).all(`${MARCA_AUTOMATICA}%`);
+
+  const volta = db.prepare(
+    `UPDATE clients SET archived_at = NULL, status = 'active', archive_note = NULL,
+       reativado_em = ? WHERE id = ?`
+  );
+  db.transaction(() => {
+    const agora = new Date().toISOString();
+    for (const c of alvos) volta.run(agora, c.id);
+    db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE_CONSERTO);
+  })();
+  return { voltaram: alvos.length, nomes: alvos.map((c) => c.name) };
 }
