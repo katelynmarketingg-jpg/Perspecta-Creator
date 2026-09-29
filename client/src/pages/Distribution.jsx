@@ -18,6 +18,7 @@ import ViewComfyIcon from "@mui/icons-material/ViewComfy";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import GridOnIcon from "@mui/icons-material/GridOn";
+import MovieIcon from "@mui/icons-material/Movie";
 import CalendarViewMonthIcon from "@mui/icons-material/CalendarViewMonth";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -268,19 +269,21 @@ function Media({ fileId, capaId, height = 200, fit = "cover", streamUrl = null, 
   // Nesta caixa a arte é ENCAIXADA num retrato 4:5: post e carrossel preenchem
   // exatamente (não sobra nada), e o reel entra inteiro, um pouco menor, sem
   // cortar nada do vídeo e sem esticar.
+  // `maxWidth: 100%` em toda arte: sem ele, o arquivo deitado se impõe pela
+  // largura real dele e estoura a caixa que o segura (ver o comentário do GRADE).
   const sx = natural
     ? (mesmaAltura
       ? {
-          width: "100%", aspectRatio: "4 / 5", height: "auto", objectFit: "contain",
+          width: "100%", maxWidth: "100%", aspectRatio: "4 / 5", height: "auto", objectFit: "contain",
           display: "block", borderRadius: 2, bgcolor: "action.hover",
           objectPosition: comecoDaTira ? "left center" : "center",
         }
       : {
-        width: "100%", height: "auto", display: "block", borderRadius: 2,
+        width: "100%", maxWidth: "100%", height: "auto", display: "block", borderRadius: 2,
         objectPosition: comecoDaTira ? "left center" : "center",
       })
     : {
-        width: "100%", height, objectFit: fit, borderRadius: 2,
+        width: "100%", maxWidth: "100%", height, objectFit: fit, borderRadius: 2,
         objectPosition: comecoDaTira && !contain ? "left center" : "center",
         bgcolor: contain ? "#000" : "action.hover", display: "block",
       };
@@ -1611,7 +1614,21 @@ function agrupaPorMes(itens) {
   return ordenados;
 }
 
-const GRADE = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 2, alignItems: "start" };
+// COLUNAS QUE NÃO ESTOURAM.
+//
+// `1fr` é, na verdade, `minmax(auto, 1fr)`: a coluna nunca fica menor que o
+// conteúdo dela. E uma arte deitada (um print largo, por exemplo) conta com a
+// LARGURA REAL do arquivo — 1900px — mesmo estando com `width: 100%`. Resultado:
+// aquela coluna comia a linha inteira e as vizinhas viravam um filete. Era o
+// "bugou o tamanho": um card gigante no meio de dois espremidos.
+//
+// `minmax(0, 1fr)` desfaz o piso: as três colunas ficam sempre iguais, e é a
+// arte que se encaixa nelas, não o contrário.
+const GRADE = {
+  display: "grid",
+  gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(3, minmax(0, 1fr))" },
+  gap: 2, alignItems: "start",
+};
 
 // GRADE COM OS CARDS DA MESMA ALTURA.
 //
@@ -1636,7 +1653,9 @@ const LARGURA_COMPACTA = 110;
 const GRADE_COMPACTA = {
   display: "grid", alignItems: "stretch", gap: 0.75,
   gridTemplateColumns: {
-    xs: "repeat(3, 1fr)",
+    // `minmax(0, …)` pelo mesmo motivo do GRADE: arte deitada não pode empurrar
+    // a coluna dela e espremer as vizinhas.
+    xs: "repeat(3, minmax(0, 1fr))",
     sm: `repeat(auto-fill, minmax(${LARGURA_COMPACTA}px, 1fr))`,
   },
 };
@@ -1894,15 +1913,29 @@ function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, previaUrl =
 // peça marcada para o dia 1º aparecia como se fosse do mês anterior.
 const dtISO = (v) => dataLocal(v);
 
+// Os selinhos redondos que ficam por cima do quadro da grade.
+const SELO_DO_QUADRO = {
+  width: 22, height: 22, borderRadius: "50%", display: "grid", placeItems: "center",
+  color: "#fff", border: "2px solid #fff", cursor: "pointer",
+  boxShadow: "0 1px 4px rgba(0,0,0,.35)", opacity: 0.85,
+  "&:hover": { opacity: 1, transform: "scale(1.12)" }, transition: "all .12s ease",
+};
+
 // Prévia do perfil ARRASTÁVEL: organiza o feed (salva a ORDEM). As datas ficam
 // paradas — cada peça mantém a sua. Sem data ou no passado aparece em vermelho
 // (clique para ajustar). O 1º fica em cima à esquerda; enche → direita → baixo.
-function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorData, onMarcarPostado, titulo }) {
+function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorData, onMarcarPostado,
+                          onApagar, onTirarDaGrade, titulo }) {
   // O PERFIL só tem o que já existe. Peça sem arte não é um quadrado cinza no
   // Instagram — ela simplesmente não está lá. Deixá-la na grade dava um perfil
   // falso, cheio de buracos que ninguém vai ver.
-  const comArte = useMemo(() => posts.filter((p) => p.cover_file_id || p.file_id), [posts]);
-  const semArte = posts.length - comArte.length;
+  const todasComArte = useMemo(() => posts.filter((p) => p.cover_file_id || p.file_id), [posts]);
+  // REEL NÃO COMPÕE O VISUAL DO FEED do mesmo jeito que um post — ele mora na
+  // aba de Reels. Tirado da grade, sai da composição e passa a aparecer na
+  // gradinha ao lado, só com a data, para ela saber o dia.
+  const comArte = useMemo(() => todasComArte.filter((p) => !p.fora_da_grade), [todasComArte]);
+  const reels = useMemo(() => todasComArte.filter((p) => p.fora_da_grade), [todasComArte]);
+  const semArte = posts.length - todasComArte.length;
   const [order, setOrder] = useState(comArte);
   const [dragId, setDragId] = useState(null); // qual peça está sendo arrastada
   const dragIndex = useRef(null);
@@ -1980,13 +2013,19 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
           </Typography>
         </Tooltip>
       </Stack>
-      <Box sx={{ maxWidth: 460, mx: "auto", border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
+      <Stack direction="row" spacing={1.5} justifyContent="center" alignItems="flex-start"
+        sx={{ flexWrap: { xs: "wrap", md: "nowrap" } }}>
+      <Box sx={{ width: "100%", maxWidth: 460, border: 1, borderColor: "divider", borderRadius: 0, overflow: "hidden" }}>
         <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "2px", bgcolor: "divider" }}>
           {(() => {
-            // Igual ao perfil real (e à Área do Cliente): a folga (quando o total
-            // não fecha múltiplo de 3) sobra EM CIMA, à direita do mais recente —
-            // as linhas de baixo ficam completas. O `i` do arrasto continua sendo
-            // o índice na ordem salva, então as células vazias não atrapalham.
+            // A FOLGA FICA NO CANTO DE CIMA À ESQUERDA.
+            //
+            // Quando o total não fecha múltiplo de 3, sobra espaço na primeira
+            // linha. Esse espaço não é um buraco: é O LUGAR DO PRÓXIMO POST —
+            // e o próximo post entra justamente no canto de cima à esquerda,
+            // empurrando todo o resto para a direita. Por isso ele fica antes
+            // de tudo, e não depois ("é da direita pra esquerda, o lugar vago
+            // tem que ser a esquerda").
             const resto = order.length % 3;
             const folga = resto === 0 ? 0 : 3 - resto;
             const celula = (p, i) => (
@@ -2025,6 +2064,32 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
                     </Box>
                   </Tooltip>
                 )}
+                {/* APAGAR e TIRAR DA GRADE, do lado esquerdo para não brigar
+                    com o certinho. Apagar tira a peça da Distribuição de vez;
+                    tirar da grade só a move para a gradinha de reels, e volta
+                    com um clique. */}
+                <Stack direction="row" spacing={0.5} sx={{ position: "absolute", top: 5, left: 5 }}>
+                  {onTirarDaGrade && pecaEhVideo(p) && (
+                    <Tooltip title="Tirar da grade — vai para os reels, ao lado">
+                      <Box role="button" aria-label={`Tirar "${p.title}" da grade do perfil`}
+                        onClick={(e) => { e.stopPropagation(); onTirarDaGrade(p, false); }}
+                        onDragStart={(e) => e.preventDefault()}
+                        sx={{ ...SELO_DO_QUADRO, bgcolor: "rgba(0,0,0,0.62)" }}>
+                        <MovieIcon sx={{ fontSize: 13 }} />
+                      </Box>
+                    </Tooltip>
+                  )}
+                  {onApagar && (
+                    <Tooltip title="Apagar a peça">
+                      <Box role="button" aria-label={`Apagar "${p.title}"`}
+                        onClick={(e) => { e.stopPropagation(); onApagar(p); }}
+                        onDragStart={(e) => e.preventDefault()}
+                        sx={{ ...SELO_DO_QUADRO, bgcolor: "error.main" }}>
+                        <DeleteIcon sx={{ fontSize: 13 }} />
+                      </Box>
+                    </Tooltip>
+                  )}
+                </Stack>
                 <Box sx={{
                   position: "absolute", bottom: 0, left: 0, right: 0, px: 0.5, py: 0.25,
                   bgcolor: errada(p) ? "warning.main" : "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, fontWeight: 700,
@@ -2034,15 +2099,58 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
               </Box>
             );
             return [
-              ...order.slice(0, resto).map((p, j) => celula(p, j)),
+              // O lugar do próximo post vem ANTES de tudo — é para lá que ele
+              // entra, empurrando o resto para a direita.
               ...Array.from({ length: folga }, (_, k) => (
                 <Box key={`gap-${k}`} sx={{ aspectRatio: "1080 / 1440", bgcolor: "background.paper" }} />
               )),
-              ...order.slice(resto).map((p, j) => celula(p, resto + j)),
+              ...order.map((p, j) => celula(p, j)),
             ];
           })()}
         </Box>
       </Box>
+
+      {/* A GRADINHA DOS REELS, AO LADO.
+          Reel não entra na composição do feed — mas ela precisa saber o DIA
+          dele. Então ele fica aqui, pequeno, com a data. Um clique devolve à
+          grade se ela mudar de ideia. */}
+      {reels.length > 0 && (
+        <Box sx={{ width: 132, flexShrink: 0 }}>
+          <Typography variant="caption" sx={{ display: "block", fontWeight: 700, mb: 0.5 }}>
+            Reels ({reels.length})
+          </Typography>
+          <Stack spacing={0.5}>
+            {reels.map((p) => (
+              <Box key={p.id} onClick={() => onSelect(p)}
+                sx={{ position: "relative", aspectRatio: "1080 / 1440", cursor: "pointer",
+                      bgcolor: "action.hover", overflow: "hidden", border: 1, borderColor: "divider" }}>
+                <FeedThumb fileId={p.cover_file_id || p.file_id} fetchFile={fetchFile}
+                  streamUrl={enderecoDoArquivo(p, p.cover_file_id || p.file_id) || enderecoDaPeca(p)}
+                  previaUrl={previaDoArquivo(p, p.cover_file_id || p.file_id)}
+                  ehVideo={pecaEhVideo(p)} />
+                {onTirarDaGrade && (
+                  <Tooltip title="Devolver para a grade do perfil">
+                    <Box role="button" aria-label={`Devolver "${p.title}" para a grade`}
+                      onClick={(e) => { e.stopPropagation(); onTirarDaGrade(p, true); }}
+                      sx={{ ...SELO_DO_QUADRO, position: "absolute", top: 4, left: 4,
+                            width: 20, height: 20, bgcolor: "primary.main" }}>
+                      <GridOnIcon sx={{ fontSize: 12 }} />
+                    </Box>
+                  </Tooltip>
+                )}
+                <Box sx={{ position: "absolute", bottom: 0, left: 0, right: 0, px: 0.4, py: 0.2,
+                           bgcolor: errada(p) ? "warning.main" : "rgba(0,0,0,0.6)",
+                           color: "#fff", fontSize: 9, fontWeight: 700 }}>
+                  {p.scheduled_at
+                    ? dtISO(p.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+                    : "sem data"}
+                </Box>
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      )}
+      </Stack>
     </Box>
   );
 }
@@ -2114,6 +2222,31 @@ export default function Distribution() {
       load({ silent: true });
     } catch (e) {
       flash(e.response?.data?.error || "Não foi possível marcar.", "error");
+    }
+  }
+
+  // APAGAR DIRETO DA PRÉVIA DO PERFIL. Confirma porque é ida sem volta — mas a
+  // ARTE não se perde: ela continua na Galeria, é só a peça que sai.
+  async function apagarPeca(p) {
+    if (!confirm(`Apagar "${p.title}"?\n\nA peça sai da Distribuição. A arte continua na Galeria.`)) return;
+    try {
+      await api.delete(`/distribution/${p.id}`);
+      flash("Peça apagada. A arte continua na Galeria.", "success");
+      load({ silent: true });
+    } catch (e) {
+      flash(e.response?.data?.error || "Não foi possível apagar.", "error");
+    }
+  }
+
+  // TIRAR DA GRADE (ou devolver). Reel não compõe o visual do feed: sai da
+  // grade principal e vai para a gradinha ao lado, com a data. Não mexe na
+  // posição de ninguém — sair da lista não renumera nada.
+  async function mudarGrade(p, naGrade) {
+    try {
+      await api.put(`/distribution/${p.id}/grade`, { na_grade: naGrade });
+      load({ silent: true });
+    } catch (e) {
+      flash(e.response?.data?.error || "Não foi possível mudar.", "error");
     }
   }
 
@@ -2549,6 +2682,7 @@ export default function Distribution() {
           <Card><CardContent>
             <ReorderableFeed posts={feedPosts} onSelect={setSelected} onReorder={reorderPosition}
                   onVoltarPorData={voltarPorData} onMarcarPostado={marcarPostado}
+                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade}
               titulo="Como o perfil vai ficar" />
           </CardContent></Card>
         ) : feedGroups.length === 0 ? (
@@ -2558,10 +2692,18 @@ export default function Distribution() {
             <Typography variant="body2" color="text.secondary">
               Cada empresa tem o seu perfil. Escolha uma empresa acima para focar em uma só.
             </Typography>
+            {/* OS MESMOS BOTÕES DE QUANDO SE OLHA UM CLIENTE SÓ.
+                Confirmar que entrou, apagar e tirar da grade existiam apenas na
+                visão de um cliente filtrado. Quem da equipe abre a Distribuição
+                sem escolher empresa — que é como ela abre — via os perfis lado a
+                lado e não tinha o certinho laranja em nenhum deles. Não era
+                permissão: o servidor já aceita de qualquer pessoa da equipe;
+                era a tela que só passava os botões num dos dois caminhos. */}
             {feedGroups.map((g) => (
               <Card key={g.clientId}><CardContent>
                 <ReorderableFeed posts={g.posts} onSelect={setSelected} onReorder={reorderPosition}
-                  onVoltarPorData={voltarPorData}
+                  onVoltarPorData={voltarPorData} onMarcarPostado={marcarPostado}
+                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade}
                   titulo={`Perfil — ${g.clientName}`} />
               </CardContent></Card>
             ))}

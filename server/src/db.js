@@ -802,6 +802,13 @@ ensureColumn("tasks", "last_reminder_at", "last_reminder_at TEXT");
 ensureColumn("tasks", "published_at", "published_at TEXT");
 ensureColumn("tasks", "publish_error", "publish_error TEXT");
 ensureColumn("tasks", "external_post_id", "external_post_id TEXT");
+// FORA DA GRADE DO PERFIL.
+//
+// Reel não compõe o visual do feed do mesmo jeito que um post — ele mora na
+// aba de Reels. Marcada assim, a peça sai da grade principal (sem bagunçar a
+// ordem de ninguém) e passa a aparecer só na gradinha de reels, ao lado, com a
+// data. É reversível: dá para devolver para a grade a qualquer momento.
+ensureColumn("tasks", "fora_da_grade", "fora_da_grade INTEGER NOT NULL DEFAULT 0");
 
 // POST BÔNUS: peça publicada ALÉM do que o contrato do cliente prevê.
 //
