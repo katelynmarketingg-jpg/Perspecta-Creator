@@ -163,15 +163,12 @@ export default function Layout() {
           colorido, o vinco enche da cor do fundo e a marca perde o desenho.
           Na placa branca ele aparece exatamente como foi desenhado, nos dois
           temas. */}
-      {/* A barra de cima é um vidro fosco (blur + 85% opaca) e passa POR CIMA
-          da lateral, nos 65px do topo. O quadradinho de iniciais aguentava isso
-          sem ninguém notar; um logo, não — ficava embaçado e lavado. Este
-          espaçador tem a altura exata da barra, e o logo começa abaixo dela. */}
-      <Toolbar />
-      <Box sx={{ px: 2.5, pt: 0.5, pb: 1.75 }}>
-        <Box sx={{ bgcolor: "#fff", borderRadius: 2.5, px: 1.75, py: 1.5 }}>
+      <Box sx={{ px: 2, pt: 1.75, pb: 1.5 }}>
+        {/* Compacto: a lateral é para navegar, e o logo é assinatura, não
+            cartaz. Estreito o bastante para sobrar altura para os itens. */}
+        <Box sx={{ bgcolor: "#fff", borderRadius: 2, px: 1.25, py: 1, width: "fit-content" }}>
           <Box component="img" src={logoCreator} alt="Perspecta Creator"
-            sx={{ display: "block", width: "100%", height: "auto" }} />
+            sx={{ display: "block", width: 124, height: "auto" }} />
         </Box>
         {/* Abaixo do produto, de quem é a casa. */}
         <Box sx={{ minWidth: 0, mt: 1.5 }}>
@@ -226,6 +223,15 @@ export default function Layout() {
           bgcolor: (t) => alpha(t.palette.background.default, 0.85),
           backdropFilter: "blur(8px)",
           zIndex: (t) => t.zIndex.drawer + 1,
+          // A BARRA COMEÇA DEPOIS DA LATERAL.
+          //
+          // Ela é um vidro fosco e cobria a lateral inteira nos 65px do topo —
+          // era o que embaçava e lavava o logo ali em cima. Agora cada uma tem
+          // o seu espaço: a lateral vai do topo ao rodapé, e a barra ocupa o
+          // resto da largura. No celular a lateral é uma gaveta que abre por
+          // cima, então lá a barra continua atravessando a tela toda.
+          width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          ml: { md: `${DRAWER_WIDTH}px` },
         }}
       >
         <Toolbar>
@@ -328,7 +334,15 @@ export default function Layout() {
           open={mobileOpen}
           onClose={() => setMobileOpen(false)}
           ModalProps={{ keepMounted: true }}
-          sx={{ display: { xs: "block", md: "none" }, "& .MuiDrawer-paper": { width: DRAWER_WIDTH, bgcolor: sb.bg, borderRight: `1px solid ${sb.border}` } }}
+          sx={{
+            display: { xs: "block", md: "none" },
+            // No celular a gaveta abre POR CIMA da tela toda — inclusive da
+            // barra de vidro fosco. Sem isto ela abria por baixo, e o logo,
+            // que fica no topo dela, saía embaçado no telefone (no computador
+            // o problema não aparece: lá a barra já começa depois da lateral).
+            zIndex: (t) => t.zIndex.drawer + 2,
+            "& .MuiDrawer-paper": { width: DRAWER_WIDTH, bgcolor: sb.bg, borderRight: `1px solid ${sb.border}` },
+          }}
         >
           {drawer}
         </Drawer>
