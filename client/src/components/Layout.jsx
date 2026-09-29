@@ -46,7 +46,7 @@ import { useAuth } from "../auth/AuthContext.jsx";
 import ForcePasswordChange from "./ForcePasswordChange.jsx";
 import { useColorMode } from "../ColorModeContext.jsx";
 import { SIDEBAR } from "../theme.js";
-import logoCreator from "../assets/logo-perspecta-creator.png";
+import logoCreatorBranco from "../assets/logo-perspecta-creator-branco.png";
 
 const DRAWER_WIDTH = 248;
 
@@ -153,23 +153,19 @@ export default function Layout() {
 
   const drawer = (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: sb.bg }}>
-      {/* O LOGO DE VERDADE, NO CANTO DE CIMA À ESQUERDA.
+      {/* O LOGO, NO CANTO DE CIMA À ESQUERDA, SOLTO NO FUNDO.
           No lugar do quadradinho com as iniciais, que era só um remendo.
 
-          Ele vai numa placa branca de propósito, não por enfeite: a barra
-          lateral é terracota (#ab480a) ou preta, e o logo tem a palavra
-          "Perspecta" em cinza-escuro — que nesses dois fundos praticamente
-          some. E o símbolo tem um vinco vazado no meio: solto num fundo
-          colorido, o vinco enche da cor do fundo e a marca perde o desenho.
-          Na placa branca ele aparece exatamente como foi desenhado, nos dois
-          temas. */}
+          Aqui vai a VERSÃO BRANCA, e não a original: a lateral é terracota
+          (#ab480a) ou preta, e na arte original a palavra "Perspecta" é
+          cinza-escuro — nesses dois fundos ela some. Na versão branca o vinco
+          do símbolo segue vazado, então sobre o terracota ele aparece como um
+          corte da própria cor do fundo, que é como um logo vazado funciona.
+          Compacto de propósito: a lateral é para navegar, e o logo é
+          assinatura, não cartaz. */}
       <Box sx={{ px: 2, pt: 1.75, pb: 1.5 }}>
-        {/* Compacto: a lateral é para navegar, e o logo é assinatura, não
-            cartaz. Estreito o bastante para sobrar altura para os itens. */}
-        <Box sx={{ bgcolor: "#fff", borderRadius: 2, px: 1.25, py: 1, width: "fit-content" }}>
-          <Box component="img" src={logoCreator} alt="Perspecta Creator"
-            sx={{ display: "block", width: 124, height: "auto" }} />
-        </Box>
+        <Box component="img" src={logoCreatorBranco} alt="Perspecta Creator"
+          sx={{ display: "block", width: 124, height: "auto" }} />
         {/* Abaixo do produto, de quem é a casa. */}
         <Box sx={{ minWidth: 0, mt: 1.5 }}>
           <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1.2, color: "#fff", fontFamily: '"Outfit", sans-serif' }}>

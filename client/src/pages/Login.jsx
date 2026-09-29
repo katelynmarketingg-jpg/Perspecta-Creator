@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import {
   Box, Card, CardContent, TextField, Button, Typography, Alert, Stack, Avatar, Link,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { useAuth } from "../auth/AuthContext.jsx";
 import logoCreator from "../assets/logo-perspecta-creator.png";
+import logoCreatorBranco from "../assets/logo-perspecta-creator-branco.png";
 
 // Guarda o último acesso deste aparelho: empresa + pessoa (nunca a senha).
 const REMEMBER_KEY = "perspecta_last_login";
@@ -14,6 +16,7 @@ function loadRemembered() {
 
 export default function Login() {
   const { login } = useAuth();
+  const escuro = useTheme().palette.mode === "dark";
   const navigate = useNavigate();
   const remembered = loadRemembered();
   const [form, setForm] = useState({
@@ -74,13 +77,12 @@ export default function Login() {
         <CardContent sx={{ p: 4 }}>
           <Stack alignItems="center" spacing={1} sx={{ mb: 3 }}>
             {/* A primeira tela que qualquer pessoa vê: o logo, e não as
-                iniciais. Na placa branca pelo mesmo motivo da barra lateral —
-                no tema escuro o cartão é escuro, e a palavra "Perspecta" é
-                cinza-escuro: sem a placa ela sumiria. */}
-            <Box sx={{ bgcolor: "#fff", borderRadius: 2.5, px: 2.25, py: 1.75, width: "100%", maxWidth: 232 }}>
-              <Box component="img" src={logoCreator} alt="Perspecta Creator"
-                sx={{ display: "block", width: "100%", height: "auto" }} />
-            </Box>
+                iniciais. Solto no cartão, sem moldura — e na versão certa para
+                o fundo: o cartão é claro nos temas claros (vale a arte
+                original) e escuro no noturno, onde a palavra "Perspecta", que
+                é cinza-escuro, sumiria (vale a versão branca). */}
+            <Box component="img" src={escuro ? logoCreatorBranco : logoCreator} alt="Perspecta Creator"
+              sx={{ display: "block", width: "100%", maxWidth: 216, height: "auto" }} />
             <Typography variant="body2" color="text.secondary" align="center">
               {quick ? "Confirme a sua senha para entrar" : "Entre com o seu escritório, nome e senha"}
             </Typography>
