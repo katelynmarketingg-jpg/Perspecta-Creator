@@ -33,6 +33,7 @@ import { makeThumbnail } from "../upload/thumbnail.js";
 import { ligarRolagemAoArrastar } from "../upload/rolar-arrastando.js";
 import { agruparPosts } from "../upload/unir-carrossel.js";
 import { ordenarFeed, reencaixar, aindaNoPerfil } from "../feed-ordem.js";
+import { dataLocal } from "../data-local.js";
 import { medirImagem, fatiarEmSlides, sugerirSlides, LARGURA_ALVO } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -1033,6 +1034,10 @@ function PieceCard({ item, onChanged, flash }) {
     fd.append("files", file);
     if (item.client_id) fd.append("client_id", item.client_id);
     fd.append("stage", "editados");
+    // A slide que sobe daqui também tem de aparecer na Galeria — e arrumada,
+    // dentro de "Editados". Sem isto ela caía solta na raiz do cliente, fora de
+    // todas as pastas, enquanto a etapa dela dizia "editados".
+    fd.append("na_pasta_da_etapa", "1");
     const { data } = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
     const novo = data?.[0];
     // Guarda o endereço direto do arquivo que ACABOU de subir. A lista da tela
@@ -1566,7 +1571,7 @@ function ListView({ items, onSelect, selectMode, checked, onToggle }) {
                   </Stack>
                   <Typography sx={{ fontWeight: 600, mt: 0.3 }} noWrap>{it.title}</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {it.scheduled_at ? new Date(it.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "Sem data"}
+                    {it.scheduled_at ? dataLocal(it.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "Sem data"}
                   </Typography>
                 </Box>
                 <StatusDot status={st} />
@@ -1589,8 +1594,11 @@ function agrupaPorMes(itens) {
   const semData = [];
   for (const it of itens) {
     if (!it.scheduled_at) { semData.push(it); continue; }
-    const d = new Date(it.scheduled_at.replace(" ", "T"));
-    if (Number.isNaN(d.getTime())) { semData.push(it); continue; }
+    // dataLocal, e não `new Date` direto: uma data sem hora ("2026-10-01") é
+    // lida como meia-noite em Greenwich, que aqui é 21h do dia 30 de setembro —
+    // e a peça do dia 1º caía sempre no mês anterior. Ver data-local.js.
+    const d = dataLocal(it.scheduled_at);
+    if (!d) { semData.push(it); continue; }
     const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     if (!grupos.has(chave)) {
       grupos.set(chave, { rotulo: `${MONTHS[d.getMonth()]} de ${d.getFullYear()}`, itens: [] });
@@ -1717,7 +1725,10 @@ function MonthGrid({ items, onSelect }) {
     const map = {};
     items.forEach((it) => {
       if (!it.scheduled_at) return;
-      const d = new Date(it.scheduled_at.replace(" ", "T"));
+      // Mesma armadilha do agrupamento por mês: sem isto, a peça do dia 1º
+      // aparecia no último dia do mês anterior no calendário.
+      const d = dataLocal(it.scheduled_at);
+      if (!d) return;
       if (d.getFullYear() === cursor.getFullYear() && d.getMonth() === cursor.getMonth()) {
         (map[d.getDate()] ||= []).push(it);
       }
@@ -1879,7 +1890,9 @@ function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, previaUrl =
     onLoad={(e) => guardarMiniatura(fileId, e.currentTarget)} />;
 }
 
-const dtISO = (v) => (v ? new Date(v.replace(" ", "T")) : null);
+// A prévia do perfil usa a mesma leitura de data do resto da tela: sem isto, a
+// peça marcada para o dia 1º aparecia como se fosse do mês anterior.
+const dtISO = (v) => dataLocal(v);
 
 // Prévia do perfil ARRASTÁVEL: organiza o feed (salva a ORDEM). As datas ficam
 // paradas — cada peça mantém a sua. Sem data ou no passado aparece em vermelho
@@ -2387,7 +2400,7 @@ export default function Distribution() {
                           <Typography sx={{ fontWeight: 600 }} noWrap>{p.title}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {p.scheduled_at
-                              ? new Date(p.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              ? dataLocal(p.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
                               : "Sem data"}
                           </Typography>
                           {/* Empurra a ação para o rodapé do card: assim os botões de
@@ -2429,7 +2442,7 @@ export default function Distribution() {
                           <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
                           <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
                             {w.scheduled_at
-                              ? new Date(w.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              ? dataLocal(w.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
                               : "Sem data"}
                           </Typography>
                           {pediuAjuste && w.client_note && (
@@ -2472,7 +2485,7 @@ export default function Distribution() {
                           <Typography sx={{ fontWeight: 600 }} noWrap>{a.title}</Typography>
                           <Typography variant="caption" color={a.scheduled_at ? "text.secondary" : "error.main"}>
                             {a.scheduled_at
-                              ? new Date(a.scheduled_at.replace(" ", "T")).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              ? dataLocal(a.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
                               : "Sem data — edite antes de programar"}
                           </Typography>
                           {/* Empurra a ação para o rodapé do card: assim os botões de

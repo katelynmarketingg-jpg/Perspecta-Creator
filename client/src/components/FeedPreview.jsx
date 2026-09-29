@@ -4,6 +4,7 @@ import { alpha } from "@mui/material/styles";
 import ImageNotSupportedIcon from "@mui/icons-material/ImageNotSupported";
 import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import { CONTENT_TYPES } from "../utils.js";
+import { dataLocal } from "../data-local.js";
 
 // Miniatura da grade. Recebe o fetcher pronto para servir tanto a agência
 // quanto o portal (cada um tem o seu token).
@@ -106,7 +107,7 @@ function Celula({ post, fetchFile, onClick }) {
   }
 
   return (
-    <Tooltip title={`${post.title}${post.scheduled_at ? ` · ${new Date(post.scheduled_at).toLocaleDateString("pt-BR")}` : ""}`}>
+    <Tooltip title={`${post.title}${post.scheduled_at ? ` · ${dataLocal(post.scheduled_at).toLocaleDateString("pt-BR")}` : ""}`}>
       <Box
         onClick={() => onClick?.(post)}
         sx={{
@@ -145,7 +146,7 @@ function Celula({ post, fetchFile, onClick }) {
           <Typography sx={{ fontSize: 11, fontWeight: 700, lineHeight: 1.25 }}>{post.title}</Typography>
           {post.scheduled_at && (
             <Typography sx={{ fontSize: 10, opacity: 0.85 }}>
-              {new Date(post.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+              {dataLocal(post.scheduled_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
             </Typography>
           )}
         </Box>
