@@ -1,33 +1,56 @@
 import { createTheme, alpha } from "@mui/material/styles";
 
-// Identidade: laranja sobre cinzas quentes (stone). Três climas: claro,
+// A PALETA DA MARCA, como ela definiu.
+//
+//   terracota  #ab480a   a barra lateral
+//   off        #ede9de   o fundo claro
+//   detalhes   #c9c2b2   os traços e as bordas
+//              #333333   o texto
+//   noturno    #000000   o fundo escuro
+//
+// Tudo abaixo sai daqui. Os poucos tons que não estão na lista são derivados
+// destes (um terracota mais fechado para a borda da lateral, um preto um grau
+// acima do #000 para os cartões do modo escuro não sumirem no fundo) — e estão
+// marcados onde aparecem.
+export const MARCA = {
+  terracota: "#ab480a",
+  off: "#ede9de",
+  detalhe: "#c9c2b2",
+  texto: "#333333",
+  noturno: "#000000",
+};
+
+// Identidade: laranja sobre o off-white da marca. Três climas: claro,
 // bege (sépia) e escuro. A sidebar é terracota nos dois modos claros.
 export const ACCENT = { light: "#EA580C", dark: "#F97316" };
 
-// Cor da barra lateral por modo — terracota nos claros, quase-preto no escuro.
+// Cor da barra lateral por modo — terracota nos claros, preto no escuro.
 export const SIDEBAR = {
-  light: { bg: "#9A3412", border: "#7C2D12" },
-  sepia: { bg: "#8A3A1E", border: "#6E2E17" },
-  dark: { bg: "#0C0A09", border: "#26221F" },
+  light: { bg: MARCA.terracota, border: "#8A3A08" },   // borda: o terracota um grau mais fechado
+  sepia: { bg: MARCA.terracota, border: "#8A3A08" },
+  dark: { bg: MARCA.noturno, border: "#232323" },
 };
 
 // Paletas de fundo/texto por modo.
 const PALETTES = {
   light: {
-    bgDefault: "#FAFAF9", bgPaper: "#FFFFFF",
-    textPrimary: "#1C1917", textSecondary: "#78716C",
-    divider: "#E7E5E4", hover: "rgba(28,25,23,0.04)",
+    // O off é o fundo; o cartão é branco, para ele se destacar do fundo.
+    bgDefault: MARCA.off, bgPaper: "#FFFFFF",
+    textPrimary: MARCA.texto, textSecondary: "#6F6A5F",   // o texto com menos peso
+    divider: MARCA.detalhe, hover: "rgba(51,51,51,0.05)",
   },
   sepia: {
-    // Bege quente, nada de branco duro.
-    bgDefault: "#F1EADD", bgPaper: "#FBF6EE",
-    textPrimary: "#3A322A", textSecondary: "#8A7E6E",
-    divider: "#E3D8C6", hover: "rgba(58,50,42,0.05)",
+    // O mesmo bege, um grau mais quente: aqui o cartão é o próprio off.
+    bgDefault: "#E4DECF", bgPaper: MARCA.off,
+    textPrimary: MARCA.texto, textSecondary: "#6F6A5F",
+    divider: MARCA.detalhe, hover: "rgba(51,51,51,0.06)",
   },
   dark: {
-    bgDefault: "#0C0A09", bgPaper: "#151312",
-    textPrimary: "#FAFAF9", textSecondary: "#A8A29E",
-    divider: "#26221F", hover: "rgba(250,250,249,0.05)",
+    // Preto de verdade no fundo. O cartão é um grau acima — no preto puro os
+    // dois se fundiriam e não daria para ver onde um cartão começa.
+    bgDefault: MARCA.noturno, bgPaper: "#121212",
+    textPrimary: MARCA.off, textSecondary: MARCA.detalhe,
+    divider: "#2A2A2A", hover: "rgba(237,233,222,0.06)",
   },
 };
 

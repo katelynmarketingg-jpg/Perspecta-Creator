@@ -46,6 +46,7 @@ import { useAuth } from "../auth/AuthContext.jsx";
 import ForcePasswordChange from "./ForcePasswordChange.jsx";
 import { useColorMode } from "../ColorModeContext.jsx";
 import { SIDEBAR } from "../theme.js";
+import logoCreator from "../assets/logo-perspecta-creator.png";
 
 const DRAWER_WIDTH = 248;
 
@@ -134,9 +135,11 @@ export default function Layout() {
   // (texto branco); no escuro, quase-preta com destaque laranja.
   const sb = SIDEBAR[mode] || SIDEBAR.light;
   const terracota = mode !== "dark";
-  const sbText = terracota ? "rgba(255,255,255,0.82)" : "#A8A29E";
-  const sbTextDim = terracota ? "rgba(255,255,255,0.55)" : "#78716C";
-  const sbIcon = terracota ? "rgba(255,255,255,0.7)" : "#57534E";
+  // No terracota, branco com transparência. No preto, os tons de detalhe da
+  // marca — o off para o que se lê, o #c9c2b2 para o que só acompanha.
+  const sbText = terracota ? "rgba(255,255,255,0.82)" : "rgba(237,233,222,0.82)";
+  const sbTextDim = terracota ? "rgba(255,255,255,0.55)" : "rgba(201,194,178,0.6)";
+  const sbIcon = terracota ? "rgba(255,255,255,0.7)" : "rgba(201,194,178,0.7)";
   const activeBg = terracota ? "rgba(255,255,255,0.18)" : (t) => alpha(t.palette.primary.main, 0.16);
   const activeColor = terracota ? "#FFFFFF" : (t) => t.palette.primary.main;
 
@@ -150,26 +153,36 @@ export default function Layout() {
 
   const drawer = (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: sb.bg }}>
-      <Toolbar sx={{ px: 2.5 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.2 }}>
-          <Box sx={{
-            width: 34, height: 34, borderRadius: 2,
-            bgcolor: terracota ? "rgba(255,255,255,0.16)" : "primary.main", color: "#fff",
-            display: "grid", placeItems: "center", fontWeight: 800, fontFamily: '"Outfit", sans-serif',
-            fontSize: 13,
-          }}>
-            {(viewingOrg?.name || user?.org_name || "PM").slice(0, 2).toUpperCase()}
-          </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1, color: "#fff", fontFamily: '"Outfit", sans-serif' }}>
-              {viewingOrg?.name || user?.org_name || "Perspecta Media"}
-            </Typography>
-            <Typography variant="caption" sx={{ color: sbTextDim }}>
-              {viewingOrg ? "visto pelo Perspecta Media" : isMaster ? "administração" : "gestão da agência"}
-            </Typography>
-          </Box>
+      {/* O LOGO DE VERDADE, NO CANTO DE CIMA À ESQUERDA.
+          No lugar do quadradinho com as iniciais, que era só um remendo.
+
+          Ele vai numa placa branca de propósito, não por enfeite: a barra
+          lateral é terracota (#ab480a) ou preta, e o logo tem a palavra
+          "Perspecta" em cinza-escuro — que nesses dois fundos praticamente
+          some. E o símbolo tem um vinco vazado no meio: solto num fundo
+          colorido, o vinco enche da cor do fundo e a marca perde o desenho.
+          Na placa branca ele aparece exatamente como foi desenhado, nos dois
+          temas. */}
+      {/* A barra de cima é um vidro fosco (blur + 85% opaca) e passa POR CIMA
+          da lateral, nos 65px do topo. O quadradinho de iniciais aguentava isso
+          sem ninguém notar; um logo, não — ficava embaçado e lavado. Este
+          espaçador tem a altura exata da barra, e o logo começa abaixo dela. */}
+      <Toolbar />
+      <Box sx={{ px: 2.5, pt: 0.5, pb: 1.75 }}>
+        <Box sx={{ bgcolor: "#fff", borderRadius: 2.5, px: 1.75, py: 1.5 }}>
+          <Box component="img" src={logoCreator} alt="Perspecta Creator"
+            sx={{ display: "block", width: "100%", height: "auto" }} />
         </Box>
-      </Toolbar>
+        {/* Abaixo do produto, de quem é a casa. */}
+        <Box sx={{ minWidth: 0, mt: 1.5 }}>
+          <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1.2, color: "#fff", fontFamily: '"Outfit", sans-serif' }}>
+            {viewingOrg?.name || user?.org_name || "Perspecta Media"}
+          </Typography>
+          <Typography variant="caption" sx={{ color: sbTextDim }}>
+            {viewingOrg ? "visto pelo Perspecta Media" : isMaster ? "administração" : "gestão da agência"}
+          </Typography>
+        </Box>
+      </Box>
       <Divider sx={{ borderColor: sb.border }} />
       <List sx={{ px: 1.5, py: 1.5, flex: 1, overflowY: "auto" }}>
         {items.map((n) => (

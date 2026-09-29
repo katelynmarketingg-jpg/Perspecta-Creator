@@ -1,7 +1,12 @@
 // Service worker mínimo: deixa o app instalável e responde offline com uma
 // mensagem clara em vez de erro do navegador. Nada de cachear a API — dados
 // desatualizados numa ferramenta de trabalho confundem mais do que ajudam.
-const CACHE = "perspecta-v2";
+// v3: os ícones do app mudaram (deixaram de ser o "P" de remendo e passaram a
+// ser a marca). Os estáticos são servidos do cache PRIMEIRO, e o caminho do
+// ícone não leva hash — sem virar a versão, o celular de quem já instalou o app
+// continuaria mostrando o ícone velho para sempre. Ao ativar, o cache antigo é
+// apagado inteiro.
+const CACHE = "perspecta-v3";
 // Não pré-cacheamos o index.html: ele muda a cada publicação e precisa vir
 // sempre da rede, senão o app abre uma versão velha.
 const SHELL = ["/manifest.webmanifest"];

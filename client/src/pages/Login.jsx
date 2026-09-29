@@ -4,6 +4,7 @@ import {
   Box, Card, CardContent, TextField, Button, Typography, Alert, Stack, Avatar, Link,
 } from "@mui/material";
 import { useAuth } from "../auth/AuthContext.jsx";
+import logoCreator from "../assets/logo-perspecta-creator.png";
 
 // Guarda o último acesso deste aparelho: empresa + pessoa (nunca a senha).
 const REMEMBER_KEY = "perspecta_last_login";
@@ -62,7 +63,7 @@ export default function Login() {
     // 640px de largura num celular de 390 e rolava para o lado, bem na
     // tela em que a pessoa vai assinar.
     gridTemplateColumns: "minmax(0, 1fr)",
-        bgcolor: "#0C0A09",
+        bgcolor: "#000000",
         backgroundImage: `
           radial-gradient(900px 480px at 15% -10%, rgba(234,88,12,0.28), transparent 60%),
           radial-gradient(700px 420px at 110% 110%, rgba(234,88,12,0.14), transparent 55%)
@@ -72,10 +73,14 @@ export default function Login() {
       <Card sx={{ width: "100%", maxWidth: 400 }}>
         <CardContent sx={{ p: 4 }}>
           <Stack alignItems="center" spacing={1} sx={{ mb: 3 }}>
-            <Box sx={{ width: 52, height: 52, borderRadius: 2.5, bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 20, fontFamily: '"Outfit", sans-serif' }}>
-              PM
+            {/* A primeira tela que qualquer pessoa vê: o logo, e não as
+                iniciais. Na placa branca pelo mesmo motivo da barra lateral —
+                no tema escuro o cartão é escuro, e a palavra "Perspecta" é
+                cinza-escuro: sem a placa ela sumiria. */}
+            <Box sx={{ bgcolor: "#fff", borderRadius: 2.5, px: 2.25, py: 1.75, width: "100%", maxWidth: 232 }}>
+              <Box component="img" src={logoCreator} alt="Perspecta Creator"
+                sx={{ display: "block", width: "100%", height: "auto" }} />
             </Box>
-            <Typography variant="h6">Perspecta Media</Typography>
             <Typography variant="body2" color="text.secondary" align="center">
               {quick ? "Confirme a sua senha para entrar" : "Entre com o seu escritório, nome e senha"}
             </Typography>
