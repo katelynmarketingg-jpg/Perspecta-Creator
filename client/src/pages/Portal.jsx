@@ -9,6 +9,7 @@ import {
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import FeedPreview from "../components/FeedPreview.jsx";
 import { sugerirSlides } from "../upload/carousel.js";
+import { dataLocal } from "../data-local.js";
 import TextoDoContrato from "../components/TextoDoContrato.jsx";
 import PostComments from "../components/PostComments.jsx";
 import Galeria from "../components/Galeria.jsx";
@@ -238,7 +239,7 @@ function PostDialog({ post, onClose }) {
             )}
             {post?.scheduled_at && (
               <Chip size="small" variant="outlined"
-                label={new Date(post.scheduled_at).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })} />
+                label={dataLocal(post.scheduled_at).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })} />
             )}
           </Stack>
           {attachments.map((f) => (
@@ -463,7 +464,7 @@ function ApprovalCard({ post, onDone }) {
           )}
           {post.scheduled_at && (
             <Chip size="small" variant="outlined"
-              label={`Previsto: ${new Date(post.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`} />
+              label={`Previsto: ${dataLocal(post.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`} />
           )}
         </Stack>
 
@@ -803,7 +804,7 @@ export default function Portal() {
                           <Typography sx={{ fontWeight: 600, mt: 0.3 }}>{p.title}</Typography>
                           {p.scheduled_at && (
                             <Typography variant="caption" color="text.secondary">
-                              {new Date(p.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                              {dataLocal(p.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
                             </Typography>
                           )}
                         </Box>

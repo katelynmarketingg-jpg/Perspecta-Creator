@@ -13,6 +13,7 @@ import { confere } from "../pertence.js";
 import { bilheteDeMidia, enderecoDeMidia, enderecoDePrevia, previasDe } from "../midia-url.js";
 import { emParalelo } from "../em-paralelo.js";
 import { erroDeEnvio } from "../erro-de-envio.js";
+import { ensureClientFolder, STAGE_FOLDER } from "../gallery-sync.js";
 
 // Rotas abertas (link assinado) precisam ficar antes do authRequired.
 export const sharedRouter = Router();
@@ -427,9 +428,29 @@ router.post("/upload-direto/registrar", async (req, res) => {
   res.status(201).json(created);
 });
 
+// SLIDE QUE SOBE PELA DISTRIBUIÇÃO TAMBÉM APARECE NA GALERIA, ARRUMADO.
+//
+// Pedido dela: "se eu subir slide daqui, direto da distribuição, quero que ele
+// suba também na galeria".
+//
+// Ele até subia — mas sem pasta, caindo solto na raiz do cliente, enquanto a
+// etapa dele dizia "editados". Ficava fora de todas as pastas, misturado com o
+// que ainda nem foi tratado.
+//
+// Com este pedido explícito, o arquivo nasce na pasta da etapa (Editados, Para
+// aprovação…). É só quando quem envia pede: a Galeria continua podendo mandar
+// para a raiz de propósito.
+function pastaDaEtapa(orgId, clientId, stage) {
+  const nome = STAGE_FOLDER[stage]?.folder;
+  if (!clientId || !nome) return null;
+  return ensureClientFolder(orgId, clientId, nome);
+}
+
 router.post("/upload", upload.array("files", 20), async (req, res) => {
-  const { client_id, folder_id } = req.body || {};
+  const { client_id } = req.body || {};
   const stage = STAGES.includes(req.body?.stage) ? req.body.stage : "originais";
+  const folder_id = req.body?.folder_id
+    || (req.body?.na_pasta_da_etapa ? pastaDaEtapa(req.orgId, client_id, stage) : null);
   const stmt = db.prepare(
     `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, thumb, org_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`

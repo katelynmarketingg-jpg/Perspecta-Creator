@@ -12,6 +12,7 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import FeedPreview from "../components/FeedPreview.jsx";
 import PostComments from "../components/PostComments.jsx";
+import { dataLocal } from "../data-local.js";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -310,7 +311,7 @@ export default function Calendar() {
                 <Chip size="small" variant="outlined"
                   label={`${CONTENT_TYPES[selected.content_type].emoji} ${CONTENT_TYPES[selected.content_type].label}`} />
               )}
-              <Chip size="small" variant="outlined" label={selected ? new Date(selected.scheduled_at).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" }) : ""} />
+              <Chip size="small" variant="outlined" label={selected ? dataLocal(selected.scheduled_at).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" }) : ""} />
               {selected?.assignee_name && <Chip size="small" variant="outlined" label={`👤 ${selected.assignee_name}`} />}
             </Stack>
 
