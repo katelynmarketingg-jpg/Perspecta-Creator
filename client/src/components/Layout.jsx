@@ -123,6 +123,13 @@ export default function Layout() {
     setNotifs((ns) => ns.map((n) => ({ ...n, is_read: 1 })));
   }
 
+  // Esvazia a caixa. Só os avisos somem — o que eles avisam continua de pé.
+  async function limparNotifs() {
+    await api.delete("/notifications").catch(() => {});
+    setNotifs([]);
+    setNotifAnchor(null);
+  }
+
   // Cores da barra lateral conforme o clima. Nos modos claros ela é terracota
   // (texto branco); no escuro, quase-preta com destaque laranja.
   const sb = SIDEBAR[mode] || SIDEBAR.light;
@@ -239,15 +246,30 @@ export default function Layout() {
             anchorEl={notifAnchor} open={Boolean(notifAnchor)} onClose={() => setNotifAnchor(null)}
             slotProps={{ paper: { sx: { width: 360, maxHeight: "55vh" } } }}
           >
-            <MenuItem disabled sx={{ opacity: "1 !important" }}>
+            {/* O CABEÇALHO NÃO PODE SER UM MenuItem DESABILITADO.
+                Era: o `disabled` do MUI põe `pointer-events: none` no item
+                inteiro — e os links dentro dele param de receber clique. Por
+                isso "marcar todas como lidas" não fazia nada, e o limpar também
+                não faria. Aqui é uma linha comum, e os links funcionam. */}
+            <Box sx={{ display: "flex", alignItems: "center", px: 2, py: 1 }}>
               <Typography sx={{ fontWeight: 700, flex: 1 }}>Notificações</Typography>
               {unread > 0 && (
-                <Typography variant="caption" color="primary" sx={{ cursor: "pointer" }}
+                <Typography variant="caption" color="primary" sx={{ cursor: "pointer", mr: 1.5 }}
                   onClick={(e) => { e.stopPropagation(); markAllRead(); }}>
-                  Marcar todas como lidas
+                  Marcar como lidas
                 </Typography>
               )}
-            </MenuItem>
+              {/* LIMPAR DE VERDADE. Marcar como lida tirava o número da sineta,
+                  mas a parede de avisos continuava ali — e é isso que se espera
+                  de um "limpar". Some o recado, não o fato: cobrança atrasada
+                  continua atrasada e volta a avisar amanhã. */}
+              {notifs.length > 0 && (
+                <Typography variant="caption" color="error" sx={{ cursor: "pointer", fontWeight: 700 }}
+                  onClick={(e) => { e.stopPropagation(); limparNotifs(); }}>
+                  Limpar
+                </Typography>
+              )}
+            </Box>
             <Divider />
             {notifs.length === 0 && <MenuItem disabled>Nenhuma notificação.</MenuItem>}
             {notifs.map((n) => (

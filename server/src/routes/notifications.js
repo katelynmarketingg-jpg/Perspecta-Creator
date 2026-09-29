@@ -35,4 +35,21 @@ router.put("/:id/read", (req, res) => {
   res.json({ ok: true });
 });
 
+// DELETE /api/notifications — LIMPA a caixa.
+//
+// "Marcar como lida" tira o número da sineta, mas os avisos continuam todos
+// ali; quem abre a caixa vê a mesma parede de avisos do dia anterior. Faltava o
+// limpar de verdade.
+//
+// Isto apaga só os AVISOS — nada do que eles avisam. A cobrança atrasada
+// continua atrasada e volta a avisar amanhã, porque o lembrete é diário (um por
+// cobrança por dia). Some o recado, não o fato.
+router.delete("/", (req, res) => {
+  const info = db.prepare(
+    `DELETE FROM notifications
+      WHERE audience = 'agency' AND org_id = ? AND (user_id IS NULL OR user_id = ?)`
+  ).run(req.orgId, req.user?.id ?? null);
+  res.json({ ok: true, apagadas: info.changes });
+});
+
 export default router;

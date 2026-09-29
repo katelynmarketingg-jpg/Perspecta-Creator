@@ -116,7 +116,7 @@ router.get("/", async (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.published_at, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              t.approval_status, t.client_note, t.published_at, t.fora_da_grade, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -134,7 +134,7 @@ router.get("/", async (req, res) => {
   const scheduled = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
-              t.approval_status, t.published_at, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              t.approval_status, t.published_at, t.fora_da_grade, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, s.is_done AS stage_done,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -153,7 +153,7 @@ router.get("/", async (req, res) => {
   const approved = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at,
+              t.approval_status, t.published_at, t.fora_da_grade,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -179,7 +179,7 @@ router.get("/", async (req, res) => {
   const waiting = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.approval_sent_at, t.published_at,
+              t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.fora_da_grade,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -198,7 +198,7 @@ router.get("/", async (req, res) => {
   const programmed = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              t.approval_status, t.published_at, t.fora_da_grade, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -264,6 +264,21 @@ router.post("/", (req, res) => {
  * dobro) e não havia como desfazer sem ir até o quadro de Tarefas. Apaga a
  * tarefa; a arte fica na Galeria, que é onde ela mora.
  */
+// PUT /api/distribution/:id/grade — tira (ou devolve) a peça da grade do perfil.
+//
+// Reel não compõe o visual do feed do mesmo jeito que um post: ele mora na aba
+// de Reels. Tirado da grade, ele sai da composição — sem mexer na posição de
+// ninguém, porque sair da lista não renumera nada — e passa a aparecer na
+// gradinha de reels ao lado, com a data. Reversível a qualquer momento.
+router.put("/:id/grade", (req, res) => {
+  const t = db.prepare("SELECT id FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!t) return res.status(404).json({ error: "Peça não encontrada." });
+  const naGrade = req.body?.na_grade !== false;
+  db.prepare("UPDATE tasks SET fora_da_grade = ? WHERE id = ? AND org_id = ?")
+    .run(naGrade ? 0 : 1, t.id, req.orgId);
+  res.json({ ok: true, na_grade: naGrade });
+});
+
 router.delete("/:id", (req, res) => {
   const t = db.prepare("SELECT id FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!t) return res.status(404).json({ error: "Peça não encontrada." });
