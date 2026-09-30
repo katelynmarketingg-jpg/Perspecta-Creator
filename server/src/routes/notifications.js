@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
+import { lembrarRetornos } from "../retorno-prospect.js";
 
 const router = Router();
 router.use(authRequired);
@@ -9,6 +10,8 @@ router.use(authRequired);
 // GET /api/notifications — últimas 30, com nome do cliente.
 router.get("/", (req, res) => {
   try { remindOverdue(req.orgId); } catch { /* não bloqueia a lista */ }
+  // Retornos da Prospecção que chegaram a hora — um por prospect por dia.
+  try { lembrarRetornos(req.orgId); } catch { /* não bloqueia a lista */ }
   // Mostra as da equipe (user_id NULL) + as miradas neste usuário.
   const rows = db
     .prepare(

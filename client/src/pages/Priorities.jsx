@@ -7,6 +7,7 @@ import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import FlagIcon from "@mui/icons-material/Flag";
+import EventIcon from "@mui/icons-material/Event";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
@@ -23,10 +24,24 @@ const LEVELS = [
 ];
 const levelOf = (k) => LEVELS.find((l) => l.key === k) || LEVELS[1];
 
+// A DATA DO RECADO. Comparada com hoje em TEXTO (AAAA-MM-DD): data sem hora
+// vira meia-noite em Londres, que no Brasil ainda é o dia anterior.
+const HOJE = () => new Date().toISOString().slice(0, 10);
+const diaBR = (d) => String(d).slice(0, 10).split("-").reverse().join("/");
+function comoEstaOPrazo(due) {
+  if (!due) return null;
+  const dia = String(due).slice(0, 10);
+  const hoje = HOJE();
+  if (dia < hoje) return { cor: "#DC2626", texto: `Atrasado desde ${diaBR(dia)}`, forte: true };
+  if (dia === hoje) return { cor: "#D97706", texto: "Hoje", forte: true };
+  return { cor: "#6B7280", texto: diaBR(dia), forte: false };
+}
+
 const iniciais = (nome) => (nome || "?").split(" ").filter(Boolean).slice(0, 2).map((s) => s[0]).join("").toUpperCase();
 
 function PriorityCard({ p, onDragStart, onEdit, onDelete }) {
   const lv = levelOf(p.level);
+  const prazo = comoEstaOPrazo(p.due_date);
   return (
     <Card variant="outlined" draggable onDragStart={onDragStart}
       sx={{ cursor: "grab", "&:active": { cursor: "grabbing" }, borderLeft: 4, borderLeftColor: lv.color }}>
@@ -34,6 +49,20 @@ function PriorityCard({ p, onDragStart, onEdit, onDelete }) {
         <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5, flexWrap: "wrap", gap: 0.5 }}>
           <Chip size="small" label={lv.label} sx={{ bgcolor: lv.color, color: "#fff", fontWeight: 700, height: 20 }} />
           {p.client_name && <Chip size="small" variant="outlined" label={p.client_name} sx={{ height: 20 }} />}
+          {/* O PRAZO. Vermelho quando passou, laranja no dia — é a primeira
+              coisa que precisa saltar no quadro. Recado de retorno da
+              Prospecção chega aqui com a data já preenchida. */}
+          {prazo && (
+            <Chip size="small" icon={<EventIcon sx={{ fontSize: 13 }} />} label={prazo.texto}
+              sx={{ height: 20, fontWeight: 700,
+                    bgcolor: prazo.forte ? prazo.cor : "transparent",
+                    color: prazo.forte ? "#fff" : "text.secondary",
+                    border: prazo.forte ? 0 : 1, borderColor: "divider",
+                    "& .MuiChip-icon": { color: prazo.forte ? "#fff" : "inherit" } }} />
+          )}
+          {p.prospect_name && (
+            <Chip size="small" variant="outlined" label={`Prospecção · ${p.prospect_name}`} sx={{ height: 20 }} />
+          )}
           <Box sx={{ flex: 1 }} />
           <IconButton size="small" onClick={() => onEdit(p)}><EditIcon sx={{ fontSize: 15 }} /></IconButton>
           <IconButton size="small" color="error" onClick={() => onDelete(p.id)}><DeleteIcon sx={{ fontSize: 15 }} /></IconButton>
@@ -84,8 +113,8 @@ export default function Priorities() {
     return map;
   }, [rows]);
 
-  function novo() { setDraft({ client_id: "", message: "", level: "media", assignee_id: "" }); setOpen(true); }
-  function editar(p) { setDraft({ id: p.id, client_id: p.client_id || "", message: p.message, level: p.level, assignee_id: p.assignee_id || "" }); setOpen(true); }
+  function novo() { setDraft({ client_id: "", message: "", level: "media", assignee_id: "", due_date: "" }); setOpen(true); }
+  function editar(p) { setDraft({ id: p.id, client_id: p.client_id || "", message: p.message, level: p.level, assignee_id: p.assignee_id || "", due_date: p.due_date ? String(p.due_date).slice(0, 10) : "" }); setOpen(true); }
 
   async function salvar() {
     const payload = { ...draft, client_id: draft.client_id || null, assignee_id: draft.assignee_id || null };
@@ -171,6 +200,10 @@ export default function Priorities() {
               <TextField label="Recado / por que é prioridade *" value={draft.message} autoFocus multiline minRows={2} fullWidth
                 onChange={(e) => setDraft((d) => ({ ...d, message: e.target.value }))}
                 placeholder="Ex: cliente novo, caprichar no primeiro mês; ou: campanha de Dia dos Pais é prioridade." />
+              <TextField type="date" label="Prazo (opcional)" value={draft.due_date || ""}
+                onChange={(e) => setDraft((d) => ({ ...d, due_date: e.target.value }))}
+                InputLabelProps={{ shrink: true }} fullWidth
+                helperText="Com prazo, o recado sobe na lista e fica vermelho quando passa." />
               <TextField select label="Nível" value={draft.level}
                 onChange={(e) => setDraft((d) => ({ ...d, level: e.target.value }))} fullWidth>
                 {LEVELS.map((l) => (

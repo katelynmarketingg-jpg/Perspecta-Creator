@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { broadcast } from "../live.js";
 import { confere } from "../pertence.js";
+import { retornoConcluido } from "../retorno-prospect.js";
 
 // ---------------------------------------------------------------------------
 // Prioridades / recados internos — o canal da equipe.
@@ -19,14 +20,16 @@ const STATUSES = ["pending", "doing", "done"];
 
 const SELECT = `
   SELECT p.id, p.client_id, p.message, p.level, p.assignee_id, p.created_by,
-         p.status, p.position, p.created_at, p.done_at,
+         p.status, p.position, p.created_at, p.done_at, p.due_date, p.prospect_id,
          c.name AS client_name,
          ua.name AS assignee_name,
-         uc.name AS creator_name
+         uc.name AS creator_name,
+         pr.name AS prospect_name
   FROM priorities p
   LEFT JOIN clients c ON c.id = p.client_id
   LEFT JOIN users ua ON ua.id = p.assignee_id
-  LEFT JOIN users uc ON uc.id = p.created_by`;
+  LEFT JOIN users uc ON uc.id = p.created_by
+  LEFT JOIN prospects pr ON pr.id = p.prospect_id`;
 
 // GET /api/priorities?assignee_id=&status= — recados do escritório.
 router.get("/", (req, res) => {
@@ -36,7 +39,8 @@ router.get("/", (req, res) => {
   if (req.query.status) { where.push("p.status = @status"); params.status = req.query.status; }
   const rows = db.prepare(
     `${SELECT} WHERE ${where.join(" AND ")}
-     ORDER BY CASE p.level WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
+     ORDER BY CASE WHEN p.due_date IS NULL THEN 1 ELSE 0 END, p.due_date,
+              CASE p.level WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
               p.position, p.created_at`
   ).all(params);
   res.json(rows);
@@ -50,9 +54,10 @@ router.post("/", (req, res) => {
   if (!b.message?.trim()) return res.status(400).json({ error: "Escreva o recado." });
   const level = LEVELS.includes(b.level) ? b.level : "media";
   const info = db.prepare(
-    `INSERT INTO priorities (org_id, client_id, message, level, assignee_id, created_by, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending')`
-  ).run(req.orgId, b.client_id || null, b.message.trim(), level, b.assignee_id || null, req.user?.id || null);
+    `INSERT INTO priorities (org_id, client_id, message, level, assignee_id, created_by, status, due_date)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
+  ).run(req.orgId, b.client_id || null, b.message.trim(), level, b.assignee_id || null, req.user?.id || null,
+        b.due_date ? String(b.due_date).slice(0, 10) : null);
 
   // Avisa a equipe (ainda sem mira por pessoa): mostra pra quem é.
   const alvo = b.assignee_id ? db.prepare("SELECT name FROM users WHERE id = ?").get(b.assignee_id)?.name : null;
@@ -81,13 +86,15 @@ router.put("/:id", (req, res) => {
        client_id   = ?,
        message     = ?,
        level       = ?,
-       assignee_id = ?
+       assignee_id = ?,
+       due_date    = ?
      WHERE id = ? AND org_id = ?`
   ).run(
     b.client_id !== undefined ? (b.client_id || null) : cur.client_id,
     b.message !== undefined ? (b.message?.trim() || cur.message) : cur.message,
     level,
     b.assignee_id !== undefined ? (b.assignee_id || null) : cur.assignee_id,
+    b.due_date !== undefined ? (b.due_date ? String(b.due_date).slice(0, 10) : null) : cur.due_date,
     req.params.id, req.orgId
   );
   res.json(db.prepare(`${SELECT} WHERE p.id = ?`).get(req.params.id));
@@ -100,6 +107,9 @@ router.put("/:id/status", (req, res) => {
   const done_at = status === "done" ? new Date().toISOString() : null;
   db.prepare("UPDATE priorities SET status = ?, position = ?, done_at = ? WHERE id = ? AND org_id = ?")
     .run(status, Number(req.body?.position) || 0, done_at, req.params.id, req.orgId);
+  // Recado de retorno concluído: a data sai do cartão da Prospecção, senão os
+  // dois lugares contariam histórias diferentes.
+  retornoConcluido(req.orgId, req.params.id);
   res.json(db.prepare(`${SELECT} WHERE p.id = ?`).get(req.params.id));
 });
 
