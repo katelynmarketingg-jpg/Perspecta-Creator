@@ -53,7 +53,7 @@ export default function SignContract() {
     // tela em que a pessoa vai assinar.
     gridTemplateColumns: "minmax(0, 1fr)",
     bgcolor: "#000000",
-    backgroundImage: "radial-gradient(900px 480px at 50% -10%, rgba(234,88,12,0.22), transparent 60%)",
+    backgroundImage: "radial-gradient(900px 480px at 50% -10%, rgba(171,72,10,0.22), transparent 60%)",
   };
 
   if (carregando) {

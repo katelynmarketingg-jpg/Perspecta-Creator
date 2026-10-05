@@ -12,17 +12,26 @@ import { createTheme, alpha } from "@mui/material/styles";
 // destes (um terracota mais fechado para a borda da lateral, um preto um grau
 // acima do #000 para os cartões do modo escuro não sumirem no fundo) — e estão
 // marcados onde aparecem.
+const MARCA_TERRACOTA = "#ab480a";
+
 export const MARCA = {
-  terracota: "#ab480a",
+  terracota: MARCA_TERRACOTA,
   off: "#ede9de",
   detalhe: "#c9c2b2",
   texto: "#333333",
   noturno: "#000000",
 };
 
-// Identidade: laranja sobre o off-white da marca. Três climas: claro,
+// Identidade: o terracota da marca sobre o off-white dela. Três climas: claro,
 // bege (sépia) e escuro. A sidebar é terracota nos dois modos claros.
-export const ACCENT = { light: "#EA580C", dark: "#F97316" };
+//
+// O destaque (botões, selos, o que é clicável) ERA um laranja mais aberto,
+// #EA580C, de antes de a paleta existir — e brigava com o terracota da lateral
+// na mesma tela. Agora é o próprio terracota.
+//
+// No escuro ele é clareado: #ab480a sobre preto fica fechado demais, e texto
+// branco em cima de botão nessa cor perde leitura. É o mesmo tom, com luz.
+export const ACCENT = { light: MARCA_TERRACOTA, dark: "#D1621A" };
 
 // Cor da barra lateral por modo — terracota nos claros, preto no escuro.
 export const SIDEBAR = {

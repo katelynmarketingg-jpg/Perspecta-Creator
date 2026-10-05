@@ -11,7 +11,7 @@ import { PageHeader } from "../components/ui.jsx";
 import { currency, monthLabel, CONTENT_TYPES } from "../utils.js";
 
 // Tons de laranja + cinzas quentes — nada fora da paleta da marca.
-const COLORS = ["#EA580C", "#FB923C", "#FDBA74", "#78716C", "#44403C", "#A8A29E"];
+const COLORS = ["#ab480a", "#FB923C", "#FDBA74", "#78716C", "#44403C", "#A8A29E"];
 
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 

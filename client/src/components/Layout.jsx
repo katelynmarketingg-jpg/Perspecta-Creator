@@ -3,9 +3,11 @@ import { NavLink, useNavigate, Outlet } from "react-router-dom";
 import {
   AppBar, Box, Drawer, IconButton, List, ListItemButton, ListItemIcon,
   ListItemText, Toolbar, Typography, Avatar, Menu, MenuItem, Divider, Tooltip,
-  Badge, Button,
+  Badge, Button, Snackbar, Alert,
 } from "@mui/material";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
+import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { alpha } from "@mui/material/styles";
@@ -88,6 +90,7 @@ export default function Layout() {
   const [notifAnchor, setNotifAnchor] = useState(null);
   const [notifs, setNotifs] = useState([]);
   const [branding, setBranding] = useState(null);
+  const [marcaMsg, setMarcaMsg] = useState(null);   // recado de salvar/tirar o logo
 
   // Marca do escritório: logo na barra e favicon da aba do navegador.
   // Recarrega quando o master entra/sai de um escritório (branding é por org).
@@ -101,6 +104,48 @@ export default function Layout() {
       }
     }).catch(() => {});
   }, [viewingOrg?.id]);
+
+  // CADASTRAR O LOGO DA EMPRESA PELA PRÓPRIA BARRA.
+  //
+  // Antes só dava em Configurações, numa aba que ninguém abre para isso. Aqui
+  // ele está onde aparece — clica no retrato, escolhe o arquivo, pronto.
+  // O servidor guarda como data URI, por isso o limite é de arquivo pequeno.
+  async function trocarLogoDaEmpresa(file) {
+    setAnchor(null);
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setMarcaMsg({ tipo: "error", texto: "Escolha um arquivo de imagem (PNG, JPG, SVG…)." });
+      return;
+    }
+    if (file.size > 500 * 1024) {
+      setMarcaMsg({ tipo: "error", texto: "Imagem grande demais. Use uma de até 500 KB." });
+      return;
+    }
+    try {
+      const dataUrl = await new Promise((ok, erro) => {
+        const r = new FileReader();
+        r.onload = () => ok(r.result);
+        r.onerror = () => erro(new Error("não deu para ler o arquivo"));
+        r.readAsDataURL(file);
+      });
+      await api.put("/branding", { logo: dataUrl });
+      setBranding((b) => ({ ...(b || {}), logo: dataUrl }));
+      setMarcaMsg({ tipo: "success", texto: "Logo da empresa salvo." });
+    } catch (e) {
+      setMarcaMsg({ tipo: "error", texto: e.response?.data?.error || "Não foi possível salvar o logo." });
+    }
+  }
+
+  async function tirarLogoDaEmpresa() {
+    setAnchor(null);
+    try {
+      await api.put("/branding", { logo: null });
+      setBranding((b) => ({ ...(b || {}), logo: null }));
+      setMarcaMsg({ tipo: "success", texto: "Logo retirado." });
+    } catch (e) {
+      setMarcaMsg({ tipo: "error", texto: e.response?.data?.error || "Não foi possível tirar o logo." });
+    }
+  }
 
   // Notificações do portal (aprovações e pedidos de ajuste dos clientes).
   // Ao vivo: além do intervalo de 60s (rede de segurança), reage na hora
@@ -153,30 +198,21 @@ export default function Layout() {
 
   const drawer = (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: sb.bg }}>
-      {/* O LOGO, NO CANTO DE CIMA À ESQUERDA, SOLTO NO FUNDO.
-          No lugar do quadradinho com as iniciais, que era só um remendo.
+      {/* SÓ O LOGO DO PRODUTO NA LATERAL.
+          O nome do escritório e o "gestão da agência" saíram daqui para a barra
+          de cima, onde antes ficava o logo repetido — assim a parte terracota
+          tem uma coisa só, e a linha que separava o cabeçalho do menu deixou de
+          fazer falta (e saiu).
 
           Aqui vai a VERSÃO BRANCA, e não a original: a lateral é terracota
           (#ab480a) ou preta, e na arte original a palavra "Perspecta" é
           cinza-escuro — nesses dois fundos ela some. Na versão branca o vinco
           do símbolo segue vazado, então sobre o terracota ele aparece como um
-          corte da própria cor do fundo, que é como um logo vazado funciona.
-          Compacto de propósito: a lateral é para navegar, e o logo é
-          assinatura, não cartaz. */}
-      <Box sx={{ px: 2, pt: 1.75, pb: 1.5 }}>
+          corte da própria cor do fundo, que é como um logo vazado funciona. */}
+      <Box sx={{ px: 2, pt: 1.75, pb: 1.25 }}>
         <Box component="img" src={logoCreatorBranco} alt="Perspecta Creator"
           sx={{ display: "block", width: 124, height: "auto" }} />
-        {/* Abaixo do produto, de quem é a casa. */}
-        <Box sx={{ minWidth: 0, mt: 1.5 }}>
-          <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1.2, color: "#fff", fontFamily: '"Outfit", sans-serif' }}>
-            {viewingOrg?.name || user?.org_name || "Perspecta Media"}
-          </Typography>
-          <Typography variant="caption" sx={{ color: sbTextDim }}>
-            {viewingOrg ? "visto pelo Perspecta Media" : isMaster ? "administração" : "gestão da agência"}
-          </Typography>
-        </Box>
       </Box>
-      <Divider sx={{ borderColor: sb.border }} />
       <List sx={{ px: 1.5, py: 1.5, flex: 1, overflowY: "auto" }}>
         {items.map((n) => (
           <ListItemButton
@@ -234,14 +270,19 @@ export default function Layout() {
           <IconButton edge="start" sx={{ mr: 1, display: { md: "none" } }} onClick={() => setMobileOpen(true)}>
             <MenuIcon />
           </IconButton>
-          {branding?.logo && (
-            <Box
-              component="img"
-              src={branding.logo}
-              alt={branding?.name || "Logo"}
-              sx={{ height: 34, maxWidth: 180, objectFit: "contain", mr: 1.5, display: "block" }}
-            />
-          )}
+          {/* DE QUEM É A CASA — aqui, e não mais na lateral.
+              Este era o lugar do logo do escritório, que para quem usa o
+              Perspecta era o MESMO logo da lateral, repetido: dois logos iguais
+              na mesma tela. O logo da empresa passou a ser o retrato, lá na
+              ponta direita; aqui fica o nome, que é informação e não enfeite. */}
+          <Box sx={{ minWidth: 0, mr: 1.5 }}>
+            <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1.2, fontFamily: '"Outfit", sans-serif' }}>
+              {viewingOrg?.name || user?.org_name || "Perspecta Media"}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block", lineHeight: 1.2 }}>
+              {viewingOrg ? "visto pelo Perspecta Media" : isMaster ? "administração" : "gestão da agência"}
+            </Typography>
+          </Box>
           {viewingOrg && (
             <Button size="small" startIcon={<ArrowBackIcon />}
               onClick={() => { leaveOrg(); navigate("/organizations"); }}
@@ -309,14 +350,44 @@ export default function Layout() {
           <Typography variant="body2" color="text.secondary" sx={{ mr: 1.5, display: { xs: "none", sm: "block" } }}>
             {user?.name}
           </Typography>
-          <IconButton onClick={(e) => setAnchor(e.currentTarget)}>
-            <Avatar sx={{ width: 34, height: 34, bgcolor: "primary.main", fontSize: 15, borderRadius: 2.5 }}>
-              {(user?.name || "?").slice(0, 1).toUpperCase()}
-            </Avatar>
-          </IconButton>
+          {/* O LOGO DA EMPRESA, no lugar da bolinha com a inicial.
+              Era o "K" laranja — a inicial de quem está logado, que não diz
+              nada que o nome ao lado já não diga. Agora é a marca do
+              escritório, e dá para cadastrar por aqui mesmo: quem é admin
+              escolhe o arquivo no menu abaixo. Sem logo, volta a inicial, que é
+              melhor do que um buraco. */}
+          <Tooltip title={branding?.logo ? (branding?.name || "Logo da empresa") : "Logo da empresa"}>
+            <IconButton onClick={(e) => setAnchor(e.currentTarget)}>
+              {branding?.logo ? (
+                <Box component="img" src={branding.logo} alt={branding?.name || "Logo da empresa"}
+                  sx={{ width: 34, height: 34, borderRadius: 2.5, objectFit: "contain",
+                        bgcolor: "background.paper", border: 1, borderColor: "divider", display: "block" }} />
+              ) : (
+                <Avatar sx={{ width: 34, height: 34, bgcolor: "primary.main", fontSize: 15, borderRadius: 2.5 }}>
+                  {(user?.name || "?").slice(0, 1).toUpperCase()}
+                </Avatar>
+              )}
+            </IconButton>
+          </Tooltip>
           <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
             <MenuItem disabled>{user?.email}</MenuItem>
             <Divider />
+            {/* Só admin: a rota de marca exige admin, e um item que sempre dá
+                403 é pior do que item nenhum. */}
+            {isAdmin && (
+              <MenuItem component="label" sx={{ cursor: "pointer" }}>
+                <ImageOutlinedIcon fontSize="small" sx={{ mr: 1 }} />
+                {branding?.logo ? "Trocar logo da empresa" : "Cadastrar logo da empresa"}
+                <input hidden type="file" accept="image/*"
+                  onChange={(e) => trocarLogoDaEmpresa(e.target.files?.[0])} />
+              </MenuItem>
+            )}
+            {isAdmin && branding?.logo && (
+              <MenuItem onClick={tirarLogoDaEmpresa}>
+                <DeleteOutlineIcon fontSize="small" sx={{ mr: 1 }} /> Tirar o logo
+              </MenuItem>
+            )}
+            {isAdmin && <Divider />}
             <MenuItem onClick={() => { logout(); navigate("/login"); }}>
               <LogoutIcon fontSize="small" sx={{ mr: 1 }} /> Sair
             </MenuItem>
@@ -360,6 +431,12 @@ export default function Layout() {
         <Toolbar />
         <Outlet />
       </Box>
+
+      {/* Recado de salvar/tirar o logo da empresa. */}
+      <Snackbar open={Boolean(marcaMsg)} autoHideDuration={4000} onClose={() => setMarcaMsg(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
+        {marcaMsg ? <Alert severity={marcaMsg.tipo} onClose={() => setMarcaMsg(null)}>{marcaMsg.texto}</Alert> : undefined}
+      </Snackbar>
     </Box>
   );
 }

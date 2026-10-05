@@ -8,7 +8,7 @@ export default function NotFound() {
       sx={{
         minHeight: "100dvh", display: "grid", placeItems: "center", p: 2,
         bgcolor: "#000000",
-        backgroundImage: "radial-gradient(800px 420px at 50% -10%, rgba(234,88,12,0.22), transparent 60%)",
+        backgroundImage: "radial-gradient(800px 420px at 50% -10%, rgba(171,72,10,0.22), transparent 60%)",
       }}
     >
       <Box sx={{ textAlign: "center" }}>
@@ -18,7 +18,7 @@ export default function NotFound() {
             fontSize: { xs: 96, sm: 140 }, lineHeight: 1, color: "#ede9de",
           }}
         >
-          4<Box component="span" sx={{ color: "#F97316" }}>0</Box>4
+          4<Box component="span" sx={{ color: "#D1621A" }}>0</Box>4
         </Typography>
         <Typography sx={{ color: "#c9c2b2", mb: 3, mt: 1 }}>
           Esta página não existe ou foi movida.

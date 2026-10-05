@@ -173,7 +173,7 @@ const STATUS = {
   programado: { color: "#2563EB", label: "Programado" },
   aprovado:   { color: "#16A34A", label: "Aprovado" },
   aguardando: { color: "#EAB308", label: "Aguardando aprovação" },
-  nao_enviado:{ color: "#EA580C", label: "Não enviado" },
+  nao_enviado:{ color: "#ab480a", label: "Não enviado" },
 };
 function statusOf(p) {
   if (p.stage_done) return "programado";
