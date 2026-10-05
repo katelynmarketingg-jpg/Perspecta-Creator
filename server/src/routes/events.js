@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
-import { confere } from "../pertence.js";
+import { confere, idOuNulo } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("agenda"));
@@ -54,13 +54,13 @@ router.post("/", (req, res) => {
     )
     .run({
       title: b.title,
-      type_id: b.type_id ?? null,
-      client_id: b.client_id ?? null,
-      prospect_id: b.prospect_id ?? null,
+      type_id: idOuNulo(b.type_id),
+      client_id: idOuNulo(b.client_id),
+      prospect_id: idOuNulo(b.prospect_id),
       start_at: b.start_at,
       end_at: b.end_at ?? null,
       notes: b.notes ?? null,
-      owner_id: b.owner_id ?? null,
+      owner_id: idOuNulo(b.owner_id),
       doc_content: b.doc_content ?? null,
       link_url: b.link_url ?? null,
       visible_to_client: b.visible_to_client === false ? 0 : 1,
@@ -79,6 +79,13 @@ router.put("/:id", (req, res) => {
   const merged = {
     ...cur,
     ...req.body,
+    // Mesmo cuidado da criação (ver tasks.js): campo esvaziado chega como `""`,
+    // que não é nulo e não casa com nenhuma linha — a edição inteira era
+    // recusada pelo banco.
+    type_id: req.body.type_id !== undefined ? idOuNulo(req.body.type_id) : cur.type_id,
+    client_id: req.body.client_id !== undefined ? idOuNulo(req.body.client_id) : cur.client_id,
+    prospect_id: req.body.prospect_id !== undefined ? idOuNulo(req.body.prospect_id) : cur.prospect_id,
+    owner_id: req.body.owner_id !== undefined ? idOuNulo(req.body.owner_id) : cur.owner_id,
     visible_to_client: req.body.visible_to_client === undefined ? cur.visible_to_client : req.body.visible_to_client ? 1 : 0,
     id: req.params.id,
     org_id: req.orgId,

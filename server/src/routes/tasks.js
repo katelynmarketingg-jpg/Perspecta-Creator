@@ -5,7 +5,7 @@ import { stopTimersForTask } from "./time.js";
 import { syncTaskMediaToCurrentStage } from "../gallery-sync.js";
 import { abrirAgrupada, ehDistribuicao } from "../abrir-agrupadas.js";
 import { broadcast } from "../live.js";
-import { confere } from "../pertence.js";
+import { confere, idOuNulo } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("tarefas"));
@@ -116,11 +116,11 @@ router.post("/", (req, res) => {
   const base = {
     title: b.title,
     description: b.description ?? null,
-    client_id: b.client_id ?? null,
-    project_id: b.project_id ?? null,
-    assignee_id: b.assignee_id ?? null,
-    stage_id: b.stage_id ??
-      db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? ORDER BY position LIMIT 1").get(req.orgId)?.id ?? null,
+    client_id: idOuNulo(b.client_id),
+    project_id: idOuNulo(b.project_id),
+    assignee_id: idOuNulo(b.assignee_id),
+    stage_id: idOuNulo(b.stage_id)
+      ?? db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? ORDER BY position LIMIT 1").get(req.orgId)?.id ?? null,
     priority: b.priority ?? "medium",
     tags: JSON.stringify(b.tags ?? []),
     due_date: b.due_date ?? null,
@@ -152,6 +152,14 @@ router.put("/:id", (req, res) => {
   const merged = {
     ...cur,
     ...req.body,
+    // Mesmo cuidado da criação: o formulário manda `""` no campo que foi
+    // esvaziado, e `""` não é nulo — ia para a coluna que aponta para outra
+    // tabela e o banco recusava a edição inteira. Aqui o vazio volta a ser
+    // "não tem", que é o que a pessoa quis dizer ao limpar o campo.
+    client_id: req.body.client_id !== undefined ? idOuNulo(req.body.client_id) : cur.client_id,
+    project_id: req.body.project_id !== undefined ? idOuNulo(req.body.project_id) : cur.project_id,
+    assignee_id: req.body.assignee_id !== undefined ? idOuNulo(req.body.assignee_id) : cur.assignee_id,
+    stage_id: req.body.stage_id !== undefined ? (idOuNulo(req.body.stage_id) ?? cur.stage_id) : cur.stage_id,
     tags: JSON.stringify(req.body.tags ?? JSON.parse(cur.tags || "[]")),
     id: req.params.id,
     org_id: req.orgId,

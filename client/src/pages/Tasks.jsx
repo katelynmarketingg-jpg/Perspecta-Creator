@@ -78,6 +78,8 @@ export default function Tasks() {
   const [clients, setClients] = useState([]);
   const [team, setTeam] = useState([]);
   const [open, setOpen] = useState(false);
+  const [erroDoFormulario, setErroDoFormulario] = useState("");  // o que o servidor recusou
+  const [salvando, setSalvando] = useState(false);
   const [draft, setDraft] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [dragOver, setDragOver] = useState(null);
@@ -90,7 +92,13 @@ export default function Tasks() {
   const [attachments, setAttachments] = useState([]);
   const [filterClient, setFilterClient] = useState("");
   // Abre mostrando as tarefas de quem está logado; dá para trocar no topo.
-  const [filterAssignee, setFilterAssignee] = useState("__me");
+  // O QUADRO ABRE MOSTRANDO TUDO.
+  //
+  // Abria em "Só as minhas", e isso escondia também o que não tem responsável
+  // — que é justamente o estado de toda tarefa recém-criada. O efeito era
+  // cruel: criar uma tarefa, o diálogo fechar, e o quadro continuar vazio. De
+  // fora, parece que não criou. O filtro continua ali para quem quiser.
+  const [filterAssignee, setFilterAssignee] = useState("");
   const [search, setSearch] = useState("");
   const [filterMonth, setFilterMonth] = useState(""); // filtro por data (mês)
   const [dateQuick, setDateQuick] = useState("");      // '', 'hoje', 'semana', 'mes'
@@ -262,29 +270,44 @@ export default function Tasks() {
     const payload = {
       ...draft,
       client_id: draft.client_id || null,
+      // project_id faltava aqui: ia como texto vazio e o banco recusava a
+      // tarefa inteira — era isto que impedia de criar.
+      project_id: draft.project_id || null,
       assignee_id: draft.assignee_id || null,
       stage_id: draft.stage_id || stages[0]?.id || null,
       content_type: draft.content_type || null,
       caption: draft.caption || null,
       scheduled_at: draft.scheduled_at || null,
+      due_date: draft.due_date || null,
       tags: typeof draft.tags === "string"
         ? draft.tags.split(",").map((s) => s.trim()).filter(Boolean)
         : draft.tags,
       quantity: Number(draft.quantity) || 1,
     };
-    let savedId = draft.id;
-    if (draft.id) {
-      await api.put(`/tasks/${draft.id}`, payload);
-    } else {
-      const { data } = await api.post("/tasks", payload);
-      // Em lote (quantity > 1) a resposta é um array — anexos só no unitário.
-      savedId = Array.isArray(data) ? null : data.id;
+    // SEM ISTO, FALHAR ERA SILÊNCIO.
+    //
+    // Não havia try/catch: quando o servidor recusava, o erro morria como
+    // promessa solta, o diálogo ficava aberto do mesmo jeito e a tela não dizia
+    // nada. Quem estava do outro lado só via o botão não funcionar.
+    setSalvando(true);
+    try {
+      let savedId = draft.id;
+      if (draft.id) {
+        await api.put(`/tasks/${draft.id}`, payload);
+      } else {
+        const { data } = await api.post("/tasks", payload);
+        // Em lote (quantity > 1) a resposta é um array — anexos só no unitário.
+        savedId = Array.isArray(data) ? null : data.id;
+      }
+      if (savedId) {
+        await api.put(`/tasks/${savedId}/attachments`, { file_ids: attachments.map((a) => a.id) }).catch(() => {});
+      }
+      setOpen(false);
+      load();
+    } catch (e) {
+      setErroDoFormulario(e.response?.data?.error || "Não foi possível salvar a tarefa. Tente de novo.");
     }
-    if (savedId) {
-      await api.put(`/tasks/${savedId}/attachments`, { file_ids: attachments.map((a) => a.id) }).catch(() => {});
-    }
-    setOpen(false);
-    load();
+    setSalvando(false);
   }
 
   // Move com update otimista; se a etapa exigir data de programação, pergunta.
@@ -696,10 +719,11 @@ export default function Tasks() {
       )}
 
       {/* Criar / editar tarefa */}
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={open} onClose={() => { setOpen(false); setErroDoFormulario(""); }} fullWidth maxWidth="sm">
         <DialogTitle>{draft.id ? "Editar tarefa" : "Nova tarefa"}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {erroDoFormulario && <Alert severity="error" onClose={() => setErroDoFormulario("")}>{erroDoFormulario}</Alert>}
             {/* Feedback do cliente vindo do portal */}
             {draft.approval_status === "changes_requested" && (draft.client_note || draft.client_caption || draft.client_ref_file_id) && (
               <Alert severity="warning">
@@ -814,9 +838,9 @@ export default function Tasks() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button variant="contained" onClick={save} disabled={!draft.title}>
-            {draft.id ? "Salvar" : "Criar"}
+          <Button onClick={() => { setOpen(false); setErroDoFormulario(""); }}>Cancelar</Button>
+          <Button variant="contained" onClick={save} disabled={!draft.title || salvando}>
+            {salvando ? "Salvando…" : draft.id ? "Salvar" : "Criar"}
           </Button>
         </DialogActions>
       </Dialog>

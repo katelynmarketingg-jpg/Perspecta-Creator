@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, publicBaseUrl } from "../auth.js";
 import { makeSignToken, conferirAssinatura } from "./sign.js";
-import { confere } from "../pertence.js";
+import { confere, idOuNulo } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("contratos"));
@@ -51,7 +51,7 @@ router.post("/", (req, res) => {
        VALUES (@client_id, @title, @value, @duration_months, @start_date, @first_due_date, @status, @notes, @org_id)`
     )
     .run({
-      client_id: b.client_id ?? null,
+      client_id: idOuNulo(b.client_id),
       title: b.title,
       value: Number(b.value) || 0,
       duration_months: b.duration_months ? Number(b.duration_months) : null,

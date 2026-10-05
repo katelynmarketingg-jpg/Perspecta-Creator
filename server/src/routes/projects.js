@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { responsibleForType } from "./task-types.js";
-import { confere } from "../pertence.js";
+import { confere, idOuNulo } from "../pertence.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("projetos"));
@@ -51,7 +51,7 @@ router.post("/", (req, res) => {
     )
     .run({
       name: b.name,
-      client_id: b.client_id ?? null,
+      client_id: idOuNulo(b.client_id),
       description: b.description ?? null,
       status: b.status ?? "active",
       start_date: b.start_date ?? null,

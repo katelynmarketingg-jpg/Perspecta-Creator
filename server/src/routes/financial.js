@@ -3,7 +3,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 import { ensureReceiptForEntry, cancelReceiptForEntry } from "../receipts.js";
 import { sincronizaAvisoDeAberto } from "../overdue.js";
-import { confere } from "../pertence.js";
+import { confere, idOuNulo } from "../pertence.js";
 import { topicoDoSalario } from "../salario-katy.js";
 import { sincronizaSalarioKaty } from "./personal-finance.js";
 // numeroBR: "1.500,50" vira 1500.5. Com Number puro isso viraria 0 — e um
@@ -299,7 +299,7 @@ router.post("/", (req, res) => {
     type: b.type ?? "income",
     description: b.description,
     amount: Number(b.amount) || 0,
-    client_id: b.client_id ?? null,
+    client_id: idOuNulo(b.client_id),
     category: b.category ?? null,
     status: b.status ?? "pending",
     due_date: b.due_date ?? null,

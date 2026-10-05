@@ -27,6 +27,29 @@ export function daCasa(tabela, id, orgId) {
 }
 
 /**
+ * O MESMO "não informado" do daCasa, agora na hora de GRAVAR.
+ *
+ * Aqui estava um buraco de verdade: o guardião acima aceita texto vazio como
+ * "não escolheu nada", mas quem gravava usava `b.project_id ?? null` — e o `??`
+ * só troca nulo e indefinido, nunca texto vazio. Um `""` passava pela
+ * conferência e ia inteiro para o banco, que tentava casar o vazio com uma
+ * linha de verdade e recusava:
+ *
+ *     SqliteError: FOREIGN KEY constraint failed
+ *
+ * O formulário da tela manda `""` em todo campo de escolher que ficou em
+ * branco. Era isso que impedia de criar tarefa: o campo "Projeto", vazio.
+ *
+ * Use SEMPRE isto para um id que veio do corpo do pedido e vai para uma coluna
+ * que aponta para outra tabela.
+ */
+export function idOuNulo(valor) {
+  if (valor === undefined || valor === null || valor === "") return null;
+  const n = Number(valor);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * Confere os ids que vieram no corpo. Devolve a mensagem do problema, ou null.
  * Uso: `const erro = confere(req.orgId, { clients: b.client_id, files: b.file_id });`
  */
