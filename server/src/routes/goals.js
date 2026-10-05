@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
+import { idOuNulo } from "../pertence.js";
 import { authRequired, moduleAllowed } from "../auth.js";
 
 const router = Router();
@@ -29,9 +30,9 @@ router.post("/", (req, res) => {
       target: Number(b.target) || 0,
       current: Number(b.current) || 0,
       due_date: b.due_date ?? null,
-      owner_id: b.owner_id ?? null,
+      owner_id: idOuNulo(b.owner_id),
       goal_type: b.goal_type ?? "quantity",
-      project_id: b.project_id ?? null,
+      project_id: idOuNulo(b.project_id),
       org_id: req.orgId,
     });
   res.status(201).json(db.prepare(`${SELECT} WHERE g.id = ?`).get(info.lastInsertRowid));
