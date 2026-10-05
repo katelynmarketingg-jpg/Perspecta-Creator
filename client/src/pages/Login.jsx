@@ -3,7 +3,10 @@ import { useNavigate } from "react-router-dom";
 import {
   Box, Card, CardContent, TextField, Button, Typography, Alert, Stack, Avatar, Link,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import { useAuth } from "../auth/AuthContext.jsx";
+import logoCreator from "../assets/logo-perspecta-creator.png";
+import logoCreatorBranco from "../assets/logo-perspecta-creator-branco.png";
 
 // Guarda o último acesso deste aparelho: empresa + pessoa (nunca a senha).
 const REMEMBER_KEY = "perspecta_last_login";
@@ -13,6 +16,7 @@ function loadRemembered() {
 
 export default function Login() {
   const { login } = useAuth();
+  const escuro = useTheme().palette.mode === "dark";
   const navigate = useNavigate();
   const remembered = loadRemembered();
   const [form, setForm] = useState({
@@ -62,7 +66,7 @@ export default function Login() {
     // 640px de largura num celular de 390 e rolava para o lado, bem na
     // tela em que a pessoa vai assinar.
     gridTemplateColumns: "minmax(0, 1fr)",
-        bgcolor: "#0C0A09",
+        bgcolor: "#000000",
         backgroundImage: `
           radial-gradient(900px 480px at 15% -10%, rgba(234,88,12,0.28), transparent 60%),
           radial-gradient(700px 420px at 110% 110%, rgba(234,88,12,0.14), transparent 55%)
@@ -72,10 +76,13 @@ export default function Login() {
       <Card sx={{ width: "100%", maxWidth: 400 }}>
         <CardContent sx={{ p: 4 }}>
           <Stack alignItems="center" spacing={1} sx={{ mb: 3 }}>
-            <Box sx={{ width: 52, height: 52, borderRadius: 2.5, bgcolor: "primary.main", color: "#fff", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 20, fontFamily: '"Outfit", sans-serif' }}>
-              PM
-            </Box>
-            <Typography variant="h6">Perspecta Media</Typography>
+            {/* A primeira tela que qualquer pessoa vê: o logo, e não as
+                iniciais. Solto no cartão, sem moldura — e na versão certa para
+                o fundo: o cartão é claro nos temas claros (vale a arte
+                original) e escuro no noturno, onde a palavra "Perspecta", que
+                é cinza-escuro, sumiria (vale a versão branca). */}
+            <Box component="img" src={escuro ? logoCreatorBranco : logoCreator} alt="Perspecta Creator"
+              sx={{ display: "block", width: "100%", maxWidth: 216, height: "auto" }} />
             <Typography variant="body2" color="text.secondary" align="center">
               {quick ? "Confirme a sua senha para entrar" : "Entre com o seu escritório, nome e senha"}
             </Typography>

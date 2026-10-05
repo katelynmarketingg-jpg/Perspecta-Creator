@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed } from "../auth.js";
+import { marcarRetorno, limparRetorno } from "../retorno-prospect.js";
+import { broadcast } from "../live.js";
 
 const router = Router();
 router.use(authRequired, moduleAllowed("clientes"));
@@ -132,6 +134,27 @@ router.delete("/:id/touches/:touchId", (req, res) => {
      AND prospect_id IN (SELECT id FROM prospects WHERE id = ? AND org_id = ?)`
   ).run(req.params.touchId, req.params.id, req.orgId);
   res.json({ ok: true });
+});
+
+// PUT /api/prospects/:id/retorno — marca (ou remarca) quando voltar a falar.
+//
+// A data fica no prospect e o lembrete vira uma prioridade, que é onde a equipe
+// olha o que precisa de atenção. Um prospect tem no máximo UM retorno aberto:
+// remarcar muda o recado que já existe, não empilha outro.
+router.put("/:id/retorno", (req, res) => {
+  const b = req.body || {};
+  const r = marcarRetorno(req.orgId, req.params.id, { ...b, created_by: req.user?.id || null });
+  if (!r) return res.status(404).json({ error: "Prospect não encontrado." });
+  // O quadro de Prioridades e o sininho atualizam sozinhos.
+  broadcast(req.orgId, "priorities");
+  res.json({ ...withTouches(db.prepare("SELECT * FROM prospects WHERE id = ?").get(req.params.id)), priority: r.priority });
+});
+
+router.delete("/:id/retorno", (req, res) => {
+  const r = limparRetorno(req.orgId, req.params.id);
+  if (!r) return res.status(404).json({ error: "Prospect não encontrado." });
+  broadcast(req.orgId, "priorities");
+  res.json(withTouches(db.prepare("SELECT * FROM prospects WHERE id = ?").get(req.params.id)));
 });
 
 // POST /api/prospects/:id/convert — vira cliente de verdade.

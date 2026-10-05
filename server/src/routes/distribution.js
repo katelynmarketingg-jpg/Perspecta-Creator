@@ -116,7 +116,8 @@ router.get("/", async (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.published_at, t.fora_da_grade, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              t.approval_status, t.client_note, t.published_at, t.fora_da_grade,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -134,7 +135,8 @@ router.get("/", async (req, res) => {
   const scheduled = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
-              t.approval_status, t.published_at, t.fora_da_grade, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              t.approval_status, t.published_at, t.fora_da_grade,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, s.is_done AS stage_done,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -154,6 +156,7 @@ router.get("/", async (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
               t.approval_status, t.published_at, t.fora_da_grade,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -180,6 +183,7 @@ router.get("/", async (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
               t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.fora_da_grade,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -198,7 +202,8 @@ router.get("/", async (req, res) => {
   const programmed = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.fora_da_grade, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              t.approval_status, t.published_at, t.fora_da_grade,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -296,7 +301,7 @@ router.post("/:id/schedule", (req, res) => {
   let done = db.prepare("SELECT id FROM kanban_stages WHERE org_id = ? AND is_done = 1 ORDER BY position LIMIT 1").get(req.orgId);
   if (!done) done = ensureStage(req.orgId, "%Programad%", "Programados", 1);
   db.prepare(
-    "UPDATE tasks SET stage_id = ?, scheduled_at = ?, completed_at = ? WHERE id = ? AND org_id = ?"
+    "UPDATE tasks SET stage_id = ?, scheduled_at = ?, completed_at = ?, aviso_atraso_em = NULL WHERE id = ? AND org_id = ?"
   ).run(done.id, when, new Date().toISOString(), req.params.id, req.orgId);
   // A mídia acompanha: vai para a pasta "Programados" da Galeria do cliente.
   syncTaskMediaToStage(req.orgId, req.params.id, "programados");
@@ -326,7 +331,7 @@ router.post("/:id/mark-posted", (req, res) => {
 // cada peça (as peças assumem os "slots" de data na nova ordem). Em lote.
 router.post("/reorder", (req, res) => {
   const changes = Array.isArray(req.body?.changes) ? req.body.changes : [];
-  const upd = db.prepare("UPDATE tasks SET scheduled_at = ? WHERE id = ? AND org_id = ?");
+  const upd = db.prepare("UPDATE tasks SET scheduled_at = ?, aviso_atraso_em = NULL WHERE id = ? AND org_id = ?");
   const tx = db.transaction(() => {
     changes.forEach((c) => {
       if (c && c.id) upd.run(c.scheduled_at || null, c.id, req.orgId);
@@ -388,9 +393,11 @@ router.put("/:id", (req, res) => {
     `UPDATE tasks SET
        caption      = COALESCE(?, caption),
        description  = COALESCE(?, description),
-       scheduled_at = COALESCE(?, scheduled_at)
+       scheduled_at = COALESCE(?, scheduled_at),
+       -- Data nova apaga o aviso de atraso: a peça volta a poder ser cobrada.
+       aviso_atraso_em = CASE WHEN ? IS NULL THEN aviso_atraso_em ELSE NULL END
      WHERE id = ? AND org_id = ?`
-  ).run(caption ?? null, description ?? null, scheduled_at ?? null, req.params.id, req.orgId);
+  ).run(caption ?? null, description ?? null, scheduled_at ?? null, scheduled_at ?? null, req.params.id, req.orgId);
 
   // Capa do perfil: cover_file_id === null limpa; undefined não mexe.
   if (cover_file_id !== undefined) {

@@ -908,6 +908,7 @@ function PieceCard({ item, onChanged, flash }) {
   const [slideUploading, setSlideUploading] = useState(false);
   const [posted, setPosted] = useState(!!item.published_at);
   const [baixando, setBaixando] = useState(false);
+  const [publicando, setPublicando] = useState(false);
   const [iaLegenda, setIaLegenda] = useState(false);
   // Fatiador de carrossel: quando a arte é mais larga que uma slide, pergunta
   // em quantas partes cortar. { file, largura, altura, n }.
@@ -979,6 +980,31 @@ function PieceCard({ item, onChanged, flash }) {
     try { await navigator.clipboard.writeText(caption || ""); flash("Legenda copiada!", "success"); }
     catch { flash("Não consegui copiar — selecione o texto e copie manualmente.", "error"); }
   }
+  // PUBLICAR AGORA, de verdade, pela API da Meta.
+  //
+  // Faltava este botão. O interruptor em Integrações dizia "deixe desligado
+  // para publicar só com o seu clique" — e o clique não existia em lugar
+  // nenhum: ou era automático, ou era na mão pelo app do Instagram. A rota já
+  // estava pronta no servidor desde sempre; ninguém a chamava.
+  //
+  // Confirma antes porque vai ao ar na conta do CLIENTE e não tem desfazer.
+  async function publicarAgora() {
+    if (!window.confirm(
+      `Publicar "${item.title}" agora no Instagram de ${item.client_name || "o cliente"}?\n\n`
+      + "O post vai ao ar na hora. Não dá para desfazer por aqui."
+    )) return;
+    setPublicando(true);
+    try {
+      const r = await api.post(`/integrations/publish/${item.id}`);
+      setPosted(true);
+      flash(`Publicado no ${r.data?.destino === "facebook" ? "Facebook" : "Instagram"} 🚀`, "success");
+      onChanged?.();
+    } catch (err) {
+      flash(err.response?.data?.error || "Não foi possível publicar.", "error");
+    }
+    setPublicando(false);
+  }
+
   async function marcarPostado(v = true) {
     try {
       await api.post(`/distribution/${item.id}/mark-posted`, { posted: v });
@@ -1397,6 +1423,27 @@ function PieceCard({ item, onChanged, flash }) {
                 </Stack>
               ) : (
                 <>
+                  {/* PUBLICAR AGORA — só aparece quando o cliente tem a Meta
+                      ligada. Sem conexão, o caminho continua sendo baixar e
+                      postar no app, que é o que está logo abaixo. */}
+                  {item.meta_conectada ? (
+                    <>
+                      <Typography variant="caption" color="text.secondary">
+                        Vai direto para o Instagram do cliente, na hora. Para Reels com música do
+                        Edits, use o caminho de baixar e postar no app.
+                      </Typography>
+                      <Button size="small" variant="contained" startIcon={<SendIcon />}
+                        disabled={publicando} onClick={publicarAgora}>
+                        {publicando ? "Publicando…" : "Publicar agora"}
+                      </Button>
+                      <Divider sx={{ my: 0.5 }} />
+                    </>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      Este cliente ainda não tem o Instagram conectado — conecte em <b>Integrações</b>
+                      {" "}para publicar daqui. Por enquanto, baixe e poste pelo app.
+                    </Typography>
+                  )}
                   <Typography variant="caption" color="text.secondary">
                     Reels com música do Edits: baixe/abra o vídeo, monte a música no Edits e poste. Depois marque como postado aqui.
                   </Typography>

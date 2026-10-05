@@ -15,10 +15,26 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import LockIcon from "@mui/icons-material/Lock";
+import EventRepeatIcon from "@mui/icons-material/EventRepeat";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { formatDate } from "../utils.js";
+import { dataLocal } from "../data-local.js";
+
+// Uma data só (AAAA-MM-DD) comparada com HOJE, sem hora e sem fuso: "2026-10-01"
+// vira meia-noite em Londres, que no Brasil ainda é o dia 30 — foi assim que o
+// post de outubro virou setembro. Aqui a conta é feita em texto, que não tem
+// fuso nenhum.
+const HOJE = () => new Date().toISOString().slice(0, 10);
+function comoEstaORetorno(data) {
+  if (!data) return null;
+  const dia = String(data).slice(0, 10);
+  const hoje = HOJE();
+  if (dia < hoje) return { cor: "error", texto: `Atrasado desde ${formatDate(dia)}` };
+  if (dia === hoje) return { cor: "warning", texto: "Retornar hoje" };
+  return { cor: "default", texto: `Retornar ${formatDate(dia)}` };
+}
 
 const EMPTY = {
   name: "", company: "", segment: "", phone: "", email: "", instagram: "",
@@ -31,6 +47,9 @@ export default function Prospects() {
   const [draft, setDraft] = useState(EMPTY);
   const [contato, setContato] = useState(null); // prospect recebendo novo contato
   const [novoContato, setNovoContato] = useState({ channel: "whatsapp", summary: "", touch_date: "" });
+  const [retorno, setRetorno] = useState(null);   // prospect marcando "retornar em"
+  const [novoRetorno, setNovoRetorno] = useState({ data: "", nota: "", level: "media", assignee_id: "" });
+  const [users, setUsers] = useState([]);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   // Arraste-e-solte entre colunas.
@@ -47,6 +66,36 @@ export default function Prospects() {
   const vProspects = useLiveVersion("prospects");
   useEffect(() => { load(); }, [vProspects]);
   useEffect(() => { loadStages(); }, []);
+  useEffect(() => { api.get("/users/team").then((r) => setUsers(r.data)).catch(() => {}); }, []);
+
+  // MARCAR O RETORNO. A data fica no prospect e o lembrete vira uma prioridade,
+  // que é onde a equipe olha o que precisa de atenção — e de onde sai o aviso
+  // no dia. Um prospect tem no máximo um retorno aberto: remarcar muda o que já
+  // existe, não empilha recado novo.
+  function abrirRetorno(p) {
+    setRetorno(p);
+    setNovoRetorno({
+      data: p.retorno_em ? String(p.retorno_em).slice(0, 10) : "",
+      nota: p.retorno_nota || "",
+      level: "media",
+      assignee_id: "",
+    });
+  }
+  async function salvarRetorno() {
+    if (!novoRetorno.data) return;
+    try {
+      await api.put(`/prospects/${retorno.id}/retorno`, novoRetorno);
+      setRetorno(null);
+      setMsg("Retorno marcado. Ele aparece em Prioridades e avisa no dia.");
+      load();
+    } catch (e) {
+      setErr(e.response?.data?.error || "Não foi possível marcar o retorno.");
+    }
+  }
+  async function tirarRetorno(p) {
+    try { await api.delete(`/prospects/${p.id}/retorno`); load(); }
+    catch (e) { setErr(e.response?.data?.error || "Não foi possível tirar o retorno."); }
+  }
 
   const wonKey = stages.find((s) => s.kind === "won")?.key || "fechado";
   const lostKey = stages.find((s) => s.kind === "lost")?.key || "perdido";
@@ -279,6 +328,31 @@ export default function Prospects() {
                         </Typography>
                       )}
 
+                      {/* RETORNAR EM: a data de voltar a falar.
+                          Em vermelho quando passou e em laranja no dia — é o
+                          que ela vê antes de qualquer outra coisa no cartão. */}
+                      {p.retorno_em && (() => {
+                        const r = comoEstaORetorno(p.retorno_em);
+                        return (
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 1, flexWrap: "wrap", gap: 0.5 }}>
+                            <Chip size="small" color={r.cor} variant={r.cor === "default" ? "outlined" : "filled"}
+                              icon={<EventRepeatIcon sx={{ fontSize: 14 }} />} label={r.texto}
+                              onClick={() => abrirRetorno(p)}
+                              sx={{ height: 22, fontWeight: 700, cursor: "pointer" }} />
+                            <Tooltip title="Tirar o retorno">
+                              <IconButton size="small" onClick={() => tirarRetorno(p)}>
+                                <DeleteIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            </Tooltip>
+                            {p.retorno_nota && (
+                              <Typography variant="caption" color="text.secondary" sx={{ width: "100%", lineHeight: 1.35 }}>
+                                {p.retorno_nota}
+                              </Typography>
+                            )}
+                          </Stack>
+                        );
+                      })()}
+
                       {/* Histórico: 1º contato, 2º contato... */}
                       {p.touches?.length > 0 && (
                         <Box sx={{ mt: 1.25, pt: 1.25, borderTop: 1, borderColor: "divider" }}>
@@ -308,6 +382,12 @@ export default function Prospects() {
                           onClick={() => setContato(p)}>
                           {p.touches?.length ? `${p.touches.length + 1}º contato` : "1º contato"}
                         </Button>
+                        {p.status !== "fechado" && p.status !== "perdido" && (
+                          <Button size="small" startIcon={<EventRepeatIcon sx={{ fontSize: 15 }} />}
+                            onClick={() => abrirRetorno(p)}>
+                            {p.retorno_em ? "Remarcar" : "Retornar em"}
+                          </Button>
+                        )}
                         {p.status !== "fechado" && (
                           <Button size="small" color="success" variant="outlined"
                             startIcon={<HowToRegIcon sx={{ fontSize: 16 }} />}
@@ -367,6 +447,41 @@ export default function Prospects() {
         <DialogActions>
           <Button onClick={() => setOpen(false)}>Cancelar</Button>
           <Button variant="contained" onClick={salvar} disabled={!draft.name}>Salvar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Marcar o retorno */}
+      <Dialog open={Boolean(retorno)} onClose={() => setRetorno(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Retornar — {retorno?.name}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              A data entra em <b>Prioridades</b> e você recebe o aviso no dia (e todo dia,
+              enquanto não for resolvido). Concluiu o recado lá, a data sai daqui.
+            </Typography>
+            <TextField type="date" label="Voltar a falar em *" value={novoRetorno.data}
+              onChange={(e) => setNovoRetorno((r) => ({ ...r, data: e.target.value }))}
+              InputLabelProps={{ shrink: true }} fullWidth autoFocus />
+            <TextField label="O que falar" value={novoRetorno.nota} multiline minRows={2} fullWidth
+              placeholder="Ex.: perguntar se viu a proposta"
+              onChange={(e) => setNovoRetorno((r) => ({ ...r, nota: e.target.value }))} />
+            <TextField select label="Nível" value={novoRetorno.level} fullWidth
+              onChange={(e) => setNovoRetorno((r) => ({ ...r, level: e.target.value }))}>
+              <MenuItem value="alta">Alta</MenuItem>
+              <MenuItem value="media">Média</MenuItem>
+              <MenuItem value="baixa">Baixa</MenuItem>
+            </TextField>
+            <TextField select label="Quem vai retornar" value={novoRetorno.assignee_id} fullWidth
+              helperText="Sem escolher, o aviso vai para a equipe toda."
+              onChange={(e) => setNovoRetorno((r) => ({ ...r, assignee_id: e.target.value }))}>
+              <MenuItem value="">Equipe</MenuItem>
+              {users.map((u) => <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>)}
+            </TextField>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRetorno(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={salvarRetorno} disabled={!novoRetorno.data}>Marcar</Button>
         </DialogActions>
       </Dialog>
 

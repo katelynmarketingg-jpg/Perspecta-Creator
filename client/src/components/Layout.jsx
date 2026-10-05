@@ -46,6 +46,7 @@ import { useAuth } from "../auth/AuthContext.jsx";
 import ForcePasswordChange from "./ForcePasswordChange.jsx";
 import { useColorMode } from "../ColorModeContext.jsx";
 import { SIDEBAR } from "../theme.js";
+import logoCreatorBranco from "../assets/logo-perspecta-creator-branco.png";
 
 const DRAWER_WIDTH = 248;
 
@@ -134,9 +135,11 @@ export default function Layout() {
   // (texto branco); no escuro, quase-preta com destaque laranja.
   const sb = SIDEBAR[mode] || SIDEBAR.light;
   const terracota = mode !== "dark";
-  const sbText = terracota ? "rgba(255,255,255,0.82)" : "#A8A29E";
-  const sbTextDim = terracota ? "rgba(255,255,255,0.55)" : "#78716C";
-  const sbIcon = terracota ? "rgba(255,255,255,0.7)" : "#57534E";
+  // No terracota, branco com transparência. No preto, os tons de detalhe da
+  // marca — o off para o que se lê, o #c9c2b2 para o que só acompanha.
+  const sbText = terracota ? "rgba(255,255,255,0.82)" : "rgba(237,233,222,0.82)";
+  const sbTextDim = terracota ? "rgba(255,255,255,0.55)" : "rgba(201,194,178,0.6)";
+  const sbIcon = terracota ? "rgba(255,255,255,0.7)" : "rgba(201,194,178,0.7)";
   const activeBg = terracota ? "rgba(255,255,255,0.18)" : (t) => alpha(t.palette.primary.main, 0.16);
   const activeColor = terracota ? "#FFFFFF" : (t) => t.palette.primary.main;
 
@@ -150,26 +153,29 @@ export default function Layout() {
 
   const drawer = (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: sb.bg }}>
-      <Toolbar sx={{ px: 2.5 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.2 }}>
-          <Box sx={{
-            width: 34, height: 34, borderRadius: 2,
-            bgcolor: terracota ? "rgba(255,255,255,0.16)" : "primary.main", color: "#fff",
-            display: "grid", placeItems: "center", fontWeight: 800, fontFamily: '"Outfit", sans-serif',
-            fontSize: 13,
-          }}>
-            {(viewingOrg?.name || user?.org_name || "PM").slice(0, 2).toUpperCase()}
-          </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1, color: "#fff", fontFamily: '"Outfit", sans-serif' }}>
-              {viewingOrg?.name || user?.org_name || "Perspecta Media"}
-            </Typography>
-            <Typography variant="caption" sx={{ color: sbTextDim }}>
-              {viewingOrg ? "visto pelo Perspecta Media" : isMaster ? "administração" : "gestão da agência"}
-            </Typography>
-          </Box>
+      {/* O LOGO, NO CANTO DE CIMA À ESQUERDA, SOLTO NO FUNDO.
+          No lugar do quadradinho com as iniciais, que era só um remendo.
+
+          Aqui vai a VERSÃO BRANCA, e não a original: a lateral é terracota
+          (#ab480a) ou preta, e na arte original a palavra "Perspecta" é
+          cinza-escuro — nesses dois fundos ela some. Na versão branca o vinco
+          do símbolo segue vazado, então sobre o terracota ele aparece como um
+          corte da própria cor do fundo, que é como um logo vazado funciona.
+          Compacto de propósito: a lateral é para navegar, e o logo é
+          assinatura, não cartaz. */}
+      <Box sx={{ px: 2, pt: 1.75, pb: 1.5 }}>
+        <Box component="img" src={logoCreatorBranco} alt="Perspecta Creator"
+          sx={{ display: "block", width: 124, height: "auto" }} />
+        {/* Abaixo do produto, de quem é a casa. */}
+        <Box sx={{ minWidth: 0, mt: 1.5 }}>
+          <Typography noWrap sx={{ fontWeight: 700, lineHeight: 1.2, color: "#fff", fontFamily: '"Outfit", sans-serif' }}>
+            {viewingOrg?.name || user?.org_name || "Perspecta Media"}
+          </Typography>
+          <Typography variant="caption" sx={{ color: sbTextDim }}>
+            {viewingOrg ? "visto pelo Perspecta Media" : isMaster ? "administração" : "gestão da agência"}
+          </Typography>
         </Box>
-      </Toolbar>
+      </Box>
       <Divider sx={{ borderColor: sb.border }} />
       <List sx={{ px: 1.5, py: 1.5, flex: 1, overflowY: "auto" }}>
         {items.map((n) => (
@@ -213,6 +219,15 @@ export default function Layout() {
           bgcolor: (t) => alpha(t.palette.background.default, 0.85),
           backdropFilter: "blur(8px)",
           zIndex: (t) => t.zIndex.drawer + 1,
+          // A BARRA COMEÇA DEPOIS DA LATERAL.
+          //
+          // Ela é um vidro fosco e cobria a lateral inteira nos 65px do topo —
+          // era o que embaçava e lavava o logo ali em cima. Agora cada uma tem
+          // o seu espaço: a lateral vai do topo ao rodapé, e a barra ocupa o
+          // resto da largura. No celular a lateral é uma gaveta que abre por
+          // cima, então lá a barra continua atravessando a tela toda.
+          width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          ml: { md: `${DRAWER_WIDTH}px` },
         }}
       >
         <Toolbar>
@@ -315,7 +330,15 @@ export default function Layout() {
           open={mobileOpen}
           onClose={() => setMobileOpen(false)}
           ModalProps={{ keepMounted: true }}
-          sx={{ display: { xs: "block", md: "none" }, "& .MuiDrawer-paper": { width: DRAWER_WIDTH, bgcolor: sb.bg, borderRight: `1px solid ${sb.border}` } }}
+          sx={{
+            display: { xs: "block", md: "none" },
+            // No celular a gaveta abre POR CIMA da tela toda — inclusive da
+            // barra de vidro fosco. Sem isto ela abria por baixo, e o logo,
+            // que fica no topo dela, saía embaçado no telefone (no computador
+            // o problema não aparece: lá a barra já começa depois da lateral).
+            zIndex: (t) => t.zIndex.drawer + 2,
+            "& .MuiDrawer-paper": { width: DRAWER_WIDTH, bgcolor: sb.bg, borderRight: `1px solid ${sb.border}` },
+          }}
         >
           {drawer}
         </Drawer>

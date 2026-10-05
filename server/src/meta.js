@@ -38,7 +38,22 @@ async function graph(path, params = {}, options = {}) {
   const url = new URL(`${GRAPH}${path}`);
   Object.entries(params).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   const res = await fetch(url, options);
-  const data = await res.json();
+  // NEM TODA RESPOSTA DA META É JSON. Quando ela cai, limita o uso ou devolve
+  // uma página de erro do gateway, vem HTML — e o `json()` estourava com
+  // "Unexpected token '<'", que é o que a pessoa lia na tela no lugar do
+  // problema real. Aqui o texto cru vira um recado curto e legível.
+  const texto = await res.text();
+  let data;
+  try {
+    data = JSON.parse(texto);
+  } catch {
+    const resumo = texto.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+    throw new Error(
+      res.ok
+        ? `A Meta respondeu algo que não dá para ler${resumo ? `: ${resumo}` : "."}`
+        : `A Meta respondeu ${res.status}${resumo ? `: ${resumo}` : "."}`
+    );
+  }
   if (!res.ok || data.error) {
     throw new Error(data.error?.message || `Meta respondeu ${res.status}`);
   }

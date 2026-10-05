@@ -810,6 +810,25 @@ ensureColumn("tasks", "external_post_id", "external_post_id TEXT");
 // data. É reversível: dá para devolver para a grade a qualquer momento.
 ensureColumn("tasks", "fora_da_grade", "fora_da_grade INTEGER NOT NULL DEFAULT 0");
 
+// RETORNAR EM: a data de voltar a falar com quem está na Prospecção.
+//
+// O cartão dizia "1º contato" e parava por aí: quem prospecta sabe QUANDO
+// falou, mas não tem onde marcar QUANDO voltar a falar — e a conversa esfria.
+// A data mora no prospect, e o lembrete vira uma prioridade (ver
+// retorno-prospect.js), que é onde a equipe olha o que precisa de atenção.
+//
+// retorno_avisado_em é o mesmo controle do aviso de cobrança atrasada: guarda o
+// dia do último aviso para não repetir o recado várias vezes no mesmo dia.
+// A prioridade ganha DATA e volta para o prospect que a gerou.
+//
+// Sem data, o quadro de Prioridades só sabe dizer o que está pendente, nunca o
+// que está atrasado — e era por isso que um retorno marcado não tinha onde
+// aparecer. prospect_id é o fio que liga os dois: mudou a data no cartão da
+// Prospecção, a prioridade acompanha; concluiu a prioridade, o retorno some do
+// cartão.
+ensureColumn("priorities", "due_date", "due_date TEXT");
+ensureColumn("priorities", "prospect_id", "prospect_id INTEGER REFERENCES prospects(id) ON DELETE CASCADE");
+
 // POST BÔNUS: peça publicada ALÉM do que o contrato do cliente prevê.
 //
 // O relatório compara o combinado (X posts, Y vídeos por mês) com o que saiu.
@@ -819,6 +838,18 @@ ensureColumn("tasks", "fora_da_grade", "fora_da_grade INTEGER NOT NULL DEFAULT 0
 ensureColumn("tasks", "bonus", "bonus INTEGER NOT NULL DEFAULT 0");
 // Publicar sozinho na hora marcada é opcional e desligado por padrão.
 ensureColumn("clients", "auto_publish", "auto_publish INTEGER NOT NULL DEFAULT 0");
+
+// DESDE QUANDO a publicação automática está ligada neste cliente.
+//
+// Sem isto, ligar o interruptor hoje faria sair TUDO que estava aprovado e
+// programado para trás dentro da janela de atraso — uma rajada de posts no
+// Instagram do cliente, de uma vez, sem ninguém mandar. Publicar é irreversível;
+// o automático só vale para o que foi programado depois de ele ser ligado.
+ensureColumn("clients", "auto_publish_desde", "auto_publish_desde TEXT");
+
+// Já avisamos que esta peça perdeu a hora? Guarda o dia, para o aviso sair uma
+// vez e não todo dia (mesmo controle do aviso de cobrança atrasada).
+ensureColumn("tasks", "aviso_atraso_em", "aviso_atraso_em TEXT");
 
 // Aceite eletrônico do contrato pelo cliente.
 ensureColumn("contracts", "signed_at", "signed_at TEXT");
@@ -983,6 +1014,13 @@ CREATE TABLE IF NOT EXISTS prospect_touches (
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `);
+
+// AQUI, e não lá em cima com as outras: ensureColumn não faz nada quando a
+// tabela ainda não existe, e `prospects` só nasce nesta altura do arquivo.
+// Posto antes, o "retornar em" simplesmente não era criado.
+ensureColumn("prospects", "retorno_em", "retorno_em TEXT");
+ensureColumn("prospects", "retorno_nota", "retorno_nota TEXT");
+ensureColumn("prospects", "retorno_avisado_em", "retorno_avisado_em TEXT");
 
 // Conexões com a Meta, uma por cliente.
 db.exec(`
