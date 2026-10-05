@@ -324,9 +324,10 @@ export async function publishTask(task, orgId, host, protocol = "https") {
       : await publishToFacebook({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo });
   }
 
+  // A hora DAQUI: é esta data que aparece no selo verde da grade do perfil.
   db.prepare(
-    "UPDATE tasks SET published_at = datetime('now'), external_post_id = ?, publish_error = NULL WHERE id = ?"
-  ).run(postId, task.id);
+    "UPDATE tasks SET published_at = ?, external_post_id = ?, publish_error = NULL WHERE id = ?"
+  ).run(agoraNaAgencia(), postId, task.id);
   const quantas = itens.length > 1 ? ` (carrossel de ${itens.length} slides)` : "";
   db.prepare("INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, ?, ?, ?)")
     .run(task.client_id, task.id, `🚀 "${task.title}" publicado no ${destino}${quantas}.`, orgId);

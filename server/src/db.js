@@ -817,6 +817,17 @@ ensureColumn("tasks", "last_reminder_at", "last_reminder_at TEXT");
 ensureColumn("tasks", "published_at", "published_at TEXT");
 ensureColumn("tasks", "publish_error", "publish_error TEXT");
 ensureColumn("tasks", "external_post_id", "external_post_id TEXT");
+// JÁ CONFERI QUE ESTE SAIU.
+//
+// Quando o sistema publica sozinho, a peça continua na grade do perfil, agora
+// com o certinho VERDE — era o pedido dela: "não precisa sair de lá, só outro
+// botão confirmando que postou". Clicar nesse certinho é o "já vi, pode sair
+// da grade", e é o que esta coluna guarda.
+//
+// Por que não reaproveitar o external_post_id: ele guarda o id do post lá no
+// Instagram, o único fio que liga a peça ao que foi ao ar. Escrever "manual"
+// por cima para dizer "já conferi" apagaria esse fio.
+ensureColumn("tasks", "conferido_em", "conferido_em TEXT");
 // FORA DA GRADE DO PERFIL.
 //
 // Reel não compõe o visual do feed do mesmo jeito que um post — ele mora na
@@ -1534,6 +1545,27 @@ db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
     }
     db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
     if (velhas.length) console.log(`Publicação: ${velhas.length} marca(s) de automático passada(s) para o fuso da agência.`);
+  })();
+})();
+
+// ---------------------------------------------------------------------------
+// PRIORIDADES: "EM ANDAMENTO" SAIU DO QUADRO
+//
+// Pedido dela: "quero que seja só pendente, concluído, e o próximo é de
+// arquivado". A coluna do meio vivia vazia e levava um terço da tela.
+//
+// O que estava lá volta para Pendente: é o estado honesto de um recado que
+// alguém começou e não terminou. Apagar ou dar como concluído seria mentir
+// sobre trabalho que ainda existe.
+// ---------------------------------------------------------------------------
+(() => {
+  const CHAVE = "prioridades-sem-em-andamento-2026-10";
+  if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE)) return;
+
+  db.transaction(() => {
+    const n = db.prepare("UPDATE priorities SET status = 'pending' WHERE status = 'doing'").run().changes;
+    db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
+    if (n) console.log(`Prioridades: ${n} recado(s) de "Em andamento" voltaram para Pendente.`);
   })();
 })();
 

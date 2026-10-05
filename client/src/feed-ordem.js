@@ -59,12 +59,28 @@ export function ordenarFeed(posts = []) {
 }
 
 /**
- * O que a grade do perfil mostra: tudo menos o que já foi postado.
+ * O que a grade do perfil mostra.
  *
- * Pedido dela: marcar "já foi postado" tira a peça da grade principal, "sem
- * deixar o resto perder a ordem". Tirar da lista não mexe na `position` de
- * ninguém — as outras continuam exatamente onde estavam.
+ * Sai da grade o que ELA tirou de lá: a peça que ela marcou à mão como postada
+ * (o certinho laranja, que grava external_post_id = 'manual') e a que ela já
+ * conferiu. Tirar da lista não mexe na `position` de ninguém — as outras
+ * continuam exatamente onde estavam.
+ *
+ * O QUE O SISTEMA PUBLICOU SOZINHO FICA. Palavras dela: "não precisa sair de
+ * lá, só outro botão confirmando que postou". Antes sumia calado, e sumir era
+ * a única notícia de que tinha dado certo. Agora fica, com o certinho verde —
+ * e um clique nele é o "já vi, pode sair".
  */
 export function aindaNoPerfil(posts = []) {
-  return posts.filter((p) => !p.published_at);
+  return posts.filter((p) => !(marcadaNaMao(p) || p.conferido_em));
+}
+
+/** Foi ela que disse que postou (certinho laranja), não o sistema. */
+export function marcadaNaMao(p) {
+  return Boolean(p.published_at) && p.external_post_id === "manual";
+}
+
+/** O sistema publicou esta — é o que ganha o selo verde na grade. */
+export function publicadaPeloSistema(p) {
+  return Boolean(p.published_at) && p.external_post_id !== "manual";
 }

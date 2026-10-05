@@ -154,12 +154,23 @@ test("concluir o recado tira a data do cartão da Prospecção", async () => {
   assert.ok(db.prepare("SELECT 1 FROM priorities WHERE id = ?").get(pr.id), "o recado concluído fica no histórico");
 });
 
-test("mover para 'em andamento' NÃO apaga a data", async () => {
+test("arquivar o recado NÃO apaga a data", async () => {
+  // Era "em andamento", coluna que saiu do quadro a pedido dela. Só CONCLUIR
+  // tira o retorno do cartão da Prospecção — arquivar é só sair da frente.
   const p = novoProspect("Andando");
   await pedir("PUT", `/prospects/${p}/retorno`, { data: dias(4) });
   const pr = prioridadeDoRetorno(org, p);
-  await pedir("PUT", `/priorities/${pr.id}/status`, { status: "doing" });
+  const r = await pedir("PUT", `/priorities/${pr.id}/status`, { status: "arquivado" });
+  assert.equal(r.status, 200);
   assert.equal(lerProspect(p).retorno_em, dias(4));
+});
+
+test("'em andamento' não existe mais", async () => {
+  const p = novoProspect("SemAndamento");
+  await pedir("PUT", `/prospects/${p}/retorno`, { data: dias(4) });
+  const pr = prioridadeDoRetorno(org, p);
+  const r = await pedir("PUT", `/priorities/${pr.id}/status`, { status: "doing" });
+  assert.equal(r.status, 400, "a coluna saiu do quadro");
 });
 
 // --- o aviso ------------------------------------------------------------------
@@ -169,14 +180,18 @@ test("no dia, o aviso sai — e não repete no mesmo dia", async () => {
   await pedir("PUT", `/prospects/${p}/retorno`, { data: hoje(), nota: "ligar de manhã" });
 
   const antes = avisos().length;
-  assert.equal(lembrarRetornos(org), 1);
-  const novos = avisos().slice(antes);
-  assert.equal(novos.length, 1);
-  assert.match(novos[0].message, /Retornar hoje/);
-  assert.match(novos[0].message, /Hoje/);
-  assert.match(novos[0].message, /ligar de manhã/);
+  lembrarRetornos(org);
+  // Outros prospects deste arquivo também têm data por perto e avisam na mesma
+  // rodada; o que importa aqui é o recado DESTE.
+  const meus = avisos().slice(antes).filter((n) => /Hoje/.test(n.message));
+  assert.equal(meus.length, 1);
+  assert.match(meus[0].message, /Retornar hoje/);
+  assert.match(meus[0].message, /ligar de manhã/);
 
-  assert.equal(lembrarRetornos(org), 0, "abrir as notificações de novo não duplica o recado");
+  const antes2 = avisos().length;
+  lembrarRetornos(org);
+  assert.equal(avisos().slice(antes2).filter((n) => /Hoje/.test(n.message)).length, 0,
+    "abrir as notificações de novo não duplica o recado");
 });
 
 test("atrasado continua incomodando, e diz desde quando", async () => {
@@ -199,12 +214,36 @@ test("o aviso vai para quem ficou responsável", async () => {
   assert.equal(novo.user_id, rafa, "mirado, não para a equipe inteira");
 });
 
-test("data futura ainda não avisa", async () => {
+// ESTE CASO MUDOU, A PEDIDO DELA.
+//
+// "quando eu marcar na prospecção que eu tenho que retornar em tal data, NA
+// SEMANA vai aparecer pra mim uma notificação". Antes o primeiro sinal era no
+// próprio dia — tarde para quem precisa preparar a conversa.
+test("entrando na semana, avisa UMA vez — e não todo dia", async () => {
   const p = novoProspect("Semana que vem");
   await pedir("PUT", `/prospects/${p}/retorno`, { data: dias(6) });
+
   const antes = avisos().length;
   lembrarRetornos(org);
-  assert.ok(!avisos().slice(antes).some((n) => /Semana que vem/.test(n.message)));
+  const meus = avisos().slice(antes).filter((n) => /Semana que vem/.test(n.message));
+  assert.equal(meus.length, 1, "um recado, já na semana");
+  assert.match(meus[0].message, /Retornar em/, "diz o dia, não 'hoje'");
+  assert.match(meus[0].message, new RegExp(dias(6).slice(0, 10).split("-").reverse().join("/")));
+
+  // No dia seguinte (o controle guarda o dia), nada de novo até chegar a data.
+  db.prepare("UPDATE prospects SET retorno_avisado_em = date('now','-1 day') WHERE id = ?").run(p);
+  const antes2 = avisos().length;
+  lembrarRetornos(org);
+  assert.equal(avisos().slice(antes2).filter((n) => /Semana que vem/.test(n.message)).length, 0,
+    "avisar todo dia por uma semana ensina a ignorar o sininho");
+});
+
+test("data longe não aparece nem no sininho", async () => {
+  const p = novoProspect("Daqui a dois meses");
+  await pedir("PUT", `/prospects/${p}/retorno`, { data: dias(60) });
+  const antes = avisos().length;
+  lembrarRetornos(org);
+  assert.ok(!avisos().slice(antes).some((n) => /dois meses/.test(n.message)));
 });
 
 test("quem já virou cliente (ou não rolou) não é cobrado de retorno", async () => {

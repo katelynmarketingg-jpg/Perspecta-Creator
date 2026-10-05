@@ -2,21 +2,30 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, Button, IconButton, Chip, TextField,
   MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, Avatar, Alert,
+  Collapse,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import FlagIcon from "@mui/icons-material/Flag";
 import EventIcon from "@mui/icons-material/Event";
+import Inventory2Icon from "@mui/icons-material/Inventory2";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import UnarchiveIcon from "@mui/icons-material/Unarchive";
 import api from "../api/client.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 
+// DUAS COLUNAS, E UMA GAVETA.
+//
+// Pedido dela: "quero que seja só pendente, concluído, e o próximo é de
+// arquivado, que eu arrastando ele já some, abre só quando clicar". "Em
+// andamento" vivia vazia e levava um terço da tela.
 const COLUMNS = [
   { key: "pending", label: "Pendente" },
-  { key: "doing", label: "Em andamento" },
   { key: "done", label: "Concluído" },
 ];
+const ARQUIVO = "arquivado";
 const LEVELS = [
   { key: "alta", label: "Alta", color: "#DC2626" },
   { key: "media", label: "Média", color: "#D97706" },
@@ -39,7 +48,7 @@ function comoEstaOPrazo(due) {
 
 const iniciais = (nome) => (nome || "?").split(" ").filter(Boolean).slice(0, 2).map((s) => s[0]).join("").toUpperCase();
 
-function PriorityCard({ p, onDragStart, onEdit, onDelete }) {
+function PriorityCard({ p, onDragStart, onEdit, onDelete, onDesarquivar }) {
   const lv = levelOf(p.level);
   const prazo = comoEstaOPrazo(p.due_date);
   return (
@@ -64,6 +73,11 @@ function PriorityCard({ p, onDragStart, onEdit, onDelete }) {
             <Chip size="small" variant="outlined" label={`Prospecção · ${p.prospect_name}`} sx={{ height: 20 }} />
           )}
           <Box sx={{ flex: 1 }} />
+          {onDesarquivar && (
+            <Tooltip title="Tirar do arquivo — volta para Pendente">
+              <IconButton size="small" onClick={onDesarquivar}><UnarchiveIcon sx={{ fontSize: 15 }} /></IconButton>
+            </Tooltip>
+          )}
           <IconButton size="small" onClick={() => onEdit(p)}><EditIcon sx={{ fontSize: 15 }} /></IconButton>
           <IconButton size="small" color="error" onClick={() => onDelete(p.id)}><DeleteIcon sx={{ fontSize: 15 }} /></IconButton>
         </Stack>
@@ -97,8 +111,12 @@ export default function Priorities() {
 
   const load = () => {
     const params = filtroPessoa ? { assignee_id: filtroPessoa } : {};
-    api.get("/priorities", { params }).then((r) => setRows(r.data)).catch(() => setRows([]));
+    // agendados=1: o quadro não os mostra, mas diz quantos estão esperando —
+    // esconder sem contar seria o recado sumir sem explicação.
+    api.get("/priorities", { params: { ...params, agendados: 1 } })
+      .then((r) => setRows(r.data)).catch(() => setRows([]));
   };
+  const [arquivoAberto, setArquivoAberto] = useState(false);
   const vPri = useLiveVersion("priorities");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [filtroPessoa, vPri]);
@@ -107,9 +125,12 @@ export default function Priorities() {
     api.get("/users/team").then((r) => setUsers(r.data)).catch(() => {});
   }, []);
 
+  // O que ainda não chegou a vez fica FORA do quadro, só contado embaixo: é o
+  // retorno de prospecção marcado para daqui a semanas.
+  const agendados = useMemo(() => rows.filter((p) => p.agendado), [rows]);
   const porColuna = useMemo(() => {
-    const map = { pending: [], doing: [], done: [] };
-    rows.forEach((p) => { (map[p.status] || map.pending).push(p); });
+    const map = { pending: [], done: [], [ARQUIVO]: [] };
+    rows.filter((p) => !p.agendado).forEach((p) => { (map[p.status] || map.pending).push(p); });
     return map;
   }, [rows]);
 
@@ -153,14 +174,14 @@ export default function Priorities() {
 
       {msg && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setMsg("")}>{msg}</Alert>}
 
-      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "repeat(3, 1fr)" }, alignItems: "start" }}>
+      <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" }, alignItems: "start" }}>
         {COLUMNS.map((col) => (
           <Card key={col.key} sx={{ bgcolor: "action.hover" }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => { if (dragId.current) { mover(dragId.current, col.key); dragId.current = null; } }}>
             <CardContent sx={{ p: 1.5 }}>
               <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1 }}>
-                <FlagIcon fontSize="small" color={col.key === "done" ? "success" : col.key === "doing" ? "warning" : "action"} />
+                <FlagIcon fontSize="small" color={col.key === "done" ? "success" : "action"} />
                 <Typography sx={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{col.label}</Typography>
                 <Chip size="small" label={porColuna[col.key].length} />
               </Stack>
@@ -180,6 +201,57 @@ export default function Priorities() {
           </Card>
         ))}
       </Box>
+
+      {/* A GAVETA DO ARQUIVO.
+          Arrastar para cá e o recado some da frente — era o pedido. Fechada ela
+          é só uma faixa, e continua aceitando o cartão: não precisa abrir para
+          guardar. Um clique mostra o que está lá dentro. */}
+      <Card sx={{ mt: 1.5, bgcolor: "action.hover" }}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={() => { if (dragId.current) { mover(dragId.current, ARQUIVO); dragId.current = null; } }}>
+        <CardContent sx={{ p: 1.5, "&:last-child": { pb: arquivoAberto ? 1.5 : 1.5 } }}>
+          <Stack direction="row" alignItems="center" spacing={0.75}
+            onClick={() => setArquivoAberto((v) => !v)}
+            sx={{ cursor: "pointer", userSelect: "none" }}>
+            <Inventory2Icon fontSize="small" color="action" />
+            <Typography sx={{ fontWeight: 700, fontSize: 14 }}>Arquivado</Typography>
+            <Chip size="small" label={porColuna[ARQUIVO].length} />
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {arquivoAberto ? "fechar" : "arraste para cá — clique para ver"}
+            </Typography>
+            <ExpandMoreIcon fontSize="small" color="action"
+              sx={{ transform: arquivoAberto ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
+          </Stack>
+          <Collapse in={arquivoAberto} unmountOnExit>
+            <Box sx={{ display: "grid", gap: 1, mt: 1.5,
+                       gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" }, alignItems: "start" }}>
+              {porColuna[ARQUIVO].map((p) => (
+                <PriorityCard key={p.id} p={p}
+                  onDragStart={() => { dragId.current = p.id; }}
+                  onEdit={editar} onDelete={excluir}
+                  onDesarquivar={() => mover(p.id, "pending")} />
+              ))}
+            </Box>
+            {porColuna[ARQUIVO].length === 0 && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "center", py: 1.5 }}>
+                Nada arquivado.
+              </Typography>
+            )}
+          </Collapse>
+        </CardContent>
+      </Card>
+
+      {/* O QUE AINDA NÃO CHEGOU A VEZ.
+          Esconder sem contar seria o recado sumir sem explicação. */}
+      {agendados.length > 0 && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+          {agendados.length === 1
+            ? "1 retorno de prospecção aparece aqui na semana em que vencer."
+            : `${agendados.length} retornos de prospecção aparecem aqui na semana em que vencerem.`}
+          {" "}A data continua no cartão, em <b>Prospecção</b>.
+        </Typography>
+      )}
 
       {rows.length === 0 && (
         <Box sx={{ mt: 2 }}>
