@@ -8,6 +8,7 @@ import {
   fetchIgProfile, updateIgProfile,
   savePendingPages, getPendingPages, clearPendingPages, publicPage,
 } from "../meta.js";
+import { comecarPublicacao, terminarPublicacao, temVideo, diasAteVencer } from "../publicacao-demorada.js";
 
 const router = Router();
 
@@ -86,7 +87,9 @@ router.get("/meta/status", (req, res) => {
   res.json({
     configured: metaConfigured(),
     app_id: META_APP_ID ? `${META_APP_ID.slice(0, 6)}…` : null,
-    connections: rows.map(publicConnection),
+    // dias_para_vencer acompanha a conexão: é o que acende o aviso na tela
+    // antes de o token morrer e as publicações começarem a falhar.
+    connections: rows.map((r) => ({ ...publicConnection(r), dias_para_vencer: diasAteVencer(r.token_expires) })),
     pending: pendentes,
   });
 });
@@ -179,6 +182,14 @@ router.put("/auto-publish", (req, res) => {
 });
 
 // POST /api/integrations/publish/:taskId — publica agora, a pedido.
+//
+// FOTO VOLTA COM O RESULTADO; VÍDEO VOLTA NA HORA E AVISA DEPOIS.
+//
+// A Meta baixa e processa o vídeo antes de publicar, e a gente espera até 2
+// minutos por isso. Esperar dentro do pedido fazia o navegador desistir: a
+// pessoa via erro de demora mesmo quando o post ia ao ar logo depois — e podia
+// clicar de novo, publicando duas vezes. Agora o vídeo responde 202 ("comecei")
+// e o aviso vem no fim, dando certo ou dando errado.
 router.post("/publish/:taskId", async (req, res) => {
   const task = db
     .prepare(`SELECT t.*, c.name AS client_name FROM tasks t
@@ -188,13 +199,46 @@ router.post("/publish/:taskId", async (req, res) => {
   if (!task) return res.status(404).json({ error: "Tarefa não encontrada." });
   if (task.published_at) return res.status(400).json({ error: "Este post já foi publicado." });
 
-  try {
-    const result = await publishTask(task, req.orgId, req.headers.host, req.protocol);
-    res.json(result);
-  } catch (e) {
-    db.prepare("UPDATE tasks SET publish_error = ? WHERE id = ?").run(e.message, task.id);
-    res.status(400).json({ error: e.message });
+  // O portão contra o clique duplo. Vale para foto também: dois cliques rápidos
+  // em sequência viravam dois posts.
+  if (!comecarPublicacao(task.id, req.orgId)) {
+    return res.status(409).json({ error: "Esta peça já está sendo publicada. Aguarde o aviso." });
   }
+
+  const host = req.headers.host;
+  const protocolo = req.protocol;
+  const publicar = () => publishTask(task, req.orgId, host, protocolo);
+  const aoFalhar = (e) => {
+    db.prepare("UPDATE tasks SET publish_error = ? WHERE id = ?").run(e.message, task.id);
+  };
+
+  if (!temVideo(midiasDaPeca(task))) {
+    try {
+      const result = await publicar();
+      res.json(result);
+    } catch (e) {
+      aoFalhar(e);
+      res.status(400).json({ error: e.message });
+    } finally {
+      terminarPublicacao(task.id, req.orgId);
+    }
+    return;
+  }
+
+  // Vídeo: responde já e segue trabalhando. O aviso de sucesso quem escreve é o
+  // publishTask; aqui só o de falha, que ninguém mais veria.
+  res.status(202).json({
+    ok: true, emAndamento: true,
+    aviso: "A Meta está processando o vídeo. Você recebe um aviso quando ele entrar no ar.",
+  });
+  publicar()
+    .catch((e) => {
+      aoFalhar(e);
+      db.prepare(
+        "INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, ?, ?, ?)"
+      ).run(task.client_id, task.id, `⚠️ Falha ao publicar "${task.title}": ${e.message}`, req.orgId);
+    })
+    .finally(() => terminarPublicacao(task.id, req.orgId));
 });
 
 /**

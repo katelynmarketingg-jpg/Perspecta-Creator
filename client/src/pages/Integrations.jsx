@@ -267,6 +267,17 @@ export default function Integrations() {
                         )}
                       </Stack>
                     </Stack>
+                    {/* O TOKEN TEM VALIDADE, e isso não aparecia em lugar
+                        nenhum: o primeiro sinal de que venceu era um post que
+                        não foi ao ar. Aqui ele avisa antes. */}
+                    {conn && conn.dias_para_vencer != null && conn.dias_para_vencer <= 10 && (
+                      <Alert severity={conn.dias_para_vencer <= 0 ? "error" : "warning"} sx={{ mt: 1.5 }}
+                        action={<Button size="small" color="inherit" onClick={() => conectar(c)}>Reconectar</Button>}>
+                        {conn.dias_para_vencer <= 0
+                          ? "A conexão com a Meta venceu — nada publica até reconectar."
+                          : `A conexão com a Meta vence em ${conn.dias_para_vencer} dia${conn.dias_para_vencer === 1 ? "" : "s"}.`}
+                      </Alert>
+                    )}
                     {conn?.auto_publish ? (
                       <Box sx={{ mt: 1.5, p: 1.25, borderRadius: 2, bgcolor: (t) => alpha(t.palette.warning.main, 0.1) }}>
                         <Typography variant="caption">Posts aprovados pelo cliente e com arte anexada vão ao ar sozinhos na hora marcada.</Typography>

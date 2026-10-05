@@ -851,6 +851,20 @@ ensureColumn("clients", "auto_publish_desde", "auto_publish_desde TEXT");
 // vez e não todo dia (mesmo controle do aviso de cobrança atrasada).
 ensureColumn("tasks", "aviso_atraso_em", "aviso_atraso_em TEXT");
 
+// PUBLICANDO AGORA, EM SEGUNDO PLANO.
+//
+// Vídeo não publica na hora: a Meta baixa e processa antes, e a gente espera
+// até 2 minutos por isso. Esperar DENTRO do clique estourava o tempo do
+// navegador — a pessoa via erro de demora mesmo quando o post ia ao ar depois.
+// Agora o pedido volta na hora e o trabalho segue aqui; esta coluna é quem
+// segura o portão para não publicar a mesma peça duas vezes.
+//
+// Guarda a HORA de início (não um sim/não) de propósito: se o servidor cair no
+// meio, a marca fica para trás e dá para saber que ficou pendurada, em vez de
+// travar a peça para sempre.
+ensureColumn("tasks", "publicando_desde", "publicando_desde TEXT");
+
+
 // Aceite eletrônico do contrato pelo cliente.
 ensureColumn("contracts", "signed_at", "signed_at TEXT");
 ensureColumn("contracts", "signer_name", "signer_name TEXT");
@@ -1049,6 +1063,12 @@ CREATE TABLE IF NOT EXISTS meta_pending (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `);
+
+// AQUI, e não lá em cima com as outras: ensureColumn não faz nada quando a
+// tabela ainda não existe, e `integrations` só nasce nesta altura do arquivo.
+// Guarda o último dia em que avisamos que o token da Meta está perto de vencer,
+// para o recado sair uma vez por dia e não a cada abrir da sineta.
+ensureColumn("integrations", "aviso_token_em", "aviso_token_em TEXT");
 
 // Dados do perfil do Instagram puxados na conexão (foto, nome, seguidores,
 // nº de posts) — usados pra mostrar o cliente bonitinho nas Integrações.

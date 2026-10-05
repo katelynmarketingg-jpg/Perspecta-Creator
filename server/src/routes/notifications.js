@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { authRequired } from "../auth.js";
 import { remindOverdue } from "../overdue.js";
 import { lembrarRetornos } from "../retorno-prospect.js";
+import { avisarTokensVencendo } from "../publicacao-demorada.js";
 
 const router = Router();
 router.use(authRequired);
@@ -12,6 +13,8 @@ router.get("/", (req, res) => {
   try { remindOverdue(req.orgId); } catch { /* não bloqueia a lista */ }
   // Retornos da Prospecção que chegaram a hora — um por prospect por dia.
   try { lembrarRetornos(req.orgId); } catch { /* não bloqueia a lista */ }
+  // Token da Meta perto de vencer — antes isso só aparecia como post que falhou.
+  try { avisarTokensVencendo(req.orgId); } catch { /* não bloqueia a lista */ }
   // Mostra as da equipe (user_id NULL) + as miradas neste usuário.
   const rows = db
     .prepare(

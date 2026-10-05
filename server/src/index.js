@@ -58,6 +58,7 @@ import backupRoutes from "./routes/backup.js";
 import { startBackups } from "./backup.js";
 import { startReminders } from "./reminders.js";
 import { startPublisher } from "./publisher.js";
+import { soltarPenduradas } from "./publicacao-demorada.js";
 import { startPlanMonitor } from "./plans-monitor.js";
 import { liveNotifier, sseHandler } from "./live.js";
 
@@ -217,6 +218,12 @@ app.listen(PORT, () => {
   console.log(`API rodando em http://localhost:${PORT}`);
   startReminders();  // cobra aprovações paradas
   startPublisher();  // publica os posts com hora marcada (quando ligado)
+  // Publicação que ficou no meio quando o servidor reiniciou: solta a peça e
+  // avisa, porque o post PODE ter ido ao ar — quem confere é quem olha o perfil.
+  try {
+    const soltas = soltarPenduradas();
+    if (soltas) console.log(`[publicação] ${soltas} peça(s) destravada(s) após reinício.`);
+  } catch (e) { console.error("[publicação] não deu para destravar:", e.message); }
   // Exclusão automática de arquivos DESLIGADA: a limpeza é manual, na aba
   // Arquivos. (startRetention não é mais chamado.)
   startPlanMonitor(); // vigia limites de plano e testes acabando
