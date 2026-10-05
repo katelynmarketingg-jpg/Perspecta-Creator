@@ -31,7 +31,7 @@ function nomeDoMes(ym) {
 }
 
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-const CORES = ["#EA580C", "#2563EB", "#16A34A", "#7C3AED", "#D97706", "#DC2626", "#0891B2", "#DB2777", "#65A30D", "#9333EA", "#57534E"];
+const CORES = ["#ab480a", "#2563EB", "#16A34A", "#7C3AED", "#D97706", "#DC2626", "#0891B2", "#DB2777", "#65A30D", "#9333EA", "#57534E"];
 const VAZIO = { name: "", parcela: "", amount: "", method: "", category: "", paid: false, avulso: false };
 
 // --- CSV ---

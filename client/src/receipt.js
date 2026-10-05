@@ -25,7 +25,7 @@ function corpo(texto) {
 export function receiptHtml(r) {
   if (!r) return "";
   const st = r.style || {};
-  const accent = st.accent || "#EA580C";
+  const accent = st.accent || "#ab480a";
   const alturaLogo = Number(st.logo_height) || 56;
 
   const logo = r.logo

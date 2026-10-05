@@ -245,3 +245,59 @@ test("o certinho aparece nos DOIS caminhos do perfil, não só no cliente filtra
   assert.match(agrupados, /onApagar=\{apagarPeca\}/);
   assert.match(agrupados, /onTirarDaGrade=\{mudarGrade\}/);
 });
+
+// --- O CABEÇALHO: produto na lateral, casa na barra de cima ----------------------
+//
+// Pedidos dela: "ficou esse logo perdido, pode tirar"; "onde tem o K em laranja,
+// quero que tenha como eu cadastrar o logo da empresa"; "onde tá escrito
+// perspectiva agência de marketing fique onde tá agora o logo velho"; "tira a
+// linha da parte laranja"; "corrija outros lugares que tenham laranja".
+
+const tema = readFileSync(join(aqui, "../../client/src/theme.js"), "utf8");
+
+test("o logo do escritório saiu de solto na barra — era o mesmo da lateral, repetido", () => {
+  // Ele existia como uma imagem larga à esquerda da barra (até 180px), ao lado
+  // do botão do menu. Agora o único lugar onde a marca aparece é o retrato, na
+  // ponta direita — pequeno e redondo.
+  assert.ok(!/maxWidth: 180, objectFit: "contain"/.test(layout), "a imagem larga saiu da barra");
+  const barra = layout.slice(layout.indexOf("<AppBar"), layout.indexOf("</AppBar>"));
+  const imagens = barra.match(/component="img"/g) || [];
+  assert.equal(imagens.length, 1, "uma imagem só na barra: o retrato");
+  assert.match(layout, /width: 34, height: 34, borderRadius: 2\.5, objectFit: "contain"/);
+});
+
+test("o nome da casa foi para a barra de cima, e saiu da lateral", () => {
+  const lateral = layout.slice(layout.indexOf("const drawer = ("), layout.indexOf("<List sx="));
+  assert.ok(!/org_name/.test(lateral), "a lateral ficou só com o logo do produto");
+  const barra = layout.slice(layout.indexOf("<AppBar"), layout.indexOf("</AppBar>"));
+  assert.match(barra, /org_name/);
+  assert.match(barra, /gestão da agência/);
+});
+
+test("a linha embaixo do logo, na parte terracota, saiu", () => {
+  const cabecalho = layout.slice(layout.indexOf("const drawer = ("), layout.indexOf("<List sx="));
+  assert.ok(!/<Divider/.test(cabecalho), "nenhum divisor entre o logo e o menu");
+});
+
+test("o retrato vira o logo da empresa, e dá para cadastrar por ali", () => {
+  assert.match(layout, /branding\?\.logo \? \(/, "mostra o logo quando existe");
+  assert.match(layout, /Cadastrar logo da empresa|Trocar logo da empresa/);
+  assert.match(layout, /async function trocarLogoDaEmpresa/);
+  assert.match(layout, /async function tirarLogoDaEmpresa/);
+  assert.match(layout, /isAdmin &&/, "a rota de marca exige admin — o item só aparece para quem pode");
+  // Sem logo, a inicial continua: melhor do que um buraco.
+  assert.match(layout, /\(user\?\.name \|\| "\?"\)\.slice\(0, 1\)/);
+});
+
+test("o destaque é o terracota da marca, não o laranja antigo", () => {
+  assert.match(tema, /export const ACCENT = \{ light: MARCA_TERRACOTA/);
+  assert.ok(!/light: "#EA580C"/.test(tema));
+});
+
+test("não sobrou laranja antigo cravado em tela nenhuma", () => {
+  const telas = ["Login", "PortalLogin", "SignContract", "NotFound", "Reports", "MinhasFinancas", "Distribution"];
+  for (const t of telas) {
+    const txt = readFileSync(join(aqui, `../../client/src/pages/${t}.jsx`), "utf8");
+    assert.ok(!/#EA580C|#F97316|234,\s*88,\s*12/.test(txt), `${t} ainda tem o laranja antigo`);
+  }
+});

@@ -39,8 +39,8 @@ export default function PortalLogin() {
     gridTemplateColumns: "minmax(0, 1fr)",
         bgcolor: "#000000",
         backgroundImage: `
-          radial-gradient(900px 480px at 15% -10%, rgba(234,88,12,0.28), transparent 60%),
-          radial-gradient(700px 420px at 110% 110%, rgba(234,88,12,0.14), transparent 55%)
+          radial-gradient(900px 480px at 15% -10%, rgba(171,72,10,0.28), transparent 60%),
+          radial-gradient(700px 420px at 110% 110%, rgba(171,72,10,0.14), transparent 55%)
         `,
       }}
     >

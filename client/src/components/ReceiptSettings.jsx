@@ -195,7 +195,7 @@ export default function ReceiptSettings() {
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField label="Título do documento" value={st.header || ""}
               onChange={(e) => setEstilo("header", e.target.value)} fullWidth />
-            <TextField label="Cor de destaque" type="color" value={st.accent || "#EA580C"}
+            <TextField label="Cor de destaque" type="color" value={st.accent || "#ab480a"}
               onChange={(e) => setEstilo("accent", e.target.value)} sx={{ width: 120 }} />
           </Stack>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
