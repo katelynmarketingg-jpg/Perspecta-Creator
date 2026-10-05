@@ -4,7 +4,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET, hostServeParaLink } from "../auth.js";
 import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
-  publicConnection, publishToInstagram, publishToFacebook, META_APP_ID,
+  publicConnection, publishToInstagram, publishCarouselToInstagram, publishToFacebook, META_APP_ID,
   fetchIgProfile, updateIgProfile,
   savePendingPages, getPendingPages, clearPendingPages, publicPage,
 } from "../meta.js";
@@ -197,16 +197,55 @@ router.post("/publish/:taskId", async (req, res) => {
   }
 });
 
+/**
+ * As MÍDIAS da peça, na ordem em que vão ao ar.
+ *
+ * Antes isto era um `LIMIT 1` sem ordem nenhuma. Três consequências:
+ *   · carrossel de 5 slides ia como UMA imagem, e o sistema anunciava
+ *     "publicado" — porque, para ele, tinha publicado;
+ *   · a CAPA escolhida era ignorada: subia o anexo que o banco devolvesse;
+ *   · sem ORDER BY, "o primeiro anexo" não queria dizer nada.
+ *
+ * Agora: carrossel sai das slides (media_ids, na ordem montada na Galeria);
+ * peça simples sai da capa, e só se não houver capa é que cai no anexo — e aí
+ * pelo mais antigo, que é uma ordem de verdade.
+ */
+export function midiasDaPeca(task) {
+  const daGaleria = (() => {
+    try { return JSON.parse(task.media_ids || "[]"); } catch { return []; }
+  })().map(Number).filter(Number.isFinite);
+
+  const porId = (ids) => {
+    if (!ids.length) return [];
+    const marcas = ids.map(() => "?").join(",");
+    const linhas = db.prepare(`SELECT id, mime FROM files WHERE id IN (${marcas})`).all(...ids);
+    const mapa = new Map(linhas.map((f) => [f.id, f]));
+    return ids.map((id) => mapa.get(id)).filter(Boolean);   // mantém A ORDEM das slides
+  };
+
+  if (daGaleria.length > 1) return porId(daGaleria);
+  if (daGaleria.length === 1) return porId(daGaleria);
+
+  if (task.cover_file_id) {
+    const capa = db.prepare("SELECT id, mime FROM files WHERE id = ?").get(task.cover_file_id);
+    if (capa) return [capa];
+  }
+  // task_attachments não tem id próprio (a chave é task_id + file_id), então a
+  // ordem estável possível é a do arquivo: o mais antigo primeiro.
+  const anexo = db.prepare(
+    `SELECT f.id, f.mime FROM task_attachments ta JOIN files f ON f.id = ta.file_id
+      WHERE ta.task_id = ? ORDER BY f.id LIMIT 1`
+  ).get(task.id);
+  return anexo ? [anexo] : [];
+}
+
 /** Publica uma tarefa nas redes do cliente. Usado pelo botão e pelo automático. */
 export async function publishTask(task, orgId, host, protocol = "https") {
   const conn = getConnection(task.client_id, orgId);
   if (!conn) throw new Error("Este cliente não tem a Meta conectada.");
 
-  const anexo = db.prepare(
-    `SELECT f.id, f.mime FROM task_attachments ta JOIN files f ON f.id = ta.file_id
-     WHERE ta.task_id = ? LIMIT 1`
-  ).get(task.id);
-  if (!anexo) throw new Error("A tarefa não tem arte anexada.");
+  const midias = midiasDaPeca(task);
+  if (!midias.length) throw new Error("A tarefa não tem arte anexada.");
 
   // A Meta busca a imagem por URL, então ela precisa estar acessível sem login.
   // Em vez de abrir os arquivos, geramos um link assinado que vale 1 hora.
@@ -217,23 +256,35 @@ export async function publishTask(task, orgId, host, protocol = "https") {
     ? process.env.PUBLIC_URL
     : (host ? `${protocol}://${host}` : "");
   if (base && !base.startsWith("http")) base = `https://${base}`;
-  const ticket = jwt.sign({ file_id: anexo.id, org_id: orgId }, JWT_SECRET, { expiresIn: "2h" });
-  const mediaUrl = `${base}/api/files/shared/${ticket}`;
+  const enderecoDe = (id) =>
+    `${base}/api/files/shared/${jwt.sign({ file_id: id, org_id: orgId }, JWT_SECRET, { expiresIn: "2h" })}`;
+  const itens = midias.map((f) => ({
+    url: enderecoDe(f.id),
+    isVideo: (f.mime || "").startsWith("video"),
+  }));
   const caption = task.client_caption || task.caption || "";
-  const isVideo = (anexo.mime || "").startsWith("video");
 
   const destino = conn.ig_user_id ? "instagram" : "facebook";
-  const postId = destino === "instagram"
-    ? await publishToInstagram({ conn, mediaUrl, caption, isVideo })
-    : await publishToFacebook({ conn, mediaUrl, caption, isVideo });
+  let postId;
+  if (itens.length > 1) {
+    // Carrossel só existe no Instagram. Na página do Facebook, vai a primeira.
+    postId = destino === "instagram"
+      ? await publishCarouselToInstagram({ conn, itens, caption })
+      : await publishToFacebook({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo });
+  } else {
+    postId = destino === "instagram"
+      ? await publishToInstagram({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo })
+      : await publishToFacebook({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo });
+  }
 
   db.prepare(
     "UPDATE tasks SET published_at = datetime('now'), external_post_id = ?, publish_error = NULL WHERE id = ?"
   ).run(postId, task.id);
+  const quantas = itens.length > 1 ? ` (carrossel de ${itens.length} slides)` : "";
   db.prepare("INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, ?, ?, ?)")
-    .run(task.client_id, task.id, `🚀 "${task.title}" publicado no ${destino}.`, orgId);
+    .run(task.client_id, task.id, `🚀 "${task.title}" publicado no ${destino}${quantas}.`, orgId);
 
-  return { ok: true, destino, post_id: postId };
+  return { ok: true, destino, post_id: postId, slides: itens.length };
 }
 
 export default router;

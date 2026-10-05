@@ -9,6 +9,9 @@ export const META_APP_SECRET = process.env.META_APP_SECRET || "";
 export const META_REDIRECT_URI = process.env.META_REDIRECT_URI || "";
 const GRAPH = "https://graph.facebook.com/v21.0";
 
+/** Teto do Instagram para carrossel. Passar disso, a Meta recusa a peça toda. */
+export const MAX_SLIDES = 10;
+
 export function metaConfigured() {
   return Boolean(META_APP_ID && META_APP_SECRET && META_REDIRECT_URI);
 }
@@ -228,6 +231,52 @@ export async function publishToInstagram({ conn, mediaUrl, caption, isVideo }) {
 
   const published = await graph(`/${conn.ig_user_id}/media_publish`, {
     creation_id: container.id,
+    access_token: conn.access_token,
+  }, { method: "POST" });
+
+  return published.id;
+}
+
+/**
+ * Publica um CARROSSEL no Instagram (2 a 10 slides, na ordem).
+ *
+ * Faltava por inteiro: o caminho de publicação não tinha uma linha sequer sobre
+ * carrossel. Uma peça de 5 slides ia ao ar como UMA imagem — e o sistema dizia
+ * "publicado", porque do ponto de vista dele tinha publicado mesmo. Quem monta
+ * carrossel na Galeria toda semana só descobriria olhando o perfil.
+ *
+ * A Meta pede três passos: um container por slide (marcado como item de
+ * carrossel), um container-pai com a lista dos filhos, e só então o publicar.
+ */
+export async function publishCarouselToInstagram({ conn, itens, caption }) {
+  if (!conn?.ig_user_id) throw new Error("Este cliente não tem Instagram profissional conectado.");
+  if (itens.length < 2) throw new Error("Um carrossel precisa de pelo menos 2 slides.");
+  if (itens.length > MAX_SLIDES) {
+    throw new Error(`O Instagram aceita no máximo ${MAX_SLIDES} slides por carrossel — esta peça tem ${itens.length}.`);
+  }
+
+  // Um container por slide. A legenda vai só no pai.
+  const filhos = [];
+  for (const item of itens) {
+    const params = item.isVideo
+      ? { media_type: "VIDEO", video_url: item.url, is_carousel_item: true, access_token: conn.access_token }
+      : { image_url: item.url, is_carousel_item: true, access_token: conn.access_token };
+    const c = await graph(`/${conn.ig_user_id}/media`, params, { method: "POST" });
+    filhos.push({ id: c.id, isVideo: item.isVideo });
+  }
+
+  // Vídeo precisa terminar de processar antes de entrar no pai.
+  for (const f of filhos) if (f.isVideo) await waitForContainer(f.id, conn.access_token);
+
+  const pai = await graph(`/${conn.ig_user_id}/media`, {
+    media_type: "CAROUSEL",
+    children: filhos.map((f) => f.id).join(","),
+    caption: caption || "",
+    access_token: conn.access_token,
+  }, { method: "POST" });
+
+  const published = await graph(`/${conn.ig_user_id}/media_publish`, {
+    creation_id: pai.id,
     access_token: conn.access_token,
   }, { method: "POST" });
 
