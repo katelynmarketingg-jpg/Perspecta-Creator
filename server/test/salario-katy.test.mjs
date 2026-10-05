@@ -179,6 +179,15 @@ const auth = { "content-type": "application/json",
 const chamar = (m, c, corpo) => fetch(`${B}${c}`, {
   method: m, headers: auth, body: corpo ? JSON.stringify(corpo) : undefined });
 
+// A PONTE COM O FINANCEIRO AGORA É ESCOLHA DE CADA UM, E NASCE DESLIGADA —
+// Minhas Finanças é tela privada. Estes testes são justamente sobre a ponte,
+// então o cenário liga a chave. O padrão (desligado) tem testes próprios em
+// financas-privadas.test.mjs.
+db.prepare(
+  `INSERT INTO personal_finance_config (org_id, user_id, salary, ponte_financeiro) VALUES (?, ?, 0, 1)
+   ON CONFLICT(org_id, user_id) DO UPDATE SET ponte_financeiro = 1`
+).run(org, uid);
+
 const MES = "2026-09";
 const linhaDoSalario = () => db.prepare(
   `SELECT * FROM financial_entries

@@ -30,6 +30,14 @@ const uid = db.prepare(
 ).run(hashPassword("x"), org).lastInsertRowid;
 const cli = db.prepare("INSERT INTO clients (name,status,org_id) VALUES ('Fulano','active',?)").run(org).lastInsertRowid;
 
+// Dois destes testes conferem as CONTAS PESSOAIS dentro da projeção do
+// Financeiro — e isso só acontece com a ponte ligada, que agora é escolha de
+// cada um e nasce desligada (Minhas Finanças é tela privada). O cenário liga.
+db.prepare(
+  `INSERT INTO personal_finance_config (org_id, user_id, salary, ponte_financeiro) VALUES (?, ?, 0, 1)
+   ON CONFLICT(org_id, user_id) DO UPDATE SET ponte_financeiro = 1`
+).run(org, uid);
+
 const app = express();
 app.use(express.json());
 app.use("/api/financial", financialRoutes);

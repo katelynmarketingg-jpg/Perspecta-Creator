@@ -90,7 +90,9 @@ function terminadasAntesDe(org, user, ym) {
  * entra: não sai de cartão, e o "Salário Katy" é a soma DESTAS contas, entraria
  * duas vezes.
  */
-function daPerspectivaNoMes(orgId, ym, nomeDoDono) {
+function daPerspectivaNoMes(orgId, ym, nomeDoDono, userId) {
+  // Ponte desligada: a tela é só da pessoa. Despesa da empresa não entra aqui.
+  if (!ponteLigada(orgId, userId)) return [];
   const topicoSalario = topicoDoSalario(nomeDoDono);
   return db.prepare(
     `SELECT id, description, amount, category, card, status, paid_amount, due_date, impagavel
@@ -127,9 +129,10 @@ router.get("/", (req, res) => {
   const rows = db.prepare(
     "SELECT * FROM personal_finance WHERE org_id=? AND user_id=? AND ym=? ORDER BY position, id"
   ).all(req.orgId, uid(req), ym);
-  const cfg = db.prepare("SELECT salary FROM personal_finance_config WHERE org_id=? AND user_id=?").get(req.orgId, uid(req));
+  const cfg = db.prepare("SELECT salary, ponte_financeiro FROM personal_finance_config WHERE org_id=? AND user_id=?").get(req.orgId, uid(req));
   const salary = cfg?.salary || 0;
-  const daCasa = daPerspectivaNoMes(req.orgId, ym, req.user.name);
+  const ponte = !!cfg?.ponte_financeiro;
+  const daCasa = daPerspectivaNoMes(req.orgId, ym, req.user.name, uid(req));
   const minhas = rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel, avulso: !!r.avulso }));
 
   // O resumo é sobre o dinheiro DELA: a conta da empresa entra na fatura, mas
@@ -144,6 +147,7 @@ router.get("/", (req, res) => {
 
   res.json({
     ym, salary, preenchido_de,
+    ponte_financeiro: ponte,
     entries: [...minhas, ...daCasa],
     terminadas: terminadasAntesDe(req.orgId, uid(req), ym),
     summary: resumo,
@@ -180,6 +184,12 @@ router.put("/config", (req, res) => {
     `INSERT INTO personal_finance_config (org_id, user_id, salary) VALUES (?, ?, ?)
      ON CONFLICT(org_id, user_id) DO UPDATE SET salary = excluded.salary`
   ).run(req.orgId, uid(req), salary);
+  // A ponte com o Financeiro da empresa: só mexe se vier no corpo, para salvar
+  // o lazer não desligar a ponte de quem a tinha ligada.
+  if (req.body?.ponte_financeiro !== undefined) {
+    db.prepare("UPDATE personal_finance_config SET ponte_financeiro = ? WHERE org_id=? AND user_id=?")
+      .run(req.body.ponte_financeiro ? 1 : 0, req.orgId, uid(req));
+  }
   // O lazer entra no salário dela: mexer aqui refaz a linha do Financeiro.
   // Sem mês no corpo, vale o mês aberto na tela; sem ele, o mês de hoje.
   const ym = (req.body?.ym || new Date().toISOString().slice(0, 7)).slice(0, 7);
@@ -207,6 +217,21 @@ function parcelaInfo(parcela) {
 // Gastos da categoria "Perspectiva" são da empresa: não ficam nas finanças
 // pessoais, vão pro Financeiro (despesas, compartilhado).
 const isPerspectiva = (cat) => /perspec/i.test(String(cat ?? ""));
+
+/**
+ * A PONTE COM O FINANCEIRO DA EMPRESA ESTÁ LIGADA PARA ESTA PESSOA?
+ *
+ * Desligada (o padrão), Minhas Finanças é uma tela fechada: nada do que se
+ * lança aqui vira linha nas despesas da empresa, e as despesas da empresa não
+ * entram aqui. Ligada, volta o comportamento antigo — que faz sentido para
+ * quem é dona da casa e tira o próprio dinheiro aos poucos.
+ */
+export function ponteLigada(orgId, userId) {
+  const cfg = db.prepare(
+    "SELECT ponte_financeiro FROM personal_finance_config WHERE org_id=? AND user_id=?"
+  ).get(orgId, userId);
+  return !!cfg?.ponte_financeiro;
+}
 
 const insertExpense = db.prepare(
   `INSERT INTO financial_entries (type, description, amount, client_id, category, status, due_date, paid_at,
@@ -282,6 +307,19 @@ function mandarParaOFinanceiro(orgId, userId, linha) {
  */
 export function sincronizaSalarioKaty(orgId, userId, ym, nome) {
   const topico = topicoDoSalario(nome);
+
+  // PONTE DESLIGADA: nada do pessoal aparece nas despesas da empresa. E a linha
+  // que porventura ficou de antes sai daqui — menos se já foi paga, que é
+  // dinheiro que saiu do caixa de verdade e não pode sumir dos livros.
+  if (!ponteLigada(orgId, userId)) {
+    db.prepare(
+      `DELETE FROM financial_entries
+        WHERE org_id=? AND type='expense' AND description=? AND category=?
+          AND strftime('%Y-%m', due_date)=? AND status <> 'paid'`
+    ).run(orgId, topico, topico, ym);
+    return { topico, total: 0, ponte: false };
+  }
+
   const linhas = db.prepare(
     "SELECT amount, paid, category FROM personal_finance WHERE org_id=? AND user_id=? AND ym=?"
   ).all(orgId, userId, ym).map((l) => ({ ...l, paid: !!l.paid }));

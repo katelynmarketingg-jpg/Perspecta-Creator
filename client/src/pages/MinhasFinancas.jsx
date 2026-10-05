@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, Button, IconButton, Chip, TextField,
   MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Checkbox, Collapse, Tooltip, Alert,
-  Autocomplete,
+  Autocomplete, Switch, FormControlLabel, Divider,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -138,6 +138,18 @@ export default function MinhasFinancas() {
 
   // O campo guarda-se como `salary` no servidor por história; na tela é o
   // lazer do mês — quanto ela vai tirar para si do que sobrou.
+  // Ligar/desligar a ponte. Desligar tira do Financeiro a linha automática do
+  // mês (a que ainda não foi paga) — por isso recarrega as duas pontas.
+  async function alternarPonte(ligada) {
+    if (ligada && !confirm(
+      "Ligar a ponte com o Financeiro da empresa?\n\n"
+      + "O TOTAL do seu mês passa a aparecer como uma linha \"Salário\" nas despesas da empresa, "
+      + "e quem tem acesso ao Financeiro vê esse valor. Os itens continuam privados."
+    )) return;
+    await api.put("/personal-finance/config", { salary: Number(salaryDraft) || 0, ym, ponte_financeiro: ligada });
+    load();
+  }
+
   async function salvarSalario() {
     await api.put("/personal-finance/config", { salary: Number(salaryDraft) || 0, ym });
     load();
@@ -258,6 +270,29 @@ export default function MinhasFinancas() {
             <Typography variant="caption" color="text.secondary">
               quanto você vai pegar do que sobrou
             </Typography>
+
+            {/* A PONTE COM O FINANCEIRO DA EMPRESA — desligada por padrão.
+                Esta tela é sua. Ligada, ela conversa com o Financeiro nos dois
+                sentidos: o total do seu mês vira uma linha lá (que a equipe vê)
+                e as despesas da empresa no cartão aparecem aqui. Faz sentido
+                para quem é dona da casa e tira o próprio dinheiro aos poucos —
+                e não faz para mais ninguém. */}
+            <Divider sx={{ my: 1.5 }} />
+            <FormControlLabel
+              sx={{ m: 0, alignItems: "flex-start" }}
+              control={<Switch size="small" checked={!!data?.ponte_financeiro} onChange={(e) => alternarPonte(e.target.checked)} sx={{ mr: 1 }} />}
+              label={
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>
+                    Ligar com o Financeiro da empresa
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", lineHeight: 1.3 }}>
+                    {data?.ponte_financeiro
+                      ? "O total do seu mês aparece como “Salário” nas despesas da empresa, e a equipe vê esse valor."
+                      : "Desligado: nada daqui aparece no Financeiro da empresa. Esta tela é só sua."}
+                  </Typography>
+                </Box>
+              } />
           </CardContent>
         </Card>
         {/* A PERGUNTA DO MÊS: "o que falta pagar do meu?"
