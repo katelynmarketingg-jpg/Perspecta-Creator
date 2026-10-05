@@ -59,28 +59,31 @@ export function ordenarFeed(posts = []) {
 }
 
 /**
- * O que a grade do perfil mostra.
+ * O que a grade do perfil mostra: tudo, menos o que ela mandou sair.
  *
- * Sai da grade o que ELA tirou de lá: a peça que ela marcou à mão como postada
- * (o certinho laranja, que grava external_post_id = 'manual') e a que ela já
- * conferiu. Tirar da lista não mexe na `position` de ninguém — as outras
- * continuam exatamente onde estavam.
+ * TER SIDO POSTADO E SAIR DA GRADE SÃO DUAS COISAS. Palavras dela: "o laranja é
+ * pra tirar da grade, porque pode já ter sido postado e ainda assim eu não
+ * querer tirar dali". Antes marcar "já postei" escondia a peça; agora só o
+ * botão laranja esconde, e o certinho só conta se ela entrou.
  *
- * O QUE O SISTEMA PUBLICOU SOZINHO FICA. Palavras dela: "não precisa sair de
- * lá, só outro botão confirmando que postou". Antes sumia calado, e sumir era
- * a única notícia de que tinha dado certo. Agora fica, com o certinho verde —
- * e um clique nele é o "já vi, pode sair".
+ * Tirar da lista não mexe na `position` de ninguém — as outras continuam
+ * exatamente onde estavam.
  */
 export function aindaNoPerfil(posts = []) {
-  return posts.filter((p) => !(marcadaNaMao(p) || p.conferido_em));
+  return posts.filter((p) => !p.saiu_da_grade_em);
 }
 
-/** Foi ela que disse que postou (certinho laranja), não o sistema. */
+/** Já entrou no perfil — não importa se pelo sistema ou pela mão dela. */
+export function jaEntrou(p) {
+  return Boolean(p.published_at);
+}
+
+/** Foi ela que disse que postou, não o sistema. É o que dá para desfazer. */
 export function marcadaNaMao(p) {
   return Boolean(p.published_at) && p.external_post_id === "manual";
 }
 
-/** O sistema publicou esta — é o que ganha o selo verde na grade. */
+/** O sistema publicou esta — muda só o que o balãozinho diz. */
 export function publicadaPeloSistema(p) {
   return Boolean(p.published_at) && p.external_post_id !== "manual";
 }

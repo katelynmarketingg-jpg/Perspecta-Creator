@@ -117,7 +117,7 @@ router.get("/", async (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
+              t.approval_status, t.client_note, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -136,7 +136,7 @@ router.get("/", async (req, res) => {
   const scheduled = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
-              t.approval_status, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, s.is_done AS stage_done,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -156,7 +156,7 @@ router.get("/", async (req, res) => {
   const approved = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
@@ -183,7 +183,7 @@ router.get("/", async (req, res) => {
   const waiting = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
+              t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
@@ -203,7 +203,7 @@ router.get("/", async (req, res) => {
   const programmed = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -312,6 +312,9 @@ router.post("/:id/schedule", (req, res) => {
 // POST /api/distribution/:id/mark-posted — marca (ou desmarca) que a peça já foi
 // postada MANUALMENTE no app (ex.: Reels com música do Edits). Não chama a API
 // da Meta; só registra a data e marca a origem como "manual".
+//
+// E SÓ ISSO: a peça continua na grade do perfil. Tirar da grade é a outra
+// decisão, do botão laranja (/sair-da-grade).
 router.post("/:id/mark-posted", (req, res) => {
   const task = db.prepare("SELECT id FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });
@@ -328,22 +331,27 @@ router.post("/:id/mark-posted", (req, res) => {
   res.json({ ok: true, posted: marcar });
 });
 
-// POST /api/distribution/:id/conferir — "já vi que este saiu, pode sair da grade".
+// POST /api/distribution/:id/sair-da-grade — o botão LARANJA do perfil.
 //
-// É o clique no certinho VERDE, o que o sistema publicou sozinho. Diferente do
-// laranja: aquele DIZ que postou (e grava published_at); este só reconhece o
-// que já aconteceu. Por isso não encosta no external_post_id — o id do post lá
-// no Instagram fica onde está.
-router.post("/:id/conferir", (req, res) => {
-  const task = db.prepare("SELECT id, published_at FROM tasks WHERE id = ? AND org_id = ?")
+// TIRAR DA GRADE NÃO É "JÁ POSTEI", E NUNCA FOI A MESMA DECISÃO.
+//
+// Palavras dela: "o laranja é pra tirar da grade, porque pode já ter sido
+// postado e ainda assim eu não querer tirar dali". Ou seja: publicar e sumir da
+// grade são escolhas independentes, e esta rota cuida só da segunda. Não pede
+// que a peça tenha sido publicada, não grava published_at e não encosta no
+// external_post_id.
+//
+// Sair da lista não mexe na `position` de ninguém: o resto do perfil fica
+// exatamente onde estava. E volta com um clique.
+router.post("/:id/sair-da-grade", (req, res) => {
+  const task = db.prepare("SELECT id FROM tasks WHERE id = ? AND org_id = ?")
     .get(req.params.id, req.orgId);
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });
-  if (!task.published_at) return res.status(400).json({ error: "Esta peça ainda não foi publicada." });
 
-  const conferir = req.body?.conferido !== false; // padrão: sim
-  db.prepare("UPDATE tasks SET conferido_em = ? WHERE id = ? AND org_id = ?")
-    .run(conferir ? agoraNaAgencia() : null, req.params.id, req.orgId);
-  res.json({ ok: true, conferido: conferir });
+  const sair = req.body?.fora !== false; // padrão: tirar
+  db.prepare("UPDATE tasks SET saiu_da_grade_em = ? WHERE id = ? AND org_id = ?")
+    .run(sair ? agoraNaAgencia() : null, req.params.id, req.orgId);
+  res.json({ ok: true, fora: sair });
 });
 
 // POST /api/distribution/reorder — reordena o feed: recebe a nova data/hora de

@@ -17,6 +17,7 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import ViewComfyIcon from "@mui/icons-material/ViewComfy";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import MovieIcon from "@mui/icons-material/Movie";
 import CalendarViewMonthIcon from "@mui/icons-material/CalendarViewMonth";
@@ -33,7 +34,7 @@ import api from "../api/client.js";
 import { makeThumbnail } from "../upload/thumbnail.js";
 import { ligarRolagemAoArrastar } from "../upload/rolar-arrastando.js";
 import { agruparPosts } from "../upload/unir-carrossel.js";
-import { ordenarFeed, reencaixar, aindaNoPerfil, publicadaPeloSistema } from "../feed-ordem.js";
+import { ordenarFeed, reencaixar, aindaNoPerfil, jaEntrou, marcadaNaMao, publicadaPeloSistema } from "../feed-ordem.js";
 import { dataLocal } from "../data-local.js";
 import { medirImagem, fatiarEmSlides, sugerirSlides, LARGURA_ALVO } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
@@ -1974,6 +1975,15 @@ function FeedThumb({ fileId, comecoDaTira = false, streamUrl = null, previaUrl =
 // peça marcada para o dia 1º aparecia como se fosse do mês anterior.
 const dtISO = (v) => dataLocal(v);
 
+// A forma dos botões do canto de cima à direita — o certinho e o laranja.
+// Cada um define a sua cor e o seu hover; a forma é a mesma para os dois
+// parecerem o que são: dois botões irmãos, com assuntos diferentes.
+const SELO_REDONDO = {
+  width: 22, height: 22, borderRadius: "50%", display: "grid", placeItems: "center",
+  color: "#fff", border: "2px solid #fff", cursor: "pointer",
+  boxShadow: "0 1px 4px rgba(0,0,0,.35)", transition: "all .12s ease",
+};
+
 // Os selinhos redondos que ficam por cima do quadro da grade.
 const SELO_DO_QUADRO = {
   width: 22, height: 22, borderRadius: "50%", display: "grid", placeItems: "center",
@@ -1986,7 +1996,7 @@ const SELO_DO_QUADRO = {
 // paradas — cada peça mantém a sua. Sem data ou no passado aparece em vermelho
 // (clique para ajustar). O 1º fica em cima à esquerda; enche → direita → baixo.
 function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorData, onMarcarPostado,
-                          onApagar, onTirarDaGrade, onConferir, titulo }) {
+                          onApagar, onTirarDaGrade, onSairDaGrade, titulo }) {
   // O PERFIL só tem o que já existe. Peça sem arte não é um quadrado cinza no
   // Instagram — ela simplesmente não está lá. Deixá-la na grade dava um perfil
   // falso, cheio de buracos que ninguém vai ver.
@@ -2107,43 +2117,58 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
                   previaUrl={previaDoArquivo(p, p.cover_file_id || p.file_id)}
                   ehVideo={pecaEhVideo(p)}
                   comecoDaTira={p.content_type === "carrossel"} />
-                {/* O CERTINHO, no canto de cima à direita. Tem duas cores, e a
-                    cor é a notícia:
+                {/* OS DOIS BOTÕES DO CANTO DE CIMA À DIREITA.
+                    Contam coisas diferentes, e por isso são dois:
 
-                    LARANJA — ainda não saiu. Clicar é ela dizendo "já postei
-                    esse na mão"; a peça sai da grade (e o resto não perde a
-                    ordem, porque sair não mexe na posição de ninguém).
+                    O CERTINHO — esta peça JÁ ENTROU? Verde cheio: entrou.
+                    Verde vazado: ainda não, clique quando postar na mão.
 
-                    VERDE — o sistema publicou. Já nasce marcado: era o pedido
-                    dela, "que o botão de confirmar seja marcado". A peça FICA na
-                    grade; clicar é só o "já vi, pode sair". */}
-                {onMarcarPostado && (publicadaPeloSistema(p) ? (
-                  <Tooltip title={`Publicado pelo sistema${p.published_at ? ` em ${dtISO(p.published_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""} — clique para tirar da grade`}>
-                    <Box role="button" aria-label={`"${p.title}" foi publicado — tirar da grade`}
-                      onClick={(e) => { e.stopPropagation(); onConferir?.(p); }}
-                      onDragStart={(e) => e.preventDefault()}
-                      sx={{ position: "absolute", top: 5, right: 5, width: 22, height: 22, borderRadius: "50%",
-                            display: "grid", placeItems: "center",
-                            bgcolor: "success.main", color: "#fff", border: "2px solid #fff", cursor: "pointer",
-                            boxShadow: "0 1px 4px rgba(0,0,0,.35)",
-                            "&:hover": { transform: "scale(1.12)" }, transition: "all .12s ease" }}>
-                      <CheckIcon sx={{ fontSize: 14 }} />
-                    </Box>
-                  </Tooltip>
-                ) : (
-                  <Tooltip title="Confirmar que entrou mesmo — sai da grade do perfil">
-                    <Box role="button" aria-label={`Confirmar que "${p.title}" já foi postado`}
-                      onClick={(e) => { e.stopPropagation(); onMarcarPostado(p); }}
-                      onDragStart={(e) => e.preventDefault()}
-                      sx={{ position: "absolute", top: 5, right: 5, width: 22, height: 22, borderRadius: "50%",
-                            display: "grid", placeItems: "center",
-                            bgcolor: "warning.main", color: "#fff", border: "2px solid #fff", cursor: "pointer",
-                            boxShadow: "0 1px 4px rgba(0,0,0,.35)", opacity: 0.85,
-                            "&:hover": { opacity: 1, transform: "scale(1.12)" }, transition: "all .12s ease" }}>
-                      <CheckIcon sx={{ fontSize: 14 }} />
-                    </Box>
-                  </Tooltip>
-                ))}
+                    O LARANJA — tirar da grade. Palavras dela: "pode já ter
+                    sido postado e ainda assim eu não querer tirar dali". Por
+                    isso é um botão próprio, e não o outro lado do certinho. */}
+                {onMarcarPostado && (
+                  <Stack direction="row" spacing={0.5} sx={{ position: "absolute", top: 5, right: 5 }}>
+                    {onSairDaGrade && (
+                      <Tooltip title="Tirar da grade do perfil — não apaga a peça">
+                        <Box role="button" aria-label={`Tirar "${p.title}" da grade do perfil`}
+                          onClick={(e) => { e.stopPropagation(); onSairDaGrade(p); }}
+                          onDragStart={(e) => e.preventDefault()}
+                          sx={{ ...SELO_REDONDO, bgcolor: "warning.main", opacity: 0.85,
+                                "&:hover": { opacity: 1, transform: "scale(1.12)" } }}>
+                          <VisibilityOffIcon sx={{ fontSize: 13 }} />
+                        </Box>
+                      </Tooltip>
+                    )}
+                    {jaEntrou(p) ? (
+                      <Tooltip title={`${publicadaPeloSistema(p) ? "Publicado pelo sistema" : "Marcado como postado"}`
+                        + `${p.published_at ? ` em ${dtISO(p.published_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}`
+                        + `${marcadaNaMao(p) ? " — clique para desmarcar" : ""}`}>
+                        <Box role="button" aria-label={`"${p.title}" já entrou no perfil`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (marcadaNaMao(p)) onMarcarPostado(p, false);
+                          }}
+                          onDragStart={(e) => e.preventDefault()}
+                          sx={{ ...SELO_REDONDO, bgcolor: "success.main",
+                                cursor: marcadaNaMao(p) ? "pointer" : "default",
+                                "&:hover": { transform: marcadaNaMao(p) ? "scale(1.12)" : "none" } }}>
+                          <CheckIcon sx={{ fontSize: 14 }} />
+                        </Box>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Marcar que este já entrou no perfil">
+                        <Box role="button" aria-label={`Marcar que "${p.title}" já foi postado`}
+                          onClick={(e) => { e.stopPropagation(); onMarcarPostado(p, true); }}
+                          onDragStart={(e) => e.preventDefault()}
+                          sx={{ ...SELO_REDONDO, bgcolor: "rgba(255,255,255,0.9)", color: "success.main",
+                                borderColor: "success.main",
+                                "&:hover": { bgcolor: "#fff", transform: "scale(1.12)" } }}>
+                          <CheckIcon sx={{ fontSize: 14 }} />
+                        </Box>
+                      </Tooltip>
+                    )}
+                  </Stack>
+                )}
                 {/* APAGAR e TIRAR DA GRADE, do lado esquerdo para não brigar
                     com o certinho. Apagar tira a peça da Distribuição de vez;
                     tirar da grade só a move para a gradinha de reels, e volta
@@ -2295,22 +2320,24 @@ export default function Distribution() {
   // JÁ FOI POSTADO: a peça sai da grade do perfil. Não mexe na ordem de
   // ninguém — as outras mantêm a posição que têm. E dá para voltar atrás no
   // editor da peça, que tem o mesmo interruptor.
-  // O clique no certinho VERDE. Não diz "postei" — isso o sistema já sabe e já
-  // gravou. Diz "já vi", e só por isso a peça sai da grade.
-  async function conferirPostado(p) {
+  // O BOTÃO LARANJA. Só tira o quadrado da grade — não diz nada sobre o post
+  // ter entrado ou não, que é o assunto do certinho.
+  async function sairDaGrade(p) {
     try {
-      await api.post(`/distribution/${p.id}/conferir`, { conferido: true });
-      flash("Conferido — saiu da grade do perfil.", "success");
+      await api.post(`/distribution/${p.id}/sair-da-grade`, { fora: true });
+      flash("Saiu da grade do perfil. A peça continua na Distribuição.", "success");
       load();
     } catch (e) {
-      flash(e.response?.data?.error || "Não deu para conferir.", "error");
+      flash(e.response?.data?.error || "Não deu para tirar da grade.", "error");
     }
   }
 
-  async function marcarPostado(p) {
+  // O CERTINHO. Diz se a peça entrou no perfil, e mais nada: ela CONTINUA na
+  // grade depois de marcada.
+  async function marcarPostado(p, postado = true) {
     try {
-      await api.post(`/distribution/${p.id}/mark-posted`, { posted: true });
-      flash("Marcado como já postado — saiu da grade do perfil.", "success");
+      await api.post(`/distribution/${p.id}/mark-posted`, { posted: postado });
+      flash(postado ? "Marcado como já postado." : "Voltou para pendente.", "success");
       load({ silent: true });
     } catch (e) {
       flash(e.response?.data?.error || "Não foi possível marcar.", "error");
@@ -2774,7 +2801,7 @@ export default function Distribution() {
           <Card><CardContent>
             <ReorderableFeed posts={feedPosts} onSelect={setSelected} onReorder={reorderPosition}
                   onVoltarPorData={voltarPorData} onMarcarPostado={marcarPostado}
-                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade} onConferir={conferirPostado}
+                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade} onSairDaGrade={sairDaGrade}
               titulo="Como o perfil vai ficar" />
           </CardContent></Card>
         ) : feedGroups.length === 0 ? (
@@ -2795,7 +2822,7 @@ export default function Distribution() {
               <Card key={g.clientId}><CardContent>
                 <ReorderableFeed posts={g.posts} onSelect={setSelected} onReorder={reorderPosition}
                   onVoltarPorData={voltarPorData} onMarcarPostado={marcarPostado}
-                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade} onConferir={conferirPostado}
+                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade} onSairDaGrade={sairDaGrade}
                   titulo={`Perfil — ${g.clientName}`} />
               </CardContent></Card>
             ))}
