@@ -419,6 +419,20 @@ ensureColumn("personal_finance", "import_id", "import_id INTEGER");             
 // contrário — conta de casa é conta que volta todo mês, e obrigar a escrever
 // "Mensal" em cada uma fazia o mês novo abrir vazio.
 ensureColumn("personal_finance", "avulso", "avulso INTEGER NOT NULL DEFAULT 0");
+
+// A PONTE ENTRE O PESSOAL E O FINANCEIRO DA EMPRESA — DESLIGADA POR PADRÃO.
+//
+// Minhas Finanças é a tela privada de cada pessoa. Só que ela conversava com o
+// Financeiro da empresa nos dois sentidos, sem ninguém pedir:
+//   · o TOTAL do mês de cada um virava uma linha "Salário <Nome>" nas despesas
+//     da empresa — e o Financeiro não é restrito, todo o time vê;
+//   · e as despesas da empresa com cartão preenchido apareciam dentro do
+//     pessoal de TODO MUNDO, inclusive as pagas no cartão de outra pessoa.
+//
+// Isso nasceu quando a agência era uma pessoa só, onde "o dinheiro da empresa"
+// e "o meu" quase se confundiam. Com equipe, vaza dos dois lados. Agora a ponte
+// é uma escolha de cada um, e começa desligada: o padrão é privado.
+ensureColumn("personal_finance_config", "ponte_financeiro", "ponte_financeiro INTEGER NOT NULL DEFAULT 0");
 // Parcelas de um serviço do cliente: 1 = à vista/mensal; N = parcelado em N vezes
 // (ex.: LP de R$1.000 em 4x de R$250). billing: 'mensal' (recorrente) | 'avulso'.
 ensureColumn("client_services", "installments", "installments INTEGER NOT NULL DEFAULT 1");
@@ -1453,6 +1467,41 @@ db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
     db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
   })();
   if (apagadas) console.log(`Limpeza: ${apagadas} cópia(s) de parcela final removida(s).`);
+})();
+
+// ---------------------------------------------------------------------------
+// LIMPEZA: tira das despesas da empresa as linhas "Salário <Nome>" que foram
+// geradas sozinhas a partir das finanças PESSOAIS.
+//
+// Elas publicavam, para o time inteiro, quanto cada pessoa gastou no mês. A
+// ponte passou a ser desligada por padrão, então estas linhas não deviam mais
+// existir — mas as que já estão lá não somem sozinhas.
+//
+// Só as PENDENTES. A que foi marcada como paga representa dinheiro que saiu de
+// verdade do caixa: apagar falsearia os livros. Essa fica, e para de ser
+// reescrita.
+//
+// A linha automática é reconhecida pelo que a criou: descrição "Salário X" com
+// a categoria IGUAL à descrição. Um "Salário Bruno" lançado na mão, com
+// categoria "Salários", não casa — a folha de pagamento de verdade não é
+// tocada. Roda uma vez só.
+// ---------------------------------------------------------------------------
+(() => {
+  const CHAVE = "salario-automatico-fora-do-financeiro-2026-10";
+  if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE)) return;
+
+  const info = db.prepare(
+    `DELETE FROM financial_entries
+      WHERE type = 'expense'
+        AND description LIKE 'Salário %'
+        AND category = description
+        AND status <> 'paid'`
+  );
+  db.transaction(() => {
+    const n = info.run().changes;
+    db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
+    if (n) console.log(`Privacidade: ${n} linha(s) de salário automático retirada(s) do Financeiro.`);
+  })();
 })();
 
 export default db;

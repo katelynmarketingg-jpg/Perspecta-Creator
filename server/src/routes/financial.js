@@ -5,7 +5,7 @@ import { ensureReceiptForEntry, cancelReceiptForEntry } from "../receipts.js";
 import { sincronizaAvisoDeAberto } from "../overdue.js";
 import { confere, idOuNulo } from "../pertence.js";
 import { topicoDoSalario } from "../salario-katy.js";
-import { sincronizaSalarioKaty } from "./personal-finance.js";
+import { sincronizaSalarioKaty, ponteLigada } from "./personal-finance.js";
 // numeroBR: "1.500,50" vira 1500.5. Com Number puro isso viraria 0 — e um
 // recebimento entraria valendo nada, sem ninguém notar.
 import { numeroBR } from "../contract-gen.js";
@@ -499,17 +499,20 @@ router.get("/projecao", (req, res) => {
 
   // AS CONTAS DELA, separadas por pago/em aberto. Gasto da Perspectiva não
   // entra: aquele já está nas despesas da casa acima.
-  const minhas = (pago) => db.prepare(
+  // Com a ponte desligada (o padrão), o Financeiro da empresa não fala das
+  // contas pessoais de ninguém — nem das de quem está olhando.
+  const temPonte = ponteLigada(req.orgId, req.user.id);
+  const minhas = (pago) => temPonte ? db.prepare(
     `SELECT COALESCE(SUM(amount),0) v FROM personal_finance
       WHERE org_id = ? AND user_id = ? AND ym = ? AND paid = ?
         AND COALESCE(category,'') NOT LIKE '%perspec%'`
-  ).get(req.orgId, req.user.id, mes, pago).v;
+  ).get(req.orgId, req.user.id, mes, pago).v : 0;
 
   const meuPago = minhas(1);
   const meuAberto = minhas(0);
   const cfg = db.prepare("SELECT salary FROM personal_finance_config WHERE org_id=? AND user_id=?")
     .get(req.orgId, req.user.id);
-  const lazer = Math.max(0, Number(cfg?.salary) || 0);
+  const lazer = temPonte ? Math.max(0, Number(cfg?.salary) || 0) : 0;
 
   // O que me devem, sem data: não entra na conta do mês (não tem mês), mas ela
   // precisa ver o número na hora de decidir.
