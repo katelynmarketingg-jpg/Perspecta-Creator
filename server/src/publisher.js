@@ -1,6 +1,7 @@
 import { db } from "./db.js";
 import { metaConfigured } from "./meta.js";
 import { publishTask } from "./routes/integrations.js";
+import { comecarPublicacao, terminarPublicacao } from "./publicacao-demorada.js";
 
 // ---------------------------------------------------------------------------
 // PUBLICAÇÃO AUTOMÁTICA
@@ -111,6 +112,9 @@ export async function runAutoPublish() {
 
   let publicados = 0;
   for (const task of prontos) {
+    // O MESMO PORTÃO DO BOTÃO. Sem isto, o automático podia pegar uma peça que
+    // alguém acabou de mandar publicar na mão — e ela ia ao ar duas vezes.
+    if (!comecarPublicacao(task.id, task.org_id)) continue;
     try {
       await publishTask(task, task.org_id, null, "https");
       publicados++;
@@ -119,6 +123,8 @@ export async function runAutoPublish() {
       db.prepare(
         "INSERT INTO notifications (audience, client_id, task_id, message, org_id) VALUES ('agency', ?, ?, ?, ?)"
       ).run(task.client_id, task.id, `⚠️ Falha ao publicar "${task.title}": ${e.message}`, task.org_id);
+    } finally {
+      terminarPublicacao(task.id, task.org_id);
     }
   }
   // Depois de tentar, cobra o que ficou para trás — inclusive o que acabou de

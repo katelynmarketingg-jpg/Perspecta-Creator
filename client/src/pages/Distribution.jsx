@@ -996,8 +996,15 @@ function PieceCard({ item, onChanged, flash }) {
     setPublicando(true);
     try {
       const r = await api.post(`/integrations/publish/${item.id}`);
-      setPosted(true);
-      flash(`Publicado no ${r.data?.destino === "facebook" ? "Facebook" : "Instagram"} 🚀`, "success");
+      // VÍDEO NÃO VOLTA PRONTO. A Meta processa antes, e o servidor responde
+      // 202 ("comecei") para o navegador não desistir no meio. Aqui a peça NÃO
+      // é marcada como postada: quem marca é o aviso, quando entrar mesmo.
+      if (r.status === 202 || r.data?.emAndamento) {
+        flash(r.data?.aviso || "Publicando… você recebe um aviso quando entrar no ar.", "info");
+      } else {
+        setPosted(true);
+        flash(`Publicado no ${r.data?.destino === "facebook" ? "Facebook" : "Instagram"} 🚀`, "success");
+      }
       onChanged?.();
     } catch (err) {
       flash(err.response?.data?.error || "Não foi possível publicar.", "error");
