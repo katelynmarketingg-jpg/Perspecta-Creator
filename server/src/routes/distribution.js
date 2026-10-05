@@ -6,6 +6,7 @@ import { syncTaskMediaToStage, syncTaskMediaToCurrentStage } from "../gallery-sy
 import { abrirAgrupadasDaEtapa } from "../abrir-agrupadas.js";
 import { bilheteDeMidia, enderecosDeMidia, previasDe } from "../midia-url.js";
 import { avisarAprovacoesPendentes } from "../aviso-aprovacao.js";
+import { agoraNaAgencia } from "../fuso.js";
 
 // Endereço de streaming da arte. É por ele que o <video> toca: o navegador
 // pede só o começo do arquivo (Range) e mostra o 1º quadro na hora. Sem isso a
@@ -116,7 +117,7 @@ router.get("/", async (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.published_at, t.fora_da_grade,
+              t.approval_status, t.client_note, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -135,7 +136,7 @@ router.get("/", async (req, res) => {
   const scheduled = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
-              t.approval_status, t.published_at, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, s.is_done AS stage_done,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -155,7 +156,7 @@ router.get("/", async (req, res) => {
   const approved = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
@@ -182,7 +183,7 @@ router.get("/", async (req, res) => {
   const waiting = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.fora_da_grade,
+              t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
@@ -202,7 +203,7 @@ router.get("/", async (req, res) => {
   const programmed = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.conferido_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -317,14 +318,32 @@ router.post("/:id/mark-posted", (req, res) => {
   const marcar = req.body?.posted !== false; // default: true
   if (marcar) {
     db.prepare(
-      "UPDATE tasks SET published_at = datetime('now'), external_post_id = 'manual', publish_error = NULL WHERE id = ? AND org_id = ?"
-    ).run(req.params.id, req.orgId);
+      "UPDATE tasks SET published_at = ?, external_post_id = 'manual', publish_error = NULL WHERE id = ? AND org_id = ?"
+    ).run(agoraNaAgencia(), req.params.id, req.orgId);
   } else {
     db.prepare(
       "UPDATE tasks SET published_at = NULL, external_post_id = NULL WHERE id = ? AND org_id = ? AND external_post_id = 'manual'"
     ).run(req.params.id, req.orgId);
   }
   res.json({ ok: true, posted: marcar });
+});
+
+// POST /api/distribution/:id/conferir — "já vi que este saiu, pode sair da grade".
+//
+// É o clique no certinho VERDE, o que o sistema publicou sozinho. Diferente do
+// laranja: aquele DIZ que postou (e grava published_at); este só reconhece o
+// que já aconteceu. Por isso não encosta no external_post_id — o id do post lá
+// no Instagram fica onde está.
+router.post("/:id/conferir", (req, res) => {
+  const task = db.prepare("SELECT id, published_at FROM tasks WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!task) return res.status(404).json({ error: "Peça não encontrada." });
+  if (!task.published_at) return res.status(400).json({ error: "Esta peça ainda não foi publicada." });
+
+  const conferir = req.body?.conferido !== false; // padrão: sim
+  db.prepare("UPDATE tasks SET conferido_em = ? WHERE id = ? AND org_id = ?")
+    .run(conferir ? agoraNaAgencia() : null, req.params.id, req.orgId);
+  res.json({ ok: true, conferido: conferir });
 });
 
 // POST /api/distribution/reorder — reordena o feed: recebe a nova data/hora de

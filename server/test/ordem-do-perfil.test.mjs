@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
-const { ordenarFeed, reencaixar, aindaNoPerfil } = await import("../../client/src/feed-ordem.js");
+const { ordenarFeed, reencaixar, aindaNoPerfil, publicadaPeloSistema, marcadaNaMao } = await import("../../client/src/feed-ordem.js");
 const tela = readFileSync(join(aqui, "../../client/src/pages/Distribution.jsx"), "utf8");
 
 const ids = (lista) => lista.map((p) => p.id);
@@ -108,10 +108,19 @@ test("reencaixe sem efeito devolve a mesma lista", () => {
 
 // --- 3. o que já foi postado ------------------------------------------------
 
-test("o que já foi postado sai da grade, e o resto não perde a ordem", () => {
+// ESTE CASO MUDOU, A PEDIDO DELA.
+//
+// Antes, QUALQUER peça com published_at saía da grade — inclusive a que o
+// sistema tinha acabado de publicar sozinho. Sumir era a única notícia de que
+// tinha dado certo. Palavras dela: "não precisa sair de lá, só outro botão
+// confirmando que postou".
+//
+// Agora só sai o que ELA tirou de lá: a marcada à mão (certinho laranja, que
+// grava external_post_id = 'manual') e a que ela já conferiu.
+test("a marcada à mão sai da grade, e o resto não perde a ordem", () => {
   const lista = [
     { id: 1, position: 1 },
-    { id: 2, position: 2, published_at: "2026-09-20 10:00" },
+    { id: 2, position: 2, published_at: "2026-09-20 10:00", external_post_id: "manual" },
     { id: 3, position: 3 },
   ];
   const r = aindaNoPerfil(lista);
@@ -119,17 +128,41 @@ test("o que já foi postado sai da grade, e o resto não perde a ordem", () => {
   assert.deepEqual(r.map((p) => p.position), [1, 3], "as posições das outras ficam como estavam");
 });
 
-test("a grade do perfil de fato tira o que já foi postado", () => {
+test("o que o sistema publicou FICA na grade, até ela conferir", () => {
+  const publicada = { id: 9, position: 2, published_at: "2026-10-05 15:25", external_post_id: "17900000000000000" };
+  assert.deepEqual(ids(aindaNoPerfil([publicada])), [9], "fica, para ela ver que saiu");
+  assert.deepEqual(aindaNoPerfil([{ ...publicada, conferido_em: "2026-10-05 20:00" }]), [],
+    "conferiu, aí sim sai");
+});
+
+test("as duas perguntas têm resposta separada", () => {
+  const doSistema = { published_at: "2026-10-05 15:25", external_post_id: "179000" };
+  const daMao = { published_at: "2026-10-05 15:25", external_post_id: "manual" };
+  assert.equal(publicadaPeloSistema(doSistema), true);
+  assert.equal(publicadaPeloSistema(daMao), false);
+  assert.equal(marcadaNaMao(daMao), true);
+  assert.equal(marcadaNaMao({}), false, "sem published_at não é nem uma nem outra");
+});
+
+test("a grade do perfil de fato usa a regra", () => {
   assert.match(tela, /ordenarFeed\(aindaNoPerfil\(\[\.\.\.map\.values\(\)\]\)\)/);
 });
 
 test("o certinho laranja confirma que entrou e tira o quadrado da grade", () => {
-  const trecho = tela.slice(tela.indexOf("A BOLINHA LARANJA"), tela.indexOf("position: \"absolute\", bottom: 0, left: 0"));
+  const trecho = tela.slice(tela.indexOf("O CERTINHO, no canto"), tela.indexOf("position: \"absolute\", bottom: 0, left: 0"));
   assert.match(trecho, /bgcolor: "warning\.main"/, "é laranja");
   assert.match(trecho, /<CheckIcon/, "e tem o certinho dentro");
   assert.match(trecho, /onMarcarPostado\(p\)/);
   assert.match(trecho, /e\.stopPropagation\(\)/, "clicar nele não abre a peça");
   assert.match(tela, /mark-posted`, \{ posted: true \}/);
+});
+
+test("o que o sistema publicou nasce com o certinho VERDE, já marcado", () => {
+  const trecho = tela.slice(tela.indexOf("O CERTINHO, no canto"), tela.indexOf("position: \"absolute\", bottom: 0, left: 0"));
+  assert.match(trecho, /publicadaPeloSistema\(p\) \?/, "a cor é decidida por quem publicou");
+  assert.match(trecho, /bgcolor: "success\.main"/, "é verde");
+  assert.match(trecho, /Publicado pelo sistema/, "e o balãozinho diz quando");
+  assert.match(trecho, /onConferir\?\.\(p\)/, "clicar é 'já vi', não 'postei'");
 });
 
 test("sem data ou hora passada é LARANJA, não vermelho", () => {

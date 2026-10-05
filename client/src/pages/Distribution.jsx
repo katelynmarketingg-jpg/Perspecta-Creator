@@ -33,7 +33,7 @@ import api from "../api/client.js";
 import { makeThumbnail } from "../upload/thumbnail.js";
 import { ligarRolagemAoArrastar } from "../upload/rolar-arrastando.js";
 import { agruparPosts } from "../upload/unir-carrossel.js";
-import { ordenarFeed, reencaixar, aindaNoPerfil } from "../feed-ordem.js";
+import { ordenarFeed, reencaixar, aindaNoPerfil, publicadaPeloSistema } from "../feed-ordem.js";
 import { dataLocal } from "../data-local.js";
 import { medirImagem, fatiarEmSlides, sugerirSlides, LARGURA_ALVO } from "../upload/carousel.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
@@ -1424,9 +1424,16 @@ function PieceCard({ item, onChanged, flash }) {
             <>
               <Divider sx={{ my: 0.5 }}>Publicar no Instagram</Divider>
               {posted ? (
+                /* "DESFAZER" SÓ PARA O QUE FOI MARCADO À MÃO.
+                   O que o sistema publicou está no Instagram de verdade: dizer
+                   aqui que não foi publicado não tira o post de lá. O servidor
+                   já recusava — o botão é que prometia o que não cumpria. */
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <Chip color="success" icon={<CheckCircleIcon sx={{ fontSize: 16 }} />} label="Postado ✓" />
-                  <Button size="small" color="inherit" onClick={() => marcarPostado(false)}>desfazer</Button>
+                  <Chip color="success" icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                    label={item.external_post_id && item.external_post_id !== "manual" ? "Publicado pelo sistema ✓" : "Postado ✓"} />
+                  {(!item.external_post_id || item.external_post_id === "manual") && (
+                    <Button size="small" color="inherit" onClick={() => marcarPostado(false)}>desfazer</Button>
+                  )}
                 </Stack>
               ) : (
                 <>
@@ -1979,7 +1986,7 @@ const SELO_DO_QUADRO = {
 // paradas — cada peça mantém a sua. Sem data ou no passado aparece em vermelho
 // (clique para ajustar). O 1º fica em cima à esquerda; enche → direita → baixo.
 function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorData, onMarcarPostado,
-                          onApagar, onTirarDaGrade, titulo }) {
+                          onApagar, onTirarDaGrade, onConferir, titulo }) {
   // O PERFIL só tem o que já existe. Peça sem arte não é um quadrado cinza no
   // Instagram — ela simplesmente não está lá. Deixá-la na grade dava um perfil
   // falso, cheio de buracos que ninguém vai ver.
@@ -2100,11 +2107,30 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
                   previaUrl={previaDoArquivo(p, p.cover_file_id || p.file_id)}
                   ehVideo={pecaEhVideo(p)}
                   comecoDaTira={p.content_type === "carrossel"} />
-                {/* A BOLINHA LARANJA: "já postei esse". Clicou, a peça sai da
-                    grade do perfil — e o resto não perde a ordem, porque sair
-                    não mexe na posição de ninguém. Dá para voltar atrás no
-                    editor da peça. */}
-                {onMarcarPostado && (
+                {/* O CERTINHO, no canto de cima à direita. Tem duas cores, e a
+                    cor é a notícia:
+
+                    LARANJA — ainda não saiu. Clicar é ela dizendo "já postei
+                    esse na mão"; a peça sai da grade (e o resto não perde a
+                    ordem, porque sair não mexe na posição de ninguém).
+
+                    VERDE — o sistema publicou. Já nasce marcado: era o pedido
+                    dela, "que o botão de confirmar seja marcado". A peça FICA na
+                    grade; clicar é só o "já vi, pode sair". */}
+                {onMarcarPostado && (publicadaPeloSistema(p) ? (
+                  <Tooltip title={`Publicado pelo sistema${p.published_at ? ` em ${dtISO(p.published_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""} — clique para tirar da grade`}>
+                    <Box role="button" aria-label={`"${p.title}" foi publicado — tirar da grade`}
+                      onClick={(e) => { e.stopPropagation(); onConferir?.(p); }}
+                      onDragStart={(e) => e.preventDefault()}
+                      sx={{ position: "absolute", top: 5, right: 5, width: 22, height: 22, borderRadius: "50%",
+                            display: "grid", placeItems: "center",
+                            bgcolor: "success.main", color: "#fff", border: "2px solid #fff", cursor: "pointer",
+                            boxShadow: "0 1px 4px rgba(0,0,0,.35)",
+                            "&:hover": { transform: "scale(1.12)" }, transition: "all .12s ease" }}>
+                      <CheckIcon sx={{ fontSize: 14 }} />
+                    </Box>
+                  </Tooltip>
+                ) : (
                   <Tooltip title="Confirmar que entrou mesmo — sai da grade do perfil">
                     <Box role="button" aria-label={`Confirmar que "${p.title}" já foi postado`}
                       onClick={(e) => { e.stopPropagation(); onMarcarPostado(p); }}
@@ -2117,7 +2143,7 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
                       <CheckIcon sx={{ fontSize: 14 }} />
                     </Box>
                   </Tooltip>
-                )}
+                ))}
                 {/* APAGAR e TIRAR DA GRADE, do lado esquerdo para não brigar
                     com o certinho. Apagar tira a peça da Distribuição de vez;
                     tirar da grade só a move para a gradinha de reels, e volta
@@ -2269,6 +2295,18 @@ export default function Distribution() {
   // JÁ FOI POSTADO: a peça sai da grade do perfil. Não mexe na ordem de
   // ninguém — as outras mantêm a posição que têm. E dá para voltar atrás no
   // editor da peça, que tem o mesmo interruptor.
+  // O clique no certinho VERDE. Não diz "postei" — isso o sistema já sabe e já
+  // gravou. Diz "já vi", e só por isso a peça sai da grade.
+  async function conferirPostado(p) {
+    try {
+      await api.post(`/distribution/${p.id}/conferir`, { conferido: true });
+      flash("Conferido — saiu da grade do perfil.", "success");
+      load();
+    } catch (e) {
+      flash(e.response?.data?.error || "Não deu para conferir.", "error");
+    }
+  }
+
   async function marcarPostado(p) {
     try {
       await api.post(`/distribution/${p.id}/mark-posted`, { posted: true });
@@ -2736,7 +2774,7 @@ export default function Distribution() {
           <Card><CardContent>
             <ReorderableFeed posts={feedPosts} onSelect={setSelected} onReorder={reorderPosition}
                   onVoltarPorData={voltarPorData} onMarcarPostado={marcarPostado}
-                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade}
+                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade} onConferir={conferirPostado}
               titulo="Como o perfil vai ficar" />
           </CardContent></Card>
         ) : feedGroups.length === 0 ? (
@@ -2757,7 +2795,7 @@ export default function Distribution() {
               <Card key={g.clientId}><CardContent>
                 <ReorderableFeed posts={g.posts} onSelect={setSelected} onReorder={reorderPosition}
                   onVoltarPorData={voltarPorData} onMarcarPostado={marcarPostado}
-                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade}
+                  onApagar={apagarPeca} onTirarDaGrade={mudarGrade} onConferir={conferirPostado}
                   titulo={`Perfil — ${g.clientName}`} />
               </CardContent></Card>
             ))}

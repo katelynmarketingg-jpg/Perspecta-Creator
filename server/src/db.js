@@ -817,6 +817,17 @@ ensureColumn("tasks", "last_reminder_at", "last_reminder_at TEXT");
 ensureColumn("tasks", "published_at", "published_at TEXT");
 ensureColumn("tasks", "publish_error", "publish_error TEXT");
 ensureColumn("tasks", "external_post_id", "external_post_id TEXT");
+// JÁ CONFERI QUE ESTE SAIU.
+//
+// Quando o sistema publica sozinho, a peça continua na grade do perfil, agora
+// com o certinho VERDE — era o pedido dela: "não precisa sair de lá, só outro
+// botão confirmando que postou". Clicar nesse certinho é o "já vi, pode sair
+// da grade", e é o que esta coluna guarda.
+//
+// Por que não reaproveitar o external_post_id: ele guarda o id do post lá no
+// Instagram, o único fio que liga a peça ao que foi ao ar. Escrever "manual"
+// por cima para dizer "já conferi" apagaria esse fio.
+ensureColumn("tasks", "conferido_em", "conferido_em TEXT");
 // FORA DA GRADE DO PERFIL.
 //
 // Reel não compõe o visual do feed do mesmo jeito que um post — ele mora na
