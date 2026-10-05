@@ -1,16 +1,18 @@
-// O SELO DO QUE JÁ SAIU.
+// O CERTINHO E O LARANJA: DUAS PERGUNTAS, DOIS BOTÕES.
 //
-// Pergunta dela: "tem como ao ser postado, confirmado, o botão de confirmar que
-// tem lá na visão de perfil ser marcado?" E logo depois: "não precisa sair de
-// lá, só outro botão confirmando que postou".
+// A ideia foi se afinando em três mensagens dela, no mesmo dia:
 //
-// Até aqui, publicar (pelo sistema ou na mão) tirava a peça da grade do perfil.
-// Para o que ela marcava à mão isso era o pedido dela — mas para o que o robô
-// publicava sozinho, sumir era a ÚNICA notícia de que tinha dado certo.
+//   "tem como ao ser postado, confirmado, o botão de confirmar que tem lá na
+//    visão de perfil ser marcado?"
+//   "não precisa sair de lá, só outro botão confirmando que postou"
+//   "o verde marcado é pq já entrou, o verde sem marcar ainda é para eu marcar
+//    e o laranja é pra tirar da grade, pq pode já ter sido postado e ainda
+//    assim eu não querer tirar dali"
 //
-// Agora são dois certinhos, e a cor é a notícia: laranja = "eu postei, pode
-// sair"; verde = "o sistema publicou, está aqui para você ver". O verde nasce
-// marcado, e clicar nele é só o "já vi".
+// O que estava embolado era isso: "já postei" e "some daqui" eram o mesmo
+// clique. São duas decisões, e nenhuma implica a outra — um post pode estar no
+// ar e continuar na grade, e uma peça pode sair da grade sem nunca ter saído.
+//
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -57,45 +59,55 @@ const peca = (titulo) => db.prepare(
 ).run(titulo, etapa, cli, org).lastInsertRowid;
 const ler = (id) => db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
 
-test("conferir uma peça que nem foi publicada é recusado", async () => {
-  const id = peca("Ainda não saiu");
-  const r = await pedir("POST", `/distribution/${id}/conferir`, {});
-  assert.equal(r.status, 400);
-  assert.match(r.corpo.error, /ainda não foi publicada/);
-  assert.equal(ler(id).conferido_em, null);
+test("tirar da grade vale mesmo para o que nunca foi publicado", async () => {
+  // "pode já ter sido postado e ainda assim eu não querer tirar dali" — e o
+  // contrário também: tirar da grade é composição do perfil, não publicação.
+  const id = peca("Nunca saiu");
+  const r = await pedir("POST", `/distribution/${id}/sair-da-grade`, {});
+  assert.equal(r.status, 200);
+  const t = ler(id);
+  assert.ok(t.saiu_da_grade_em);
+  assert.equal(t.published_at, null, "sair da grade não inventa publicação");
 });
 
-test("conferir NÃO apaga o id do post lá no Instagram", async () => {
+test("tirar da grade NÃO apaga o id do post lá no Instagram", async () => {
   const id = peca("Publicada pelo robô");
   db.prepare("UPDATE tasks SET published_at = '2026-10-05 15:25', external_post_id = '17900000001' WHERE id = ?").run(id);
 
-  const r = await pedir("POST", `/distribution/${id}/conferir`, { conferido: true });
-  assert.equal(r.status, 200);
+  await pedir("POST", `/distribution/${id}/sair-da-grade`, { fora: true });
   const t = ler(id);
-  assert.ok(t.conferido_em, "ficou registrado que ela viu");
+  assert.ok(t.saiu_da_grade_em);
   assert.equal(t.external_post_id, "17900000001",
-    "é o único fio que liga a peça ao que foi ao ar — não pode virar 'manual'");
-  assert.equal(t.published_at, "2026-10-05 15:25", "e a hora da publicação fica como estava");
+    "é o único fio que liga a peça ao que foi ao ar");
+  assert.equal(t.published_at, "2026-10-05 15:25");
+});
+
+test("marcar como postado NÃO tira da grade", async () => {
+  // Era isto que estava junto e ela separou.
+  const id = peca("Postada à mão, mas fica");
+  await pedir("POST", `/distribution/${id}/mark-posted`, { posted: true });
+  const t = ler(id);
+  assert.ok(t.published_at, "entrou");
+  assert.equal(t.saiu_da_grade_em, null, "e continua na grade");
 });
 
 test("dá para voltar atrás: a peça volta para a grade", async () => {
-  const id = peca("Conferida sem querer");
-  db.prepare("UPDATE tasks SET published_at = '2026-10-05 15:25', external_post_id = '179' WHERE id = ?").run(id);
-  await pedir("POST", `/distribution/${id}/conferir`, { conferido: true });
-  await pedir("POST", `/distribution/${id}/conferir`, { conferido: false });
-  assert.equal(ler(id).conferido_em, null);
+  const id = peca("Tirada sem querer");
+  await pedir("POST", `/distribution/${id}/sair-da-grade`, { fora: true });
+  await pedir("POST", `/distribution/${id}/sair-da-grade`, { fora: false });
+  assert.equal(ler(id).saiu_da_grade_em, null);
 });
 
-test("conferir não atravessa para outra casa", async () => {
+test("tirar da grade não atravessa para outra casa", async () => {
   const outra = db.prepare("INSERT INTO organizations (name,is_master) VALUES ('Vizinha',0)").run().lastInsertRowid;
   const cliAlheio = db.prepare("INSERT INTO clients (name,status,org_id) VALUES ('Alheio','active',?)").run(outra).lastInsertRowid;
   const alheia = db.prepare(
     "INSERT INTO tasks (title,client_id,published_at,external_post_id,org_id) VALUES ('Da vizinha',?,'2026-10-05 10:00','1',?)"
   ).run(cliAlheio, outra).lastInsertRowid;
 
-  const r = await pedir("POST", `/distribution/${alheia}/conferir`, {});
+  const r = await pedir("POST", `/distribution/${alheia}/sair-da-grade`, {});
   assert.equal(r.status, 404);
-  assert.equal(ler(alheia).conferido_em, null);
+  assert.equal(ler(alheia).saiu_da_grade_em, null);
 });
 
 test("marcar à mão grava a hora DAQUI, não a de Greenwich", async () => {
@@ -107,7 +119,7 @@ test("marcar à mão grava a hora DAQUI, não a de Greenwich", async () => {
   assert.notEqual(t.published_at, greenwich, "a hora que aparece no selo é a hora dela");
 });
 
-test("a listagem entrega o que a grade precisa para escolher a cor", async () => {
+test("a listagem entrega o que a grade precisa para decidir as duas coisas", async () => {
   const id = peca("Na listagem");
   db.prepare("UPDATE tasks SET published_at = '2026-10-05 15:25', external_post_id = '42' WHERE id = ?").run(id);
   const r = await pedir("GET", "/distribution");
@@ -115,7 +127,7 @@ test("a listagem entrega o que a grade precisa para escolher a cor", async () =>
   const achada = todas.find((p) => p.id === id);
   assert.ok(achada, "a peça está em alguma das listas");
   assert.equal(achada.external_post_id, "42", "sem isto a tela não sabe quem publicou");
-  assert.ok("conferido_em" in achada);
+  assert.ok("saiu_da_grade_em" in achada, "e nem se ela deve aparecer");
 });
 
 // --- o que a tela promete -----------------------------------------------------
@@ -133,9 +145,13 @@ test("no editor, 'desfazer' só aparece para o que foi marcado à mão", () => {
   assert.match(trecho, /marcarPostado\(false\)/);
 });
 
-test("o clique no verde chama conferir, não mark-posted", () => {
-  assert.match(tela, /async function conferirPostado/);
-  assert.match(tela, /\/conferir`, \{ conferido: true \}/);
-  const h = tela.slice(tela.indexOf("async function conferirPostado"), tela.indexOf("async function marcarPostado"));
-  assert.ok(!/mark-posted/.test(h), "são duas coisas diferentes: 'postei' e 'já vi'");
+test("os dois cliques chamam rotas diferentes", () => {
+  assert.match(tela, /async function sairDaGrade/);
+  assert.match(tela, /\/sair-da-grade`, \{ fora: true \}/);
+  // lastIndexOf: existem dois marcarPostado — o do editor da peça e o da grade.
+  const h = tela.slice(tela.indexOf("async function sairDaGrade"), tela.lastIndexOf("async function marcarPostado"));
+  assert.ok(!/mark-posted/.test(h), "tirar da grade não diz nada sobre ter postado");
+
+  const m = tela.slice(tela.lastIndexOf("async function marcarPostado"), tela.indexOf("async function apagarPeca"));
+  assert.ok(!/sair-da-grade/.test(m), "e marcar como postado não esconde a peça");
 });

@@ -817,17 +817,20 @@ ensureColumn("tasks", "last_reminder_at", "last_reminder_at TEXT");
 ensureColumn("tasks", "published_at", "published_at TEXT");
 ensureColumn("tasks", "publish_error", "publish_error TEXT");
 ensureColumn("tasks", "external_post_id", "external_post_id TEXT");
-// JÁ CONFERI QUE ESTE SAIU.
+// SAIU DA GRADE DO PERFIL.
 //
-// Quando o sistema publica sozinho, a peça continua na grade do perfil, agora
-// com o certinho VERDE — era o pedido dela: "não precisa sair de lá, só outro
-// botão confirmando que postou". Clicar nesse certinho é o "já vi, pode sair
-// da grade", e é o que esta coluna guarda.
+// TER SIDO POSTADO E SAIR DA GRADE VIRARAM DUAS COISAS. Palavras dela: "o
+// laranja é pra tirar da grade, porque pode já ter sido postado e ainda assim
+// eu não querer tirar dali".
 //
-// Por que não reaproveitar o external_post_id: ele guarda o id do post lá no
-// Instagram, o único fio que liga a peça ao que foi ao ar. Escrever "manual"
-// por cima para dizer "já conferi" apagaria esse fio.
+// Então o certinho só conta se a peça entrou, e esta coluna guarda a outra
+// decisão — a de não querer mais ver aquele quadrado ali. Uma não implica a
+// outra em nenhuma direção.
+//
+// (Nasceu como conferido_em, quando "já vi" e "pode sair" eram a mesma coisa.
+// A coluna velha fica onde está, sem uso; o conteúdo dela foi copiado para cá.)
 ensureColumn("tasks", "conferido_em", "conferido_em TEXT");
+ensureColumn("tasks", "saiu_da_grade_em", "saiu_da_grade_em TEXT");
 // FORA DA GRADE DO PERFIL.
 //
 // Reel não compõe o visual do feed do mesmo jeito que um post — ele mora na
@@ -1566,6 +1569,26 @@ db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
     const n = db.prepare("UPDATE priorities SET status = 'pending' WHERE status = 'doing'").run().changes;
     db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
     if (n) console.log(`Prioridades: ${n} recado(s) de "Em andamento" voltaram para Pendente.`);
+  })();
+})();
+
+// ---------------------------------------------------------------------------
+// O QUE JÁ TINHA SIDO "CONFERIDO" É O QUE JÁ TINHA SAÍDO DA GRADE
+//
+// Mudança de ideia dela no mesmo dia: o clique que antes queria dizer "já vi
+// que saiu" passou a querer dizer só "tirar da grade". O dado é o mesmo; o
+// nome é que ficou errado. Copia uma vez e pronto.
+// ---------------------------------------------------------------------------
+(() => {
+  const CHAVE = "conferido-virou-saiu-da-grade-2026-10";
+  if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE)) return;
+
+  db.transaction(() => {
+    const n = db.prepare(
+      "UPDATE tasks SET saiu_da_grade_em = conferido_em WHERE conferido_em IS NOT NULL AND saiu_da_grade_em IS NULL"
+    ).run().changes;
+    db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
+    if (n) console.log(`Grade do perfil: ${n} peça(s) seguiram fora da grade.`);
   })();
 })();
 
