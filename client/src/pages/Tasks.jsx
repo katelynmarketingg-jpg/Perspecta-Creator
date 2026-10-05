@@ -83,6 +83,9 @@ export default function Tasks() {
   const [draft, setDraft] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [dragOver, setDragOver] = useState(null);
+  // Qual tarefa está na mão agora. Serve para a coluna mostrar o nome e virar
+  // alvo de verdade enquanto se arrasta — ver ARRASTAR, mais abaixo.
+  const [arrastando, setArrastando] = useState(null);
   // Diálogo de programação: aberto quando a tarefa vai para "Concluído" sem data.
   const [schedule, setSchedule] = useState(null); // { taskId, stageId, value }
   // Diálogo "Concluir captação": escolhe os logins que recebem a prioridade.
@@ -108,6 +111,8 @@ export default function Tasks() {
   const [novoTempo, setNovoTempo] = useState({ minutes: "", note: "" });
   const [flash, setFlash] = useState("");
   const draggingRef = useRef(false);
+  const ponteiroY = useRef(0);      // onde o cursor está, enquanto arrasta
+  const rolagemAuto = useRef(null); // o "motorzinho" que rola a página sozinho
   const me = JSON.parse(localStorage.getItem("user") || "null");
   const totalMinutos = apontamentos.reduce((s, a) => s + a.minutes, 0);
   // Sessão de trabalho POR CLIENTE (balãozinho no topo). nowTs faz o relógio "andar".
@@ -382,14 +387,62 @@ export default function Tasks() {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // ARRASTAR NO QUADRO
+  //
+  // O problema real: com a tarefa lá embaixo, não dava para soltar em outra
+  // coluna. Duas razões, as duas corrigidas aqui:
+  //
+  // 1. Cada coluna terminava onde terminavam os cartões dela. Uma coluna com
+  //    dois cartões não existia na altura em que a mão estava — não havia o
+  //    que acertar. Agora as colunas se esticam todas na mesma altura
+  //    (alignItems: "stretch") e ainda ganham um mínimo enquanto se arrasta.
+  //
+  // 2. O nome da coluna ficava lá em cima, fora da tela. Agora, ao começar a
+  //    arrastar, os nomes grudam no topo — discretos — e o da coluna embaixo
+  //    do cursor se acende. E a página rola sozinha quando o cursor chega
+  //    perto da borda.
+  // ---------------------------------------------------------------------------
+
   function handleDragStart(e, task) {
     draggingRef.current = true;
+    setArrastando(task.id);
+    comecarRolagemAutomatica();
     e.dataTransfer.setData("text/plain", String(task.id));
     e.dataTransfer.effectAllowed = "move";
   }
 
+  function handleDragEnd() {
+    pararRolagemAutomatica();
+    setArrastando(null);
+    setDragOver(null);
+    // O clique que vem logo depois de soltar não pode abrir a tarefa.
+    setTimeout(() => { draggingRef.current = false; }, 50);
+  }
+
+  // Rolar perto da borda. O navegador avisa onde o cursor está (dragover), mas
+  // só de vez em quando; quem rola de fato é este motorzinho, em ritmo próprio.
+  function comecarRolagemAutomatica() {
+    if (rolagemAuto.current) return;
+    const MARGEM = 110, PASSO = 20;
+    rolagemAuto.current = setInterval(() => {
+      const y = ponteiroY.current;
+      if (!y) return;
+      if (y < MARGEM) window.scrollBy(0, -PASSO);
+      else if (y > window.innerHeight - MARGEM) window.scrollBy(0, PASSO);
+    }, 16);
+  }
+  function pararRolagemAutomatica() {
+    if (rolagemAuto.current) { clearInterval(rolagemAuto.current); rolagemAuto.current = null; }
+    ponteiroY.current = 0;
+  }
+  // Sair da página no meio de um arrasto não pode deixar o motor ligado.
+  useEffect(() => pararRolagemAutomatica, []);
+
   function handleDrop(e, stage) {
     e.preventDefault();
+    pararRolagemAutomatica();
+    setArrastando(null);
     setDragOver(null);
     const id = Number(e.dataTransfer.getData("text/plain"));
     if (id) moveToStage(id, stage.id);
@@ -562,11 +615,53 @@ export default function Tasks() {
           )}
         </Card>
       ) : (
-      <Box sx={{ display: "flex", gap: 2, overflowX: "auto", pb: 2, alignItems: "flex-start" }}>
+      <>
+      {/* A BARRA DE DESTINOS.
+          Ela precisa ficar AQUI FORA, e não dentro de cada coluna: o quadro
+          rola para o lado, e dentro dele "grudar no topo" simplesmente não
+          acontece — o navegador gruda em relação a quem rola, e quem rola ali
+          rola na horizontal. A caixa de fora tem altura zero para o quadro não
+          pular quando o arrasto começa. */}
+      <Box sx={{ position: "sticky", top: { xs: 58, md: 66 }, zIndex: 5, height: 0, overflow: "visible" }}>
+        <Box
+          sx={{
+            position: "absolute", left: 0, right: 0, top: 0,
+            display: "flex", alignItems: "center", gap: 1,
+            px: 1.25, py: 0.75, borderRadius: 2, overflowX: "auto",
+            border: 1, borderColor: "divider",
+            bgcolor: (t) => alpha(t.palette.background.paper, 0.96),
+            backdropFilter: "blur(8px)",
+            boxShadow: (t) => `0 6px 18px ${alpha(t.palette.common.black, 0.1)}`,
+            opacity: arrastando ? 1 : 0,
+            transform: arrastando ? "none" : "translateY(-8px)",
+            pointerEvents: arrastando ? "auto" : "none",
+            transition: "opacity .15s ease, transform .15s ease",
+          }}
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>Soltar em</Typography>
+          {stages.map((stage) => (
+            <Chip
+              key={stage.id}
+              size="small"
+              label={stage.name}
+              color={dragOver === stage.id ? "primary" : "default"}
+              variant={dragOver === stage.id ? "filled" : "outlined"}
+              onDragOver={(e) => { e.preventDefault(); ponteiroY.current = e.clientY; setDragOver(stage.id); }}
+              onDrop={(e) => handleDrop(e, stage)}
+              sx={{ flexShrink: 0 }}
+            />
+          ))}
+        </Box>
+      </Box>
+
+      {/* alignItems: "stretch" é a outra metade da correção: faz TODA coluna ter
+          a altura da mais alta, então existe alvo para soltar na mesma altura em
+          que a mão está, por mais embaixo que seja. */}
+      <Box sx={{ display: "flex", gap: 2, overflowX: "auto", pb: 2, alignItems: "stretch" }}>
         {stages.map((stage, sIdx) => (
           <Box
             key={stage.id}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(stage.id); }}
+            onDragOver={(e) => { e.preventDefault(); ponteiroY.current = e.clientY; setDragOver(stage.id); }}
             onDragLeave={() => setDragOver((v) => (v === stage.id ? null : v))}
             onDrop={(e) => handleDrop(e, stage)}
             sx={{
@@ -574,6 +669,12 @@ export default function Tasks() {
               borderRadius: 3, p: 1, m: -1,
               transition: "background-color .15s ease, outline-color .15s ease",
               outline: "2px dashed transparent",
+              // Enquanto alguém arrasta, toda coluna se mostra como alvo possível
+              // — de leve. A de baixo do cursor é que se acende.
+              ...(arrastando && {
+                minHeight: 340,
+                outlineColor: (t) => alpha(t.palette.primary.main, 0.18),
+              }),
               ...(dragOver === stage.id && {
                 bgcolor: (t) => alpha(t.palette.primary.main, 0.06),
                 outlineColor: (t) => alpha(t.palette.primary.main, 0.5),
@@ -586,10 +687,19 @@ export default function Tasks() {
                   <ChevronLeftIcon fontSize="small" />
                 </IconButton>
               )}
-              <Typography sx={{ fontWeight: 600, flex: 1, minWidth: 0 }} noWrap>
+              <Typography
+                sx={{
+                  fontWeight: 600, flex: 1, minWidth: 0,
+                  color: dragOver === stage.id ? "primary.main" : "text.primary",
+                  transition: "color .15s ease",
+                }}
+                noWrap
+              >
                 {stage.name} {stage.is_done ? "✓" : ""}
               </Typography>
-              {reorderCols ? (
+              {arrastando && dragOver === stage.id ? (
+                <Chip size="small" color="primary" label="Soltar aqui" />
+              ) : reorderCols ? (
                 <IconButton size="small" disabled={sIdx === stages.length - 1} onClick={() => moveStage(sIdx, 1)}>
                   <ChevronRightIcon fontSize="small" />
                 </IconButton>
@@ -604,9 +714,15 @@ export default function Tasks() {
                   key={t.id}
                   draggable
                   onDragStart={(e) => handleDragStart(e, t)}
-                  onDragEnd={() => setTimeout(() => { draggingRef.current = false; }, 50)}
+                  onDragEnd={handleDragEnd}
                   onClick={() => openEdit(t)}
-                  sx={{ cursor: "grab", "&:active": { cursor: "grabbing" }, "&:hover": { borderColor: "primary.main" }, transition: "border-color .15s ease" }}
+                  sx={{
+                    cursor: "grab", "&:active": { cursor: "grabbing" },
+                    "&:hover": { borderColor: "primary.main" },
+                    transition: "border-color .15s ease, opacity .15s ease",
+                    // O cartão na mão fica apagado: fica claro o que está indo junto.
+                    opacity: arrastando === t.id ? 0.45 : 1,
+                  }}
                 >
                   <CardContent sx={{ p: 1.75, "&:last-child": { pb: 1.75 } }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
@@ -716,6 +832,7 @@ export default function Tasks() {
           <Typography color="text.secondary">Configure as etapas do Kanban em Configurações.</Typography>
         )}
       </Box>
+      </>
       )}
 
       {/* Criar / editar tarefa */}

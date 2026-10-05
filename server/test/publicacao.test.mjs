@@ -148,16 +148,29 @@ test("com o automático desligado, o aviso diz isso", async () => {
   await ligarAuto(true);
 });
 
-test("não cobra o que não está pronto: sem aprovação, sem arte, ou já publicado", () => {
+test("não cobra o que ninguém esperava: sem aprovação ou já publicado", () => {
   const semAprovacao = peca({ quando: horas(-72), aprovada: false, titulo: "Sem aprovação" });
-  const semArte = peca({ quando: horas(-72), comArte: false, titulo: "Sem arte" });
   const jaFoi = peca({ quando: horas(-72), titulo: "Já publicado" });
   db.prepare("UPDATE tasks SET published_at = datetime('now') WHERE id = ?").run(jaFoi);
 
   avisarAtrasados(org);
-  for (const id of [semAprovacao, semArte, jaFoi]) {
+  for (const id of [semAprovacao, jaFoi]) {
     assert.equal(avisosDe(id).length, 0, `não cobra ${lerTask(id).title}`);
   }
+});
+
+// ESTE CASO MUDOU DE LADO, DE PROPÓSITO.
+//
+// Antes, a peça aprovada e com hora marcada que não tivesse arte anexada ficava
+// FORA também da lista de atrasadas: não publicava e não avisava. Era o pior
+// silêncio dos três, porque de fora parece tudo certo — a peça está lá,
+// aprovada, com a hora. Agora ela é cobrada, dizendo o que falta.
+test("sem arte, agora cobra — e diz que o que falta é a arte", () => {
+  const semArte = peca({ quando: horas(-72), comArte: false, titulo: "Sem arte" });
+  avisarAtrasados(org);
+  const avisos = avisosDe(semArte);
+  assert.equal(avisos.length, 1, "não pode ficar em silêncio");
+  assert.match(avisos[0].message, /Falta a arte/);
 });
 
 test("peça sem data marcada não é cobrada", () => {

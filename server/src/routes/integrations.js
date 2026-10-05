@@ -9,6 +9,7 @@ import {
   savePendingPages, getPendingPages, clearPendingPages, publicPage,
 } from "../meta.js";
 import { comecarPublicacao, terminarPublicacao, temVideo, diasAteVencer } from "../publicacao-demorada.js";
+import { agoraNaAgencia } from "../fuso.js";
 
 const router = Router();
 
@@ -170,7 +171,9 @@ router.put("/auto-publish", (req, res) => {
   if (!atual) return res.status(404).json({ error: "Cliente não encontrado." });
   // Só remarca quando estava desligado e passou a ligado — reabrir a tela não
   // pode empurrar a marca para a frente.
-  const desde = ligado && !atual.auto_publish ? new Date().toISOString() : undefined;
+  // A hora DAQUI: esta marca é comparada com a hora marcada dos posts, que é
+  // hora do Brasil. Em Greenwich, dava três horas de diferença — ver fuso.js.
+  const desde = ligado && !atual.auto_publish ? agoraNaAgencia() : undefined;
   if (desde !== undefined) {
     db.prepare("UPDATE clients SET auto_publish = ?, auto_publish_desde = ? WHERE id = ? AND org_id = ?")
       .run(ligado, desde, client_id, req.orgId);

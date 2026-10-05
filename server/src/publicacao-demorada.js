@@ -1,4 +1,5 @@
 import { db } from "./db.js";
+import { agoraNaAgencia } from "./fuso.js";
 
 // ---------------------------------------------------------------------------
 // PUBLICAR SEM SEGURAR O CLIQUE, E AVISAR ANTES DO TOKEN VENCER
@@ -24,7 +25,8 @@ export const LIMITE_PENDURADO_MIN = 20;
 /** A partir de quantos dias para vencer o token começa a avisar. */
 export const AVISAR_TOKEN_DIAS = 10;
 
-const hoje = () => new Date().toISOString().slice(0, 10);
+// O dia DAQUI: a guarda é "uma vez por dia", e o dia é o nosso.
+const hoje = () => agoraNaAgencia().slice(0, 10);
 
 /**
  * Segura o portão: marca que esta peça começou a publicar.
