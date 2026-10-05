@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import "dotenv/config";
+import { agoraNaAgencia } from "./fuso.js";
 
 const DB_PATH = process.env.DB_PATH || "./data/agency.db";
 mkdirSync(dirname(DB_PATH), { recursive: true });
@@ -1501,6 +1502,38 @@ db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
     const n = info.run().changes;
     db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
     if (n) console.log(`Privacidade: ${n} linha(s) de salário automático retirada(s) do Financeiro.`);
+  })();
+})();
+
+// ---------------------------------------------------------------------------
+// A MARCA DE "AUTOMÁTICO LIGADO DESDE" ESTAVA EM GREENWICH
+//
+// clients.auto_publish_desde era gravado com new Date().toISOString() — hora de
+// Greenwich — e comparado com a hora marcada do post, que é a hora DAQUI. Três
+// horas de diferença: um post marcado para as 15:25 de hoje podia cair do lado
+// errado da marca e ser tratado como "programado antes de ligar".
+//
+// A gravação já passou a usar o fuso da agência (ver fuso.js). Aqui ficam as
+// marcas antigas, convertidas uma vez só. Reconhece-se uma marca velha pelo
+// formato: ISO com "T" no meio.
+// ---------------------------------------------------------------------------
+(() => {
+  const CHAVE = "auto-publish-desde-no-fuso-da-agencia-2026-10";
+  if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE)) return;
+
+  const velhas = db.prepare(
+    "SELECT id, auto_publish_desde FROM clients WHERE auto_publish_desde LIKE '%T%'"
+  ).all();
+  const upd = db.prepare("UPDATE clients SET auto_publish_desde = ? WHERE id = ?");
+
+  db.transaction(() => {
+    for (const c of velhas) {
+      const d = new Date(c.auto_publish_desde);
+      if (Number.isNaN(d.getTime())) continue;
+      upd.run(agoraNaAgencia(d), c.id);
+    }
+    db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
+    if (velhas.length) console.log(`Publicação: ${velhas.length} marca(s) de automático passada(s) para o fuso da agência.`);
   })();
 })();
 
