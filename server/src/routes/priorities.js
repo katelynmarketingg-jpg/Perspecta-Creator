@@ -9,18 +9,40 @@ import { retornoConcluido } from "../retorno-prospect.js";
 // Prioridades / recados internos — o canal da equipe.
 //
 // A chefia diz, por cliente, o que é prioridade e por quê, escolhe para quem
-// vai (Rafa, Bruno, você...) e o recado anda num quadrinho: Pendente → Em
-// andamento → Concluído. É interno (não aparece para o cliente).
+// vai (Rafa, Bruno, você...) e o recado anda num quadrinho: Pendente →
+// Concluído, com Arquivado embaixo para o que sai da frente. É interno (não
+// aparece para o cliente).
+//
+// "Em andamento" saiu a pedido dela: ficava sempre vazia (zero recados em
+// meses) e só roubava um terço da tela das duas colunas que importam.
 // ---------------------------------------------------------------------------
 const router = Router();
 router.use(authRequired, moduleAllowed("tarefas"));
 
 const LEVELS = ["alta", "media", "baixa"];
-const STATUSES = ["pending", "doing", "done"];
+const STATUSES = ["pending", "done", "arquivado"];
+
+/** A partir de quando um retorno marcado para o futuro aparece no quadro. */
+export const ANTECEDENCIA_DO_RETORNO = "+7 days";
+
+/**
+ * É um retorno de prospecção cuja data ainda está longe?
+ *
+ * A antecedência entra como texto na consulta, e não como parâmetro, porque
+ * este pedaço viaja junto com o SELECT — que também é usado para buscar UMA
+ * linha, por posição. Um nome de parâmetro ali rebentaria essas buscas. O valor
+ * é nosso, fixo, nunca vem de fora.
+ */
+const AGENDADO = `
+  p.prospect_id IS NOT NULL
+  AND p.status = 'pending'
+  AND p.due_date IS NOT NULL
+  AND date(p.due_date) > date('now', '${ANTECEDENCIA_DO_RETORNO}')`;
 
 const SELECT = `
   SELECT p.id, p.client_id, p.message, p.level, p.assignee_id, p.created_by,
          p.status, p.position, p.created_at, p.done_at, p.due_date, p.prospect_id,
+         (${AGENDADO}) AS agendado,
          c.name AS client_name,
          ua.name AS assignee_name,
          uc.name AS creator_name,
@@ -31,12 +53,29 @@ const SELECT = `
   LEFT JOIN users uc ON uc.id = p.created_by
   LEFT JOIN prospects pr ON pr.id = p.prospect_id`;
 
-// GET /api/priorities?assignee_id=&status= — recados do escritório.
+// GET /api/priorities?assignee_id=&status=&agendados=1 — recados do escritório.
+//
+// O RETORNO MARCADO PARA DEZEMBRO NÃO APARECE EM OUTUBRO.
+//
+// Palavras dela: "quando eu marcar na prospecção que eu tenho que retornar em
+// tal data, na semana vai aparecer pra mim uma notificação, e vai aparecer nas
+// prioridades e no dashboard, NÃO DESDE AGORA". Marcar um retorno para daqui a
+// dois meses enchia o quadro hoje — e um quadro cheio do que não é para agora
+// para de ser lido.
+//
+// Vale SÓ para o retorno de prospecção, que o sistema cria sozinho. Uma
+// prioridade escrita à mão com prazo é recado para a equipe desde já: quem
+// escreveu quis que aparecesse.
+//
+// `agendados=1` traz também as que ainda não chegaram a vez — é como a tela de
+// Prioridades sabe dizer quantas estão esperando, em vez de simplesmente
+// esconder.
 router.get("/", (req, res) => {
   const where = ["p.org_id = @org_id"];
   const params = { org_id: req.orgId };
   if (req.query.assignee_id) { where.push("p.assignee_id = @assignee_id"); params.assignee_id = req.query.assignee_id; }
   if (req.query.status) { where.push("p.status = @status"); params.status = req.query.status; }
+  if (!req.query.agendados) where.push(`NOT (${AGENDADO})`);
   const rows = db.prepare(
     `${SELECT} WHERE ${where.join(" AND ")}
      ORDER BY CASE WHEN p.due_date IS NULL THEN 1 ELSE 0 END, p.due_date,

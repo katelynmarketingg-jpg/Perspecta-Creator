@@ -112,14 +112,30 @@ export function retornoConcluido(orgId, priorityId) {
   return true;
 }
 
+/** Quantos dias antes da data o retorno comece a existir para a equipe. */
+export const ANTECEDENCIA_DIAS = 7;
+
 /**
- * Avisa os retornos que chegaram a hora — no máximo um por prospect por dia.
+ * Avisa os retornos: um recado quando entram na semana, e depois no dia.
+ *
+ * Palavras dela: "quando eu marcar na prospecção que eu tenho que retornar em
+ * tal data, NA SEMANA vai aparecer pra mim uma notificação". Antes o primeiro
+ * sinal era no próprio dia — tarde demais para quem precisa preparar a
+ * conversa, e cedo demais no quadro, onde o recado aparecia desde o dia em que
+ * a data foi marcada.
+ *
+ * Então são dois momentos, e nunca mais de um recado por dia por prospect:
+ *
+ *   · UMA VEZ, ao entrar na semana — "retornar em 10/12";
+ *   · no dia e em cada dia depois, enquanto ninguém resolver — um retorno
+ *     esquecido tem de continuar incomodando.
+ *
+ * O meio do caminho fica calado de propósito: avisar todo dia por uma semana
+ * ensina a ignorar o sininho.
  *
  * Mesmo desenho do aviso de cobrança atrasada: o Render é uma instância só, sem
  * agendador, então a checagem roda quando alguém abre as notificações, e o
- * retorno_avisado_em impede repetir no mesmo dia. Avisa no dia E nos dias
- * seguintes enquanto ninguém resolver — um retorno esquecido tem de continuar
- * incomodando.
+ * retorno_avisado_em impede repetir no mesmo dia.
  *
  * O aviso é mirado: vai para quem ficou responsável pela prioridade; sem
  * responsável, vai para a equipe (user_id nulo).
@@ -128,17 +144,23 @@ export function lembrarRetornos(orgId) {
   if (!orgId) return 0;
   const dia = hoje();
   const vencidos = db.prepare(
-    `SELECT p.id, p.name, p.company, p.retorno_em, p.retorno_nota,
+    `SELECT p.id, p.name, p.company, p.retorno_em, p.retorno_nota, p.retorno_avisado_em,
             (SELECT pr.assignee_id FROM priorities pr
               WHERE pr.prospect_id = p.id AND pr.org_id = p.org_id AND pr.status != 'done'
               ORDER BY pr.id DESC LIMIT 1) AS assignee_id
        FROM prospects p
       WHERE p.org_id = ?
         AND p.retorno_em IS NOT NULL
-        AND date(p.retorno_em) <= date(?)
         AND (p.retorno_avisado_em IS NULL OR date(p.retorno_avisado_em) < date(?))
-        AND p.status NOT IN ('fechado', 'perdido')`
-  ).all(orgId, dia, dia);
+        AND p.status NOT IN ('fechado', 'perdido')
+        AND (
+          -- chegou o dia (ou passou): cobra todo dia
+          date(p.retorno_em) <= date(?)
+          -- ou entrou na semana, e ainda não foi avisado nenhuma vez
+          OR (p.retorno_avisado_em IS NULL
+              AND date(p.retorno_em) <= date(?, '+${ANTECEDENCIA_DIAS} days'))
+        )`
+  ).all(orgId, dia, dia, dia);
 
   if (!vencidos.length) return 0;
 
@@ -150,13 +172,13 @@ export function lembrarRetornos(orgId) {
   const tx = db.transaction(() => {
     for (const v of vencidos) {
       const quem = [v.name, v.company].filter(Boolean).join(" — ");
-      const quando = v.retorno_em.slice(0, 10).split("-").reverse().join("/");
-      const atrasado = v.retorno_em.slice(0, 10) < dia;
-      ins.run(
-        `${atrasado ? "⏰" : "📞"} ${atrasado ? `Retorno atrasado (era ${quando})` : "Retornar hoje"}: ${quem}`
-        + `${v.retorno_nota ? ` · ${v.retorno_nota}` : ""}`,
-        orgId, v.assignee_id || null
-      );
+      const data = v.retorno_em.slice(0, 10);
+      const quando = data.split("-").reverse().join("/");
+      const cabecalho = data < dia ? `⏰ Retorno atrasado (era ${quando})`
+        : data === dia ? "📞 Retornar hoje"
+        : `📅 Retornar em ${quando}`;
+      ins.run(`${cabecalho}: ${quem}${v.retorno_nota ? ` · ${v.retorno_nota}` : ""}`,
+        orgId, v.assignee_id || null);
       marca.run(dia, v.id);
     }
   });

@@ -1548,4 +1548,25 @@ db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
   })();
 })();
 
+// ---------------------------------------------------------------------------
+// PRIORIDADES: "EM ANDAMENTO" SAIU DO QUADRO
+//
+// Pedido dela: "quero que seja só pendente, concluído, e o próximo é de
+// arquivado". A coluna do meio vivia vazia e levava um terço da tela.
+//
+// O que estava lá volta para Pendente: é o estado honesto de um recado que
+// alguém começou e não terminou. Apagar ou dar como concluído seria mentir
+// sobre trabalho que ainda existe.
+// ---------------------------------------------------------------------------
+(() => {
+  const CHAVE = "prioridades-sem-em-andamento-2026-10";
+  if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE)) return;
+
+  db.transaction(() => {
+    const n = db.prepare("UPDATE priorities SET status = 'pending' WHERE status = 'doing'").run().changes;
+    db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
+    if (n) console.log(`Prioridades: ${n} recado(s) de "Em andamento" voltaram para Pendente.`);
+  })();
+})();
+
 export default db;
