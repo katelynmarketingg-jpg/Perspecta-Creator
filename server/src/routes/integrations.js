@@ -155,11 +155,27 @@ router.delete("/meta/:clientId", (req, res) => {
 });
 
 // PUT /api/integrations/auto-publish — liga/desliga a publicação automática.
+//
+// Ligar grava O MOMENTO. Daí para frente o robô só pega o que for programado
+// depois disso: sem essa marca, ligar o interruptor hoje jogaria no ar, de uma
+// vez, tudo que estava aprovado e atrasado dentro da janela. Publicar é
+// irreversível — a surpresa tem de ser impossível, não improvável.
 router.put("/auto-publish", (req, res) => {
   const { client_id, enabled } = req.body || {};
-  db.prepare("UPDATE clients SET auto_publish = ? WHERE id = ? AND org_id = ?")
-    .run(enabled ? 1 : 0, client_id, req.orgId);
-  res.json({ ok: true, enabled: !!enabled });
+  const ligado = enabled ? 1 : 0;
+  const atual = db.prepare("SELECT auto_publish FROM clients WHERE id = ? AND org_id = ?").get(client_id, req.orgId);
+  if (!atual) return res.status(404).json({ error: "Cliente não encontrado." });
+  // Só remarca quando estava desligado e passou a ligado — reabrir a tela não
+  // pode empurrar a marca para a frente.
+  const desde = ligado && !atual.auto_publish ? new Date().toISOString() : undefined;
+  if (desde !== undefined) {
+    db.prepare("UPDATE clients SET auto_publish = ?, auto_publish_desde = ? WHERE id = ? AND org_id = ?")
+      .run(ligado, desde, client_id, req.orgId);
+  } else {
+    db.prepare("UPDATE clients SET auto_publish = ? WHERE id = ? AND org_id = ?")
+      .run(ligado, client_id, req.orgId);
+  }
+  res.json({ ok: true, enabled: !!ligado });
 });
 
 // POST /api/integrations/publish/:taskId — publica agora, a pedido.

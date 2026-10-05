@@ -643,7 +643,7 @@ export default function Tasks() {
                     )}
                     {/* Aprovado pelo cliente e ainda não programado → botão Programar */}
                     {t.approval_status === "approved" && doneStage && t.stage_id !== doneStage.id && (
-                      <Tooltip title="Publicar direto no Instagram: aguardando o app Meta developer. Por ora, 'Programar' marca como programado e organiza no calendário.">
+                      <Tooltip title="Marca como programado e organiza no calendário. Para publicar de verdade, abra a peça em Distribuição: lá tem 'Publicar agora' (com o Instagram conectado) ou o caminho de baixar e postar no app.">
                         <span>
                           <Button fullWidth size="small" variant="contained" color="success"
                             startIcon={<ScheduleSendIcon />} sx={{ mt: 1 }}

@@ -839,6 +839,18 @@ ensureColumn("tasks", "bonus", "bonus INTEGER NOT NULL DEFAULT 0");
 // Publicar sozinho na hora marcada é opcional e desligado por padrão.
 ensureColumn("clients", "auto_publish", "auto_publish INTEGER NOT NULL DEFAULT 0");
 
+// DESDE QUANDO a publicação automática está ligada neste cliente.
+//
+// Sem isto, ligar o interruptor hoje faria sair TUDO que estava aprovado e
+// programado para trás dentro da janela de atraso — uma rajada de posts no
+// Instagram do cliente, de uma vez, sem ninguém mandar. Publicar é irreversível;
+// o automático só vale para o que foi programado depois de ele ser ligado.
+ensureColumn("clients", "auto_publish_desde", "auto_publish_desde TEXT");
+
+// Já avisamos que esta peça perdeu a hora? Guarda o dia, para o aviso sair uma
+// vez e não todo dia (mesmo controle do aviso de cobrança atrasada).
+ensureColumn("tasks", "aviso_atraso_em", "aviso_atraso_em TEXT");
+
 // Aceite eletrônico do contrato pelo cliente.
 ensureColumn("contracts", "signed_at", "signed_at TEXT");
 ensureColumn("contracts", "signer_name", "signer_name TEXT");
