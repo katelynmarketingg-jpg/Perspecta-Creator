@@ -214,6 +214,26 @@ function parcelaInfo(parcela) {
   return { recurring: 0, num: null, total: null };
 }
 
+/**
+ * EM QUE PARCELA ESTA CONTA ESTÁ — LENDO DOS DOIS LUGARES.
+ *
+ * O número mora em installment_num/installment_total. Só que importação antiga
+ * gravou apenas o TEXTO ("2/5") e deixou as colunas vazias. Quem não soubesse
+ * reler o texto copiava "2/5" mês após mês: a conta nunca andava e nunca
+ * acabava — era exatamente o que ela via.
+ *
+ * Era isto que estava em um dos caminhos e faltava no outro. Agora os dois
+ * perguntam aqui.
+ */
+function ondeEstaAParcela(row) {
+  let num = row.installment_num, total = row.installment_total;
+  if (total == null) {
+    const pi = parcelaInfo(row.parcela);
+    if (pi.total != null) { num = pi.num; total = pi.total; }
+  }
+  return { num: num ?? null, total: total ?? null };
+}
+
 // Gastos da categoria "Perspectiva" são da empresa: não ficam nas finanças
 // pessoais, vão pro Financeiro (despesas, compartilhado).
 const isPerspectiva = (cat) => /perspec/i.test(String(cat ?? ""));
@@ -364,14 +384,8 @@ function rollForward(row, ym, i) {
   // casa é conta que volta: agora a exceção é a conta marcada "só neste mês".
   if (row.avulso) return null;
   if (isPerspectiva(row.category)) return null; // Perspectiva vive no Financeiro, não aqui
-  let parcela = row.parcela, num = row.installment_num, total = row.installment_total;
-  // A LINHA ANTIGA SÓ TEM O TEXTO. Importações antigas gravaram "3/3" na
-  // parcela e deixaram os campos de número vazios. Sem reler o texto, a conta
-  // era copiada como "3/3" mês após mês: nunca andava e nunca acabava.
-  if (total == null) {
-    const pi = parcelaInfo(row.parcela);
-    if (pi.total != null) { num = pi.num; total = pi.total; }
-  }
+  let parcela = row.parcela;
+  let { num, total } = ondeEstaAParcela(row);
   if (total != null) {
     const next = (Number(num) || 0) + 1;
     if (next > total) return null;               // acabou de pagar — some no próximo mês
@@ -428,8 +442,11 @@ const nameExistsInMonth = db.prepare(
 function propagateForward(org, user, startYm, row) {
   if (!row.recurring) return 0;
   if (isPerspectiva(row.category)) return 0; // Perspectiva vive no Financeiro
-  const total = row.installment_total != null ? Number(row.installment_total) : null;
-  const baseNum = Number(row.installment_num) || 0;
+  // AQUI ESTAVA O BUG. Lia só as colunas: com elas vazias, `total` ficava nulo e
+  // o texto "2/5" era copiado igual para todo mês seguinte.
+  const { num: numAtual, total: totalLido } = ondeEstaAParcela(row);
+  const total = totalLido != null ? Number(totalLido) : null;
+  const baseNum = Number(numAtual) || 0;
   let created = 0;
   const tx = db.transaction(() => {
     let m = ymNext(startYm);

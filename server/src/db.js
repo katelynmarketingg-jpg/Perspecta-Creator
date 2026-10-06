@@ -1592,4 +1592,83 @@ db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
   })();
 })();
 
+// ---------------------------------------------------------------------------
+// AS PARCELAS QUE FICARAM PRESAS
+//
+// "os 2/3 não estão seguindo, de um mês pro outro se mantém o mesmo, não passa
+// pra próxima parcela." Um dos dois caminhos que levam a conta para o mês
+// seguinte não sabia reler o número de dentro do texto "2/5" — então copiava o
+// mesmo texto para todo mês seguinte. O caminho já foi consertado; aqui ficam
+// as linhas que ele deixou para trás.
+//
+// A conta é a mesma que o sistema teria feito: a parcela mais antiga da série é
+// a âncora, e cada mês seguinte anda um. Linhas que passariam do fim da série
+// (uma 6/5) só saem quando estão no FUTURO — ali foram o sistema que criou, e
+// ninguém deve nada ainda. Mês passado e mês atual não se reescrevem: aquilo é
+// histórico, e apagar conta de alguém é pior do que deixar um número torto.
+// ---------------------------------------------------------------------------
+(() => {
+  const CHAVE = "parcelas-presas-no-mesmo-numero-2026-10";
+  if (db.prepare("SELECT 1 FROM migracoes WHERE chave = ?").get(CHAVE)) return;
+
+  const mesAtual = agoraNaAgencia().slice(0, 7);
+  const comoNumero = (ym) => { const [a, m] = String(ym).split("-").map(Number); return a * 12 + (m - 1); };
+  const leTexto = (parcela) => {
+    const m = String(parcela ?? "").match(/^\s*(\d+)\s*\/\s*(\d+)\s*$/);
+    return m ? { num: Number(m[1]), total: Number(m[2]) } : null;
+  };
+
+  const linhas = db.prepare(
+    `SELECT id, org_id, user_id, ym, name, parcela, installment_num, installment_total
+       FROM personal_finance
+      WHERE parcela IS NOT NULL
+      ORDER BY org_id, user_id, lower(name), ym, id`
+  ).all();
+
+  const series = new Map();
+  for (const l of linhas) {
+    const texto = leTexto(l.parcela);
+    if (!texto) continue;                        // "fixa", "Mensal": não têm número
+    const chave = `${l.org_id}|${l.user_id}|${String(l.name).toLowerCase()}`;
+    if (!series.has(chave)) series.set(chave, []);
+    series.get(chave).push({ ...l, texto });
+  }
+
+  const arruma = db.prepare(
+    "UPDATE personal_finance SET parcela=?, installment_num=?, installment_total=? WHERE id=?"
+  );
+  const apaga = db.prepare("DELETE FROM personal_finance WHERE id=?");
+  let corrigidas = 0, removidas = 0;
+
+  db.transaction(() => {
+    for (const grupo of series.values()) {
+      if (grupo.length < 2) continue;
+      // A impressão digital do bug: o MESMO texto em dois meses da série.
+      const textos = grupo.map((l) => l.parcela.trim());
+      if (new Set(textos).size === textos.length) continue;   // já andava: não se mexe
+
+      const ancora = grupo[0];
+      const base = comoNumero(ancora.ym);
+      for (const l of grupo) {
+        const esperado = ancora.texto.num + (comoNumero(l.ym) - base);
+        const total = ancora.texto.total;
+        if (esperado > total) {
+          if (l.ym > mesAtual) { apaga.run(l.id); removidas++; }
+          continue;
+        }
+        const texto = `${esperado}/${total}`;
+        if (l.parcela.trim() === texto && l.installment_num === esperado && l.installment_total === total) continue;
+        arruma.run(texto, esperado, total, l.id);
+        corrigidas++;
+      }
+    }
+    db.prepare("INSERT INTO migracoes (chave) VALUES (?)").run(CHAVE);
+  })();
+
+  if (corrigidas || removidas) {
+    console.log(`Minhas Finanças: ${corrigidas} parcela(s) renumerada(s)`
+      + (removidas ? `, ${removidas} de meses futuros removida(s) por já terem acabado.` : "."));
+  }
+})();
+
 export default db;
