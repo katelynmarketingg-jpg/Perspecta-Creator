@@ -10,7 +10,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
 import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2, enderecoAssinado, nomeParaBaixar, enderecoParaEnviar, conferirObjeto, chaveEhDoEscritorio } from "../storage.js";
 import { confere } from "../pertence.js";
-import { bilheteDeMidia, enderecoDeMidia, enderecoDePrevia, previasDe } from "../midia-url.js";
+import { bilheteDeMidia, bilheteParaBaixar, enderecoDeMidia, enderecoDePrevia, previasDe } from "../midia-url.js";
 import { emParalelo } from "../em-paralelo.js";
 import { erroDeEnvio } from "../erro-de-envio.js";
 import { ensureClientFolder, STAGE_FOLDER } from "../gallery-sync.js";
@@ -153,7 +153,8 @@ sharedRouter.get("/shared/:ticket", async (req, res) => {
   if (!file) return res.status(404).json({ error: "Arquivo não encontrado." });
   // payload.capturar: o navegador vai desenhar isto num canvas, então o arquivo
   // tem que vir por dentro do nosso servidor (ver bilheteDeMidia).
-  await serveFile(res, file, false, req.headers.range, Boolean(payload.capturar));
+  // payload.baixar: é um download — vai como anexo, com o nome original.
+  await serveFile(res, file, Boolean(payload.baixar), req.headers.range, Boolean(payload.capturar));
 });
 
 router.use(authRequired, moduleAllowed("arquivos"));
@@ -315,6 +316,8 @@ router.get("/", async (req, res) => {
   const { usados, postados } = arquivosEmUso(req.orgId);
   await Promise.all(rows.map(async (f) => {
     f.media_url = await enderecoDeMidia(f, req.orgId);
+    // O endereço de BAIXAR vai junto: o navegador busca sozinho (ver midia-url.js).
+    f.download_url = bilheteParaBaixar(f.id, req.orgId);
     f.preview_url = previas.get(f.id) || null;
     f.em_uso = usados.has(f.id);        // já está pendurado em alguma peça
     f.ja_postado = postados.has(f.id);  // e essa peça já foi ao ar
@@ -422,6 +425,7 @@ router.post("/upload-direto/registrar", async (req, res) => {
       { id: novo.id, mime: novo.mime, original_name: novo.original_name, stored_path: storedPath },
       req.orgId,
     );
+    novo.download_url = bilheteParaBaixar(novo.id, req.orgId);
     novo.repetida = repetida;
     created.push(novo);
   }
@@ -511,6 +515,7 @@ router.post("/upload", upload.array("files", 20), async (req, res) => {
       { id: novo.id, mime: novo.mime, original_name: novo.original_name, stored_path: storedPath },
       req.orgId,
     );
+    novo.download_url = bilheteParaBaixar(novo.id, req.orgId);
     novo.repetida = repetida;
     created.push(novo);
   }

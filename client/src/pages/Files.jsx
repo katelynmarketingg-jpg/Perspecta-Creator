@@ -52,11 +52,6 @@ function fileIcon(mime = "") {
   return <InsertDriveFileIcon color="disabled" />;
 }
 
-function authFetchBlob(id) {
-  const token = localStorage.getItem("token");
-  return fetch(`/api/files/${id}/download`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.blob());
-}
-
 // Cartão de um arquivo: a prévia sai NA PROPORÇÃO REAL da foto/vídeo (retrato de
 // reel fica em pé, paisagem fica deitado). A grade usa a MINIATURA leve gerada
 // no envio — antes cada quadradinho baixava o arquivo original inteiro, o que
@@ -728,15 +723,35 @@ export default function Files() {
         : api.delete(`/files/${id}`)));
     } catch { setFiles(antes); loadDocs(true); }
   }
+  // BAIXAR É DO NAVEGADOR, NÃO DO JAVASCRIPT.
+  //
+  // "não estou conseguindo baixar os vídeos da galeria."
+  //
+  // Antes: fetch na rota de baixar, lê a resposta inteira como blob, monta um
+  // link na memória e clica. Funciona com foto pequena no disco. Com vídeo no
+  // R2, não: aquela rota responde com um REDIRECIONAMENTO para a Cloudflare,
+  // que é outro domínio, e para o JavaScript LER bytes de outro domínio o
+  // servidor de lá precisa autorizar (CORS). O balde não autoriza — "Failed
+  // to fetch", medido no Chromium. A prévia funcionava porque <video src> não
+  // precisa dessa autorização: quem busca é o navegador. Daí a cena esquisita
+  // de o vídeo tocar na tela e não baixar.
+  //
+  // E tinha um segundo problema, mesmo no disco: revogar o endereço na linha
+  // seguinte ao clique é corrida com o navegador, e arquivo grande perde.
+  //
+  // Agora o endereço é assinado e o navegador busca sozinho, gravando no disco
+  // enquanto baixa. Sem CORS, sem memória, sem corrida.
   function download(file) {
-    // Devolve a promessa: quem baixa várias lâminas seguidas precisa esperar
-    // uma terminar antes de pedir a próxima.
-    return authFetchBlob(file.id).then((blob) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = file.original_name; a.click();
-      URL.revokeObjectURL(url);
-    });
+    const a = document.createElement("a");
+    a.href = file.download_url || `/api/files/${file.id}/download`;
+    a.download = file.original_name;
+    // No DOM de propósito: o Firefox ignora o clique num link solto.
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Devolve promessa porque quem baixa várias lâminas seguidas espera uma
+    // antes de pedir a próxima.
+    return Promise.resolve();
   }
 
   // ---- Seleção, unir e separar ----
