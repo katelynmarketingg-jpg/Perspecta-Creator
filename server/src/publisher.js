@@ -132,6 +132,47 @@ function porQueNaoSai(t) {
 }
 
 /**
+ * A FILA DO AUTOMÁTICO, PARA ELA OLHAR ANTES DE CONFIAR.
+ *
+ * Pedido dela: "confere para mim se realmente os aprovados vão ser postados
+ * conforme as datas... eu tô com receio desses que vão entrar sozinhos."
+ *
+ * Conferir uma vez não resolve: o que ela precisa é ver, a qualquer dia, o que
+ * vai sair sozinho e o que está marcado mas NÃO vai sair — com o motivo. É
+ * exatamente a mesma leitura que o robô faz na hora de publicar, só que olhando
+ * para a frente.
+ */
+export function filaDoAutomatico(orgId, clientId, dias = 30) {
+  const agora = agoraNaAgencia();
+  const marcadas = db.prepare(
+    `SELECT t.id, t.title, t.scheduled_at, t.approval_status,
+            c.auto_publish, c.auto_publish_desde,
+            EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id) AS tem_arte
+       FROM tasks t JOIN clients c ON c.id = t.client_id
+      WHERE t.org_id = @org AND t.client_id = @cli
+        AND t.published_at IS NULL
+        AND t.scheduled_at IS NOT NULL
+        AND datetime(t.scheduled_at) > datetime(@agora, @janela)
+        AND datetime(t.scheduled_at) <= datetime(@agora, @ate)
+      ORDER BY t.scheduled_at`
+  ).all({ org: orgId, cli: clientId, agora, janela: JANELA_DE_ATRASO, ate: `+${dias} days` });
+
+  const proximas = [], travadas = [];
+  for (const t of marcadas) {
+    const motivo = !t.tem_arte ? "sem arte anexada"
+      : t.approval_status !== "approved" ? "o cliente ainda não aprovou"
+      : !t.auto_publish ? "publicação automática desligada neste cliente"
+      : (t.auto_publish_desde && String(t.scheduled_at) < String(t.auto_publish_desde).replace("T", " "))
+        ? "já estava programada quando o automático foi ligado"
+        : null;
+    (motivo ? travadas : proximas).push({
+      id: t.id, title: t.title, scheduled_at: t.scheduled_at, ...(motivo ? { motivo } : {}),
+    });
+  }
+  return { proximas, travadas };
+}
+
+/**
  * Publica sozinho os posts cuja hora chegou — mas só para clientes em que a
  * publicação automática foi ligada de propósito. Sem isso, nada sai no ar
  * sem alguém apertar o botão.

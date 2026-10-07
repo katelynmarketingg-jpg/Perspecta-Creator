@@ -27,6 +27,15 @@ function toPreview(url) {
   } catch { return url; }
 }
 
+/** "2026-10-20 09:00" → "20/10 às 09:00". */
+const quando = (v) => {
+  const t = String(v || "").slice(0, 16).replace("T", " ");
+  const [dia, hora] = t.split(" ");
+  if (!dia) return "sem data";
+  const [, m, d] = dia.split("-");
+  return hora ? `${d}/${m} às ${hora}` : `${d}/${m}`;
+};
+
 export default function Integrations() {
   const { isAdmin } = useAuth();
   const [tab, setTab] = useState("redes");
@@ -283,6 +292,55 @@ export default function Integrations() {
                         <Typography variant="caption">Posts aprovados pelo cliente e com arte anexada vão ao ar sozinhos na hora marcada.</Typography>
                       </Box>
                     ) : null}
+
+                    {/* A FILA DO ROBÔ.
+                        Pedido dela: "confere para mim se realmente os aprovados
+                        vão ser postados conforme as datas... tô com receio desses
+                        que vão entrar sozinhos." Conferir uma vez não resolve —
+                        o que resolve é ela ver, a qualquer dia, o que vai sair e
+                        o que está marcado mas NÃO vai, com o motivo. */}
+                    {conn?.fila && (conn.fila.proximas.length > 0 || conn.fila.travadas.length > 0) && (
+                      <Box sx={{ mt: 1.5 }}>
+                        {conn.fila.proximas.length > 0 && (
+                          <>
+                            <Typography variant="caption" sx={{ fontWeight: 700, display: "block", mb: 0.5 }}>
+                              Vai sair sozinho ({conn.fila.proximas.length})
+                            </Typography>
+                            <Stack spacing={0.25} sx={{ mb: conn.fila.travadas.length ? 1.25 : 0 }}>
+                              {conn.fila.proximas.slice(0, 4).map((p) => (
+                                <Typography key={p.id} variant="caption" color="text.secondary" noWrap>
+                                  {quando(p.scheduled_at)} · {p.title}
+                                </Typography>
+                              ))}
+                              {conn.fila.proximas.length > 4 && (
+                                <Typography variant="caption" color="text.secondary">
+                                  e mais {conn.fila.proximas.length - 4}.
+                                </Typography>
+                              )}
+                            </Stack>
+                          </>
+                        )}
+                        {conn.fila.travadas.length > 0 && (
+                          <>
+                            <Typography variant="caption" sx={{ fontWeight: 700, display: "block", mb: 0.5, color: "warning.main" }}>
+                              Marcado, mas NÃO vai sair ({conn.fila.travadas.length})
+                            </Typography>
+                            <Stack spacing={0.25}>
+                              {conn.fila.travadas.slice(0, 4).map((p) => (
+                                <Typography key={p.id} variant="caption" color="text.secondary" noWrap>
+                                  {quando(p.scheduled_at)} · {p.title} — <b>{p.motivo}</b>
+                                </Typography>
+                              ))}
+                              {conn.fila.travadas.length > 4 && (
+                                <Typography variant="caption" color="text.secondary">
+                                  e mais {conn.fila.travadas.length - 4}.
+                                </Typography>
+                              )}
+                            </Stack>
+                          </>
+                        )}
+                      </Box>
+                    )}
                   </CardContent>
                 </Card>
               );
