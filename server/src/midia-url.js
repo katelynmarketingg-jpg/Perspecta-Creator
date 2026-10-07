@@ -45,6 +45,37 @@ export function bilheteDeMidia(fileId, orgId, { paraCapturar = false } = {}) {
 }
 
 /**
+ * O ENDEREÇO PARA BAIXAR — e por que não dá para baixar com fetch.
+ *
+ * "não estou conseguindo baixar os vídeos da galeria."
+ *
+ * A Galeria baixava assim: fetch no nosso servidor, lê a resposta inteira como
+ * blob, monta um link na memória e clica nele. Funciona com foto pequena no
+ * disco. Com vídeo no R2, não:
+ *
+ *   · a rota de baixar RESPONDE COM UM REDIRECIONAMENTO para a Cloudflare, que
+ *     é outro domínio. Para o JavaScript LER os bytes de outro domínio o
+ *     servidor de lá precisa autorizar (CORS), e o balde não autoriza — o
+ *     fetch morre com "Failed to fetch". Medido no Chromium.
+ *     A prévia do vídeo funciona porque <video src> NÃO precisa dessa
+ *     autorização: quem busca é o navegador, não o JavaScript. Daí a cena
+ *     esquisita: o vídeo toca na tela e não baixa.
+ *   · e mesmo no disco, ler um vídeo de 300 MB para dentro da memória do
+ *     navegador para só então salvar é pedir para engasgar.
+ *
+ * Com um bilhete assinado, o navegador busca o arquivo sozinho e vai gravando
+ * no disco enquanto baixa. Nada de CORS, nada de memória.
+ */
+export function bilheteParaBaixar(fileId, orgId) {
+  if (!fileId) return null;
+  const ticket = jwt.sign(
+    { file_id: fileId, org_id: orgId, baixar: true },
+    JWT_SECRET, { expiresIn: "12h" },
+  );
+  return `/api/files/shared/${ticket}`;
+}
+
+/**
  * O endereço da PRÉVIA — a arte reduzida para o tamanho que a tela usa.
  *
  * A grade do perfil desenha quadradinhos de uns 350 px e estava baixando a arte
