@@ -1419,11 +1419,31 @@ function PieceCard({ item, onChanged, flash }) {
             </Button>
           )}
 
-          {/* Postar manual — aparece quando o cliente já aprovou. Ideal pros
-              Reels com música do Edits, que precisam ser postados no app. */}
-          {item.approval_status === "approved" && (
+          {/* PUBLICAÇÃO — A SEÇÃO APARECE SEMPRE, E DIZ EM QUE PÉ ESTÁ.
+              Pergunta dela: "essa mensagem só aparece no slide ou em vídeo,
+              mas não aparece no post. Por que que tá acontecendo isso?"
+
+              Não era o tipo da peça — reproduzido no navegador com post,
+              carrossel e reel do mesmo cliente, os três se comportavam igual.
+              Era o ESTADO: a seção inteira só existia para peça aprovada.
+              Numa peça ainda não aprovada ela simplesmente não aparecia, sem
+              uma linha dizendo por quê — e some sem explicar é pior do que
+              botão desligado.
+
+              Agora a seção está sempre aí, em um de três estados: esperando a
+              aprovação, pronta para publicar, ou já publicada. */}
+          <Divider sx={{ my: 0.5 }}>Publicação</Divider>
+          {item.approval_status !== "approved" ? (
+            <Typography variant="caption" color="text.secondary">
+              {item.approval_status === "changes_requested"
+                ? "O cliente pediu ajustes nesta peça. "
+                : item.approval_status === "sent"
+                  ? "Enviada ao cliente, esperando a aprovação. "
+                  : "Esta peça ainda não foi enviada para o cliente aprovar. "}
+              Publicar — aqui ou pelo app — só depois de aprovada.
+            </Typography>
+          ) : (
             <>
-              <Divider sx={{ my: 0.5 }}>Publicar no Instagram</Divider>
               {posted ? (
                 /* "DESFAZER" SÓ PARA O QUE FOI MARCADO À MÃO.
                    O que o sistema publicou está no Instagram de verdade: dizer
