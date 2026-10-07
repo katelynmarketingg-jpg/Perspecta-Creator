@@ -145,57 +145,137 @@ router.get("/planned-vs-delivered", (req, res) => {
   }));
 });
 
-// GET /api/reports/deliveries?month=YYYY-MM — quanto falta de cada cliente.
-// "Planejado" vem do plano configurável (plan_items); se não houver, dos
-// campos antigos posts/vídeos do cliente.
+// ---------------------------------------------------------------------------
+// GET /api/reports/deliveries?month=YYYY-MM — o que foi entregue no mês.
+//
+// Três coisas que ela pediu, e que mudam o que esta conta significa:
+//
+// 1. "CONFIRA SE ESTÁ REALMENTE INTERLIGADO COM A QUANTIDADE QUE TEM NO
+//    PROJETO." O planejado vem de plan_items (as linhas do plano mensal do
+//    projeto), agora só dos projetos VIVOS: um projeto encerrado continuava
+//    somando e inflava o que faltava para sempre.
+//
+// 2. "SÓ VAI FICAR CONCLUÍDO O QUE JÁ ESTÁ PROGRAMADO." Antes a barra enchia
+//    com qualquer peça que tivesse data no mês, mesmo parada em Criação —
+//    marcar a data é intenção, não entrega. Agora só conta a peça que está na
+//    etapa final (Programados), que é o que a Rafa faz quando a peça está de
+//    fato pronta e marcada.
+//
+// 3. "UMA LINHA PARA POST, UMA PARA CARROSSEL, UMA PARA REEL." A conta passa a
+//    ser POR TIPO, e o total é a soma delas. Sem isso, "faltam 6" não dizia
+//    faltam 6 do quê — e é o tipo que decide quem produz.
+//
+// E uma correção que ninguém tinha visto: a tarefa criada pelo "Lançar mês"
+// nasce AGRUPADA (quantity = 4 numa linha só) e só se abre em peças
+// individuais quando chega na Distribuição. Contando linhas, quatro reels
+// valiam um. Agora se soma a quantidade, não as linhas.
+// ---------------------------------------------------------------------------
+
+/** Rótulo de cada tipo — o mesmo vocabulário da tela de Tarefas. */
+const ROTULO_DO_TIPO = {
+  post: "Post", carrossel: "Carrossel", reel: "Reel", foto: "Foto",
+  captacao: "Captação", stories: "Stories", reuniao: "Reunião",
+  arte: "Arte / Design", legenda: "Legenda", trafego: "Tráfego", outro: "Outro",
+};
+const rotuloDoTipo = (t) => ROTULO_DO_TIPO[t] || (t ? t[0].toUpperCase() + t.slice(1) : "Sem tipo");
+
 router.get("/deliveries", (req, res) => {
   const month = req.query.month || new Date().toISOString().slice(0, 7);
   const org = req.orgId;
 
-  const clientes = db.prepare(`
-    SELECT c.id, c.name FROM clients c WHERE c.org_id = ? AND c.status = 'active' ORDER BY c.name
-  `).all(org);
+  const clientes = db.prepare(
+    "SELECT c.id, c.name FROM clients c WHERE c.org_id = ? AND c.status = 'active' ORDER BY c.name"
+  ).all(org);
+
+  // O PLANO, POR TIPO. Só de projeto que está valendo: encerrado não cobra, e
+  // projeto com prazo definido só conta nos meses dentro do prazo.
+  const planoPorTipo = db.prepare(`
+    SELECT p.client_id, pi.content_type, SUM(pi.quantity) AS n
+      FROM plan_items pi
+      JOIN projects p ON p.id = pi.project_id
+     WHERE pi.org_id = @org
+       AND p.status <> 'done'
+       AND (p.start_date IS NULL OR strftime('%Y-%m', p.start_date) <= @mes)
+       AND (p.end_date   IS NULL OR strftime('%Y-%m', p.end_date)   >= @mes)
+     GROUP BY p.client_id, pi.content_type
+  `).all({ org, mes: month });
+
+  // ENTREGUE = na etapa final E com data no mês. As duas coisas: a data sem a
+  // etapa é promessa, e a etapa sem data o quadro nem deixa acontecer.
+  const entreguePorTipo = db.prepare(`
+    SELECT t.client_id, t.content_type, SUM(COALESCE(t.quantity, 1)) AS n
+      FROM tasks t
+     WHERE t.org_id = @org
+       AND t.completed_at IS NOT NULL
+       AND strftime('%Y-%m', t.scheduled_at) = @mes
+     GROUP BY t.client_id, t.content_type
+  `).all({ org, mes: month });
+
+  // EM PRODUÇÃO: a peça do mês que ainda não chegou lá. O mês dela é o de
+  // referência (produção do mês), a data marcada ou o prazo — nessa ordem.
+  const producaoPorTipo = db.prepare(`
+    SELECT t.client_id, t.content_type, SUM(COALESCE(t.quantity, 1)) AS n
+      FROM tasks t
+     WHERE t.org_id = @org
+       AND t.completed_at IS NULL
+       AND (t.ref_month = @mes
+            OR strftime('%Y-%m', t.scheduled_at) = @mes
+            OR strftime('%Y-%m', t.due_date) = @mes)
+     GROUP BY t.client_id, t.content_type
+  `).all({ org, mes: month });
+
+  const porCliente = (linhas) => {
+    const m = new Map();
+    for (const l of linhas) {
+      if (!m.has(l.client_id)) m.set(l.client_id, new Map());
+      m.get(l.client_id).set(l.content_type || "outro", Number(l.n) || 0);
+    }
+    return m;
+  };
+  const plano = porCliente(planoPorTipo);
+  const entregue = porCliente(entreguePorTipo);
+  const producao = porCliente(producaoPorTipo);
 
   const out = clientes.map((c) => {
-    // Planejado: soma das linhas do plano dos projetos do cliente.
-    const planned = db.prepare(`
-      SELECT COALESCE(SUM(pi.quantity), 0) AS n
-      FROM plan_items pi JOIN projects p ON p.id = pi.project_id
-      WHERE p.client_id = ? AND pi.org_id = ?
-    `).get(c.id, org).n
-      || (db.prepare("SELECT COALESCE(posts_per_month,0)+COALESCE(videos_per_month,0) AS n FROM clients WHERE id = ?").get(c.id).n);
+    const pl = plano.get(c.id) || new Map();
+    const en = entregue.get(c.id) || new Map();
+    const pr = producao.get(c.id) || new Map();
 
-    // ENTREGUE = PROGRAMADA. Para a agência, a peça está entregue quando tem
-    // data de publicação marcada no quadro — é isso que enche a barra. Também
-    // conta a que foi concluída no mês sem data (arrastada para "Programados").
-    const programadas = db.prepare(`
-      SELECT COUNT(*) AS n FROM tasks
-      WHERE client_id = ? AND org_id = ?
-        AND (strftime('%Y-%m', scheduled_at) = ?
-             OR (scheduled_at IS NULL AND strftime('%Y-%m', completed_at) = ?))
-    `).get(c.id, org, month, month).n;
-    // Concluídas: as que já passaram pela etapa final (fica como detalhe).
-    const concluidas = db.prepare(`
-      SELECT COUNT(*) AS n FROM tasks
-      WHERE client_id = ? AND org_id = ? AND completed_at IS NOT NULL
-        AND (strftime('%Y-%m', scheduled_at) = ? OR strftime('%Y-%m', completed_at) = ?)
-    `).get(c.id, org, month, month).n;
-    // Em produção: ainda sem data de publicação, mas prevista para o mês.
-    const emProducao = db.prepare(`
-      SELECT COUNT(*) AS n FROM tasks
-      WHERE client_id = ? AND org_id = ? AND completed_at IS NULL
-        AND (strftime('%Y-%m', scheduled_at) = ? OR strftime('%Y-%m', due_date) = ?)
-    `).get(c.id, org, month, month).n;
+    // Todo tipo que aparece em qualquer uma das três contas vira uma linha —
+    // inclusive o que foi entregue sem estar no plano, que é informação.
+    const tipos = [...new Set([...pl.keys(), ...en.keys(), ...pr.keys()])]
+      .map((t) => {
+        const planejado = pl.get(t) || 0;
+        const feito = en.get(t) || 0;
+        return {
+          content_type: t,
+          label: rotuloDoTipo(t),
+          planejado,
+          entregue: feito,
+          em_producao: pr.get(t) || 0,
+          falta: Math.max(planejado - feito, 0),
+          fora_do_plano: planejado === 0,
+          percentual: planejado ? Math.min(100, Math.round((feito / planejado) * 100)) : (feito ? 100 : 0),
+        };
+      })
+      .sort((a, b) => (b.planejado - a.planejado) || a.label.localeCompare(b.label, "pt-BR"));
 
-    const base = planned || programadas || 0;
+    const planejado = tipos.reduce((s, t) => s + t.planejado, 0);
+    const entregues = tipos.reduce((s, t) => s + t.entregue, 0);
+    const emProducao = tipos.reduce((s, t) => s + t.em_producao, 0);
+    const base = planejado || entregues;
+
     return {
       id: c.id, client_name: c.name,
-      planejado: planned, programadas, entregues: programadas, concluidas,
+      planejado, entregues, programadas: entregues,
       em_producao: emProducao,
-      percentual: base ? Math.min(100, Math.round((programadas / base) * 100)) : 0,
-      falta: Math.max(base - programadas, 0),
+      // O que falta é a soma do que falta EM CADA TIPO: entregar reel a mais
+      // não cobre o post que não saiu.
+      falta: tipos.reduce((s, t) => s + t.falta, 0),
+      percentual: base ? Math.min(100, Math.round((entregues / base) * 100)) : 0,
+      tipos,
     };
-  }).filter((r) => r.planejado > 0 || r.programadas > 0);
+  }).filter((r) => r.planejado > 0 || r.entregues > 0 || r.em_producao > 0);
 
   res.json(out);
 });
