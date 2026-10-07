@@ -9,6 +9,7 @@ import {
   savePendingPages, getPendingPages, clearPendingPages, publicPage,
 } from "../meta.js";
 import { comecarPublicacao, terminarPublicacao, temVideo, diasAteVencer } from "../publicacao-demorada.js";
+import { filaDoAutomatico } from "../publisher.js";
 import { agoraNaAgencia } from "../fuso.js";
 
 const router = Router();
@@ -90,7 +91,13 @@ router.get("/meta/status", (req, res) => {
     app_id: META_APP_ID ? `${META_APP_ID.slice(0, 6)}…` : null,
     // dias_para_vencer acompanha a conexão: é o que acende o aviso na tela
     // antes de o token morrer e as publicações começarem a falhar.
-    connections: rows.map((r) => ({ ...publicConnection(r), dias_para_vencer: diasAteVencer(r.token_expires) })),
+    // A fila vai junto: é o que deixa ela conferir sozinha o que sai e o que
+    // está marcado mas não vai sair — em vez de ter de perguntar.
+    connections: rows.map((r) => ({
+      ...publicConnection(r),
+      dias_para_vencer: diasAteVencer(r.token_expires),
+      fila: filaDoAutomatico(req.orgId, r.client_id),
+    })),
     pending: pendentes,
   });
 });
@@ -303,6 +310,17 @@ export async function publishTask(task, orgId, host, protocol = "https") {
     ? process.env.PUBLIC_URL
     : (host ? `${protocol}://${host}` : "");
   if (base && !base.startsWith("http")) base = `https://${base}`;
+  // SEM ENDEREÇO PÚBLICO, O AUTOMÁTICO NÃO TEM COMO FUNCIONAR — E TEM DE DIZER
+  // ISSO. A rota manual tira o endereço do próprio pedido HTTP; o robô roda
+  // sozinho, sem pedido nenhum, e só tem o PUBLIC_URL. Faltando ele, a conta
+  // montava um link relativo ("/api/files/shared/..."), a Meta recusava, e o
+  // aviso no sininho vinha com um erro da Meta que não explica nada.
+  if (!base) {
+    throw new Error(
+      "Falta o endereço público do sistema (PUBLIC_URL). A Meta baixa a arte por um link, "
+      + "e sem isso o robô não tem como montar esse link. Publicar pelo botão continua funcionando."
+    );
+  }
   const enderecoDe = (id) =>
     `${base}/api/files/shared/${jwt.sign({ file_id: id, org_id: orgId }, JWT_SECRET, { expiresIn: "2h" })}`;
   const itens = midias.map((f) => ({
