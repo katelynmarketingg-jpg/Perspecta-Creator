@@ -321,6 +321,97 @@ function Foto({ file }) {
 // UMA slide (igual a um post) e desliza em janelas de 1080px com a setinha — a
 // 1ª janela são os primeiros 1080px da esquerda. Recorte por CSS sobre a arte
 // cheia, sem perder qualidade.
+/**
+ * CARROSSEL DE VÁRIAS LÂMINAS, COM AS SETAS — as mesmas que a agência tem.
+ *
+ * "na área do cliente não tá aparecendo pra ver as outras lâminas dos
+ * carrosséis... falta a seta que aparece pra nós."
+ *
+ * Existiam dois carrosséis e só um tinha setas:
+ *
+ *   · UMA TIRA LARGA (seis lâminas numa imagem só) — o CarrosselLargoPortal
+ *     fatiava e mostrava as setas;
+ *   · UM ARQUIVO POR LÂMINA — cada arquivo é uma arte de 1080×1350, a conta de
+ *     fatiar dá UMA janela, as setas nunca apareciam, e as lâminas iam
+ *     empilhadas uma embaixo da outra. De relance, parece que o carrossel tem
+ *     uma lâmina só.
+ *
+ * Agora as duas formas têm a mesma cara: uma janela, setas dos lados e o
+ * contador. É também como o Instagram mostra — o cliente aprova vendo o que
+ * vai ao ar.
+ */
+function CarrosselDeLaminasPortal({ files }) {
+  const [idx, setIdx] = useState(0);
+  const [baixando, setBaixando] = useState(false);
+  const n = files.length;
+  const cur = Math.min(idx, n - 1);
+  const atual = files[cur];
+
+  async function baixar() {
+    setBaixando(true);
+    try {
+      const blob = (await portalApi.get(`/files/${atual.id}/download`, { responseType: "blob" })).data;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = atual.original_name || "arquivo";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } finally { setBaixando(false); }
+  }
+
+  return (
+    <Box>
+      <Box sx={{ position: "relative" }}>
+        {/* Só a lâmina da vez fica montada: oito artes de uma vez pesam no
+            celular dele, e ele olha uma por uma mesmo.
+
+            O `key` com o id do arquivo não é detalhe: a Foto guarda o endereço
+            da arte no estado dela, e sem trocar a chave o React reaproveita a
+            mesma Foto ao mudar de lâmina — o contador ia para 3/3 e a imagem
+            ficava na 1. Visto no navegador, não deduzido. */}
+        {ehArquivoVideo(atual) || tipoIndefinido(atual)
+          ? <Box key={atual.id} component="video" src={atual.media_url}
+              poster={atual.thumb || atual.cover_thumb || undefined}
+              controls playsInline preload="metadata"
+              sx={{ width: "100%", maxHeight: 520, borderRadius: 2, objectFit: "contain",
+                    bgcolor: "action.hover", display: "block" }} />
+          : <Foto key={atual.id} file={atual} />}
+
+        <IconButton size="small" aria-label="Lâmina anterior"
+          onClick={() => setIdx((i) => (Math.min(i, n - 1) - 1 + n) % n)}
+          sx={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", color: "#fff",
+                bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+          <ChevronLeftIcon />
+        </IconButton>
+        <IconButton size="small" aria-label="Próxima lâmina"
+          onClick={() => setIdx((i) => (Math.min(i, n - 1) + 1) % n)}
+          sx={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", color: "#fff",
+                bgcolor: "rgba(0,0,0,0.5)", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}>
+          <ChevronRightIcon />
+        </IconButton>
+        <Box sx={{ position: "absolute", bottom: 8, left: "50%", transform: "translateX(-50%)", px: 1, py: 0.25,
+                   borderRadius: 5, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 11, fontWeight: 700 }}>
+          {cur + 1} / {n}
+        </Box>
+      </Box>
+
+      {/* As bolinhas: dão para pular direto e, principalmente, DIZEM que existe
+          mais de uma lâmina mesmo antes de ele tocar na seta. */}
+      <Stack direction="row" spacing={0.75} justifyContent="center" sx={{ mt: 1 }}>
+        {files.map((f, i) => (
+          <Box key={f.id} role="button" aria-label={`Lâmina ${i + 1}`} onClick={() => setIdx(i)}
+            sx={{ width: i === cur ? 18 : 7, height: 7, borderRadius: 4, cursor: "pointer",
+                  bgcolor: i === cur ? "primary.main" : "action.disabled", transition: "width .15s ease" }} />
+        ))}
+      </Stack>
+
+      <Button size="small" startIcon={<DownloadIcon />} disabled={baixando} onClick={baixar} sx={{ mt: 0.5 }}>
+        {baixando ? "Baixando…" : `Baixar lâmina ${cur + 1} na qualidade original`}
+      </Button>
+    </Box>
+  );
+}
+
 function CarrosselLargoPortal({ file }) {
   const [src, setSrc] = useState(file.media_url || null);
   const [dim, setDim] = useState(null);   // { w, h, n, slideW }
@@ -472,7 +563,11 @@ function ApprovalCard({ post, onDone }) {
 
         {midias.length > 0 && (
           <Stack spacing={1.5} sx={{ mb: 2 }}>
-            {midias.map((m) => <ApprovalMedia key={m.id} file={m} carrossel={post.content_type === "carrossel"} />)}
+            {/* Carrossel com uma arte por lâmina é UM slider, não uma pilha de
+                artes soltas — era isso que escondia as lâminas 2, 3, 4… */}
+            {post.content_type === "carrossel" && midias.length > 1
+              ? <CarrosselDeLaminasPortal files={midias} />
+              : midias.map((m) => <ApprovalMedia key={m.id} file={m} carrossel={post.content_type === "carrossel"} />)}
           </Stack>
         )}
 
