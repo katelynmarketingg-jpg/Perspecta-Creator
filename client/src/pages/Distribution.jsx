@@ -1242,6 +1242,11 @@ function PieceCard({ item, onChanged, flash }) {
         <Stack spacing={1.5}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
             {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
+            {item.content_type === "reel" && item.stage_done && (
+              <Tooltip title="Reel é postado à mão pelo app de edição — o sistema não publica reel, para não perder a qualidade do vídeo.">
+                <Chip size="small" color="warning" variant="outlined" label="📌 postar à mão" />
+              </Tooltip>
+            )}
             <Typography sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}>{item.title}</Typography>
           </Stack>
           {item.client_name && <Typography variant="caption" color="text.secondary">{item.client_name}</Typography>}

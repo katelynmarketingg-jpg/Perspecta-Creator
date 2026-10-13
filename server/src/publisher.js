@@ -79,14 +79,12 @@ export function avisarAtrasados(orgId = null) {
     "datetime(t.scheduled_at) <= datetime(@agora)",
     "t.approval_status = 'approved'",
     "t.aviso_atraso_em IS NULL",
-    // Reel é postado à mão pelo app — fica fora do automático e não é "atraso".
-    "(t.content_type IS NULL OR t.content_type != 'reel')",
   ];
   const params = { janela: JANELA_DE_ATRASO, agora: agoraNaAgencia() };
   if (orgId) { where.push("t.org_id = @org_id"); params.org_id = orgId; }
 
   const candidatos = db.prepare(
-    `SELECT t.id, t.title, t.client_id, t.org_id, t.scheduled_at,
+    `SELECT t.id, t.title, t.client_id, t.org_id, t.scheduled_at, t.content_type,
             c.auto_publish, c.auto_publish_desde,
             EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id) AS tem_arte,
             (datetime(t.scheduled_at) <= datetime(@agora, @janela)) AS fora_da_janela
@@ -125,6 +123,7 @@ export function avisarAtrasados(orgId = null) {
  * Devolve null quando o robô ainda vai pegá-la: aí não é atraso, é fila.
  */
 function porQueNaoSai(t) {
+  if (t.content_type === "reel") return "Reel: poste à mão pelo app de edição — o sistema não publica reel (para não perder qualidade).";
   if (!t.tem_arte) return "Falta a arte: anexe o arquivo na peça, em Distribuição.";
   if (!t.auto_publish) return "A publicação automática está desligada neste cliente (Integrações).";
   if (t.auto_publish_desde && String(t.scheduled_at) < String(t.auto_publish_desde).replace("T", " ")) {
@@ -148,14 +147,13 @@ function porQueNaoSai(t) {
 export function filaDoAutomatico(orgId, clientId, dias = 30) {
   const agora = agoraNaAgencia();
   const marcadas = db.prepare(
-    `SELECT t.id, t.title, t.scheduled_at, t.approval_status,
+    `SELECT t.id, t.title, t.scheduled_at, t.approval_status, t.content_type,
             c.auto_publish, c.auto_publish_desde,
             EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id) AS tem_arte
        FROM tasks t JOIN clients c ON c.id = t.client_id
       WHERE t.org_id = @org AND t.client_id = @cli
         AND t.published_at IS NULL
         AND t.scheduled_at IS NOT NULL
-        AND (t.content_type IS NULL OR t.content_type != 'reel')
         AND datetime(t.scheduled_at) > datetime(@agora, @janela)
         AND datetime(t.scheduled_at) <= datetime(@agora, @ate)
       ORDER BY t.scheduled_at`
@@ -163,7 +161,8 @@ export function filaDoAutomatico(orgId, clientId, dias = 30) {
 
   const proximas = [], travadas = [];
   for (const t of marcadas) {
-    const motivo = !t.tem_arte ? "sem arte anexada"
+    const motivo = t.content_type === "reel" ? "reel — postado à mão pelo app (o sistema não publica reel)"
+      : !t.tem_arte ? "sem arte anexada"
       : t.approval_status !== "approved" ? "o cliente ainda não aprovou"
       : !t.auto_publish ? "publicação automática desligada neste cliente"
       : (t.auto_publish_desde && String(t.scheduled_at) < String(t.auto_publish_desde).replace("T", " "))

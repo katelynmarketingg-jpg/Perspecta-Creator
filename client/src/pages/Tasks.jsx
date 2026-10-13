@@ -737,6 +737,11 @@ export default function Tasks() {
                         <Chip size="small" color="primary" variant="outlined"
                           label={`${CONTENT_TYPES[t.content_type].emoji} ${CONTENT_TYPES[t.content_type].label}`} />
                       )}
+                      {t.content_type === "reel" && doneStage && t.stage_id === doneStage.id && (
+                        <Tooltip title="Reel é postado à mão pelo app de edição — o sistema não publica reel, para não perder a qualidade do vídeo.">
+                          <Chip size="small" color="warning" variant="outlined" label="📌 postar à mão" />
+                        </Tooltip>
+                      )}
                       {t.quantity > 1 && (
                         <Chip size="small" color="secondary" label={`×${t.quantity}`} />
                       )}
