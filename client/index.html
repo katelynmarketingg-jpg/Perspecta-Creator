@@ -7,9 +7,24 @@
     <meta name="description" content="Produção de conteúdo, aprovação do cliente e gestão da agência num lugar só." />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#ab480a" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-    <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!--
+      O ?v= NO FIM DO ÍCONE NÃO É ENFEITE.
+
+      "corrija o ícone, tá muito pra direita" — e o arquivo no servidor já
+      estava certo: medido, o peso da marca está a 0,0% do centro nos quatro
+      ícones. O que ela via era o ÍCONE VELHO, preso no aparelho.
+
+      Motivo: o caminho do ícone nunca muda (/favicon-32.png), e o navegador
+      guarda arquivo por caminho. Trocar o conteúdo de um arquivo com o MESMO
+      endereço é pedir para ninguém ver a troca — e no ícone preso na tela
+      inicial do celular, isso pode durar para sempre.
+
+      Endereço novo é arquivo novo. A cada mudança de ícone, sobe este número
+      (e o do manifest, e o do service worker).
+    -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png?v=2" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Perspecta" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
