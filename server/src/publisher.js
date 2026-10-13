@@ -79,6 +79,8 @@ export function avisarAtrasados(orgId = null) {
     "datetime(t.scheduled_at) <= datetime(@agora)",
     "t.approval_status = 'approved'",
     "t.aviso_atraso_em IS NULL",
+    // Reel é postado à mão pelo app — fica fora do automático e não é "atraso".
+    "(t.content_type IS NULL OR t.content_type != 'reel')",
   ];
   const params = { janela: JANELA_DE_ATRASO, agora: agoraNaAgencia() };
   if (orgId) { where.push("t.org_id = @org_id"); params.org_id = orgId; }
@@ -153,6 +155,7 @@ export function filaDoAutomatico(orgId, clientId, dias = 30) {
       WHERE t.org_id = @org AND t.client_id = @cli
         AND t.published_at IS NULL
         AND t.scheduled_at IS NOT NULL
+        AND (t.content_type IS NULL OR t.content_type != 'reel')
         AND datetime(t.scheduled_at) > datetime(@agora, @janela)
         AND datetime(t.scheduled_at) <= datetime(@agora, @ate)
       ORDER BY t.scheduled_at`
