@@ -618,6 +618,23 @@ router.get("/tasks/:id/attachments", async (req, res) => {
       )
       .all(task.cover_file_id, req.client.org_id);
   }
+  // NA ORDEM DAS LÂMINAS, NÃO NA ORDEM EM QUE ENTRARAM NO BANCO.
+  //
+  // A ordem do carrossel mora em tasks.media_ids (é ela que manda na hora de
+  // publicar). Esta consulta devolvia os anexos na ordem do banco: a lâmina 3
+  // podia chegar antes da 1, e o cliente aprovava um carrossel que ia ao ar
+  // noutra ordem.
+  const ordem = (() => {
+    try {
+      const lista = JSON.parse(task.media_ids || "[]");
+      return Array.isArray(lista) ? lista.map(Number) : [];
+    } catch { return []; }
+  })();
+  if (ordem.length) {
+    const lugar = new Map(ordem.map((id, i) => [Number(id), i]));
+    rows.sort((a, b) => (lugar.get(a.id) ?? 1e9) - (lugar.get(b.id) ?? 1e9) || a.id - b.id);
+  }
+
   const mapaA = await enderecosDeMidia(db, rows.map((f) => f.id), req.client.org_id);
   const previasA = previasDe(db, rows.map((f) => f.id), req.client.org_id);
   for (const f of rows) {
