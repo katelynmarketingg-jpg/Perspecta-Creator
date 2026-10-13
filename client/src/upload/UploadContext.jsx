@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useRef } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import {
   Box, Card, Typography, IconButton, LinearProgress, Stack, Collapse, Tooltip,
 } from "@mui/material";
@@ -274,6 +274,16 @@ export function UploadProvider({ children }) {
   }, [patch, removeLater]);
 
   const ativos = jobs.filter((j) => j.status === "enviando" || j.status === "aguardando").length;
+
+  // Trava do navegador: o upload não termina com a aba fechada. Enquanto houver
+  // envio em andamento, avisa antes de fechar/recarregar, para não perder o que
+  // está subindo. (Navegar DENTRO do sistema é livre — isso não dispara nada.)
+  useEffect(() => {
+    if (ativos === 0) return undefined;
+    const aviso = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", aviso);
+    return () => window.removeEventListener("beforeunload", aviso);
+  }, [ativos]);
 
   return (
     <UploadContext.Provider value={{ enqueue, jobs }}>
