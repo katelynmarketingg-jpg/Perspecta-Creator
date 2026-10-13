@@ -103,12 +103,36 @@ router.get("/", async (req, res) => {
   // parado, sem ninguém precisar arrastar de novo.
   abrirAgrupadasDaEtapa(req.orgId, stage.id);
 
+  // ---------------------------------------------------------------------------
+  // UM MÊS DE CADA VEZ.
+  //
+  // "a parte de distribuição ainda tá bem perdida... pra ter como filtrar por
+  //  mês... que sempre abra do mês que estamos" — e, logo depois:
+  // "ainda tá demorando muito pra carregar".
+  //
+  // São o mesmo problema. A tela trazia TODAS as peças de TODOS os meses, e a
+  // lista do panorama trazia tudo de novo: medido com 504 peças, 994 KB de
+  // resposta e mais de mil linhas, cada uma com os endereços das artes. No
+  // computador isso passa; no celular, é um megabyte de texto antes de aparecer
+  // a primeira imagem.
+  //
+  // Agora a conversa é de um mês. O que ainda não tem data continua aparecendo
+  // sempre: é a fila de preparação, não pertence a mês nenhum até alguém
+  // marcar o dia.
+  // ---------------------------------------------------------------------------
+  const mes = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? req.query.month : null;
+  const DO_MES = `(
+    strftime('%Y-%m', t.scheduled_at) = @mes
+    OR (t.scheduled_at IS NULL AND (t.ref_month IS NULL OR t.ref_month = @mes))
+  )`;
+
   const where = [
     "t.org_id = @org_id",
     "t.stage_id = @stage_id",
     "(t.approval_status IS NULL OR t.approval_status IN ('pending','changes_requested'))",
   ];
   const params = { org_id: req.orgId, stage_id: stage.id };
+  if (mes) { where.push(DO_MES); params.mes = mes; }
   if (req.query.client_id) {
     where.push("t.client_id = @client_id");
     params.client_id = req.query.client_id;
@@ -132,6 +156,7 @@ router.get("/", async (req, res) => {
   // Panorama completo (o "calendário"): TODOS os posts com data marcada do
   // escritório (ou do cliente filtrado) — para as visões Lista/Perfil/Calendário.
   const swhere = ["t.org_id = @org_id", "t.scheduled_at IS NOT NULL"];
+  if (mes) swhere.push("strftime('%Y-%m', t.scheduled_at) = @mes");
   if (req.query.client_id) swhere.push("t.client_id = @client_id");
   const scheduled = db
     .prepare(
@@ -152,6 +177,7 @@ router.get("/", async (req, res) => {
   // Conteúdos APROVADOS pelo cliente e ainda não programados — a fila da Rafa
   // para agendar. (Filtra por empresa se pedido.)
   const awhere = ["t.org_id = @org_id", "t.approval_status = 'approved'", "(s.is_done IS NULL OR s.is_done = 0)"];
+  if (mes) awhere.push(DO_MES);
   if (req.query.client_id) awhere.push("t.client_id = @client_id");
   const approved = db
     .prepare(
@@ -179,6 +205,7 @@ router.get("/", async (req, res) => {
     "t.approval_status IN ('sent', 'changes_requested')",
     "(s.is_done IS NULL OR s.is_done = 0)",
   ];
+  if (mes) wwhere.push(DO_MES);
   if (req.query.client_id) wwhere.push("t.client_id = @client_id");
   const waiting = db
     .prepare(
@@ -199,6 +226,7 @@ router.get("/", async (req, res) => {
 
   // Conteúdos já PROGRAMADOS (na etapa de conclusão / "Programados").
   const pwhere = ["t.org_id = @org_id", "s.is_done = 1"];
+  if (mes) pwhere.push(DO_MES);
   if (req.query.client_id) pwhere.push("t.client_id = @client_id");
   const programmed = db
     .prepare(
