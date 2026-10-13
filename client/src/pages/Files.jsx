@@ -30,6 +30,7 @@ import { ligarRolagemAoArrastar } from "../upload/rolar-arrastando.js";
 import { sugerirSlides } from "../upload/carousel.js";
 import AreaDeSoltar from "../upload/AreaDeSoltar.jsx";
 import { ehHeic, heicParaJpeg } from "../upload/heic.js";
+import { useVagaMiniatura } from "../upload/vagas-miniatura.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { useUploads } from "../upload/UploadContext.jsx";
 import { PageHeader } from "../components/ui.jsx";
@@ -141,7 +142,18 @@ function FileCard({ f, laminas, onDownload, onDelete, onSaveName, onMoveFolder,
   const ehVideo = f.mime?.startsWith("video/");
   const heic = ehHeic(f.original_name, f.mime);
   const [heicUrl, setHeicUrl] = useState(null);
+  // Vídeo sem miniatura é o que mais pesa na abertura — entra na fila (2 por vez)
+  // para não congelar a tela. Só carrega o vídeo quando tem vaga.
+  const precisaVideoMini = ehVideo && !f.thumb && !!f.media_url;
+  const [temVagaVideo, liberarVideo] = useVagaMiniatura(precisaVideoMini);
   useEffect(() => { setName(f.original_name || ""); }, [f.original_name]);
+  // Se um vídeo travar no carregamento (nunca dispara onLoadedData), libera a
+  // vaga depois de um tempo para a fila não parar.
+  useEffect(() => {
+    if (!temVagaVideo) return undefined;
+    const t = setTimeout(liberarVideo, 25000);
+    return () => clearTimeout(t);
+  }, [temVagaVideo, liberarVideo]);
 
   // Converte só quando é HEIC, ainda não tem miniatura e o arquivo é acessível.
   useEffect(() => {
@@ -346,16 +358,24 @@ function FileCard({ f, laminas, onDownload, onDelete, onSaveName, onMoveFolder,
               fontSize: 44, color: "rgba(255,255,255,0.92)",
               filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
           </>
-        ) : ehVideo && f.media_url ? (
+        ) : ehVideo && f.media_url && temVagaVideo ? (
           // Vídeo antigo (sem miniatura): mostra o 1º quadro, como antes — e
-          // aproveita esse quadro para guardar a miniatura.
+          // aproveita esse quadro para guardar a miniatura. Só carrega quando a
+          // fila libera a vaga (no máx. 2 por vez), para não travar a tela.
           <>
             <Box component="video" src={`${f.media_url}#t=0.1`} preload="metadata" muted playsInline sx={midiaSx}
-              onLoadedData={(e) => guardarMiniatura(f.id, e.currentTarget)} />
+              onLoadedData={(e) => { guardarMiniatura(f.id, e.currentTarget); liberarVideo(); }}
+              onError={liberarVideo} />
             <PlayCircleIcon sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
               fontSize: 44, color: "rgba(255,255,255,0.92)",
               filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.6))", pointerEvents: "none" }} />
           </>
+        ) : ehVideo ? (
+          // Vídeo esperando a vez na fila: mostra o ícone com o "play" (some em
+          // segundos, quando for a vez dele gerar a miniatura).
+          <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>
+            <PlayCircleIcon sx={{ fontSize: 44, color: "text.disabled" }} />
+          </Box>
         ) : (
           <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>{fileIcon(f.mime)}</Box>
         )}
