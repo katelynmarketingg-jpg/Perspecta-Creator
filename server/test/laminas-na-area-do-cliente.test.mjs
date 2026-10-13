@@ -103,6 +103,43 @@ test("sem media_ids, a ordem continua previsível", async () => {
   assert.equal(lista.length, 2);
 });
 
+test("lâmina que está no carrossel mas não virou anexo TAMBÉM aparece", async () => {
+  // A verdade do carrossel é o media_ids: é ele que a publicação usa. Os anexos
+  // são uma cópia dessa lista — e cópia sai do ar. Carrossel montado antes de a
+  // gravação dos anexos existir pode ter seis lâminas e um anexo só: o cliente
+  // aprovava olhando UMA arte e ia ao ar o carrossel inteiro.
+  const t3 = db.prepare(
+    `INSERT INTO tasks (title,stage_id,client_id,content_type,approval_status,cover_file_id,media_ids,org_id)
+     VALUES ('Só a capa virou anexo',?,?,'carrossel','sent',?,?,?)`
+  ).run(apr, cli, a, JSON.stringify([a, b, c]), org).lastInsertRowid;
+  db.prepare("INSERT INTO task_attachments (task_id,file_id) VALUES (?,?)").run(t3, a);  // só a capa
+
+  const token = await entrar();
+  const lista = await (await fetch(`${B}/tasks/${t3}/attachments`, { headers: { authorization: `Bearer ${token}` } })).json();
+  assert.deepEqual(lista.map((f) => f.id), [a, b, c],
+    "as três lâminas, na ordem do carrossel");
+  assert.ok(lista.every((f) => f.media_url));
+});
+
+test("lâmina de outra casa citada no media_ids NÃO entra", async () => {
+  const outraOrg = db.prepare("INSERT INTO organizations (name,is_master) VALUES ('Vizinha',0)").run().lastInsertRowid;
+  const outroCli = db.prepare("INSERT INTO clients (name,status,org_id) VALUES ('Alheio','active',?)").run(outraOrg).lastInsertRowid;
+  const alheio = db.prepare(
+    `INSERT INTO files (client_id,original_name,mime,size,stored_path,stage,org_id)
+     VALUES (?,'alheia.jpg','image/jpeg',64,'/tmp/x','aprovacao',?)`
+  ).run(outroCli, outraOrg).lastInsertRowid;
+
+  const t4 = db.prepare(
+    `INSERT INTO tasks (title,stage_id,client_id,content_type,approval_status,cover_file_id,media_ids,org_id)
+     VALUES ('Com lâmina alheia',?,?,'carrossel','sent',?,?,?)`
+  ).run(apr, cli, a, JSON.stringify([a, alheio]), org).lastInsertRowid;
+  db.prepare("INSERT INTO task_attachments (task_id,file_id) VALUES (?,?)").run(t4, a);
+
+  const token = await entrar();
+  const lista = await (await fetch(`${B}/tasks/${t4}/attachments`, { headers: { authorization: `Bearer ${token}` } })).json();
+  assert.deepEqual(lista.map((f) => f.id), [a], "o arquivo é buscado pelo cliente dono");
+});
+
 // --- o que a tela do cliente promete -------------------------------------------
 
 const tela = readFileSync(
@@ -110,8 +147,22 @@ const tela = readFileSync(
 
 test("carrossel de várias lâminas vira UM slider, não uma pilha", () => {
   assert.match(tela, /function CarrosselDeLaminasPortal/);
-  assert.match(tela, /post\.content_type === "carrossel" && midias\.length > 1/,
-    "com uma lâmina só, continua o caminho antigo (a tira larga)");
+  // ANTES exigia content_type === "carrossel". Regra trocada de propósito: a
+  // peça montada como "post" com cinco artes, ou com o tipo em branco, voltava
+  // a empilhar e a seta sumia. Mais de uma arte já basta.
+  assert.match(tela, /\{midias\.length > 1\n\s*\? <CarrosselDeLaminasPortal files=\{midias\} \/>/,
+    "a seta não pode depender do tipo estar escrito certo");
+  assert.doesNotMatch(tela, /post\.content_type === "carrossel" && midias\.length > 1/);
+});
+
+test("a janela que abre pela agenda também tem seta", () => {
+  // PostDialog abre pela agenda, pelo calendário e pela prévia do feed — e
+  // empilhava as artes. Num carrossel de seis lâminas o cliente via a primeira
+  // e rolava sem saber se o de baixo era outra lâmina ou outro post.
+  const d = tela.slice(tela.indexOf("function PostDialog"), tela.indexOf("const EXT_VIDEO"));
+  assert.match(d, /const laminas = attachments\.filter\(ehMidiaAprovacao\)/);
+  assert.match(d, /laminas\.length > 1\n\s*\? <CarrosselDeLaminasPortal files=\{laminas\} \/>/);
+  assert.match(d, /documentos\.map/, "o que não é arte (PDF, contrato) continua aparecendo");
 });
 
 test("as setas que a agência tem, agora o cliente também", () => {
