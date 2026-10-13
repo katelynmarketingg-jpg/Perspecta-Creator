@@ -618,20 +618,42 @@ router.get("/tasks/:id/attachments", async (req, res) => {
       )
       .all(task.cover_file_id, req.client.org_id);
   }
+  // O QUE O CLIENTE VÊ TEM DE SER O QUE VAI AO AR.
+  //
+  // A verdade do carrossel é o media_ids: é ele que a publicação usa. Os anexos
+  // são uma cópia dessa lista — e cópia sai do ar. Carrossel montado antes de a
+  // gravação dos anexos existir, ou que teve lâmina trocada depois, pode ter
+  // seis lâminas no media_ids e um anexo só. Aí o cliente aprovava olhando uma
+  // arte e ia ao ar um carrossel inteiro.
+  //
+  // Então o que falta entra: pelo media_ids, pelos arquivos da própria casa.
+  const idsDaLista = (() => {
+    try {
+      const lista = JSON.parse(task.media_ids || "[]");
+      return Array.isArray(lista) ? lista.map(Number).filter(Boolean) : [];
+    } catch { return []; }
+  })();
+  const jaTem = new Set(rows.map((f) => Number(f.id)));
+  const faltando = idsDaLista.filter((id) => !jaTem.has(id));
+  if (faltando.length) {
+    const buscar = db.prepare(
+      `SELECT f.id, f.original_name, f.mime, f.size, f.thumb, f.thumb AS cover_thumb
+         FROM files f WHERE f.id = ? AND f.client_id = ?`
+    );
+    for (const id of faltando) {
+      const f = buscar.get(id, req.client.client_id);
+      if (f) rows.push(f);
+    }
+  }
+
   // NA ORDEM DAS LÂMINAS, NÃO NA ORDEM EM QUE ENTRARAM NO BANCO.
   //
   // A ordem do carrossel mora em tasks.media_ids (é ela que manda na hora de
   // publicar). Esta consulta devolvia os anexos na ordem do banco: a lâmina 3
   // podia chegar antes da 1, e o cliente aprovava um carrossel que ia ao ar
   // noutra ordem.
-  const ordem = (() => {
-    try {
-      const lista = JSON.parse(task.media_ids || "[]");
-      return Array.isArray(lista) ? lista.map(Number) : [];
-    } catch { return []; }
-  })();
-  if (ordem.length) {
-    const lugar = new Map(ordem.map((id, i) => [Number(id), i]));
+  if (idsDaLista.length) {
+    const lugar = new Map(idsDaLista.map((id, i) => [Number(id), i]));
     rows.sort((a, b) => (lugar.get(a.id) ?? 1e9) - (lugar.get(b.id) ?? 1e9) || a.id - b.id);
   }
 

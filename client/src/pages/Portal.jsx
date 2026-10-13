@@ -227,6 +227,9 @@ function PostDialog({ post, onClose }) {
     portalApi.get(`/tasks/${post.id}/attachments`).then((r) => setAttachments(r.data)).catch(() => {});
   }, [post]);
 
+  const laminas = attachments.filter(ehMidiaAprovacao);
+  const documentos = attachments.filter((f) => !ehMidiaAprovacao(f));
+
   return (
     <Dialog open={Boolean(post)} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle>{post?.title}</DialogTitle>
@@ -242,7 +245,19 @@ function PostDialog({ post, onClose }) {
                 label={dataLocal(post.scheduled_at).toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })} />
             )}
           </Stack>
-          {attachments.map((f) => (
+          {/* A MESMA SETA DOS DOIS LADOS.
+              Esta janela abre pela agenda, pelo calendario e pela previa do
+              feed — e empilhava as artes uma embaixo da outra. Num carrossel
+              de seis laminas, o cliente via a primeira e rolava sem saber se
+              o que vinha embaixo era outra lamina ou outro post. Mais de uma
+              arte: vira slider, com seta, contador e bolinha. */}
+          {laminas.length > 1
+            ? <CarrosselDeLaminasPortal files={laminas} />
+            : laminas.map((f) => (
+                <AuthImg key={f.id} fileId={f.id} alt={f.original_name} mime={f.mime} maxHeight={460}
+                  mediaUrl={f.media_url} previaUrl={f.preview_url} capa={f.thumb || f.cover_thumb} />
+              ))}
+          {documentos.map((f) => (
             <AuthImg key={f.id} fileId={f.id} alt={f.original_name} mime={f.mime} maxHeight={460}
               mediaUrl={f.media_url} previaUrl={f.preview_url} capa={f.thumb || f.cover_thumb} />
           ))}
@@ -565,7 +580,12 @@ function ApprovalCard({ post, onDone }) {
           <Stack spacing={1.5} sx={{ mb: 2 }}>
             {/* Carrossel com uma arte por lâmina é UM slider, não uma pilha de
                 artes soltas — era isso que escondia as lâminas 2, 3, 4… */}
-            {post.content_type === "carrossel" && midias.length > 1
+            {/* NAO DEPENDE DO TIPO ESTAR ESCRITO CERTO.
+                Antes o slider so aparecia se content_type fosse exatamente
+                "carrossel". Peca montada como "post" com cinco artes, ou com o
+                tipo em branco, voltava a empilhar — e a seta sumia de novo.
+                Mais de uma arte ja e motivo de sobra para ter seta. */}
+            {midias.length > 1
               ? <CarrosselDeLaminasPortal files={midias} />
               : midias.map((m) => <ApprovalMedia key={m.id} file={m} carrossel={post.content_type === "carrossel"} />)}
           </Stack>
