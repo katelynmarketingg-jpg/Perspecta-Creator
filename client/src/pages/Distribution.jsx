@@ -909,6 +909,23 @@ function PieceCard({ item, onChanged, flash }) {
   const [slides, setSlides] = useState(item.media_ids || []); // carrossel
   const [slidePicker, setSlidePicker] = useState(false);
   const [slideUploading, setSlideUploading] = useState(false);
+  const [confirmarExcluir, setConfirmarExcluir] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+
+  // Excluir só este balão (ex.: trocar 1 reel por um post bônus). Remove a peça
+  // da Distribuição; não mexe nas outras.
+  async function excluirPeca() {
+    setExcluindo(true);
+    try {
+      await api.delete(`/distribution/${item.id}`);
+      flash("Balão excluído.", "success");
+      onChanged?.();
+    } catch (e) {
+      flash(e.response?.data?.error || "Não foi possível excluir o balão.", "error");
+      setExcluindo(false);
+      setConfirmarExcluir(false);
+    }
+  }
   const [posted, setPosted] = useState(!!item.published_at);
   const [baixando, setBaixando] = useState(false);
   const [publicando, setPublicando] = useState(false);
@@ -1248,6 +1265,11 @@ function PieceCard({ item, onChanged, flash }) {
               </Tooltip>
             )}
             <Typography sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}>{item.title}</Typography>
+            <Tooltip title="Excluir este balão">
+              <IconButton size="small" color="error" onClick={() => setConfirmarExcluir(true)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Stack>
           {item.client_name && <Typography variant="caption" color="text.secondary">{item.client_name}</Typography>}
 
@@ -1515,6 +1537,23 @@ function PieceCard({ item, onChanged, flash }) {
           <PlanningRefDialog clientId={item.client_id} ym={ymOf(when || item.scheduled_at)}
             open={planRef} onClose={() => setPlanRef(false)}
             onUse={(txt) => { setCaption(txt); flash("Legenda trazida do planejamento. Ajuste e salve.", "success"); }} />
+
+          {/* Confirmação de exclusão deste balão */}
+          <Dialog open={confirmarExcluir} onClose={() => !excluindo && setConfirmarExcluir(false)} maxWidth="xs" fullWidth>
+            <DialogTitle>Excluir este balão?</DialogTitle>
+            <DialogContent>
+              <Typography variant="body2">
+                Tem certeza que deseja excluir <strong>{item.title}</strong>? A peça sai da Distribuição e
+                esta ação não pode ser desfeita. As outras peças não são afetadas.
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmarExcluir(false)} disabled={excluindo}>Cancelar</Button>
+              <Button color="error" variant="contained" startIcon={<DeleteIcon />} onClick={excluirPeca} disabled={excluindo}>
+                {excluindo ? "Excluindo…" : "Excluir"}
+              </Button>
+            </DialogActions>
+          </Dialog>
 
           {/* Fatiar carrossel: a arte é mais larga que uma slide → pergunta em
               quantas partes cortar (cada uma vira uma slide, na ordem). */}
