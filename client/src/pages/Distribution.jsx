@@ -16,6 +16,7 @@ import ViewModuleIcon from "@mui/icons-material/ViewModule";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import ViewComfyIcon from "@mui/icons-material/ViewComfy";
 import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import GridOnIcon from "@mui/icons-material/GridOn";
@@ -23,6 +24,7 @@ import MovieIcon from "@mui/icons-material/Movie";
 import CalendarViewMonthIcon from "@mui/icons-material/CalendarViewMonth";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import TodayIcon from "@mui/icons-material/Today";
 import StarIcon from "@mui/icons-material/Star";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -1626,7 +1628,7 @@ function StatusLegend() {
 
 // Visão em lista: uma linha por peça, com bolinha de status à direita.
 // clique abre o editor; no modo seleção, marca para enviar p/ aprovação.
-function ListView({ items, onSelect, selectMode, checked, onToggle }) {
+function ListView({ items, onSelect, onApagar, selectMode, checked, onToggle }) {
   return (
     <Stack spacing={1}>
       {items.map((it) => {
@@ -1655,12 +1657,17 @@ function ListView({ items, onSelect, selectMode, checked, onToggle }) {
                     {it.client_name && <Chip size="small" variant="outlined" label={it.client_name} />}
                   </Stack>
                   <Typography sx={{ fontWeight: 600, mt: 0.3 }} noWrap>{it.title}</Typography>
+                  <Typography sx={{ ...DUAS_LINHAS, fontSize: 12, lineHeight: 1.35,
+                                    color: it.caption ? "text.secondary" : "warning.main" }}>
+                    {it.caption || "sem legenda"}
+                  </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {it.scheduled_at ? dataLocal(it.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "Sem data"}
                   </Typography>
                 </Box>
                 <StatusDot status={st} />
               </Box>
+              <AcoesDaPeca item={it} onSelect={onSelect} onApagar={onApagar} />
             </Box>
           </Card>
         );
@@ -1731,13 +1738,17 @@ const GRADE_IGUAL = { ...GRADE, alignItems: "stretch" };
 // linha e a peça ficava do mesmo tamanho da visão normal — foi o "ficou igual
 // à outra". Assim cada peça tem ~110px e a linha se enche com quantas couberem:
 // numa tela de trabalho dá uma dúzia.
-const LARGURA_COMPACTA = 110;
+// 110px cabia a arte e mais nada. Pedido dela: "que apareça menor cada post com
+// suas respectivas legendas" — menor que o cartão grande, mas com a legenda
+// legível. 168 é a largura em que duas linhas de legenda ainda se leem.
+const LARGURA_COMPACTA = 168;
 const GRADE_COMPACTA = {
   display: "grid", alignItems: "stretch", gap: 0.75,
   gridTemplateColumns: {
     // `minmax(0, …)` pelo mesmo motivo do GRADE: arte deitada não pode empurrar
     // a coluna dela e espremer as vizinhas.
-    xs: "repeat(3, minmax(0, 1fr))",
+    // No celular, duas colunas: com três, a legenda vira coluna de uma palavra.
+    xs: "repeat(2, minmax(0, 1fr))",
     sm: `repeat(auto-fill, minmax(${LARGURA_COMPACTA}px, 1fr))`,
   },
 };
@@ -1760,7 +1771,39 @@ const CARD_IGUAL = { height: "100%", display: "flex", flexDirection: "column" };
  * aprovado sem rolar a página inteira. Clicar abre a peça como nas outras
  * visões.
  */
-function CartaoCompacto({ item, onSelect }) {
+/**
+ * Os dois botões que agora existem em TODA visualização.
+ *
+ * "que tenha como apagar e editar independente de qual tipo de visualização."
+ * Antes só a visão por post tinha; no compacto e na lista, clicar abria a peça
+ * e era isso — apagar só dava marcando várias ou indo em outra tela.
+ */
+function AcoesDaPeca({ item, onSelect, onApagar, tamanho = 16 }) {
+  return (
+    <Stack direction="row" spacing={0.25} onClick={(e) => e.stopPropagation()}>
+      <Tooltip title="Editar">
+        <IconButton size="small" sx={{ p: 0.4 }} onClick={() => onSelect?.(item)}>
+          <EditIcon sx={{ fontSize: tamanho }} />
+        </IconButton>
+      </Tooltip>
+      {onApagar && (
+        <Tooltip title="Apagar">
+          <IconButton size="small" color="error" sx={{ p: 0.4 }} onClick={() => onApagar(item)}>
+            <DeleteIcon sx={{ fontSize: tamanho }} />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Stack>
+  );
+}
+
+/** A legenda em duas linhas, cortada com reticências — sem empurrar o cartão. */
+const DUAS_LINHAS = {
+  display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+  overflow: "hidden", textOverflow: "ellipsis",
+};
+
+function CartaoCompacto({ item, onSelect, onApagar }) {
   const arte = item.preview_url || item.cover_preview_url || item.cover_url || item.media_url;
   const st = statusOf(item);
   const cor = { aprovado: "success.main", aguardando: "warning.main", ajuste: "error.main" }[st] || "divider";
@@ -1785,16 +1828,27 @@ function CartaoCompacto({ item, onSelect }) {
       {/* O nome inteiro não cabe num selo de 110px — e o que foi cortado já
           está na tela: o cliente ali em cima, o mês no título do bloco. O nome
           completo continua no repousar do mouse. */}
-      <Tooltip title={item.title || ""} placement="top">
-        <Box sx={{ px: 0.5, py: 0.4, minWidth: 0 }}>
-          <Typography noWrap sx={{ display: "block", fontWeight: 700, fontSize: 11, lineHeight: 1.25 }}>
+      <Box sx={{ px: 0.75, py: 0.5, minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
+        <Tooltip title={item.title || ""} placement="top">
+          <Typography noWrap sx={{ display: "block", fontWeight: 700, fontSize: 11.5, lineHeight: 1.25 }}>
             {rotuloCurto(item.title)}
           </Typography>
-          <Typography noWrap color="text.secondary" sx={{ display: "block", fontSize: 10, lineHeight: 1.25 }}>
+        </Tooltip>
+        {/* A LEGENDA, que é o que ela precisa conferir de relance. Sem legenda,
+            diz isso — em vez de deixar um buraco que parece carregamento. */}
+        <Typography sx={{ ...DUAS_LINHAS, fontSize: 10.5, lineHeight: 1.3, mt: 0.25,
+                          color: item.caption ? "text.secondary" : "warning.main",
+                          minHeight: 27 }}>
+          {item.caption || "sem legenda"}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Stack direction="row" alignItems="center" sx={{ mt: 0.25 }}>
+          <Typography noWrap color="text.secondary" sx={{ fontSize: 10, lineHeight: 1.25, flex: 1, minWidth: 0 }}>
             {item.scheduled_at ? formatDate(item.scheduled_at) : "sem data"}
           </Typography>
-        </Box>
-      </Tooltip>
+          <AcoesDaPeca item={item} onSelect={onSelect} onApagar={onApagar} tamanho={14} />
+        </Stack>
+      </Box>
     </Card>
   );
 }
@@ -2280,6 +2334,20 @@ function ReorderableFeed({ posts, fetchFile, onSelect, onReorder, onVoltarPorDat
   );
 }
 
+const MESES_CURTOS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const hojeEmMes = () => new Date().toISOString().slice(0, 7);
+/** "2026-10" → "out. de 2026". */
+const nomeDoMes = (ym) => {
+  const [a, m] = String(ym).split("-").map(Number);
+  return `${MESES_CURTOS[m - 1]}. de ${a}`;
+};
+/** Anda N meses sem cair no buraco do dia 31. */
+const andarMes = (ym, n) => {
+  const [a, m] = String(ym).split("-").map(Number);
+  const d = new Date(a, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
 export default function Distribution() {
   // Arrastando uma peça perto do rodapé, a página desce sozinha — sem precisar
   // encostar na borda da tela, que no Mac é onde o Dock abre por cima.
@@ -2293,6 +2361,12 @@ export default function Distribution() {
   const loadedOnce = useRef(false);
   const [msg, setMsg] = useState(null);
   const [view, setView] = useState("post"); // post | list | feed | calendar
+  // UM MÊS DE CADA VEZ, COMEÇANDO PELO DE HOJE.
+  //
+  // "que sempre abra do mês que estamos, mas que possamos filtrar outros
+  // meses" — e isso é também o conserto da demora: a tela trazia todas as
+  // peças de todos os meses (medido: 994 KB de resposta; com o mês, 142 KB).
+  const [mes, setMes] = useState(() => new Date().toISOString().slice(0, 7));
   const [selected, setSelected] = useState(null); // peça no editor (lista/perfil/calendário)
   const [selectMode, setSelectMode] = useState(false); // seleção múltipla na visão "Por post"
   const [checked, setChecked] = useState(() => new Set()); // ids marcados
@@ -2316,14 +2390,14 @@ export default function Distribution() {
     // Só mostra o spinner de tela cheia na 1ª carga. Recargas de fundo (SSE,
     // reorganizar) atualizam sem piscar — o feed fica liso.
     if (!loadedOnce.current && !opts.silent) setLoading(true);
-    const params = clientFilter ? { client_id: clientFilter } : {};
+    const params = { month: mes, ...(clientFilter ? { client_id: clientFilter } : {}) };
     api.get("/distribution", { params })
       .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setProgrammed(r.data.programmed || []); setWaiting(r.data.waiting || []); setStage(r.data.stage); })
       .catch(() => { setItems([]); setScheduled([]); setApproved([]); setProgrammed([]); setWaiting([]); })
       .finally(() => { setLoading(false); loadedOnce.current = true; });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [clientFilter, vTasks, vDist]);
+  useEffect(() => { load(); }, [clientFilter, mes, vTasks, vDist]);
 
   // Volta o perfil à ordem POR DATA: apaga as posições salvas.
   async function voltarPorData(ids) {
@@ -2401,7 +2475,16 @@ export default function Distribution() {
   }
 
   async function programar(it) {
-    try { await api.post(`/distribution/${it.id}/schedule`); flash("Programado! ✅", "success"); load(); }
+    // A TELA É DE UM MÊS. Programar uma peça para o mês que vem a faz sumir
+    // daqui — está certo, mas sem dizer isso parece que ela se perdeu.
+    const outroMes = it.scheduled_at && String(it.scheduled_at).slice(0, 7) !== mes;
+    try {
+      await api.post(`/distribution/${it.id}/schedule`);
+      flash(outroMes
+        ? `Programado para ${formatDate(it.scheduled_at)} — está em ${nomeDoMes(String(it.scheduled_at).slice(0, 7))}.`
+        : "Programado! ✅", "success");
+      load();
+    }
     catch (e) { flash(e.response?.data?.error || "Não foi possível programar.", "error"); }
   }
 
@@ -2558,6 +2641,29 @@ export default function Distribution() {
               onClick={() => { setBonus({ client_id: clientFilter || "", content_type: "post", month: new Date().toISOString().slice(0, 7) }); setBonusOpen(true); }}>
               Post bônus
             </Button>
+            {/* O MÊS, COM SETAS. Abre no de hoje; as setas andam. */}
+            <Stack direction="row" spacing={0.25} alignItems="center">
+              <Tooltip title="Mês anterior">
+                <IconButton size="small" onClick={() => setMes((m) => andarMes(m, -1))}>
+                  <ChevronLeftIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, minWidth: 124, textAlign: "center" }}>
+                {nomeDoMes(mes)}
+              </Typography>
+              <Tooltip title="Próximo mês">
+                <IconButton size="small" onClick={() => setMes((m) => andarMes(m, 1))}>
+                  <ChevronRightIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {mes !== hojeEmMes() && (
+                <Tooltip title="Voltar para o mês de hoje">
+                  <IconButton size="small" onClick={() => setMes(hojeEmMes())}>
+                    <TodayIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Stack>
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
               <ToggleButton value="post" aria-label="Por post"><ViewModuleIcon fontSize="small" /></ToggleButton>
               <ToggleButton value="compacto" aria-label="Compacto"><ViewComfyIcon fontSize="small" /></ToggleButton>
@@ -2630,7 +2736,7 @@ export default function Distribution() {
                     outlineColor: "primary.main", borderRadius: 2,
                     "& *": { pointerEvents: "none" },
                   } : undefined}>
-                  <CartaoCompacto item={it} onSelect={setSelected} />
+                  <CartaoCompacto item={it} onSelect={setSelected} onApagar={apagarPeca} />
                 </Box>
               </Box>
             )}
@@ -2813,7 +2919,7 @@ export default function Distribution() {
           <StatusLegend />
           {/* Na Lista, "Marcar todas" pega as do panorama, não só as de preparar. */}
           <BarraDeSelecao todas={scheduled} />
-          <ListView items={scheduled} onSelect={setSelected}
+          <ListView items={scheduled} onSelect={setSelected} onApagar={apagarPeca}
             selectMode={selectMode} checked={checked} onToggle={toggleCheck} />
         </>
       ) : view === "feed" ? (

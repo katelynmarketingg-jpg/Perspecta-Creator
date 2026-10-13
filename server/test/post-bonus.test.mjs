@@ -138,8 +138,16 @@ test("existe uma visão compacta, com muitos por linha", () => {
 // fique igual mas beeeem menor". A causa era a grade por NÚMERO de colunas:
 // numa janela entre dois tamanhos de tela caíam cinco por linha e a peça ficava
 // do tamanho da visão normal.
+// A LARGURA CRESCEU DE PROPÓSITO, DEPOIS.
+//
+// Era 110px: cabia a arte e mais nada. Pedido dela: "que apareça menor cada
+// post com suas respectivas legendas" — menor que o cartão grande, mas com a
+// legenda legível. O que este teste guarda é a REGRA (medir por largura, e a
+// linha se encher com quantas couberem), não o número.
 test("a visão compacta mede pela largura da peça, não por número de colunas", () => {
-  assert.match(tela, /const LARGURA_COMPACTA = 110/, "cada peça tem ~110px");
+  const m = tela.match(/const LARGURA_COMPACTA = (\d+)/);
+  assert.ok(m, "a largura da peça continua sendo uma medida única, com nome");
+  assert.ok(Number(m[1]) >= 110 && Number(m[1]) <= 220, `largura fora do razoável: ${m[1]}px`);
   assert.match(tela, /repeat\(auto-fill, minmax\(\$\{LARGURA_COMPACTA\}px, 1fr\)\)/,
     "a linha se enche com quantas couberem");
   const grade = tela.slice(tela.indexOf("const GRADE_COMPACTA"), tela.indexOf("function rotuloCurto"));
@@ -147,10 +155,10 @@ test("a visão compacta mede pela largura da peça, não por número de colunas"
     "as colunas fixas por tamanho de tela saíram — eram elas que deixavam a peça grande");
 });
 
-test("num selo de 110px o nome sai curto, sem o cliente e o mês repetidos", () => {
+test("o nome sai curto no cartão pequeno, sem o cliente e o mês repetidos", () => {
   const trecho = tela.slice(tela.indexOf("function rotuloCurto"), tela.indexOf("function CartaoCompacto"));
   assert.match(trecho, /split\(" — "\)/, "corta no travessão");
-  const cartao = tela.slice(tela.indexOf("function CartaoCompacto"), tela.indexOf("/** Desenha os itens em blocos de mês"));
+  const cartao = tela.slice(tela.indexOf("function CartaoCompacto"), tela.indexOf("function PorMes"));
   assert.match(cartao, /rotuloCurto\(item\.title\)/);
   assert.match(cartao, /<Tooltip title=\{item\.title \|\| ""\}/, "o nome inteiro fica no repousar do mouse");
 });
