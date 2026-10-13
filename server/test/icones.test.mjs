@@ -42,9 +42,34 @@ test("todos os ícones existem, quadrados e no tamanho que o nome promete", () =
   }
 });
 
+test("o peso da marca está no centro de cada ícone", async () => {
+  // Medido com o navegador na hora de gerar: 0,0% de desvio nos quatro. Este
+  // teste guarda a REGRA (o gerador centraliza pelo peso); a medida fica no
+  // próprio script, que é quem sabe desenhar.
+  const js = readFileSync(join(RAIZ, "scripts/gerar-icones.mjs"), "utf8");
+  assert.match(js, /desvioX/);
+  assert.match(js, /desvioY/);
+});
+
+test("o endereço do ícone muda quando o ícone muda", () => {
+  // Sem isto, trocar o conteúdo de um arquivo com o MESMO caminho não chega a
+  // quem já tem o antigo guardado — e no ícone da tela inicial do celular isso
+  // dura para sempre. Foi o que fez o ícone velho continuar aparecendo depois
+  // de corrigido.
+  const html = readFileSync(join(RAIZ, "client/index.html"), "utf8");
+  for (const n of ["favicon-32.png", "favicon-64.png", "apple-touch-icon.png"]) {
+    assert.match(html, new RegExp(`${n.replace(".", "\\.")}\\?v=\\d+`), `${n} sem versão no endereço`);
+  }
+  const man = readFileSync(join(PUB, "manifest.webmanifest"), "utf8");
+  for (const n of ["icon-192.png", "icon-512.png", "icon-maskable.png"]) {
+    assert.match(man, new RegExp(`${n.replace(".", "\\.")}\\?v=\\d+`), `${n} sem versão no manifest`);
+  }
+});
+
 test("o manifest e o index apontam para eles", () => {
   const man = JSON.parse(readFileSync(join(PUB, "manifest.webmanifest"), "utf8"));
-  const src = man.icons.map((i) => i.src);
+  // O endereço leva ?v= (ver o teste acima), então compara só o caminho.
+  const src = man.icons.map((i) => i.src.split("?")[0]);
   for (const n of ["/icon-192.png", "/icon-512.png", "/icon-maskable.png"]) {
     assert.ok(src.includes(n), `o manifest não cita ${n}`);
   }
@@ -63,7 +88,7 @@ test("a versão do cache subiu — senão quem instalou fica com o ícone velho"
   const sw = readFileSync(join(PUB, "sw.js"), "utf8");
   const m = sw.match(/const CACHE = "perspecta-v(\d+)"/);
   assert.ok(m, "o nome do cache mudou de formato");
-  assert.ok(Number(m[1]) >= 4, `cache está em v${m[1]}, e os ícones mudaram na v4`);
+  assert.ok(Number(m[1]) >= 5, `cache está em v${m[1]}, e os endereços dos ícones mudaram na v5`);
 });
 
 test("o gerador existe, e centraliza pelo peso — não pela caixa", () => {

@@ -195,6 +195,15 @@ app.get(["/data-deletion", "/exclusao-de-dados"], sendHtml(DELETION_HTML));
 const clientDist = join(__dirname, "../../client/dist");
 if (existsSync(clientDist)) {
   app.use(express.static(clientDist));
+  // UM ARQUIVO DE PROGRAMA QUE NÃO EXISTE TEM DE DAR 404, NÃO A PÁGINA.
+  //
+  // O curinga abaixo existe para o endereçamento do sistema (qualquer caminho
+  // devolve a página, e o programa decide o que mostrar). Só que ele também
+  // respondia a página quando o navegador pedia um PACOTE DE TELA que sumiu
+  // numa publicação nova — e aí o navegador recebe HTML onde esperava
+  // programa, e reclama de "MIME type" em vez de dizer que o arquivo não
+  // existe. Quem cai nisso é quem está com o aplicativo aberto desde antes.
+  app.get(/^\/assets\//, (req, res) => res.status(404).end());
   app.get("*", (req, res) => res.sendFile(join(clientDist, "index.html")));
 }
 
