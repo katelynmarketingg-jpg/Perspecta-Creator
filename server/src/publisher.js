@@ -50,6 +50,7 @@ export function prontosParaPublicar() {
       -- Só o que foi programado depois de o automático ser ligado.
       AND (c.auto_publish_desde IS NULL OR datetime(t.scheduled_at) >= datetime(c.auto_publish_desde))
       AND t.approval_status = 'approved'
+      AND (t.content_type IS NULL OR t.content_type != 'reel')
       AND EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id)
   `).all({ agora: agoraNaAgencia(), janela: JANELA_DE_ATRASO });
 }

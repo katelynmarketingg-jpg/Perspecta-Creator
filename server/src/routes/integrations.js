@@ -295,6 +295,11 @@ export function midiasDaPeca(task) {
 
 /** Publica uma tarefa nas redes do cliente. Usado pelo botão e pelo automático. */
 export async function publishTask(task, orgId, host, protocol = "https") {
+  // Reels NÃO são postados pelo sistema: a publicação pela API recomprime o
+  // vídeo e perde qualidade. Eles são postados à mão pelo app de edição.
+  if (task.content_type === "reel") {
+    throw new Error("Reels são postados manualmente pelo app (para não perder a qualidade do vídeo).");
+  }
   const conn = getConnection(task.client_id, orgId);
   if (!conn) throw new Error("Este cliente não tem a Meta conectada.");
 
