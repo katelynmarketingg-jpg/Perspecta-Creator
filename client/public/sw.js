@@ -10,7 +10,7 @@
 // virar a versão, o celular e o computador de quem já instalou o app
 // continuariam mostrando o ícone velho para sempre. Ao ativar, o cache antigo
 // é apagado inteiro.
-const CACHE = "perspecta-v6";
+const CACHE = "perspecta-v7";
 // Não pré-cacheamos o index.html: ele muda a cada publicação e precisa vir
 // sempre da rede, senão o app abre uma versão velha.
 const SHELL = ["/manifest.webmanifest"];
