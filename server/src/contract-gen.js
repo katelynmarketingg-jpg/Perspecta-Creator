@@ -338,11 +338,22 @@ export function geraContrato(orgId, termos = {}) {
   const corpo = preencher(tpl.body, map);
   const titulo = termos.title || `${tpl.name} — ${client.name}`;
 
+  // Cláusula de aceite de assinatura eletrônica — é ela que dá validade entre
+  // as partes à assinatura por link com código (MP 2.200-2/2001, art. 10, §2º).
+  const clausulaAssinatura =
+    "\n\nCLÁUSULA — ASSINATURA ELETRÔNICA. As partes concordam, para todos os fins, "
+    + "em celebrar este contrato por assinatura eletrônica, nos termos do art. 10, §2º, "
+    + "da MP 2.200-2/2001, reconhecendo sua plena validade e eficácia. A identidade do "
+    + "signatário é confirmada por código enviado ao seu e-mail, e ficam registrados como "
+    + "prova: nome, documento (CPF/CNPJ), e-mail verificado, data e hora, endereço de rede "
+    + "(IP) e a verificação de integridade do documento assinado.";
+  const corpoFinal = corpo + clausulaAssinatura;
+
   const info = db.prepare(
     `INSERT INTO contracts (client_id, title, value, duration_months, start_date, first_due_date, status, notes, style, org_id)
      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
   ).run(client.id, titulo, valor, duracao, termos.start_date ?? null, termos.first_due_date ?? null,
-        corpo, tpl.estilo ?? null, orgId);
+        corpoFinal, tpl.estilo ?? null, orgId);
 
   const criado = db.prepare(
     "SELECT ct.*, c.name AS client_name FROM contracts ct LEFT JOIN clients c ON c.id = ct.client_id WHERE ct.id = ?"

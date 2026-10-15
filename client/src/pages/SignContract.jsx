@@ -19,13 +19,41 @@ export default function SignContract() {
   const [assinatura, setAssinatura] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [pronto, setPronto] = useState(false);
+  // Verificação por código (e-mail)
+  const [codigo, setCodigo] = useState("");
+  const [codigoEnviado, setCodigoEnviado] = useState(false);
+  const [emailMascarado, setEmailMascarado] = useState("");
+  const [enviandoCodigo, setEnviandoCodigo] = useState(false);
+  const [verificando, setVerificando] = useState(false);
+  const [verificado, setVerificado] = useState(false);
 
   useEffect(() => {
     axios.get(`/api/sign/${token}`)
-      .then((r) => setContract(r.data))
+      .then((r) => { setContract(r.data); setEmailMascarado(r.data?.email_mascarado || ""); })
       .catch((e) => setErro(e.response?.data?.error || "Link inválido."))
       .finally(() => setCarregando(false));
   }, [token]);
+
+  async function enviarCodigo() {
+    setErro(""); setEnviandoCodigo(true);
+    try {
+      const { data } = await axios.post(`/api/sign/${token}/send-code`);
+      setCodigoEnviado(true);
+      if (data?.email_mascarado) setEmailMascarado(data.email_mascarado);
+    } catch (e) {
+      setErro(e.response?.data?.error || "Não foi possível enviar o código.");
+    } finally { setEnviandoCodigo(false); }
+  }
+
+  async function verificarCodigo() {
+    setErro(""); setVerificando(true);
+    try {
+      await axios.post(`/api/sign/${token}/verify-code`, { code: codigo.trim() });
+      setVerificado(true);
+    } catch (e) {
+      setErro(e.response?.data?.error || "Código incorreto.");
+    } finally { setVerificando(false); }
+  }
 
   async function assinar() {
     setErro("");
@@ -101,33 +129,82 @@ export default function SignContract() {
                 <TextoDoContrato texto={contract?.notes} />
               </Box>
 
-              <Divider sx={{ mb: 2 }}>Assinatura</Divider>
               {erro && <Alert severity="error" sx={{ mb: 2 }}>{erro}</Alert>}
 
-              <Stack spacing={2}>
-                <TextField label="Nome completo *" value={form.nome}
-                  onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} fullWidth />
-                <TextField label="CPF ou CNPJ *" value={form.documento}
-                  onChange={(e) => setForm((f) => ({ ...f, documento: e.target.value }))} fullWidth
-                  placeholder="Só números" />
-                <Box>
-                  <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 600 }}>Sua assinatura *</Typography>
-                  <SignaturePad onChange={setAssinatura} />
-                </Box>
-                <FormControlLabel
-                  control={<Checkbox checked={form.aceito}
-                    onChange={(e) => setForm((f) => ({ ...f, aceito: e.target.checked }))} />}
-                  label={<Typography variant="body2">Li o contrato acima e concordo com os termos.</Typography>}
-                />
-                <Button variant="contained" size="large" onClick={assinar}
-                  disabled={enviando || !form.nome.trim() || !form.documento.trim() || !form.aceito || !assinatura}>
-                  {enviando ? "Assinando…" : "Assinar contrato"}
-                </Button>
-                <Typography variant="caption" color="text.secondary" align="center">
-                  Ao assinar, registramos seu nome, documento, data, hora e endereço de rede
-                  como comprovante — com validade legal (MP 2.200-2/2001).
-                </Typography>
-              </Stack>
+              {/* Etapa 1 — Verificação de identidade por código no e-mail */}
+              <Divider sx={{ mb: 2 }}>Verificação de identidade</Divider>
+              {!contract?.email_ativo ? (
+                <Alert severity="warning" sx={{ mb: 3 }}>
+                  A assinatura por código ainda não foi liberada pela agência. Avise a sua agência.
+                </Alert>
+              ) : !contract?.email_no_cadastro ? (
+                <Alert severity="warning" sx={{ mb: 3 }}>
+                  Não há e-mail cadastrado para enviar o código de verificação. Avise a sua agência.
+                </Alert>
+              ) : verificado ? (
+                <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 3 }}>
+                  E-mail verificado{emailMascarado ? ` (${emailMascarado})` : ""}. Agora é só assinar abaixo.
+                </Alert>
+              ) : (
+                <Stack spacing={1.5} sx={{ mb: 3 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Para garantir que é você, enviamos um código de 6 dígitos
+                    {emailMascarado ? <> para <b>{emailMascarado}</b></> : " para o seu e-mail"}.
+                  </Typography>
+                  {!codigoEnviado ? (
+                    <Button variant="outlined" onClick={enviarCodigo} disabled={enviandoCodigo}>
+                      {enviandoCodigo ? "Enviando…" : "Enviar código por e-mail"}
+                    </Button>
+                  ) : (
+                    <>
+                      <TextField label="Código (6 dígitos)" value={codigo}
+                        onChange={(e) => setCodigo(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        inputProps={{ inputMode: "numeric", maxLength: 6, style: { letterSpacing: 6, fontSize: 20 } }}
+                        fullWidth autoFocus />
+                      <Stack direction="row" spacing={1}>
+                        <Button variant="contained" onClick={verificarCodigo}
+                          disabled={verificando || codigo.length !== 6}>
+                          {verificando ? "Conferindo…" : "Verificar"}
+                        </Button>
+                        <Button size="small" onClick={enviarCodigo} disabled={enviandoCodigo}>
+                          {enviandoCodigo ? "Enviando…" : "Reenviar"}
+                        </Button>
+                      </Stack>
+                    </>
+                  )}
+                </Stack>
+              )}
+
+              {/* Etapa 2 — Assinatura (só depois de verificar) */}
+              {verificado && (
+                <>
+                  <Divider sx={{ mb: 2 }}>Assinatura</Divider>
+                  <Stack spacing={2}>
+                    <TextField label="Nome completo *" value={form.nome}
+                      onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} fullWidth />
+                    <TextField label="CPF ou CNPJ *" value={form.documento}
+                      onChange={(e) => setForm((f) => ({ ...f, documento: e.target.value }))} fullWidth
+                      placeholder="Só números" />
+                    <Box>
+                      <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 600 }}>Sua assinatura *</Typography>
+                      <SignaturePad onChange={setAssinatura} />
+                    </Box>
+                    <FormControlLabel
+                      control={<Checkbox checked={form.aceito}
+                        onChange={(e) => setForm((f) => ({ ...f, aceito: e.target.checked }))} />}
+                      label={<Typography variant="body2">Li o contrato acima e concordo com os termos.</Typography>}
+                    />
+                    <Button variant="contained" size="large" onClick={assinar}
+                      disabled={enviando || !form.nome.trim() || !form.documento.trim() || !form.aceito || !assinatura}>
+                      {enviando ? "Assinando…" : "Assinar contrato"}
+                    </Button>
+                    <Typography variant="caption" color="text.secondary" align="center">
+                      Ao assinar, registramos seu nome, documento, a verificação por e-mail, data,
+                      hora e endereço de rede como comprovante — com validade legal (MP 2.200-2/2001).
+                    </Typography>
+                  </Stack>
+                </>
+              )}
             </>
           )}
         </CardContent>
