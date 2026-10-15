@@ -1,8 +1,9 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
-import { createHash } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { db } from "../db.js";
 import { JWT_SECRET } from "../auth.js";
+import { enviarEmail, emailConfigured, mascararEmail } from "../email.js";
 
 // Assinatura por link público: qualquer pessoa com o link (que você manda no
 // WhatsApp) abre e assina, sem precisar de conta. O link é um token assinado.
@@ -34,19 +35,32 @@ export function conferirAssinatura(c) {
   return contractHash(c) === c.signed_hash ? "ok" : "alterado";
 }
 
+// Abre o contrato pelo token (ou null). Centraliza a verificação do link.
+function contratoPorToken(token) {
+  let payload;
+  try { payload = jwt.verify(token, JWT_SECRET); } catch { return { erro: "Este link expirou ou é inválido." }; }
+  if (payload.purpose !== "sign") return { erro: "Link inválido." };
+  const c = db.prepare("SELECT * FROM contracts WHERE id = ?").get(payload.contract_id);
+  if (!c) return { erro: "Contrato não encontrado.", status: 404 };
+  return { c };
+}
+
+// E-mail para onde vai o código: o cadastrado no cliente do contrato.
+function emailDoContrato(c) {
+  if (!c.client_id) return null;
+  const cli = db.prepare("SELECT email FROM clients WHERE id = ?").get(c.client_id);
+  return (cli?.email || "").trim() || null;
+}
+
+const hashCodigo = (codigo, contractId) =>
+  createHash("sha256").update(`${codigo}|${contractId}|${JWT_SECRET}`).digest("hex");
+
 // GET /api/sign/:token — mostra o contrato para assinar.
 signRouter.get("/:token", (req, res) => {
-  let payload;
-  try {
-    payload = jwt.verify(req.params.token, JWT_SECRET);
-  } catch {
-    return res.status(403).json({ error: "Este link expirou ou é inválido." });
-  }
-  if (payload.purpose !== "sign") return res.status(403).json({ error: "Link inválido." });
-
-  const c = db.prepare("SELECT * FROM contracts WHERE id = ?").get(payload.contract_id);
-  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  const { c, erro, status } = contratoPorToken(req.params.token);
+  if (erro) return res.status(status || 403).json({ error: erro });
   const org = db.prepare("SELECT name FROM organizations WHERE id = ?").get(c.org_id);
+  const email = emailDoContrato(c);
 
   res.json({
     title: c.title,
@@ -57,22 +71,90 @@ signRouter.get("/:token", (req, res) => {
     signed_at: c.signed_at,
     signer_name: c.signer_name,
     integridade: conferirAssinatura(c),
+    // Verificação por e-mail (código):
+    verify_method: "email",
+    email_mascarado: email ? mascararEmail(email) : null,
+    email_no_cadastro: Boolean(email),
+    email_ativo: emailConfigured(),
+    verificado: Boolean(c.sign_verified_at),
   });
+});
+
+// POST /api/sign/:token/send-code — envia um código de 6 dígitos para o e-mail
+// do cliente. Reenviar substitui o código anterior (limite de 1 a cada 45s).
+signRouter.post("/:token/send-code", async (req, res) => {
+  const { c, erro, status } = contratoPorToken(req.params.token);
+  if (erro) return res.status(status || 403).json({ error: erro });
+  if (c.signed_at) return res.status(400).json({ error: "Este contrato já foi assinado." });
+  if (!emailConfigured()) return res.status(503).json({ error: "O envio de e-mail ainda não foi configurado pela agência." });
+  const email = emailDoContrato(c);
+  if (!email) return res.status(400).json({ error: "Não há e-mail cadastrado para este cliente. Avise a agência." });
+
+  // Anti-spam: não reenvia se o último código tem menos de 45s.
+  const atual = db.prepare("SELECT created_at FROM sign_codes WHERE contract_id = ?").get(c.id);
+  if (atual) {
+    const idade = (Date.now() - new Date(atual.created_at.replace(" ", "T") + "Z").getTime()) / 1000;
+    if (idade < 45) return res.status(429).json({ error: `Aguarde ${Math.ceil(45 - idade)}s para pedir outro código.` });
+  }
+
+  const codigo = String(randomInt(0, 1000000)).padStart(6, "0");
+  db.prepare(
+    `INSERT INTO sign_codes (contract_id, code_hash, email, expires_at, attempts, verified, created_at)
+     VALUES (@id, @hash, @email, datetime('now','+10 minutes'), 0, 0, datetime('now'))
+     ON CONFLICT(contract_id) DO UPDATE SET
+       code_hash = @hash, email = @email, expires_at = datetime('now','+10 minutes'),
+       attempts = 0, verified = 0, created_at = datetime('now')`
+  ).run({ id: c.id, hash: hashCodigo(codigo, c.id), email });
+
+  const org = db.prepare("SELECT name FROM organizations WHERE id = ?").get(c.org_id);
+  try {
+    await enviarEmail({
+      to: email,
+      subject: `Código para assinar o contrato — ${org?.name || "Perspecta"}`,
+      text: `Seu código para assinar "${c.title}" é: ${codigo}\n\nEle vale por 10 minutos. Se você não pediu, ignore este e-mail.`,
+      html: `<p>Seu código para assinar <b>${c.title}</b> é:</p>`
+          + `<p style="font-size:28px;font-weight:700;letter-spacing:4px">${codigo}</p>`
+          + `<p>Ele vale por 10 minutos. Se você não pediu, ignore este e-mail.</p>`,
+    });
+  } catch {
+    return res.status(502).json({ error: "Não foi possível enviar o e-mail agora. Tente de novo em instantes." });
+  }
+  res.json({ ok: true, email_mascarado: mascararEmail(email) });
+});
+
+// POST /api/sign/:token/verify-code — confere o código digitado.
+signRouter.post("/:token/verify-code", (req, res) => {
+  const { c, erro, status } = contratoPorToken(req.params.token);
+  if (erro) return res.status(status || 403).json({ error: erro });
+  if (c.signed_at) return res.status(400).json({ error: "Este contrato já foi assinado." });
+
+  const codigo = String(req.body?.code || "").replace(/\D/g, "");
+  const row = db.prepare("SELECT * FROM sign_codes WHERE contract_id = ?").get(c.id);
+  if (!row) return res.status(400).json({ error: "Peça um código primeiro." });
+  const expirado = new Date(row.expires_at.replace(" ", "T") + "Z").getTime() < Date.now();
+  if (expirado) return res.status(400).json({ error: "O código expirou. Peça um novo." });
+  if (row.attempts >= 5) return res.status(429).json({ error: "Muitas tentativas. Peça um novo código." });
+
+  if (hashCodigo(codigo, c.id) !== row.code_hash) {
+    db.prepare("UPDATE sign_codes SET attempts = attempts + 1 WHERE contract_id = ?").run(c.id);
+    return res.status(400).json({ error: "Código incorreto." });
+  }
+  db.prepare("UPDATE sign_codes SET verified = 1 WHERE contract_id = ?").run(c.id);
+  res.json({ ok: true });
 });
 
 // POST /api/sign/:token — registra a assinatura com validação.
 signRouter.post("/:token", (req, res) => {
-  let payload;
-  try {
-    payload = jwt.verify(req.params.token, JWT_SECRET);
-  } catch {
-    return res.status(403).json({ error: "Este link expirou ou é inválido." });
-  }
-  if (payload.purpose !== "sign") return res.status(403).json({ error: "Link inválido." });
-
-  const c = db.prepare("SELECT * FROM contracts WHERE id = ?").get(payload.contract_id);
-  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  const { c, erro, status } = contratoPorToken(req.params.token);
+  if (erro) return res.status(status || 403).json({ error: erro });
   if (c.signed_at) return res.status(400).json({ error: "Este contrato já foi assinado." });
+
+  // Exige a verificação por código feita e ainda válida.
+  const row = db.prepare("SELECT * FROM sign_codes WHERE contract_id = ?").get(c.id);
+  const verifExpirado = row && new Date(row.expires_at.replace(" ", "T") + "Z").getTime() < Date.now();
+  if (!row || !row.verified || verifExpirado) {
+    return res.status(400).json({ error: "Confirme o código enviado para o seu e-mail antes de assinar.", precisa_verificar: true });
+  }
 
   const { signer_name, signer_document, agreed, signature_img } = req.body || {};
   if (!signer_name || !signer_document || !agreed) {
@@ -94,12 +176,16 @@ signRouter.post("/:token", (req, res) => {
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
   db.prepare(
     `UPDATE contracts SET signed_at = datetime('now'), signer_name = ?, signer_document = ?,
-     signer_ip = ?, signed_hash = ?, signature_img = ? WHERE id = ?`
-  ).run(signer_name.trim(), signer_document.trim(), ip, contractHash(c), signature_img, c.id);
+     signer_ip = ?, signed_hash = ?, signature_img = ?,
+     signer_email = ?, sign_verified_at = datetime('now'), sign_verify_method = 'email', sign_verify_dest = ?
+     WHERE id = ?`
+  ).run(signer_name.trim(), signer_document.trim(), ip, contractHash(c), signature_img,
+        row.email, mascararEmail(row.email), c.id);
+  db.prepare("DELETE FROM sign_codes WHERE contract_id = ?").run(c.id);
 
   db.prepare(
     "INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)"
-  ).run(c.client_id, `✍️ ${signer_name} assinou "${c.title}" pelo link.`, c.org_id);
+  ).run(c.client_id, `✍️ ${signer_name} assinou "${c.title}" pelo link (verificado por e-mail).`, c.org_id);
 
   res.json({ ok: true });
 });

@@ -901,6 +901,24 @@ ensureColumn("contracts", "signer_document", "signer_document TEXT");
 ensureColumn("contracts", "signer_ip", "signer_ip TEXT");
 ensureColumn("contracts", "signed_hash", "signed_hash TEXT"); // detecta edição posterior
 ensureColumn("contracts", "signature_img", "signature_img TEXT"); // desenho da assinatura (data URI)
+// Verificação por código (e-mail) na hora de assinar — prova de identidade.
+ensureColumn("contracts", "signer_email", "signer_email TEXT");
+ensureColumn("contracts", "sign_verified_at", "sign_verified_at TEXT");   // quando o código foi conferido
+ensureColumn("contracts", "sign_verify_method", "sign_verify_method TEXT"); // 'email'
+ensureColumn("contracts", "sign_verify_dest", "sign_verify_dest TEXT");   // destino mascarado (ex.: jo***@x.com)
+
+// Código de verificação da assinatura: um por contrato (reenviar substitui).
+db.exec(`
+CREATE TABLE IF NOT EXISTS sign_codes (
+  contract_id INTEGER PRIMARY KEY,
+  code_hash   TEXT NOT NULL,
+  email       TEXT NOT NULL,
+  expires_at  TEXT NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  verified    INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
 // Modelo de contrato ligado a um serviço: ao fechar aquele serviço, já puxa o certo.
 ensureColumn("contract_templates", "service_id", "service_id INTEGER");
 
