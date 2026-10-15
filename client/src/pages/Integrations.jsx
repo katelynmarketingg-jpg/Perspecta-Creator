@@ -236,6 +236,20 @@ export default function Integrations() {
                                     label={conn.page_name} />
                                 )}
                               </Stack>
+                              {/* CONECTADO NÃO QUER DIZER PRONTO.
+                                  Cliente ligado só pela Página aparecia aqui
+                                  exatamente como quem tem Instagram — e a falta
+                                  só se descobria na hora de publicar: carrossel
+                                  não sai, Reel não sai, post vai parar no
+                                  Facebook. O aviso fica onde se conecta. */}
+                              {!conn.ig_user_id && (
+                                <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.75 }}>
+                                  Só a Página do Facebook — <b>sem Instagram vinculado</b>. Carrossel e Reel não
+                                  saem por aqui, e o post vai para o Facebook. Para publicar no Instagram dele:
+                                  a conta precisa ser <b>profissional</b> e estar vinculada a esta Página; depois,
+                                  reconecte aqui.
+                                </Typography>
+                              )}
                               {(conn.ig_followers != null || conn.ig_media_count != null) && (
                                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
                                   {conn.ig_followers != null && <><b>{fmtNum(conn.ig_followers)}</b> seguidores</>}

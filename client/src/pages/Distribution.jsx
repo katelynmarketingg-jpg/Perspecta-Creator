@@ -1009,8 +1009,12 @@ function PieceCard({ item, onChanged, flash }) {
   //
   // Confirma antes porque vai ao ar na conta do CLIENTE e não tem desfazer.
   async function publicarAgora() {
+    // O AVISO TEM DE DIZER A REDE CERTA. Conexão sem Instagram vinculado
+    // publica na Página do Facebook — e perguntar "publicar no Instagram?"
+    // fazia a pessoa confirmar uma coisa e acontecer outra.
+    const rede = item.meta_instagram ? "Instagram" : "Facebook";
     if (!window.confirm(
-      `Publicar "${item.title}" agora no Instagram de ${item.client_name || "o cliente"}?\n\n`
+      `Publicar "${item.title}" agora no ${rede} de ${item.client_name || "o cliente"}?\n\n`
       + "O post vai ao ar na hora. Não dá para desfazer por aqui."
     )) return;
     setPublicando(true);
@@ -1492,14 +1496,32 @@ function PieceCard({ item, onChanged, flash }) {
                       postar no app, que é o que está logo abaixo. */}
                   {item.meta_conectada ? (
                     <>
-                      <Typography variant="caption" color="text.secondary">
-                        Vai direto para o Instagram do cliente, na hora. Para Reels com música do
-                        Edits, use o caminho de baixar e postar no app.
-                      </Typography>
-                      <Button size="small" variant="contained" startIcon={<SendIcon />}
-                        disabled={publicando} onClick={publicarAgora}>
-                        {publicando ? "Publicando…" : "Publicar agora"}
-                      </Button>
+                      {/* DIZ PARA ONDE VAI, ANTES DE IR.
+                          O botão prometia "Instagram do cliente" mesmo quando a
+                          conexão só tem a Página do Facebook. Pior: carrossel
+                          nessa conexão ia como UMA foto para o Facebook e o
+                          sistema anunciava o carrossel inteiro. O servidor já
+                          recusa; aqui a pessoa descobre antes de clicar. */}
+                      {!item.meta_instagram && slides.length > 1 ? (
+                        <Typography variant="caption" color="warning.main">
+                          Esta peça é carrossel, e carrossel só existe no Instagram. A conexão deste
+                          cliente tem só a Página do Facebook — vincule o Instagram profissional dele
+                          à Página e reconecte em <b>Integrações</b>. Por enquanto, baixe as lâminas e
+                          poste pelo app.
+                        </Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          {item.meta_instagram
+                            ? "Vai direto para o Instagram do cliente, na hora. Para Reels com música do Edits, use o caminho de baixar e postar no app."
+                            : "Atenção: esta conexão tem só a Página do Facebook (sem Instagram vinculado). O post vai para o Facebook, não para o Instagram."}
+                        </Typography>
+                      )}
+                      {!(!item.meta_instagram && slides.length > 1) && (
+                        <Button size="small" variant="contained" startIcon={<SendIcon />}
+                          disabled={publicando} onClick={publicarAgora}>
+                          {publicando ? "Publicando…" : item.meta_instagram ? "Publicar agora" : "Publicar no Facebook"}
+                        </Button>
+                      )}
                       <Divider sx={{ my: 0.5 }} />
                     </>
                   ) : (

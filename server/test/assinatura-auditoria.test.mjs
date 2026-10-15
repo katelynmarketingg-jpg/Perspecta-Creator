@@ -48,8 +48,34 @@ function novoContrato(texto = "Cláusula primeira: o combinado é este.") {
     "INSERT INTO contracts (client_id,title,value,status,notes,org_id) VALUES (?,'Gestão de redes',1500,'active',?,?)"
   ).run(cli, texto, org).lastInsertRowid;
 }
-const assinar = (id, extra = {}) => req("POST", `/sign/${makeSignToken(id)}`, {
-  signer_name: "Marcelo Augusto", signer_document: "04009664096", agreed: true, signature_img: PNG, ...extra,
+// ASSINAR AGORA EXIGE O CÓDIGO DO E-MAIL (veio no #167): a rota recusa com 400
+// enquanto não houver uma verificação feita e dentro do prazo. Estes testes são
+// sobre a AUDITORIA do que fica gravado, não sobre a verificação em si — então
+// o helper deixa o contrato verificado, que é o estado em que um signatário de
+// verdade chega na hora de assinar. Sem isto, todos eles batiam em 400 e o
+// sinal da auditoria se perdia.
+function jaVerificado(id) {
+  db.prepare(
+    `INSERT INTO sign_codes (contract_id, code_hash, email, expires_at, attempts, verified, created_at)
+     VALUES (?, 'x', 'marcelo@exemplo.com', datetime('now','+10 minutes'), 0, 1, datetime('now'))
+     ON CONFLICT(contract_id) DO UPDATE SET verified = 1, expires_at = datetime('now','+10 minutes')`
+  ).run(id);
+}
+const assinar = (id, extra = {}) => {
+  jaVerificado(id);
+  return req("POST", `/sign/${makeSignToken(id)}`, {
+    signer_name: "Marcelo Augusto", signer_document: "04009664096", agreed: true, signature_img: PNG, ...extra,
+  });
+};
+
+test("sem o código do e-mail, assinar é recusado", async () => {
+  const id = novoContrato();
+  const r = await req("POST", `/sign/${makeSignToken(id)}`, {
+    signer_name: "Marcelo Augusto", signer_document: "04009664096", agreed: true, signature_img: PNG,
+  });
+  assert.equal(r.st, 400);
+  assert.equal(r.precisa_verificar, true);
+  assert.equal(db.prepare("SELECT signed_at FROM contracts WHERE id = ?").get(id).signed_at, null);
 });
 
 test("assinar grava nome, documento, data, IP e a impressão digital do texto", async () => {

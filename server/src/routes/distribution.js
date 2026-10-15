@@ -142,7 +142,9 @@ router.get("/", async (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
               t.approval_status, t.client_note, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
-              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
+                 AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -162,7 +164,9 @@ router.get("/", async (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
               t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
-              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
+                 AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, s.is_done AS stage_done,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t
@@ -184,6 +188,8 @@ router.get("/", async (req, res) => {
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
               t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
+                 AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -212,6 +218,8 @@ router.get("/", async (req, res) => {
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
               t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
+                 AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram,
               t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
@@ -232,7 +240,9 @@ router.get("/", async (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
               t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
-              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada, t.client_id, t.cover_file_id, t.position, t.media_ids,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
+                 AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram, t.client_id, t.cover_file_id, t.position, t.media_ids,
               c.name AS client_name, c.phone AS client_phone,
               (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
        FROM tasks t

@@ -337,10 +337,27 @@ export async function publishTask(task, orgId, host, protocol = "https") {
   const destino = conn.ig_user_id ? "instagram" : "facebook";
   let postId;
   if (itens.length > 1) {
-    // Carrossel só existe no Instagram. Na página do Facebook, vai a primeira.
-    postId = destino === "instagram"
-      ? await publishCarouselToInstagram({ conn, itens, caption })
-      : await publishToFacebook({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo });
+    // CARROSSEL SEM INSTAGRAM NÃO SAI — E TEM DE DIZER ISSO.
+    //
+    // Aqui, antes, o carrossel caía na página do Facebook mandando SÓ A
+    // PRIMEIRA lâmina. E o aviso logo abaixo escrevia "publicado no facebook
+    // (carrossel de 6 slides)": o sistema anunciava seis e tinha mandado uma.
+    // Era o mesmo erro que o midiasDaPeca já tinha consertado do outro lado —
+    // publicar menos do que foi aprovado e chamar isso de sucesso.
+    //
+    // Ter Página do Facebook não basta: o carrossel é recurso do Instagram, e
+    // a Meta só aceita publicar nele por uma conta PROFISSIONAL vinculada à
+    // Página. Sem esse vínculo, melhor não publicar nada do que publicar 1/6.
+    if (destino !== "instagram") {
+      throw new Error(
+        `Esta peça é um carrossel de ${itens.length} lâminas, e carrossel só existe no Instagram. `
+        + `${conn.page_name ? `A conexão de ${conn.page_name}` : "A conexão deste cliente"} tem só a Página do `
+        + "Facebook, sem Instagram vinculado — a Meta não aceita carrossel por aí. "
+        + "Em Integrações, reconecte a Meta marcando a Página do cliente e confira que o Instagram dele é "
+        + "conta profissional vinculada a essa Página. Enquanto isso, dá para baixar as lâminas e postar pelo app."
+      );
+    }
+    postId = await publishCarouselToInstagram({ conn, itens, caption });
   } else {
     postId = destino === "instagram"
       ? await publishToInstagram({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo })

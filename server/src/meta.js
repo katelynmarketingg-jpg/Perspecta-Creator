@@ -102,8 +102,21 @@ export async function exchangeCode(code) {
     };
   });
   if (!lista.length) {
+    // ESTA MENSAGEM PRECISA DIZER O QUE FAZER, NÃO SÓ O QUE FALTA.
+    //
+    // Ela dizia "crie uma Página" — e quase nunca é esse o caso: a Página
+    // existe, mas na tela de permissões da Meta ela não foi MARCADA (a Meta
+    // abre a lista com tudo desmarcado e um "Optar por todos" fácil de pular),
+    // ou quem entrou não é administrador dela, ou a Página está num Portfólio
+    // Empresarial que ainda não liberou o app. Em todos esses casos o
+    // /me/accounts volta vazio, igualzinho. Mandar criar uma Página que já
+    // existe faz a pessoa perder a tarde no lugar errado.
     throw new Error(
-      "Nenhuma Página do Facebook foi encontrada nessa conta. Crie uma Página e vincule o Instagram profissional a ela."
+      "A Meta não devolveu nenhuma Página nessa conta. Quase sempre é um destes: "
+      + "(1) na tela de permissões da Meta a Página do cliente não foi marcada — refaça o login e marque a Página, "
+      + "(2) quem entrou não é administrador dela, ou "
+      + "(3) ela está num Portfólio Empresarial que ainda não deu acesso ao app. "
+      + "Se a Página existe mesmo, é um destes três — não precisa criar outra."
     );
   }
   // Página com Instagram vinculado primeiro: é quase sempre a que se quer.
