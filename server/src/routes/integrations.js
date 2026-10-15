@@ -5,7 +5,7 @@ import { authRequired, moduleAllowed, JWT_SECRET, hostServeParaLink } from "../a
 import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
   publicConnection, publishToInstagram, publishCarouselToInstagram, publishToFacebook, META_APP_ID,
-  fetchIgProfile, updateIgProfile,
+  fetchIgProfile, updateIgProfile, conferirPagina, vincularInstagram,
   savePendingPages, getPendingPages, clearPendingPages, publicPage,
 } from "../meta.js";
 import { comecarPublicacao, terminarPublicacao, temVideo, diasAteVencer } from "../publicacao-demorada.js";
@@ -163,6 +163,69 @@ router.delete("/meta/:clientId", (req, res) => {
   db.prepare("DELETE FROM integrations WHERE client_id = ? AND org_id = ? AND provider = 'meta'")
     .run(req.params.clientId, req.orgId);
   res.json({ ok: true });
+});
+
+// POST /api/integrations/meta/:clientId/conferir — "por que não publica?"
+//
+// Pedido dela, depois de seguir todos os passos: "não está dando certo."
+//
+// E estava certa. O ig_user_id só era gravado no login completo, e NADA nunca
+// perguntava de novo: vincular o Instagram à Página lá na Meta não chegava
+// aqui nunca. O cliente ficava preso em "sem Instagram vinculado" para sempre,
+// e o único jeito era desconectar e refazer o login inteiro.
+//
+// Esta rota re-pergunta à Meta pela Página já guardada. Se o Instagram entrou
+// no meio-tempo, ele é gravado aqui — sem refazer login nenhum. Se não entrou,
+// a resposta diz o que ainda falta, com nome e tudo.
+router.post("/meta/:clientId/conferir", async (req, res) => {
+  const conn = getConnection(req.params.clientId, req.orgId);
+  if (!conn) {
+    return res.status(404).json({
+      error: "Este cliente não tem a Meta conectada. Use o botão de conectar.",
+    });
+  }
+  const tinhaInstagram = Boolean(conn.ig_user_id);
+  let pagina;
+  try {
+    pagina = await conferirPagina(conn);
+  } catch (e) {
+    // Token morto é o segundo motivo mais comum, e o erro da Meta não explica.
+    const morto = /expired|session|OAuth|token|190|validat/i.test(e.message || "");
+    return res.status(400).json({
+      error: morto
+        ? `A Meta não aceitou mais o acesso guardado desta conexão (${e.message}). `
+          + "Isso acontece quando o cliente troca a senha do Facebook, tira o app ou o acesso vence. "
+          + "Desconecte e conecte de novo em Integrações."
+        : e.message,
+    });
+  }
+
+  vincularInstagram(req.params.clientId, req.orgId, pagina);
+
+  if (pagina.ig) {
+    return res.json({
+      ok: true,
+      instagram: true,
+      ig_username: pagina.ig.ig_username,
+      page_name: pagina.page_name,
+      mensagem: tinhaInstagram
+        ? `Tudo certo: a Página ${pagina.page_name} está ligada ao Instagram @${pagina.ig.ig_username}. Carrossel, post e Reel podem sair daqui.`
+        : `Achei agora: o Instagram @${pagina.ig.ig_username} já está vinculado à Página ${pagina.page_name}. `
+          + "Gravei aqui — o carrossel já pode ser publicado, sem precisar reconectar.",
+    });
+  }
+
+  res.json({
+    ok: true,
+    instagram: false,
+    page_name: pagina.page_name,
+    mensagem:
+      `A Meta confirma a Página ${pagina.page_name}, mas diz que NÃO há Instagram vinculado a ela. `
+      + "Confira três coisas, nessa ordem: (1) o Instagram do cliente é conta profissional "
+      + "(Comercial ou Criador de conteúdo), não pessoal; (2) ele está vinculado a ESTA Página "
+      + "(Configurações da Página → Instagram → Conectar conta) e não a outra; (3) quem conectou aqui "
+      + "é administrador da Página. Depois de arrumar, clique em Conferir de novo — não precisa reconectar.",
+  });
 });
 
 // PUT /api/integrations/auto-publish — liga/desliga a publicação automática.

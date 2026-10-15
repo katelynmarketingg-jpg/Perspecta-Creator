@@ -202,6 +202,54 @@ export function updateIgProfile(clientId, orgId, prof) {
         prof.ig_media_count, clientId, orgId);
 }
 
+/**
+ * RE-PERGUNTA À META O QUE MUDOU NA PÁGINA — sem refazer o login.
+ *
+ * O buraco: ig_user_id só era gravado no login completo (saveConnection), e
+ * NADA nunca perguntava de novo. Quem conectava o cliente antes de vincular o
+ * Instagram à Página ficava preso: vinculava lá na Meta, voltava aqui, e o
+ * sistema seguia dizendo "sem Instagram vinculado" para sempre. O único jeito
+ * era desconectar e refazer o login inteiro — e ninguém adivinha isso.
+ *
+ * Aqui a gente pergunta à Meta, agora, pela PÁGINA que já está guardada. Se o
+ * Instagram apareceu no meio-tempo, ele entra. Se não apareceu, a resposta diz
+ * o que ainda falta, em vez de um erro cru.
+ */
+export async function conferirPagina(conn) {
+  if (!conn?.page_id) throw new Error("Esta conexão não tem Página do Facebook guardada. Reconecte em Integrações.");
+  const p = await graph(`/${conn.page_id}`, {
+    fields: "name,instagram_business_account{id,username,name,profile_picture_url,followers_count,media_count}",
+    access_token: conn.access_token,
+  });
+  const ig = p.instagram_business_account || null;
+  return {
+    page_id: conn.page_id,
+    page_name: p.name || conn.page_name || null,
+    ig: ig ? {
+      ig_user_id: ig.id,
+      ig_username: ig.username || null,
+      ig_name: ig.name || null,
+      ig_picture: ig.profile_picture_url || null,
+      ig_followers: ig.followers_count ?? null,
+      ig_media_count: ig.media_count ?? null,
+    } : null,
+  };
+}
+
+/** Grava o Instagram que apareceu na conferência — inclusive o ig_user_id. */
+export function vincularInstagram(clientId, orgId, pagina) {
+  const ig = pagina.ig;
+  db.prepare(
+    `UPDATE integrations SET page_name = COALESCE(?, page_name),
+       ig_user_id = ?, ig_username = ?, ig_name = ?, ig_picture = ?,
+       ig_followers = ?, ig_media_count = ?
+     WHERE client_id = ? AND org_id = ? AND provider = 'meta'`
+  ).run(pagina.page_name, ig?.ig_user_id ?? null, ig?.ig_username ?? null,
+        ig?.ig_name ?? null, ig?.ig_picture ?? null,
+        ig?.ig_followers ?? null, ig?.ig_media_count ?? null,
+        clientId, orgId);
+}
+
 export function getConnection(clientId, orgId) {
   const row = db
     .prepare("SELECT * FROM integrations WHERE client_id = ? AND org_id = ? AND provider = 'meta'")

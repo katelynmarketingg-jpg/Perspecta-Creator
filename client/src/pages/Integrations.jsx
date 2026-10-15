@@ -42,6 +42,8 @@ export default function Integrations() {
   const [status, setStatus] = useState(null);
   const [clients, setClients] = useState([]);
   const [erro, setErro] = useState("");
+  const [conferindo, setConferindo] = useState(null);   // id do cliente sendo conferido
+  const [diagnostico, setDiagnostico] = useState(null); // { client_id, ok, texto }
   // Cobrança recorrente (Asaas)
   const [billing, setBilling] = useState(null);
   const [asaasKey, setAsaasKey] = useState("");
@@ -161,6 +163,27 @@ export default function Integrations() {
     catch { /* ignora — mantém o que já tem */ }
   }
 
+  // CONFERIR: re-pergunta à Meta o que mudou na Página deste cliente.
+  //
+  // É o botão que faltava. Vincular o Instagram à Página lá na Meta não
+  // chegava aqui nunca — o ig_user_id só era gravado no login completo. Quem
+  // conectava antes de vincular ficava preso em "sem Instagram vinculado" e
+  // tinha de desconectar e refazer tudo, sem nunca saber disso.
+  async function conferir(client) {
+    setConferindo(client.id);
+    setDiagnostico(null);
+    try {
+      const { data } = await api.post(`/integrations/meta/${client.id}/conferir`);
+      setDiagnostico({ client_id: client.id, ok: data.instagram, texto: data.mensagem });
+      load();
+    } catch (err) {
+      setDiagnostico({
+        client_id: client.id, ok: false,
+        texto: err.response?.data?.error || "Não consegui falar com a Meta agora. Tente de novo em instantes.",
+      });
+    } finally { setConferindo(null); }
+  }
+
   // Formata o número de seguidores (12.300 -> "12,3 mil").
   const fmtNum = (n) => {
     if (n == null) return null;
@@ -250,6 +273,16 @@ export default function Integrations() {
                                   reconecte aqui.
                                 </Typography>
                               )}
+                              {/* O resultado do "Conferir" fica no cartão do
+                                  cliente conferido — não num canto solto da
+                                  tela, onde ela não ligaria uma coisa à outra. */}
+                              {diagnostico?.client_id === c.id && (
+                                <Typography variant="caption"
+                                  color={diagnostico.ok ? "success.main" : "warning.main"}
+                                  sx={{ display: "block", mt: 0.75, maxWidth: 560 }}>
+                                  {diagnostico.texto}
+                                </Typography>
+                              )}
                               {(conn.ig_followers != null || conn.ig_media_count != null) && (
                                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
                                   {conn.ig_followers != null && <><b>{fmtNum(conn.ig_followers)}</b> seguidores</>}
@@ -276,6 +309,14 @@ export default function Integrations() {
                                 <IconButton onClick={() => atualizarPerfil(c)}><RefreshIcon /></IconButton>
                               </Tooltip>
                             )}
+                            {/* Aparece para TODO cliente conectado, com ou sem
+                                Instagram: é justamente quem não tem que precisa
+                                dele. */}
+                            <Button size="small" variant={conn.ig_user_id ? "text" : "outlined"}
+                              color={conn.ig_user_id ? "inherit" : "warning"}
+                              disabled={conferindo === c.id} onClick={() => conferir(c)}>
+                              {conferindo === c.id ? "Conferindo…" : "Conferir conexão"}
+                            </Button>
                             <IconButton color="error" onClick={() => desconectar(c)} title="Desconectar"><LinkOffIcon /></IconButton>
                           </>
                         ) : esperandoEscolha(c.id) ? (
