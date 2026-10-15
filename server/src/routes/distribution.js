@@ -141,7 +141,7 @@ router.get("/", async (req, res) => {
   const items = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
+              t.approval_status, t.client_note, t.published_at, t.external_post_id, t.publish_error, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
                  AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram, t.client_id, t.cover_file_id, t.position, t.media_ids,
@@ -163,7 +163,7 @@ router.get("/", async (req, res) => {
   const scheduled = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.scheduled_at,
-              t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.publish_error, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
                  AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram, t.client_id, t.cover_file_id, t.position, t.media_ids,
@@ -186,7 +186,7 @@ router.get("/", async (req, res) => {
   const approved = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.publish_error, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
                  AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram,
@@ -216,7 +216,7 @@ router.get("/", async (req, res) => {
   const waiting = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
+              t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.external_post_id, t.publish_error, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
                  AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram,
@@ -239,7 +239,7 @@ router.get("/", async (req, res) => {
   const programmed = db
     .prepare(
       `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
-              t.approval_status, t.published_at, t.external_post_id, t.saiu_da_grade_em, t.fora_da_grade,
+              t.approval_status, t.published_at, t.external_post_id, t.publish_error, t.saiu_da_grade_em, t.fora_da_grade,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
               (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
                  AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram, t.client_id, t.cover_file_id, t.position, t.media_ids,

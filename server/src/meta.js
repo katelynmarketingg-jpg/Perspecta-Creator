@@ -265,16 +265,27 @@ export function publicConnection(row) {
   return { ...rest, connected: true };
 }
 
-// Espera o container de VÍDEO terminar o processamento na Meta (o vídeo não
-// publica na hora: a Meta baixa e processa antes). Faz polling com limite.
-async function waitForContainer(containerId, accessToken, { tentativas = 20, intervaloMs = 6000 } = {}) {
+// Espera um container terminar o processamento na Meta. A Meta não guarda o
+// arquivo: ela BAIXA a arte do nosso link e processa — e isso leva tempo, mesmo
+// numa foto, mesmo que quase sempre seja rápido.
+async function waitForContainer(containerId, accessToken, { tentativas = 20, intervaloMs = 6000, oque = "o vídeo" } = {}) {
   for (let i = 0; i < tentativas; i++) {
-    const st = await graph(`/${containerId}`, { fields: "status_code", access_token: accessToken });
+    const st = await graph(`/${containerId}`, { fields: "status_code,status", access_token: accessToken });
     if (st.status_code === "FINISHED") return;
-    if (st.status_code === "ERROR") throw new Error("A Meta falhou ao processar o vídeo.");
+    // SEM status_code, NÃO FICAMOS ESPERANDO O QUE NINGUÉM VAI RESPONDER.
+    // A Meta nem sempre informa progresso: quando ela não manda o campo, não há
+    // o que acompanhar, e insistir faria a publicação morrer de espera por uma
+    // resposta que não existe. Aí vale o comportamento de antes — segue adiante.
+    if (st.status_code == null) return;
+    if (st.status_code === "ERROR") {
+      // O `status` traz o motivo de verdade ("Media download failed", formato,
+      // proporção). Sem ele, a pessoa lia só "a Meta falhou" e não dava para
+      // fazer nada com isso.
+      throw new Error(`A Meta recusou ${oque}${st.status ? `: ${st.status}` : "."}`);
+    }
     await new Promise((r) => setTimeout(r, intervaloMs));
   }
-  throw new Error("O vídeo ainda está processando na Meta. Tente publicar de novo em instantes.");
+  throw new Error(`A Meta ainda está processando ${oque}. Tente publicar de novo em instantes.`);
 }
 
 /**
@@ -326,8 +337,23 @@ export async function publishCarouselToInstagram({ conn, itens, caption }) {
     filhos.push({ id: c.id, isVideo: item.isVideo });
   }
 
-  // Vídeo precisa terminar de processar antes de entrar no pai.
-  for (const f of filhos) if (f.isVideo) await waitForContainer(f.id, conn.access_token);
+  // TODA LÂMINA PRECISA ESTAR PRONTA — não só as de vídeo.
+  //
+  // Era aqui o buraco: só o vídeo era esperado. A Meta não guarda o arquivo,
+  // ela BAIXA a arte do nosso link; numa foto isso costuma ser instantâneo,
+  // mas não é garantido — se o Render estiver frio, ou a arte for pesada, o
+  // container ainda está IN_PROGRESS quando a gente monta o pai do carrossel.
+  // A Meta então recusa com "Media ID is not available", que não diz nada.
+  // Por isso o carrossel de um cliente saía e o de outro não: é corrida, não
+  // configuração.
+  //
+  // Foto é esperada de perto (1,5s) e vídeo de longe (6s), senão uma foto
+  // pronta ficaria parada esperando o relógio do vídeo.
+  for (const f of filhos) {
+    await waitForContainer(f.id, conn.access_token, f.isVideo
+      ? { tentativas: 20, intervaloMs: 6000, oque: "o vídeo de uma das lâminas" }
+      : { tentativas: 20, intervaloMs: 1500, oque: "a arte de uma das lâminas" });
+  }
 
   const pai = await graph(`/${conn.ig_user_id}/media`, {
     media_type: "CAROUSEL",
@@ -342,6 +368,55 @@ export async function publishCarouselToInstagram({ conn, itens, caption }) {
   }, { method: "POST" });
 
   return published.id;
+}
+
+/**
+ * O QUE A META DISSE, EM PORTUGUÊS — e com o que fazer.
+ *
+ * As mensagens da Meta são em inglês, técnicas e, nas piores horas, mudas
+ * ("Media ID is not available"). Ela lia isso no sininho e não tinha o que
+ * fazer com a informação. Aqui cada caso que a gente já viu vira uma frase que
+ * diz o problema E a saída; o que não se reconhece volta inteiro, nunca
+ * engolido.
+ */
+export function recadoDaMeta(mensagem, { carrossel = false } = {}) {
+  const m = String(mensagem || "");
+  const peca = carrossel ? "uma das lâminas" : "a arte";
+
+  if (/Media ID is not available|not available|still being processed/i.test(m)) {
+    return `A Meta não conseguiu terminar de preparar ${peca} a tempo. `
+      + "Quase sempre é a arte demorando a ser baixada. Tente publicar de novo em um minuto.";
+  }
+  if (/aspect ratio|proporç/i.test(m)) {
+    return `O Instagram recusou a proporção de ${peca}. Ele aceita de 4:5 (vertical) a 1.91:1 (horizontal) — `
+      + "1080×1350 e 1080×1080 passam sempre. Refaça a arte fora desses extremos."
+      + (carrossel ? " Num carrossel, todas as lâminas vão na proporção da primeira." : "");
+  }
+  if (/format|unsupported|not supported|image type|corrupt/i.test(m)) {
+    return `O Instagram não aceitou o formato de ${peca}. Ele publica JPEG — PNG, HEIC e WEBP costumam ser recusados. `
+      + "Exporte em JPG e troque a arte na peça.";
+  }
+  if (/too large|file size|exceeds|maximum size/i.test(m)) {
+    return `${carrossel ? "Uma das lâminas" : "A arte"} é pesada demais para o Instagram (o teto é 8 MB por foto). `
+      + "Exporte em JPG com qualidade um pouco menor.";
+  }
+  if (/download|fetch|url|unreachable|timed out/i.test(m)) {
+    return `A Meta não conseguiu baixar ${peca} pelo link que o sistema mandou. `
+      + "Tente de novo; se repetir, me avise — é do lado do sistema, não da arte.";
+  }
+  if (/\(#10\)|permission|instagram_content_publish|not authorized/i.test(m)) {
+    return "A Meta diz que o app não tem permissão para publicar nesta conta. "
+      + "Desconecte e conecte o cliente de novo em Integrações, marcando a Página dele na tela de permissões.";
+  }
+  if (/\(#4\)|\(#17\)|rate limit|request limit|quota/i.test(m)) {
+    return "O Instagram bloqueou por limite de publicações (são 50 posts por conta a cada 24 horas). "
+      + "Espere e tente mais tarde — a peça continua aqui.";
+  }
+  if (/expired|session has expired|validating access token|\(#190\)/i.test(m)) {
+    return "O acesso guardado deste cliente venceu ou foi retirado na Meta. "
+      + "Desconecte e conecte de novo em Integrações.";
+  }
+  return m;
 }
 
 /** Publica na página do Facebook (foto ou vídeo). */
