@@ -37,8 +37,8 @@ const hoje = () => agoraNaAgencia().slice(0, 10);
  * as 15:25 contava como vencido às 12:25 — ver fuso.js.
  */
 export function prontosParaPublicar() {
-  return db.prepare(`
-    SELECT t.*, c.name AS client_name
+  const linhas = db.prepare(`
+    SELECT t.*, c.name AS client_name, i.ig_user_id AS ig_user_id
     FROM tasks t
     JOIN clients c ON c.id = t.client_id
     JOIN integrations i ON i.client_id = c.id AND i.provider = 'meta'
@@ -53,6 +53,12 @@ export function prontosParaPublicar() {
       AND (t.content_type IS NULL OR t.content_type != 'reel')
       AND EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id)
   `).all({ agora: agoraNaAgencia(), janela: JANELA_DE_ATRASO });
+
+  // Carrossel sem Instagram o robô NEM TENTA: a Meta recusaria, e tentar de
+  // novo a cada rodada só enchia o sininho de erro da Meta sem dizer o que
+  // fazer. Fora daqui, a peça cai em avisarAtrasados — que avisa uma vez só e
+  // com o motivo em português.
+  return linhas.filter((t) => !carrosselSemInstagram(t));
 }
 
 /**
@@ -84,8 +90,10 @@ export function avisarAtrasados(orgId = null) {
   if (orgId) { where.push("t.org_id = @org_id"); params.org_id = orgId; }
 
   const candidatos = db.prepare(
-    `SELECT t.id, t.title, t.client_id, t.org_id, t.scheduled_at, t.content_type,
+    `SELECT t.id, t.title, t.client_id, t.org_id, t.scheduled_at, t.content_type, t.media_ids,
             c.auto_publish, c.auto_publish_desde,
+            (SELECT i.ig_user_id FROM integrations i
+              WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS ig_user_id,
             EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id) AS tem_arte,
             (datetime(t.scheduled_at) <= datetime(@agora, @janela)) AS fora_da_janela
        FROM tasks t JOIN clients c ON c.id = t.client_id
@@ -119,12 +127,32 @@ export function avisarAtrasados(orgId = null) {
 }
 
 /**
+ * CARROSSEL SEM INSTAGRAM NUNCA VAI SAIR — e ela precisa saber ANTES da data.
+ *
+ * Carrossel é recurso do Instagram: a Meta só aceita por uma conta profissional
+ * vinculada à Página. Cliente conectado só pela Página do Facebook tem um
+ * carrossel que o robô vai tentar e falhar, todo dia marcado. Antes isso só
+ * aparecia depois, no sininho, como erro da Meta. Agora entra na lista de
+ * travadas, com o motivo, enquanto ainda dá tempo de arrumar.
+ */
+function carrosselSemInstagram(t) {
+  if (t.ig_user_id) return false;
+  let laminas = [];
+  try { laminas = JSON.parse(t.media_ids || "[]"); } catch { laminas = []; }
+  return Array.isArray(laminas) && laminas.length > 1;
+}
+
+/**
  * Por que esta peça não vai ao ar sozinha — em uma frase, para ela ler.
  * Devolve null quando o robô ainda vai pegá-la: aí não é atraso, é fila.
  */
 function porQueNaoSai(t) {
   if (t.content_type === "reel") return "Reel: poste à mão pelo app de edição — o sistema não publica reel (para não perder qualidade).";
   if (!t.tem_arte) return "Falta a arte: anexe o arquivo na peça, em Distribuição.";
+  if (carrosselSemInstagram(t)) {
+    return "Carrossel, e este cliente está conectado só pela Página do Facebook. Carrossel só existe no Instagram: "
+      + "vincule o Instagram profissional dele à Página e reconecte em Integrações.";
+  }
   if (!t.auto_publish) return "A publicação automática está desligada neste cliente (Integrações).";
   if (t.auto_publish_desde && String(t.scheduled_at) < String(t.auto_publish_desde).replace("T", " ")) {
     return "Já estava programado quando o automático foi ligado — o robô não pega os de antes. Publique na peça, em Distribuição.";
@@ -147,8 +175,10 @@ function porQueNaoSai(t) {
 export function filaDoAutomatico(orgId, clientId, dias = 30) {
   const agora = agoraNaAgencia();
   const marcadas = db.prepare(
-    `SELECT t.id, t.title, t.scheduled_at, t.approval_status, t.content_type,
+    `SELECT t.id, t.title, t.scheduled_at, t.approval_status, t.content_type, t.media_ids,
             c.auto_publish, c.auto_publish_desde,
+            (SELECT i.ig_user_id FROM integrations i
+              WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS ig_user_id,
             EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = t.id) AS tem_arte
        FROM tasks t JOIN clients c ON c.id = t.client_id
       WHERE t.org_id = @org AND t.client_id = @cli
@@ -164,6 +194,7 @@ export function filaDoAutomatico(orgId, clientId, dias = 30) {
     const motivo = t.content_type === "reel" ? "reel — postado à mão pelo app (o sistema não publica reel)"
       : !t.tem_arte ? "sem arte anexada"
       : t.approval_status !== "approved" ? "o cliente ainda não aprovou"
+      : carrosselSemInstagram(t) ? "carrossel, e este cliente só tem a Página do Facebook conectada (carrossel só existe no Instagram)"
       : !t.auto_publish ? "publicação automática desligada neste cliente"
       : (t.auto_publish_desde && String(t.scheduled_at) < String(t.auto_publish_desde).replace("T", " "))
         ? "já estava programada quando o automático foi ligado"
