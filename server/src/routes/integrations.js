@@ -5,7 +5,7 @@ import { authRequired, moduleAllowed, JWT_SECRET, hostServeParaLink } from "../a
 import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
   publicConnection, publishToInstagram, publishCarouselToInstagram, publishToFacebook, META_APP_ID,
-  fetchIgProfile, updateIgProfile, conferirPagina, vincularInstagram,
+  fetchIgProfile, updateIgProfile, conferirPagina, vincularInstagram, recadoDaMeta,
   savePendingPages, getPendingPages, clearPendingPages, publicPage,
 } from "../meta.js";
 import { comecarPublicacao, terminarPublicacao, temVideo, diasAteVencer } from "../publicacao-demorada.js";
@@ -356,6 +356,16 @@ export function midiasDaPeca(task) {
   return anexo ? [anexo] : [];
 }
 
+/** Roda a publicação e, se a Meta recusar, devolve o motivo em português. */
+async function comRecado(fn, carrossel) {
+  try {
+    return await fn();
+  } catch (e) {
+    const traduzido = recadoDaMeta(e.message, { carrossel });
+    throw traduzido === e.message ? e : new Error(traduzido);
+  }
+}
+
 /** Publica uma tarefa nas redes do cliente. Usado pelo botão e pelo automático. */
 export async function publishTask(task, orgId, host, protocol = "https") {
   // Reels NÃO são postados pelo sistema: a publicação pela API recomprime o
@@ -420,11 +430,14 @@ export async function publishTask(task, orgId, host, protocol = "https") {
         + "conta profissional vinculada a essa Página. Enquanto isso, dá para baixar as lâminas e postar pelo app."
       );
     }
-    postId = await publishCarouselToInstagram({ conn, itens, caption });
+    // O QUE A META RESPONDEU, EM PORTUGUÊS. Vale para o botão e para o robô:
+    // os dois passam por aqui, e os dois gravam esta frase em publish_error —
+    // que agora aparece grudada na peça, em vez de sumir com o aviso.
+    postId = await comRecado(() => publishCarouselToInstagram({ conn, itens, caption }), true);
   } else {
-    postId = destino === "instagram"
-      ? await publishToInstagram({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo })
-      : await publishToFacebook({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo });
+    postId = await comRecado(() => (destino === "instagram"
+      ? publishToInstagram({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo })
+      : publishToFacebook({ conn, mediaUrl: itens[0].url, caption, isVideo: itens[0].isVideo })), false);
   }
 
   // A hora DAQUI: é esta data que aparece no selo verde da grade do perfil.

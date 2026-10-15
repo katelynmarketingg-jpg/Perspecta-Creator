@@ -1032,6 +1032,9 @@ function PieceCard({ item, onChanged, flash }) {
       onChanged?.();
     } catch (err) {
       flash(err.response?.data?.error || "Não foi possível publicar.", "error");
+      // Recarrega para o motivo aparecer GRUDADO na peça: o aviso vermelho some
+      // em três segundos, e era só isso que ela tinha.
+      onChanged?.();
     }
     setPublicando(false);
   }
@@ -1491,6 +1494,21 @@ function PieceCard({ item, onChanged, flash }) {
                 </Stack>
               ) : (
                 <>
+                  {/* O MOTIVO DA ÚLTIMA FALHA, GRUDADO NA PEÇA.
+                      O servidor gravava publish_error desde sempre e NINGUÉM
+                      nunca via: a tela não pedia o campo e não o mostrava. O
+                      aviso vermelho aparecia por três segundos no clique e
+                      sumia, e o do robô ia só para o sininho. Sobrava
+                      "não está postando", sem nada para agir em cima.
+                      Fica até a peça publicar de verdade. */}
+                  {item.publish_error && (
+                    <Alert severity="error" variant="outlined" sx={{ mb: 0.5, py: 0.25 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>
+                        A última tentativa falhou:
+                      </Typography>
+                      <Typography variant="caption">{item.publish_error}</Typography>
+                    </Alert>
+                  )}
                   {/* PUBLICAR AGORA — só aparece quando o cliente tem a Meta
                       ligada. Sem conexão, o caminho continua sendo baixar e
                       postar no app, que é o que está logo abaixo. */}

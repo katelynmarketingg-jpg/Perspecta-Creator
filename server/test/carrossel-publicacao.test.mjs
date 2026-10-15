@@ -114,8 +114,13 @@ test("o carrossel segue os três passos que a Meta exige", async () => {
   try {
     const id = await publishCarouselToInstagram({ conn, itens: itens(3), caption: "Olá" });
 
-    // 3 filhos + 1 pai + 1 publicar
-    assert.equal(meta.chamadas.length, 5);
+    // REGRA TROCADA DE PROPÓSITO: antes eram 5 chamadas, porque só o VÍDEO era
+    // esperado. A Meta baixa a arte do nosso link antes de ter o container
+    // pronto; numa foto isso costuma ser instantâneo, mas não é garantido, e
+    // montar o pai cedo demais devolve "Media ID is not available" — foi isso
+    // que fez o carrossel de um cliente sair e o de outro não.
+    // Agora: 3 filhos + 3 conferidas + 1 pai + 1 publicar.
+    assert.equal(meta.chamadas.length, 8);
 
     const filhos = meta.chamadas.slice(0, 3);
     for (const f of filhos) {
@@ -125,27 +130,59 @@ test("o carrossel segue os três passos que a Meta exige", async () => {
       assert.ok(!f.params.caption, "a legenda vai só no pai, nunca repetida nas slides");
     }
 
-    const pai = meta.chamadas[3];
+    const conferidas = meta.chamadas.slice(3, 6);
+    assert.deepEqual(conferidas.map((c) => c.caminho), ["/v21.0/c1", "/v21.0/c2", "/v21.0/c3"],
+      "cada lâmina é conferida, na ordem — não só a primeira");
+
+    const pai = meta.chamadas[6];
     assert.equal(pai.params.media_type, "CAROUSEL");
     assert.equal(pai.params.children, "c1,c2,c3", "os filhos entram na ordem");
     assert.equal(pai.params.caption, "Olá");
 
-    const publicar = meta.chamadas[4];
+    const publicar = meta.chamadas[7];
     assert.match(publicar.caminho, /media_publish$/);
-    assert.equal(publicar.params.creation_id, "c4");
-    assert.equal(id, "c5");
+    assert.equal(publicar.params.creation_id, "c7");
+    assert.equal(id, "c8");
   } finally { meta.desfaz(); }
 });
 
 test("slide de vídeo entra como VIDEO e espera processar", async () => {
-  // A 2ª chamada é a consulta de status do container de vídeo.
+  // As chamadas 2 e 3 são as conferidas dos dois containers de vídeo.
   const meta = fingeAMeta({ respostas: { 2: { status_code: "FINISHED" }, 3: { status_code: "FINISHED" } } });
   try {
     await publishCarouselToInstagram({ conn, itens: itens(2, true), caption: "" });
     assert.equal(meta.chamadas[0].params.media_type, "VIDEO");
-    assert.ok(meta.chamadas.some((c) => c.params.fields === "status_code"),
+    // O `status` entrou junto do `status_code`: é ele que traz o motivo de
+    // verdade quando a Meta recusa, em vez de um "a Meta falhou" mudo.
+    assert.ok(meta.chamadas.some((c) => c.params.fields === "status_code,status"),
       "esperou o vídeo terminar antes de montar o pai");
   } finally { meta.desfaz(); }
+});
+
+test("lâmina que a Meta ainda não terminou segura o pai do carrossel", async () => {
+  // O caso que quebrava: a foto responde IN_PROGRESS na primeira conferida.
+  // Antes o pai era montado assim mesmo e a Meta recusava.
+  let conferidas = 0;
+  const original = globalThis.fetch;
+  const vistas = [];
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    vistas.push(u.pathname + "?" + (u.searchParams.get("fields") || u.searchParams.get("media_type") || ""));
+    if (u.searchParams.get("fields")) {
+      conferidas++;
+      return { ok: true, status: 200,
+        text: async () => JSON.stringify({ status_code: conferidas <= 2 ? "IN_PROGRESS" : "FINISHED" }) };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: `c${vistas.length}` }) };
+  };
+  try {
+    await publishCarouselToInstagram({ conn, itens: itens(2), caption: "" });
+  } finally { globalThis.fetch = original; }
+
+  assert.ok(conferidas > 2, `insistiu até ficar pronta — conferiu ${conferidas} vezes`);
+  const ondeEstaOPai = vistas.findIndex((v) => /CAROUSEL/.test(v));
+  const ultimaConferida = vistas.map((v, i) => (/fields/.test(v) || /status_code/.test(v) ? i : -1)).filter((i) => i >= 0).pop();
+  assert.ok(ondeEstaOPai > ultimaConferida, "o pai só é montado DEPOIS da última conferida");
 });
 
 test("menos de 2 slides não é carrossel", async () => {
