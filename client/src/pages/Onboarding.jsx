@@ -770,8 +770,9 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
           </Stack>
           {meses > 0 && (
             <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
-              No contrato: <b>vigência de {String(meses).padStart(2, "0")} meses</b> — contando o mês de
-              início e o de término.
+              No contrato: <b>vigência de {String(meses).padStart(2, "0")} {meses === 1 ? "mês" : "meses"}</b>
+              {" "}— de {f.start_date ? new Date(`${f.start_date}T12:00:00`).toLocaleDateString("pt-BR") : ""}
+              {" "}a {f.end_date ? new Date(`${f.end_date}T12:00:00`).toLocaleDateString("pt-BR") : ""}.
             </Alert>
           )}
           <TextField label="Data que deve constar no contrato" type="date" size="small" sx={{ maxWidth: 280 }}
@@ -791,13 +792,15 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
   );
 }
 
-/** Meses de vigência contando os dois extremos — igual ao servidor. */
+/** Meses de vigência contados DIA A DIA — igual ao servidor e ao faturamento. */
 function mesesEntre(inicio, fim) {
   if (!inicio || !fim) return 0;
   const a = new Date(`${inicio}T12:00:00`);
   const b = new Date(`${fim}T12:00:00`);
   if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return 0;
-  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1;
+  let m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() !== a.getDate() && b.getDate() >= a.getDate() - 1) m += 1;
+  return Math.max(m, 1);
 }
 
 // ---------------------------------------------------------------------------

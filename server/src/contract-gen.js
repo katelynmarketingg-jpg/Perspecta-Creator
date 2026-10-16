@@ -112,15 +112,20 @@ function quantia(n, genero = "m") {
 }
 
 /**
- * Quantos meses de serviço a vigência cobre — contando os dois extremos, que é
- * como se lê num contrato: de setembro a fevereiro são SEIS meses, não cinco.
+ * Quantos meses de serviço a vigência cobre — DIA A DIA, igual ao faturamento
+ * (monthsBetween). De 01/09 a 28/02 são SEIS meses (meses cheios); de 16/10 a
+ * 16/11 é UM mês (não dois) — antes a conta só olhava o calendário e somava 1,
+ * contando dois meses onde o período real é de um só, contradizendo a cobrança.
  */
 export function mesesDeVigencia(inicio, fim) {
   if (!inicio || !fim) return null;
   const a = new Date(`${inicio}T12:00:00`);
   const b = new Date(`${fim}T12:00:00`);
   if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return null;
-  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1;
+  let m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  // Fim inclusivo: 01/07 → 30/06 do ano seguinte conta como 12 meses.
+  if (b.getDate() !== a.getDate() && b.getDate() >= a.getDate() - 1) m += 1;
+  return Math.max(m, 1);
 }
 
 /**
