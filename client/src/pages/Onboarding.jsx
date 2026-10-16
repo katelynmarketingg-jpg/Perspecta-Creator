@@ -658,7 +658,8 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
     }));
   }
 
-  const meses = mesesEntre(f.start_date, f.end_date);
+  const vig = partesVig(f.start_date, f.end_date);
+  const vigTexto = textoVig(vig.meses, vig.dias);
   const escolhido = modelos.find((x) => chaveDoModelo(x) === f.modelo);
   const formDoServico = (formularios || []).find((x) => x.servico && x.servico === f.modelo);
   const semContrato = escolhido && !escolhido.tem_contrato;
@@ -765,12 +766,12 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
               value={f.start_date} onChange={(e) => setF((a) => ({ ...a, start_date: e.target.value }))} />
             <TextField label="Termina em" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}
               value={f.end_date} onChange={(e) => setF((a) => ({ ...a, end_date: e.target.value }))}
-              error={Boolean(f.start_date && f.end_date && !meses)}
-              helperText={f.start_date && f.end_date && !meses ? "O fim tem que vir depois do começo." : " "} />
+              error={Boolean(f.start_date && f.end_date && !vig.meses && !vig.dias)}
+              helperText={f.start_date && f.end_date && !vig.meses && !vig.dias ? "O fim tem que vir depois do começo." : " "} />
           </Stack>
-          {meses > 0 && (
+          {(vig.meses > 0 || vig.dias > 0) && (
             <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
-              No contrato: <b>vigência de {String(meses).padStart(2, "0")} {meses === 1 ? "mês" : "meses"}</b>
+              No contrato: <b>vigência de {vigTexto}</b>
               {" "}— de {f.start_date ? new Date(`${f.start_date}T12:00:00`).toLocaleDateString("pt-BR") : ""}
               {" "}a {f.end_date ? new Date(`${f.end_date}T12:00:00`).toLocaleDateString("pt-BR") : ""}.
             </Alert>
@@ -792,15 +793,27 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
   );
 }
 
-/** Meses de vigência contados DIA A DIA — igual ao servidor e ao faturamento. */
-function mesesEntre(inicio, fim) {
-  if (!inicio || !fim) return 0;
+/** Vigência em meses cheios + dias que sobram — igual ao servidor. */
+function partesVig(inicio, fim) {
+  if (!inicio || !fim) return { meses: 0, dias: 0 };
   const a = new Date(`${inicio}T12:00:00`);
   const b = new Date(`${fim}T12:00:00`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return 0;
-  let m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  if (b.getDate() !== a.getDate() && b.getDate() >= a.getDate() - 1) m += 1;
-  return Math.max(m, 1);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return { meses: 0, dias: 0 };
+  let meses = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) meses -= 1;
+  if (meses < 0) meses = 0;
+  const anchor = new Date(a.getFullYear(), a.getMonth() + meses, a.getDate(), 12, 0, 0);
+  let dias = Math.round((b - anchor) / 86400000);
+  if (dias < 0) dias = 0;
+  return { meses, dias };
+}
+
+/** "1 mês", "2 meses", "1 mês e 5 dias", "25 dias". */
+function textoVig(meses, dias) {
+  const partes = [];
+  if (meses) partes.push(`${meses} ${meses === 1 ? "mês" : "meses"}`);
+  if (dias) partes.push(`${dias} ${dias === 1 ? "dia" : "dias"}`);
+  return partes.join(" e ");
 }
 
 // ---------------------------------------------------------------------------
