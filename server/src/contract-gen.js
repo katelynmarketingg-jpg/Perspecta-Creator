@@ -112,20 +112,39 @@ function quantia(n, genero = "m") {
 }
 
 /**
- * Quantos meses de serviço a vigência cobre — DIA A DIA, igual ao faturamento
- * (monthsBetween). De 01/09 a 28/02 são SEIS meses (meses cheios); de 16/10 a
- * 16/11 é UM mês (não dois) — antes a conta só olhava o calendário e somava 1,
- * contando dois meses onde o período real é de um só, contradizendo a cobrança.
+ * Decompõe a vigência em MESES CHEIOS + DIAS que sobram, dia a dia.
+ *   16/10 → 16/11 = { meses: 1, dias: 0 }
+ *   16/10 → 21/11 = { meses: 1, dias: 5 }
+ *   16/10 → 10/11 = { meses: 0, dias: 25 }
  */
-export function mesesDeVigencia(inicio, fim) {
-  if (!inicio || !fim) return null;
+export function partesVigencia(inicio, fim) {
+  if (!inicio || !fim) return { meses: null, dias: 0 };
   const a = new Date(`${inicio}T12:00:00`);
   const b = new Date(`${fim}T12:00:00`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return null;
-  let m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  // Fim inclusivo: 01/07 → 30/06 do ano seguinte conta como 12 meses.
-  if (b.getDate() !== a.getDate() && b.getDate() >= a.getDate() - 1) m += 1;
-  return Math.max(m, 1);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return { meses: null, dias: 0 };
+  let meses = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) meses -= 1;   // o último mês ainda não fechou
+  if (meses < 0) meses = 0;
+  const anchor = new Date(a.getFullYear(), a.getMonth() + meses, a.getDate(), 12, 0, 0);
+  let dias = Math.round((b - anchor) / 86400000);
+  if (dias < 0) dias = 0;
+  return { meses, dias };
+}
+
+/** Texto da vigência: "1 mês", "2 meses", "1 mês e 5 dias", "25 dias". */
+export function textoVigencia(meses, dias, { extenso = false } = {}) {
+  const n = (v) => (extenso ? quantia(v) : String(v));
+  const partes = [];
+  if (meses) partes.push(`${n(meses)} ${meses === 1 ? "mês" : "meses"}`);
+  if (dias) partes.push(`${n(dias)} ${dias === 1 ? "dia" : "dias"}`);
+  if (!partes.length) return "prazo indeterminado";
+  return partes.join(" e ");
+}
+
+/** Meses cheios da vigência (inteiro), para a coluna duration_months. */
+export function mesesDeVigencia(inicio, fim) {
+  const { meses } = partesVigencia(inicio, fim);
+  return meses;
 }
 
 /**
@@ -254,9 +273,15 @@ export function geraContrato(orgId, termos = {}) {
 
   const org = db.prepare("SELECT * FROM organizations WHERE id = ?").get(orgId) || {};
   const valor = numeroBR(termos.value);
-  const duracao = termos.duration_months
-    ? Number(termos.duration_months)
-    : mesesDeVigencia(termos.start_date, termos.end_date);
+  // Vigência em meses + dias. Com data de início E fim, conta dia a dia (mostra
+  // os dias que sobram do mês cheio). Se a agência informou duration_months
+  // direto (sem datas), usa esse número redondo.
+  const vig = (termos.start_date && termos.end_date)
+    ? partesVigencia(termos.start_date, termos.end_date)
+    : { meses: termos.duration_months ? Number(termos.duration_months) : null, dias: 0 };
+  const duracao = vig.meses;                       // inteiro p/ a coluna duration_months
+  const vigTexto = textoVigencia(vig.meses, vig.dias);              // "1 mês e 5 dias"
+  const vigExtenso = textoVigencia(vig.meses, vig.dias, { extenso: true }); // "um mês e cinco dias"
   const diaPgto = client.payment_day ? Number(client.payment_day) : null;
 
   // As três entregas que o contrato da casa cita pelo nome. Saem das entregas
@@ -274,7 +299,7 @@ export function geraContrato(orgId, termos = {}) {
     endereco: client.address || LINHA,
     valor: brl(valor),
     valor_extenso: valorPorExtenso(valor),
-    duracao: duracao ? `${duracao} ${duracao === 1 ? "mês" : "meses"}` : "prazo indeterminado",
+    duracao: (vig.meses || vig.dias) ? vigTexto : "prazo indeterminado",
     // A data que a agência quer que conste (senão, a de hoje).
     data: termos.contract_date ? dataExtenso(termos.contract_date) : hoje(),
     servico: termos.servico || tpl.name || "",
@@ -314,7 +339,7 @@ export function geraContrato(orgId, termos = {}) {
     inicio: termos.start_date ? dataExtenso(termos.start_date) : hoje(),
     inicio_curto: termos.start_date ? dataCurta(termos.start_date) : "",
     fim: termos.end_date ? dataExtenso(termos.end_date) : "prazo indeterminado",
-    prazo: duracao ? `${quantia(duracao)} ${duracao === 1 ? "mês" : "meses"}` : "prazo indeterminado",
+    prazo: (vig.meses || vig.dias) ? vigExtenso : "prazo indeterminado",
     // --- o que está contratado ---
     // Os três marcadores que o contrato da casa já usa saem das entregas que a
     // agência definiu ("Posts", "Vídeos", "Captações"), não importa como ela
