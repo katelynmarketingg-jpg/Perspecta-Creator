@@ -1234,6 +1234,14 @@ ensureColumn("receipts", "month", "month INTEGER");
 
 ensureColumn("personal_finance", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
 ensureColumn("financial_entries", "impagavel", "impagavel INTEGER NOT NULL DEFAULT 0");
+// JUROS DA CONTA QUE VIROU O MÊS.
+//
+// O valor cobrado continua sendo `amount` — é ele que toda soma, recibo e
+// projeção já leem, e mexer nisso era trocar o encanamento inteiro por um
+// campo novo. Então o juro ENTRA no amount, e esta coluna guarda quanto
+// daquele valor é juro. Assim nada por baixo muda, e na tela dá para dizer
+// "R$ 212,00 (R$ 12,00 de juros)" em vez de um 212 que apareceu do nada.
+ensureColumn("financial_entries", "juros", "juros REAL NOT NULL DEFAULT 0");
 ensureColumn("clients", "archived_at", "archived_at TEXT");            // quando foi arquivado
 ensureColumn("clients", "entrega_ate", "entrega_ate TEXT");            // última entrega combinada
 ensureColumn("clients", "pagamento_ate", "pagamento_ate TEXT");        // último pagamento combinado

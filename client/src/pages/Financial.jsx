@@ -4,6 +4,7 @@ import {
   Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem, Tabs, Tab, Divider,
   FormControlLabel, Switch, Typography, Box, CardContent,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -31,6 +32,15 @@ const EMPTY = {
   type: "income", description: "", amount: "", client_id: "", category: "", status: "pending",
   due_date: "", recurring: false, recurring_day: "", months: 12, fixed: false, card: "",
 };
+
+// "2026-09" vira "set." — o chip tem de caber na linha e dizer o mês na hora.
+function mesPorExtenso(ym) {
+  if (!/^\d{4}-\d{2}$/.test(String(ym || ""))) return "antes";
+  const [a, m] = String(ym).split("-").map(Number);
+  const nome = new Date(a, m - 1, 1).toLocaleDateString("pt-BR", { month: "short" });
+  // Mês de outro ano precisa do ano, senão "set." engana na virada.
+  return a === new Date().getFullYear() ? nome : `${nome} ${a}`;
+}
 
 // Intervalos de período. Abre no mês atual; dá para ampliar.
 function periodoRange(chave) {
@@ -78,6 +88,7 @@ export default function Financial() {
   const [gerarOpen, setGerarOpen] = useState(false);
   const [gerarMeses, setGerarMeses] = useState(12);
   const [parcial, setParcial] = useState(""); // valor do pagamento parcial
+  const [juros, setJuros] = useState(null);   // { id, description, valor, erro } — a caixinha do "+"
   // Recibo aberto para conferir/editar/baixar.
   const [recibo, setRecibo] = useState(null);
   const [reciboErro, setReciboErro] = useState("");
@@ -143,7 +154,10 @@ export default function Financial() {
     : periodoRange(periodo);
 
   const load = () => {
-    const params = rangeAtual();
+    // ATRASADOS=1: o que venceu antes e não foi pago vem junto, marcado. Só faz
+    // sentido num mês fechado — em "Próximos 6 meses" não há "mês anterior"
+    // que signifique alguma coisa.
+    const params = { ...rangeAtual(), ...(periodo === "mes" ? { atrasados: 1 } : {}) };
     api.get("/financial", { params }).then((r) => setRows(r.data));
     api.get("/financial/summary", { params }).then((r) => setSummary(r.data));
     // A projeção é sempre de um MÊS: "vai sobrar" só faz sentido num mês.
@@ -246,10 +260,44 @@ export default function Financial() {
   // UMA LINHA DE LANÇAMENTO. Mora numa função porque agora ela aparece em dois
   // lugares: solta na lista e por dentro de um tópico (aí entra recuada).
   function linhaDeLancamento(f, dentroDeTopico = false) {
+    // VERMELHO = VEIO DE TRÁS. Pedido dela, com estas palavras: "o que tá em
+    // vermelho é de mês anterior". A conta não foi movida de lugar — a data de
+    // vencimento continua a verdadeira, e é ela que diz há quanto tempo está
+    // parada. O vermelho é só o aviso de que não é deste mês.
+    const atrasada = Boolean(f.atrasado_de);
     return (
-      <TableRow key={f.id} hover>
+      <TableRow key={f.id} hover
+        sx={atrasada ? {
+          // Fundo LEVE, texto vermelho. Com a faixa chapada de error.light os
+          // chips de status (o "Parcial · R$ 100,00/R$ 289,90", azul) sumiam
+          // dentro dela — medido na tela, não deduzido. Quem avisa é o texto;
+          // o fundo só agrupa.
+          bgcolor: (t) => alpha(t.palette.error.main, 0.08),
+          "& td": { color: "error.main" },
+        } : undefined}>
       <TableCell sx={dentroDeTopico ? { pl: 6 } : undefined}>
-        {f.description}
+        <Box component="span" sx={atrasada ? { fontWeight: 700 } : undefined}>{f.description}</Box>
+        {atrasada && (
+          <Chip size="small" color="error" variant="filled"
+            label={`de ${mesPorExtenso(f.atrasado_de)}`} sx={{ ml: 1, height: 20 }} />
+        )}
+        {/* O "+" DO LADINHO: conta que virou o mês costuma vir com juros, e o
+            lugar de lançar é aqui, na linha dela — não num formulário à parte
+            onde ela teria de achar a conta de novo. */}
+        {atrasada && f.status !== "paid" && (
+          <Tooltip title="Lançar juros nesta conta">
+            <IconButton size="small" color="error" sx={{ ml: 0.5, p: 0.25 }}
+              onClick={() => setJuros({ id: f.id, description: f.description, valor: "", erro: "" })}>
+              <AddIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+        {f.juros > 0 && (
+          <Tooltip title="Tirar os juros e voltar ao valor de origem">
+            <Chip size="small" color="error" variant="outlined" onDelete={() => tirarJuros(f)}
+              label={`${currency(f.juros)} de juros`} sx={{ ml: 1, height: 20 }} />
+          </Tooltip>
+        )}
         {f.recurring ? (
           <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
             label="Mensal" sx={{ ml: 1, height: 20 }} />
@@ -351,6 +399,23 @@ export default function Financial() {
   // Um clique para marcar como pago.
   async function markPaid(row) {
     await api.put(`/financial/${row.id}`, { status: "paid" });
+    load();
+  }
+
+  // JUROS DA CONTA QUE VIROU O MÊS. O "+" da linha vermelha abre esta caixa.
+  async function salvarJuros() {
+    if (!juros) return;
+    try {
+      await api.post(`/financial/${juros.id}/juros`, { valor: juros.valor });
+      setJuros(null);
+      load();
+    } catch (err) {
+      setJuros((j) => ({ ...j, erro: err.response?.data?.error || "Não consegui lançar os juros." }));
+    }
+  }
+  async function tirarJuros(row) {
+    if (!window.confirm(`Tirar os juros de "${row.description}" e voltar ao valor de origem?`)) return;
+    await api.delete(`/financial/${row.id}/juros`);
     load();
   }
 
@@ -515,6 +580,14 @@ export default function Financial() {
               {currency(summary.impagavelAberto)} que não pode deixar de pagar, ainda em aberto
             </Typography>
           )}
+          {/* O total do que ficou para trás, dito uma vez em cima: as linhas
+              vermelhas respondem "quais", este número responde "quanto". */}
+          {periodo === "mes" && summary?.atrasadoAnterior > 0 && (
+            <Typography variant="caption" color="error.main" sx={{ fontWeight: 700, ml: 0.5 }}>
+              {currency(summary.atrasadoAnterior)} em {summary.atrasadasAnteriores}{" "}
+              {summary.atrasadasAnteriores === 1 ? "conta" : "contas"} de meses anteriores (em vermelho na lista)
+            </Typography>
+          )}
           {/* JUNTAR EM TÓPICOS. Em vez de vinte linhas soltas (MacBook, monitor,
               Adobe, celular...), duas: "Perspectiva" e "Salário Katy". Quem quiser
               o detalhe clica no tópico e ele abre. */}
@@ -576,9 +649,18 @@ export default function Financial() {
                     <TableCell>—</TableCell>
                     <TableCell>—</TableCell>
                     <TableCell>
-                      {g.aberto <= 0
-                        ? <Chip size="small" label="Tudo pago" color="success" />
-                        : <Chip size="small" color="warning" label={`Falta ${currency(g.aberto)}`} />}
+                      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                        {g.aberto <= 0
+                          ? <Chip size="small" label="Tudo pago" color="success" />
+                          : <Chip size="small" color={g.atrasado > 0 ? "error" : "warning"}
+                              label={`Falta ${currency(g.aberto)}`} />}
+                        {/* Quanto desse "falta" é de mês passado — para ela ver
+                            isso com o tópico FECHADO, sem precisar abrir. */}
+                        {g.atrasado > 0 && (
+                          <Chip size="small" color="error" variant="outlined"
+                            label={`${currency(g.atrasado)} de meses anteriores`} sx={{ height: 20 }} />
+                        )}
+                      </Stack>
                     </TableCell>
                     <TableCell align="right" sx={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
                       − {currency(g.total)}
@@ -881,6 +963,28 @@ export default function Financial() {
       </Dialog>
 
       {/* Recebi um pedaço: abate do saldo e lança no Financeiro. */}
+      {/* A CAIXINHA DOS JUROS. Pequena de propósito: um campo, dois botões.
+          O valor vai como ela digita, com vírgula — o servidor converte. */}
+      <Dialog open={Boolean(juros)} onClose={() => setJuros(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Lançar juros</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {juros?.description}
+          </Typography>
+          <TextField autoFocus fullWidth label="Juros (R$)" placeholder="12,50"
+            value={juros?.valor ?? ""} error={Boolean(juros?.erro)} helperText={juros?.erro || " "}
+            onChange={(e) => setJuros((j) => ({ ...j, valor: e.target.value, erro: "" }))}
+            onKeyDown={(e) => { if (e.key === "Enter") salvarJuros(); }} />
+          <Typography variant="caption" color="text.secondary">
+            Entra no valor da conta e fica registrado como juros — dá para tirar depois.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setJuros(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={salvarJuros}>Lançar</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={Boolean(baixando)} onClose={() => setBaixando(null)} fullWidth maxWidth="xs">
         <DialogTitle>Recebi de {baixando?.cobranca?.quem}</DialogTitle>
         <DialogContent>

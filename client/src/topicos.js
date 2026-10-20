@@ -55,13 +55,25 @@ export function agrupaEmTopicos(linhas = []) {
   const mapa = new Map();
   for (const l of linhas) {
     const nome = topicoDaLinha(l);
-    if (!mapa.has(nome)) mapa.set(nome, { topico: nome, itens: [], total: 0, pago: 0, aberto: 0, impagaveis: 0 });
+    if (!mapa.has(nome)) {
+      mapa.set(nome, { topico: nome, itens: [], total: 0, pago: 0, aberto: 0, impagaveis: 0,
+                       atrasado: 0, atrasadas: 0 });
+    }
     const g = mapa.get(nome);
     const valor = Number(l.amount) || 0;
     g.itens.push(l);
     g.total += valor;
     g.pago += l.status === "paid" ? valor : Number(l.paid_amount) || 0;
     if (l.impagavel) g.impagaveis++;
+    // QUANTO DESSE "EM ABERTO" É DE MÊS PASSADO.
+    // Pedido dela: "abrindo a categoria — Riachuelo, por exemplo — aparece o
+    // total em aberto; o que está em vermelho é de mês anterior." Para o
+    // vermelho valer alguma coisa já na linha fechada, o tópico precisa saber
+    // somar o atraso, não só o total.
+    if (l.atrasado_de) {
+      g.atrasado += Math.max(0, valor - (Number(l.paid_amount) || 0));
+      g.atrasadas++;
+    }
   }
   return [...mapa.values()].map((g) => ({
     ...g,
@@ -69,6 +81,7 @@ export function agrupaEmTopicos(linhas = []) {
     total: +g.total.toFixed(2),
     pago: +g.pago.toFixed(2),
     aberto: +Math.max(0, g.total - g.pago).toFixed(2),
+    atrasado: +g.atrasado.toFixed(2),
   })).sort((a, b) => b.total - a.total);
 }
 

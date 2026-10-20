@@ -13,6 +13,15 @@ import { numeroBR } from "../contract-gen.js";
 const router = Router();
 router.use(authRequired, moduleAllowed("financeiro"));
 
+// "Já venceu antes deste período e ainda não foi quitada." Mora aqui, num
+// lugar só: a lista, a soma e o aviso têm de concordar sobre o que é atraso.
+const EM_ATRASO = `(
+  @from IS NOT NULL
+  AND f.due_date IS NOT NULL
+  AND date(f.due_date) < date(@from)
+  AND f.status IN ('pending', 'partial')
+)`;
+
 const SELECT = `
   SELECT f.*, c.name AS client_name,
          r.id AS receipt_id, r.number AS receipt_number, r.status AS receipt_status
@@ -20,20 +29,46 @@ const SELECT = `
   LEFT JOIN clients c ON c.id = f.client_id
   LEFT JOIN receipts r ON r.entry_id = f.id`;
 
+/**
+ * CONTA NÃO PAGA NÃO PODE SUMIR NA VIRADA DO MÊS.
+ *
+ * Pergunta dela: "se eu não pagar em um mês, tem como passar direto para o
+ * outro?" Não tinha. O mês era uma janela fechada em cima do vencimento: a
+ * conta de outubro que ela não pagou ficava em outubro para sempre, e em
+ * novembro simplesmente não existia. Para lembrar dela, era preciso voltar o
+ * mês — ou seja, lembrar sozinha de uma coisa que o sistema já sabia.
+ *
+ * Com ?atrasados=1, o que venceu ANTES do período e segue em aberto vem junto,
+ * marcado com o mês de onde veio. A data de vencimento não é mexida: ela é o
+ * que diz há quanto tempo está parada. Quem muda de mês de verdade é o botão
+ * de adiar, que é escolha dela.
+ */
 router.get("/", (req, res) => {
   const { type, status, from, to } = req.query;
   const where = ["f.org_id = @org_id"];
-  const params = { org_id: req.orgId };
+  const params = { org_id: req.orgId, from: from || null };
   if (type) { where.push("f.type = @type"); params.type = type; }
   if (status) { where.push("f.status = @status"); params.status = status; }
   // Filtro de período pela data de vencimento (ou criação, se sem vencimento).
-  if (from) { where.push("date(COALESCE(f.due_date, f.created_at)) >= @from"); params.from = from; }
-  if (to) { where.push("date(COALESCE(f.due_date, f.created_at)) <= @to"); params.to = to; }
+  const periodo = [];
+  if (from) periodo.push("date(COALESCE(f.due_date, f.created_at)) >= @from");
+  if (to) { periodo.push("date(COALESCE(f.due_date, f.created_at)) <= @to"); params.to = to; }
+  if (periodo.length) {
+    const arrasta = req.query.atrasados === "1" && from;
+    where.push(arrasta ? `((${periodo.join(" AND ")}) OR ${EM_ATRASO})` : periodo.join(" AND "));
+  }
   // ?impagavel=1 traz só o que ela marcou como "não posso deixar de pagar";
   // ?impagavel=0 traz só o que pode esperar. Sem o parâmetro, traz tudo.
   if (req.query.impagavel === "1") where.push("f.impagavel = 1");
   if (req.query.impagavel === "0") where.push("COALESCE(f.impagavel,0) = 0");
-  const sql = `${SELECT} WHERE ${where.join(" AND ")} ORDER BY f.due_date DESC, f.id DESC`;
+  // atrasado_de diz DE QUE MÊS a conta veio. É o que deixa a tela separar o
+  // que é deste mês do que ficou para trás, sem a pessoa ter de conferir data
+  // por data.
+  const sql = `${SELECT.replace("SELECT f.*", `SELECT f.*,
+         CASE WHEN ${EM_ATRASO} THEN strftime('%Y-%m', f.due_date) END AS atrasado_de,
+         CASE WHEN ${EM_ATRASO} THEN CAST(julianday(date(@from)) - julianday(date(f.due_date)) AS INTEGER) END AS dias_parada`)}
+    WHERE ${where.join(" AND ")}
+    ORDER BY (atrasado_de IS NULL), f.due_date DESC, f.id DESC`;
   res.json(db.prepare(sql).all(params));
 });
 
@@ -45,6 +80,19 @@ router.get("/summary", (req, res) => {
   const params = [org];
   if (from) { periodo.push("date(COALESCE(due_date, created_at)) >= ?"); params.push(from); }
   if (to) { periodo.push("date(COALESCE(due_date, created_at)) <= ?"); params.push(to); }
+  // OS BALÕES TÊM DE BATER COM A TABELA. Se a lista traz o que ficou de trás e
+  // a soma não traz, ela confere um número contra o outro e os dois mentem.
+  // Então o mesmo "ou está em atraso" entra aqui, com os mesmos parâmetros.
+  const arrasta = req.query.atrasados === "1" && from;
+  if (arrasta) {
+    periodo.length = 0;
+    periodo.push(`((date(COALESCE(due_date, created_at)) >= ?${to ? " AND date(COALESCE(due_date, created_at)) <= ?" : ""})
+      OR (due_date IS NOT NULL AND date(due_date) < date(?) AND status IN ('pending','partial')))`);
+    params.length = 1;
+    params.push(from);
+    if (to) params.push(to);
+    params.push(from);
+  }
   const filtroPeriodo = periodo.length ? "AND " + periodo.join(" AND ") : "";
 
   const sum = (extra) =>
@@ -62,6 +110,17 @@ router.get("/summary", (req, res) => {
   const paidIncome = realized("income");
   const paidExpense = realized("expense");
   const pending = Math.max(0, (income - paidIncome)) + Math.max(0, (expense - paidExpense));
+
+  // Quanto do que está em aberto veio de meses anteriores — é o número que
+  // responde "o que ficou para trás?" sem ela ter de somar linha vermelha.
+  const atrasado = from
+    ? db.prepare(
+        `SELECT COALESCE(SUM(amount - COALESCE(paid_amount,0)),0) AS v, COUNT(*) AS n
+           FROM financial_entries
+          WHERE org_id = ? AND due_date IS NOT NULL AND date(due_date) < date(?)
+            AND status IN ('pending','partial')`
+      ).get(org, from)
+    : { v: 0, n: 0 };
 
   const series = db.prepare(`
     SELECT strftime('%Y-%m', COALESCE(due_date, created_at)) AS month,
@@ -85,6 +144,7 @@ router.get("/summary", (req, res) => {
     paidIncome, paidExpense, pending,
     lucroRealizado: paidIncome - paidExpense, // o que de fato entrou menos o que saiu
     impagavelTotal, impagavelAberto,
+    atrasadoAnterior: atrasado.v, atrasadasAnteriores: atrasado.n,
     series,
   });
 });
@@ -102,6 +162,50 @@ router.put("/:id/impagavel", (req, res) => {
   db.prepare("UPDATE financial_entries SET impagavel = ? WHERE id = ? AND org_id = ?")
     .run(marca, linha.id, req.orgId);
   res.json({ ok: true, impagavel: Boolean(marca) });
+});
+
+/**
+ * POST /api/financial/:id/juros { valor }
+ *
+ * Pedido dela, junto do vermelho: "do ladinho pode ter um botãozinho de + que
+ * abre uma caixa pra botar juros."
+ *
+ * O juro ENTRA no valor cobrado (amount) e fica registrado à parte (juros),
+ * para a tela poder dizer quanto do total é juro. Somar duas vezes acumula —
+ * conta que vira três meses pega juro três vezes, e cada uma soma.
+ *
+ * Valor vai por numeroBR: "12,50" digitado vira 12.5. Com Number puro viraria
+ * 0, e o juro entraria valendo nada sem ninguém notar.
+ */
+router.post("/:id/juros", (req, res) => {
+  const linha = db.prepare("SELECT * FROM financial_entries WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!linha) return res.status(404).json({ error: "Lançamento não encontrado." });
+  if (linha.status === "paid") {
+    return res.status(400).json({ error: "Esta conta já está paga — não dá para lançar juros nela." });
+  }
+  const valor = numeroBR(req.body?.valor);
+  if (!(valor > 0)) return res.status(400).json({ error: "Informe um valor de juros maior que zero." });
+
+  const novoValor = +(Number(linha.amount || 0) + valor).toFixed(2);
+  const novoJuros = +(Number(linha.juros || 0) + valor).toFixed(2);
+  db.prepare("UPDATE financial_entries SET amount = ?, juros = ? WHERE id = ? AND org_id = ?")
+    .run(novoValor, novoJuros, linha.id, req.orgId);
+  res.json({ ok: true, amount: novoValor, juros: novoJuros });
+});
+
+/** Tira os juros lançados e devolve a conta ao valor de origem. */
+router.delete("/:id/juros", (req, res) => {
+  const linha = db.prepare("SELECT * FROM financial_entries WHERE id = ? AND org_id = ?")
+    .get(req.params.id, req.orgId);
+  if (!linha) return res.status(404).json({ error: "Lançamento não encontrado." });
+  if (linha.status === "paid") {
+    return res.status(400).json({ error: "Esta conta já está paga — não dá para mexer nos juros dela." });
+  }
+  const semJuros = +(Number(linha.amount || 0) - Number(linha.juros || 0)).toFixed(2);
+  db.prepare("UPDATE financial_entries SET amount = ?, juros = 0 WHERE id = ? AND org_id = ?")
+    .run(Math.max(0, semJuros), linha.id, req.orgId);
+  res.json({ ok: true, amount: Math.max(0, semJuros), juros: 0 });
 });
 
 // GET /api/financial/renewals — contratos que encerram no próximo mês.
