@@ -38,11 +38,15 @@ after(() => srv.close());
 const abrir = (corpo) => fetch(B, { method: "POST", headers: H, body: JSON.stringify(corpo) })
   .then(async (r) => ({ st: r.status, ...(await r.json().catch(() => ({}))) }));
 
-test("vigência: os dois extremos contam, e fim antes do início não vale", () => {
-  assert.equal(mesesDeVigencia("2026-09-01", "2027-02-28"), 6);
-  assert.equal(mesesDeVigencia("2026-10-01", "2027-03-31"), 6);
-  assert.equal(mesesDeVigencia("2026-09-15", "2026-09-30"), 1);
-  assert.equal(mesesDeVigencia("2026-09-01", "2027-08-31"), 12);
+test("vigência: mês cheio é mês cheio, e fim antes do início não vale", () => {
+  // REGRA TROCADA DE PROPÓSITO no #171/#172: a conta passou a ser dia a dia,
+  // igual à do faturamento. Antes "os dois extremos contavam" e 01/09 a 28/02
+  // davam seis meses; agora dá cinco, porque o sexto só fecha em 01/03.
+  assert.equal(mesesDeVigencia("2026-09-01", "2027-02-28"), 5, "o sexto mês ainda não fechou");
+  assert.equal(mesesDeVigencia("2026-09-01", "2027-03-01"), 6);
+  assert.equal(mesesDeVigencia("2026-10-01", "2027-03-31"), 5, "falta um dia para o sexto");
+  assert.equal(mesesDeVigencia("2026-09-15", "2026-09-30"), 0, "quinze dias não são um mês");
+  assert.equal(mesesDeVigencia("2026-09-01", "2027-09-01"), 12);
   assert.equal(mesesDeVigencia("2027-01-01", "2026-01-01"), null, "invertida não vale");
   assert.equal(mesesDeVigencia("2026-09-01", ""), null);
   assert.equal(mesesDeVigencia("data torta", "2027-02-28"), null);

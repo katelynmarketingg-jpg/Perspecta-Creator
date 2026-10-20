@@ -39,7 +39,7 @@ function clienteNovo() {
 }
 const gera = (termos) => geraContrato(org, {
   template_id: tpl, client_id: clienteNovo(), contract_date: "2026-09-01",
-  start_date: "2026-09-01", end_date: "2027-02-28", value: 1500, ...termos,
+  start_date: "2026-09-01", end_date: "2027-03-01", value: 1500, ...termos,
 });
 
 test("número escrito com vírgula é número — 1500,50 não é zero", () => {
@@ -82,9 +82,25 @@ test("valor zero avisa a agência", () => {
 });
 
 test("vigência de um mês só diz 'mês', não 'meses'", () => {
-  const c = gera({ start_date: "2026-09-01", end_date: "2026-09-30" });
+  // O caso é o PORTUGUÊS: um mês não pode sair como "01 (um) meses". A data
+  // mudou porque a conta mudou no #171/#172: 01/09 a 30/09 agora são 29 dias
+  // (o mês só fecha em 01/10), então o mês cheio é 01/09 → 01/10. O que este
+  // teste guarda continua sendo o singular.
+  const c = gera({ start_date: "2026-09-01", end_date: "2026-10-01" });
   assert.match(c.notes, /vigência de 01 \(um\) mês,/);
   assert.doesNotMatch(c.notes, /\(um\) meses/);
+});
+
+test("vigência que não fecha o mês sai em DIAS, não arredonda para cima", () => {
+  // Era aqui que a regra velha dava um mês de presente: 01/09 a 30/09 virava
+  // "01 (um) mês" com 29 dias de serviço.
+  const c = gera({ start_date: "2026-09-01", end_date: "2026-09-30" });
+  assert.match(c.notes, /vigência de 29 \(vinte e nove\) dias,/);
+  // A negativa olha SÓ a frase da vigência: o contrato fala de "mês" em outras
+  // cláusulas (captação ao mês, limite dos três meses anteriores) e varrer o
+  // texto inteiro reprovaria o contrato certo.
+  const frase = c.notes.match(/O presente contrato terá vigência de [^,]+,/)[0];
+  assert.doesNotMatch(frase, /m[êe]s|meses/);
 });
 
 test("o caminho normal continua certo", () => {
