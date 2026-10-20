@@ -61,10 +61,17 @@ function respostasCompletas() {
   });
 }
 
-test("de setembro a fevereiro são SEIS meses — os dois extremos contam", () => {
-  assert.equal(mesesDeVigencia("2026-09-01", "2027-02-28"), 6);
-  assert.equal(mesesDeVigencia("2026-09-15", "2026-09-30"), 1);
-  assert.equal(mesesDeVigencia("2026-09-01", "2027-08-31"), 12);
+test("a vigência conta DIA A DIA: mês cheio é mês cheio, o resto são dias", () => {
+  // REGRA TROCADA DE PROPÓSITO no #171/#172. Antes aqui valia "os dois extremos
+  // contam": 01/09 a 28/02 eram SEIS meses. Agora a conta é a mesma do
+  // faturamento — 01/09 a 28/02 são cinco meses cheios e 27 dias, porque o
+  // sexto mês só fecharia em 01/03. Quem conta meses de serviço não pode
+  // ganhar um mês de presente por causa de arredondamento.
+  assert.equal(mesesDeVigencia("2026-09-01", "2027-02-28"), 5, "o sexto mês ainda não fechou");
+  assert.equal(mesesDeVigencia("2026-09-01", "2027-03-01"), 6, "fechou: seis meses cheios");
+  assert.equal(mesesDeVigencia("2026-09-15", "2026-09-30"), 0, "quinze dias não são um mês");
+  assert.equal(mesesDeVigencia("2026-09-01", "2027-08-31"), 11, "falta um dia para os doze");
+  assert.equal(mesesDeVigencia("2026-09-01", "2027-09-01"), 12);
   assert.equal(mesesDeVigencia("2027-01-01", "2026-01-01"), null, "fim antes do início não vale");
   assert.equal(mesesDeVigencia("", "2027-02-28"), null);
 });
@@ -100,7 +107,7 @@ test("respondido o onboarding, o contrato nasce pronto com os termos da agência
     termos: {
       template_id: modelo, servico: "Gestão de rede social", value: 1500,
       itens: [{ label: "Posts", unit: "por mês", quantidade: 4 }, { label: "Vídeos", unit: "por mês", quantidade: 4 }],
-      start_date: "2026-09-01", end_date: "2027-02-28", contract_date: "2026-08-20",
+      start_date: "2026-09-01", end_date: "2027-03-01", contract_date: "2026-08-20",
     },
   }, H);
   assert.equal(criado.st, 201);
@@ -192,7 +199,7 @@ test("a agência corrige os termos depois, sem trocar o link do cliente", async 
     client_id: cliente, termos: { value: 1000, servico: "Gestão" },
   }, H);
   const corrigido = await req("PUT", `/briefings/${criado.id}/termos`, {
-    termos: { value: 1800, servico: "Gestão completa", start_date: "2026-09-01", end_date: "2027-02-28" },
+    termos: { value: 1800, servico: "Gestão completa", start_date: "2026-09-01", end_date: "2027-03-01" },
   }, H);
   assert.equal(corrigido.st, 200);
   assert.equal(corrigido.termos.value, 1800);
