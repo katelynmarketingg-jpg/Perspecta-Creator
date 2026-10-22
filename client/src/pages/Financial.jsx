@@ -154,10 +154,17 @@ export default function Financial() {
     : periodoRange(periodo);
 
   const load = () => {
-    // ATRASADOS=1: o que venceu antes e não foi pago vem junto, marcado. Só faz
-    // sentido num mês fechado — em "Próximos 6 meses" não há "mês anterior"
-    // que signifique alguma coisa.
-    const params = { ...rangeAtual(), ...(periodo === "mes" ? { atrasados: 1 } : {}) };
+    // ATRASADOS=1: o que venceu antes do período e não foi pago vem junto,
+    // marcado com o mês de onde veio.
+    //
+    // VALE EM TODO PERÍODO QUE TEM COMEÇO. Antes só valia no mês fechado, e
+    // dava para chegar em novembro por dois caminhos com respostas diferentes:
+    // pela setinha do mês vinham as atrasadas, pelo seletor "Próximo mês" não
+    // vinham. Visto no navegador. Duas respostas para a mesma pergunta é pior
+    // do que nenhuma — ela ia parar de confiar no vermelho.
+    //
+    // Em "Tudo" não há começo, e o servidor ignora o pedido: lá já está tudo.
+    const params = { ...rangeAtual(), atrasados: 1 };
     api.get("/financial", { params }).then((r) => setRows(r.data));
     api.get("/financial/summary", { params }).then((r) => setSummary(r.data));
     // A projeção é sempre de um MÊS: "vai sobrar" só faz sentido num mês.
@@ -582,7 +589,7 @@ export default function Financial() {
           )}
           {/* O total do que ficou para trás, dito uma vez em cima: as linhas
               vermelhas respondem "quais", este número responde "quanto". */}
-          {periodo === "mes" && summary?.atrasadoAnterior > 0 && (
+          {summary?.atrasadoAnterior > 0 && (
             <Typography variant="caption" color="error.main" sx={{ fontWeight: 700, ml: 0.5 }}>
               {currency(summary.atrasadoAnterior)} em {summary.atrasadasAnteriores}{" "}
               {summary.atrasadasAnteriores === 1 ? "conta" : "contas"} de meses anteriores (em vermelho na lista)
