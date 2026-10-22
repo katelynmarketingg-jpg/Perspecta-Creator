@@ -135,6 +135,32 @@ router.get("/", (req, res) => {
   const daCasa = daPerspectivaNoMes(req.orgId, ym, req.user.name, uid(req));
   const minhas = rows.map((r) => ({ ...r, paid: !!r.paid, impagavel: !!r.impagavel, avulso: !!r.avulso }));
 
+  // O QUE ELA NÃO MARCOU NÃO PODE FICAR PARA TRÁS.
+  //
+  // Nas palavras dela: "a conta da Riachuelo é 151; como eu não paguei, vai ela
+  // para o próximo mês, soma naquela mesma abinha da Riachuelo, e fica em
+  // vermelho."
+  //
+  // O ensureMonth já criava a parcela NOVA do mês (3/8 vira 4/8) — isso
+  // continua igual. O que faltava era a de setembro que ficou sem marcar: ela
+  // simplesmente sumia de vista. Agora vem junto, marcada com o mês de onde
+  // veio, e some no instante em que ela marcar o check (o id é o da linha de
+  // verdade, lá em setembro).
+  //
+  // Fica FORA do `resumo`: aquelas contas são do mês e alimentam a ponte do
+  // salário com o Financeiro. Misturar atraso ali mudaria um número que ela já
+  // confere. O total do atraso vai separado, com nome próprio.
+  const atrasadas = db.prepare(
+    `SELECT * FROM personal_finance
+      WHERE org_id = ? AND user_id = ? AND ym < ? AND paid = 0
+      ORDER BY ym, position, id`
+  ).all(req.orgId, uid(req), ym)
+    // Gasto da Perspectiva vive no Financeiro — a mesma regra do rollForward.
+    .filter((r) => !isPerspectiva(r.category))
+    .map((r) => ({
+      ...r, paid: false, impagavel: !!r.impagavel, avulso: !!r.avulso, atrasado_de: r.ym,
+    }));
+
   // O resumo é sobre o dinheiro DELA: a conta da empresa entra na fatura, mas
   // não é gasto dela. Por isso o summary continua olhando só as linhas daqui.
   const resumo = summary(rows, salary);
@@ -145,8 +171,11 @@ router.get("/", (req, res) => {
     quantos: daCasa.length,
   };
 
+  resumo.atrasado = +atrasadas.reduce((t, r) => t + (Number(r.amount) || 0), 0).toFixed(2);
+  resumo.atrasadas = atrasadas.length;
+
   res.json({
-    ym, salary, preenchido_de,
+    ym, salary, preenchido_de, atrasadas,
     ponte_financeiro: ponte,
     entries: [...minhas, ...daCasa],
     terminadas: terminadasAntesDe(req.orgId, uid(req), ym),
