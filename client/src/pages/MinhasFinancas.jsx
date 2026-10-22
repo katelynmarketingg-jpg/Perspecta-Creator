@@ -18,11 +18,20 @@ import HistoryIcon from "@mui/icons-material/History";
 import RepeatIcon from "@mui/icons-material/Repeat";
 import LockIcon from "@mui/icons-material/Lock";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts";
-import { useTheme } from "@mui/material/styles";
+import { useTheme, alpha } from "@mui/material/styles";
 import api from "../api/client.js";
 import { PageHeader, StatCard } from "../components/ui.jsx";
 import DebtsCard from "../components/DebtsCard.jsx";
 import { currency } from "../utils.js";
+
+// "2026-09" → "set." (o selinho é pequeno; o mês por extenso não cabe).
+// De outro ano leva o ano junto, senão "set." engana na virada.
+function mesPorExtenso(ym) {
+  if (!/^\d{4}-\d{2}$/.test(String(ym || ""))) return "antes";
+  const [a, m] = String(ym).split("-").map(Number);
+  const curto = new Date(a, m - 1, 1).toLocaleDateString("pt-BR", { month: "short" });
+  return a === new Date().getFullYear() ? curto : `${curto} ${a}`;
+}
 
 // "2026-09" → "Setembro de 2026"
 function nomeDoMes(ym) {
@@ -88,16 +97,34 @@ export default function MinhasFinancas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [ym]);
 
+  // AS QUE ELA NÃO MARCOU ENTRAM NA MESMA ABINHA.
+  //
+  // Pedido dela: "a conta da Riachuelo é 151; como eu não paguei, vai ela para o
+  // próximo mês, soma naquela mesma abinha da Riachuelo, e fica em vermelho."
+  // Por isso elas não ficam numa lista à parte: entram pelo método, somam no
+  // total do grupo, e o vermelho é que diz que vieram de trás.
   const grupos = useMemo(() => {
     const map = {};
-    (data?.entries || []).forEach((e) => {
+    [...(data?.entries || []), ...(data?.atrasadas || [])].forEach((e) => {
       const k = e.method || "Sem método";
-      (map[k] ||= { method: e.method || "", items: [], total: 0, pagos: 0 });
+      (map[k] ||= { method: e.method || "", items: [], total: 0, pagos: 0, atrasado: 0, atrasadas: 0, doMes: 0 });
       map[k].items.push(e); map[k].total += Number(e.amount) || 0; if (e.paid) map[k].pagos++;
       if (e.da_perspectiva) map[k].perspectiva = (map[k].perspectiva || 0) + (Number(e.amount) || 0);
+      if (e.atrasado_de) { map[k].atrasado += Number(e.amount) || 0; map[k].atrasadas++; }
+      else map[k].doMes++;
     });
-    return Object.entries(map).map(([nome, g]) => ({ nome, ...g, allPaid: g.items.length > 0 && g.pagos === g.items.length }))
-      .sort((a, b) => b.total - a.total);
+    return Object.entries(map).map(([nome, g]) => ({
+      nome, ...g,
+      atrasado: +g.atrasado.toFixed(2),
+      // "FATURA PAGA" É A FATURA DESTE MÊS.
+      //
+      // O check do cabeçalho manda em /pay-method, que só mexe no mês aberto —
+      // a de setembro continua lá, de propósito: pagar a fatura de outubro não
+      // quita uma conta que ficou sem marcar em setembro. Se o atraso entrasse
+      // nesta conta, o check nunca mais ficaria marcado e ela ia achar que o
+      // botão quebrou. A atrasada se marca no check dela, na linha.
+      allPaid: g.doMes > 0 && g.pagos === g.doMes,
+    })).sort((a, b) => b.total - a.total);
   }, [data]);
 
   // Listas de métodos e categorias já usados — pra sugerir no formulário e deixar
@@ -331,6 +358,19 @@ export default function MinhasFinancas() {
         )}
       </Box>
 
+      {/* O QUE FICOU SEM MARCAR, DITO POR INTEIRO.
+          As linhas vermelhas respondem "quais"; este aviso responde "quanto".
+          E diz que não entra nos cartões do mês — senão ela soma na cabeça e
+          acha que o "Total do mês" está errado. */}
+      {s?.atrasadas > 0 && (
+        <Alert severity="error" icon={false} sx={{ mb: 2 }}>
+          <b>{currency(s.atrasado)}</b> em {s.atrasadas} conta(s) que você não marcou em meses
+          anteriores. Elas aparecem <b>em vermelho</b> dentro da fatura de cada cartão, somando no total
+          dele. Marque o check da linha e ela sai daqui. Não entram nos cartões de resumo acima, que
+          continuam sendo só deste mês.
+        </Alert>
+      )}
+
       {/* As contas da empresa que caem nestas faturas. Dizer isso em uma linha
           evita a pergunta "por que a Adobe está nas minhas finanças?". */}
       {s?.perspectiva?.quantos > 0 && (
@@ -409,9 +449,19 @@ export default function MinhasFinancas() {
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography sx={{ fontWeight: 700 }}>{g.nome}</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {g.items.length} item(ns) · {g.pagos}/{g.items.length} pagos
+                    {/* A contagem é a do MÊS, pela mesma razão do check: a de
+                        setembro não é item da fatura de outubro. Ela aparece
+                        na linha de baixo, com o valor dela. */}
+                    {g.doMes} item(ns) · {g.pagos}/{g.doMes} pagos
                     {g.perspectiva > 0 && ` · ${currency(g.perspectiva)} da Perspectiva`}
                   </Typography>
+                  {/* Com a abinha FECHADA já dá para ver que tem coisa de trás
+                      ali dentro — senão ela só descobriria abrindo uma por uma. */}
+                  {g.atrasado > 0 && (
+                    <Typography variant="caption" color="error.main" sx={{ fontWeight: 700, display: "block" }}>
+                      {currency(g.atrasado)} de {g.atrasadas === 1 ? "mês anterior" : "meses anteriores"}
+                    </Typography>
+                  )}
                 </Box>
                 <Tooltip title="Renomear este banco / meio de pagamento">
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); renomearGrupo(g); }}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
@@ -423,11 +473,22 @@ export default function MinhasFinancas() {
                 <Box sx={{ borderTop: 1, borderColor: "divider" }}>
                   {g.items.map((e) => (
                     <Stack key={e.id} direction="row" spacing={1} alignItems="center"
-                      sx={{ px: 1.5, py: 0.75, borderBottom: 1, borderColor: "divider", "&:hover .acts": { opacity: 1 } }}>
+                      sx={{ px: 1.5, py: 0.75, borderBottom: 1, borderColor: "divider", "&:hover .acts": { opacity: 1 },
+                            ...(e.atrasado_de ? { bgcolor: (t) => alpha(t.palette.error.main, 0.08) } : {}) }}>
                       <Checkbox size="small" checked={!!e.paid} onChange={() => togglePago(e)} sx={{ p: 0.5 }} />
                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{e.name}</Typography>
+                        <Typography variant="body2" noWrap
+                          sx={{ fontWeight: e.atrasado_de ? 800 : 600, color: e.atrasado_de ? "error.main" : undefined }}>
+                          {e.name}
+                        </Typography>
                         <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                          {/* Marcar o check aqui marca a linha DE VERDADE, lá no
+                              mês dela: o id é o original. Marcou, some daqui. */}
+                          {e.atrasado_de && (
+                            <Tooltip title={`Ficou sem marcar em ${mesPorExtenso(e.atrasado_de)}. Marque o check e ela sai daqui.`}>
+                              <Chip size="small" color="error" label={`de ${mesPorExtenso(e.atrasado_de)}`} sx={{ height: 18 }} />
+                            </Tooltip>
+                          )}
                           {e.parcela && <Chip size="small" variant="outlined" label={e.parcela} sx={{ height: 18 }} />}
                           {/* Esta não volta no mês que vem — bom saber antes de fechar o mês. */}
                           {e.avulso && (
@@ -453,7 +514,11 @@ export default function MinhasFinancas() {
                           ) : null}
                         </Stack>
                       </Box>
-                      <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{currency(e.amount)}</Typography>
+                      <Typography variant="body2"
+                        sx={{ fontVariantNumeric: "tabular-nums", fontWeight: e.atrasado_de ? 800 : 600,
+                              color: e.atrasado_de ? "error.main" : undefined }}>
+                        {currency(e.amount)}
+                      </Typography>
                       <Box className="acts" sx={{ opacity: { xs: 1, md: 0.55 }, transition: "opacity .15s" }}>
                         <Tooltip title={e.impagavel ? "Impagável: não pode deixar de pagar — clique para tirar" : "Marcar como impagável: esta eu não posso deixar de pagar"}>
                           <IconButton size="small" color={e.impagavel ? "warning" : "default"}
