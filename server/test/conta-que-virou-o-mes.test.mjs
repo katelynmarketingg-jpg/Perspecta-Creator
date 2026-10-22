@@ -202,9 +202,23 @@ test("sem nada atrasado, o tópico não inventa vermelho", () => {
 const tela = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "../../client/src/pages/Financial.jsx"), "utf8");
 
-test("a tela pede o arrasto só no mês fechado", () => {
-  assert.match(tela, /periodo === "mes" \? \{ atrasados: 1 \} : \{\}/,
-    'em "Próximos 6 meses" não existe "mês anterior" que signifique alguma coisa');
+test("a tela pede o arrasto em TODO período, não só no mês", () => {
+  // REGRA TROCADA DE PROPÓSITO: antes era só no mês fechado, e dava para chegar
+  // em novembro por dois caminhos com respostas diferentes — pela setinha vinham
+  // as atrasadas, pelo seletor "Próximo mês" não vinham. Visto no navegador.
+  assert.match(tela, /const params = \{ \.\.\.rangeAtual\(\), atrasados: 1 \}/);
+  assert.doesNotMatch(tela, /periodo === "mes" \? \{ atrasados: 1 \}/);
+  // E o total do topo aparece junto, em qualquer período.
+  assert.match(tela, /\{summary\?\.atrasadoAnterior > 0 && \(/);
+});
+
+test('em "Tudo" não há começo de período, e aí não se arrasta nada', async () => {
+  // Sem `from`, o servidor ignora o pedido — e tem de ignorar: em "Tudo" a
+  // conta de setembro já está lá por direito, não como atraso de ninguém.
+  const r = await req("GET", "/?atrasados=1");
+  assert.ok(r.corpo.length > 0);
+  assert.ok(r.corpo.every((x) => x.atrasado_de === null),
+    "nada pode sair marcado de vermelho quando o período é a vida inteira");
 });
 
 test("linha de mês anterior fica VERMELHA, com o mês escrito", () => {
