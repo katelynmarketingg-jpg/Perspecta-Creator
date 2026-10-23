@@ -102,8 +102,15 @@ test("dado que falta vira linha para preencher à mão, não some da frase", () 
   assert.match(c.notes, /inscrita no CNPJ sob o n\.º _+/);
 });
 
-test("nenhum marcador sobra no contrato da casa completa", () => {
+// EXCEÇÃO DE PROPÓSITO: os dois marcadores de ASSINATURA ficam no texto.
+// Eles não são dado que faltou — são o LUGAR onde cada assinatura vai entrar,
+// e a assinatura chega depois de o contrato nascer. Quem os troca é a tela, na
+// hora de mostrar ou imprimir (comAssinaturas), e sem assinatura eles viram a
+// linha de sempre. Qualquer OUTRO marcador sobrando continua sendo defeito.
+test("nenhum marcador sobra no contrato da casa completa (fora os de assinatura)", () => {
   const { org, tpl } = casa("Casa Limpa", DA_CASA);
   const c = geraContrato(org, TERMOS(tpl, cliente(org)));
-  assert.equal((c.notes.match(/\{\{\w+\}\}/) || [])[0], undefined);
+  const sobrando = (c.notes.match(/\{\{\w+\}\}/g) || [])
+    .filter((m) => !/^\{\{assinatura_(cliente|perspecta)\}\}$/i.test(m));
+  assert.deepEqual(sobrando, []);
 });

@@ -16,6 +16,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { Box, Typography, Tooltip, Alert } from "@mui/material";
 import TextoDoContrato, { pareceHtml, limpaContrato } from "../components/TextoDoContrato.jsx";
 import api from "../api/client.js";
+import { comAssinaturas, CSS_ASSINATURAS, temMarcadores } from "../assinaturas-no-contrato.js";
 import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
 import { estiloDoContrato, ALTURA_RODAPE } from "../contrato-estilo.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
@@ -142,11 +143,29 @@ export default function Contracts() {
       corpo: [
         st.topo.ativo ? faixaDeLogo(logo, st.topo) : "",
         `<h1>${c.title}</h1>`,
-        `<div class="corpo">${corpoImpresso(c.notes)}</div>`,
-        assinatura,
+        `<style>${CSS_ASSINATURAS}</style>`,
+        // Cada assinatura no lugar que o modelo marcou. O bloco solto no fim
+        // continua existindo para contratos antigos, que não têm marcador —
+        // nesses, é ele que mostra a assinatura do cliente.
+        `<div class="corpo">${comAssinaturas(corpoImpresso(c.notes), c)}</div>`,
+        temMarcadores(c.notes) ? "" : assinatura,
         st.rodape.ativo ? faixaDeLogo(logo, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
       ].join(""),
     });
+  }
+
+  // ASSINAR COMO A CASA. A assinatura já existe (é a mesma dos recibos): aqui
+  // ela é copiada para este contrato, com a data. Pedido dela: assinar uma vez
+  // e o sistema reusar.
+  async function assinarComoCasa(c) {
+    try {
+      const { data } = await api.post(`/contracts/${c.id}/assinar-como-casa`);
+      setVer(data);
+      load();
+    } catch (err) {
+      const d = err.response?.data;
+      window.alert(d?.error || "Não consegui assinar.");
+    }
   }
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
@@ -268,6 +287,31 @@ export default function Contracts() {
               antes de mandar para assinar.
             </Alert>
           )}
+          {/* AS DUAS ASSINATURAS, LADO A LADO. Era isso que não dava para
+              saber: o contrato só falava da assinatura do cliente, e a da casa
+              não existia em lugar nenhum. */}
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 2 }}>
+            <Alert severity={ver?.agency_signed_at ? "success" : "warning"} sx={{ flex: 1, py: 0.5 }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>
+                Sua assinatura (Perspectiva)
+              </Typography>
+              <Typography variant="caption">
+                {ver?.agency_signed_at
+                  ? `Assinado em ${new Date(ver.agency_signed_at.replace(" ", "T") + "Z").toLocaleDateString("pt-BR")}`
+                  : "Falta assinar"}
+              </Typography>
+            </Alert>
+            <Alert severity={ver?.signed_at ? "success" : "warning"} sx={{ flex: 1, py: 0.5 }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>
+                Assinatura do cliente
+              </Typography>
+              <Typography variant="caption">
+                {ver?.signed_at
+                  ? `Assinado em ${new Date(ver.signed_at.replace(" ", "T") + "Z").toLocaleDateString("pt-BR")}`
+                  : ver?.sent_at ? "Mandamos — esperando ele assinar" : "Ainda não mandamos"}
+              </Typography>
+            </Alert>
+          </Stack>
           {ver?.signed_at && (
             <Alert severity="success" sx={{ mb: 2 }}>
               Assinado por <strong>{ver.signer_name}</strong>
@@ -281,7 +325,7 @@ export default function Contracts() {
             </Alert>
           )}
           <Box sx={{ p: 2, borderRadius: 2, bgcolor: "action.hover" }}>
-            <TextoDoContrato texto={ver?.notes} />
+            <TextoDoContrato texto={ver?.notes} contrato={ver} />
           </Box>
         </DialogContent>
         <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
@@ -289,6 +333,11 @@ export default function Contracts() {
           <Button startIcon={<PrintIcon />} onClick={() => imprimir(ver)}>
             Imprimir / PDF
           </Button>
+          {!ver?.agency_signed_at && (
+            <Button variant="outlined" onClick={() => assinarComoCasa(ver)}>
+              Assinar como Perspectiva
+            </Button>
+          )}
           {!ver?.signed_at && (
             <Button variant="contained" startIcon={<WhatsAppIcon />} onClick={() => gerarLink(ver)}>
               Link de assinatura

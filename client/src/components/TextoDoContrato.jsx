@@ -1,4 +1,5 @@
 import { Box } from "@mui/material";
+import { comAssinaturas } from "../assinaturas-no-contrato.js";
 
 // ---------------------------------------------------------------------------
 // O TEXTO DO CONTRATO, do jeito que ele foi escrito.
@@ -58,7 +59,16 @@ export function limpaContrato(html) {
   }
 }
 
-export default function TextoDoContrato({ texto, sx = {} }) {
+/**
+ * As assinaturas entram DEPOIS da limpeza, não antes.
+ *
+ * O limpaContrato existe porque este texto é mostrado numa página pública e
+ * nada de script pode passar. Mas ele também derrubaria o <small> dos nossos
+ * blocos de assinatura, que não está na lista de etiquetas permitidas — e com
+ * razão: a lista é sobre o que vem do EDITOR, não sobre o que a própria tela
+ * desenha. Por isso a troca dos marcadores é a última coisa a acontecer.
+ */
+export default function TextoDoContrato({ texto, contrato = null, sx = {} }) {
   const base = {
     fontFamily: "Georgia, serif", lineHeight: 1.7, fontSize: 14,
     "& h1, & h2, & h3": { fontSize: 17, fontWeight: 700, mt: 2, mb: 1 },
@@ -72,9 +82,16 @@ export default function TextoDoContrato({ texto, sx = {} }) {
   if (!String(texto || "").trim()) {
     return <Box sx={{ ...base, color: "text.secondary" }}>Este contrato não tem texto.</Box>;
   }
+  const comEstilo = { ...base, "& .assinatura-no-lugar img": { maxHeight: 70, display: "block", mb: 0.25 },
+    "& .assinatura-no-lugar small": { display: "block", color: "text.secondary", fontSize: 11, lineHeight: 1.4 } };
   if (pareceHtml(texto)) {
-    return <Box sx={base} dangerouslySetInnerHTML={{ __html: limpaContrato(texto) }} />;
+    return <Box sx={comEstilo}
+      dangerouslySetInnerHTML={{ __html: comAssinaturas(limpaContrato(texto), contrato || {}) }} />;
   }
   // Texto puro: as quebras de linha do modelo da casa são a formatação dele.
-  return <Box sx={{ ...base, whiteSpace: "pre-wrap" }}>{texto}</Box>;
+  // Escapa primeiro — aí os marcadores (que não têm &, < nem >) atravessam
+  // intactos e só o que ESTA tela desenha vira HTML.
+  const escapado = String(texto).replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+  return <Box sx={{ ...comEstilo, whiteSpace: "pre-wrap" }}
+    dangerouslySetInnerHTML={{ __html: comAssinaturas(escapado, contrato || {}) }} />;
 }

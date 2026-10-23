@@ -107,7 +107,72 @@ router.post("/:id/sign-link", (req, res) => {
   const c = db.prepare("SELECT * FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
   const token = makeSignToken(c.id);
+  // Gerar o link é o momento em que o contrato sai daqui para o cliente — é
+  // isso que o painel do Onboarding chama de "já mandamos?". Marca sozinho na
+  // primeira vez; dá para desmarcar se ela só estava conferindo.
+  if (!c.sent_at) db.prepare("UPDATE contracts SET sent_at = datetime('now') WHERE id = ?").run(c.id);
   res.json({ url: `${publicBaseUrl(req)}/assinar/${token}`, signed: Boolean(c.signed_at) });
+});
+
+/**
+ * POST /api/contracts/:id/assinar-como-casa
+ *
+ * Pedido dela: "assino uma vez e o sistema reusa." A assinatura da casa já
+ * existe — é a mesma dos recibos, guardada em organizations — então aqui é só
+ * trazê-la para este contrato, com a data.
+ *
+ * COPIA, não aponta. Se ela trocar a assinatura da casa daqui a um ano, o que
+ * foi firmado hoje tem de continuar sendo o que foi firmado hoje. Um contrato
+ * que muda depois de assinado não é contrato.
+ */
+router.post("/:id/assinar-como-casa", (req, res) => {
+  const c = db.prepare("SELECT * FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  if (c.agency_signed_at) return res.status(400).json({ error: "Este contrato já tem a sua assinatura." });
+
+  const org = db.prepare(
+    "SELECT name, signature_img, signer_name, signer_document FROM organizations WHERE id = ?"
+  ).get(req.orgId) || {};
+  if (!org.signature_img) {
+    return res.status(400).json({
+      error: "Você ainda não desenhou a assinatura da casa. Vá em Financeiro → Recibos → "
+        + "Configurações do recibo e desenhe uma vez: ela passa a valer aqui também.",
+      falta_assinatura: true,
+    });
+  }
+  db.prepare(
+    `UPDATE contracts SET agency_signed_at = datetime('now'), agency_signer_name = ?,
+       agency_signer_document = ?, agency_signature_img = ?
+     WHERE id = ? AND org_id = ?`
+  ).run(org.signer_name || org.name || null, org.signer_document || null, org.signature_img, c.id, req.orgId);
+  res.json(comIntegridade(db.prepare(`${SELECT} WHERE ct.id = ?`).get(c.id))[0]);
+});
+
+/** Tira a assinatura da casa — para quando ela assinou o contrato errado. */
+router.delete("/:id/assinar-como-casa", (req, res) => {
+  const c = db.prepare("SELECT id, signed_at FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  if (c.signed_at) {
+    return res.status(400).json({
+      error: "O cliente já assinou este contrato. Tirar a sua assinatura agora deixaria no ar um "
+        + "documento assinado por um lado só — gere um novo contrato se algo mudou.",
+    });
+  }
+  db.prepare(
+    `UPDATE contracts SET agency_signed_at = NULL, agency_signer_name = NULL,
+       agency_signer_document = NULL, agency_signature_img = NULL WHERE id = ? AND org_id = ?`
+  ).run(c.id, req.orgId);
+  res.json({ ok: true });
+});
+
+/** Marca que o contrato foi mandado para o cliente assinar — o "já mandamos?". */
+router.post("/:id/enviado", (req, res) => {
+  const c = db.prepare("SELECT id FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  const marcar = req.body?.enviado === false ? null : "datetime('now')";
+  db.prepare(`UPDATE contracts SET sent_at = ${marcar === null ? "NULL" : "datetime('now')"} WHERE id = ? AND org_id = ?`)
+    .run(c.id, req.orgId);
+  res.json({ ok: true, enviado: marcar !== null });
 });
 
 export default router;

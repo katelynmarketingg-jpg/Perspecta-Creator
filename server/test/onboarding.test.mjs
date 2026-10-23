@@ -132,7 +132,13 @@ test("respondido o onboarding, o contrato nasce pronto com os termos da agência
   assert.match(texto, /vigência de 06 \(seis\) meses/, "o prazo por extenso");
   assert.match(texto, /20 de agosto de 2026/, "a data que a agência mandou constar");
   assert.match(texto, /Santo Antônio da Patrulha/, "a cidade da agência, para a data e o foro");
-  assert.ok(!/\{\{/.test(texto), `sobrou marcador sem preencher: ${(texto.match(/\{\{\w+\}\}/g) || []).join(", ")}`);
+  // Os dois marcadores de ASSINATURA ficam de propósito: são o LUGAR de cada
+  // assinatura, que chega depois de o contrato nascer. Quem os troca é a tela,
+  // na hora de mostrar. Qualquer outro sobrando continua sendo defeito.
+  const sobrando = (texto.match(/\{\{\w+\}\}/g) || [])
+    .filter((m) => !/^\{\{assinatura_(cliente|perspecta)\}\}$/i.test(m));
+  assert.deepEqual(sobrando, [], `sobrou marcador sem preencher: ${sobrando.join(", ")}`);
+  assert.match(texto, /\{\{assinatura_cliente\}\}/, "e o lugar da assinatura dele está lá");
 });
 
 test("as quantidades da agência entram no contrato por extenso", async () => {
