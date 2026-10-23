@@ -126,7 +126,7 @@ export default function SignContract() {
           ) : (
             <>
               <Box sx={{ p: 2, borderRadius: 2, bgcolor: "action.hover", maxHeight: 340, overflowY: "auto", mb: 3 }}>
-                <TextoDoContrato texto={contract?.notes} />
+                <TextoDoContrato texto={contract?.notes} contrato={contract} />
               </Box>
 
               {erro && <Alert severity="error" sx={{ mb: 2 }}>{erro}</Alert>}

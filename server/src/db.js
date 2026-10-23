@@ -907,6 +907,22 @@ ensureColumn("contracts", "sign_verified_at", "sign_verified_at TEXT");   // qua
 ensureColumn("contracts", "sign_verify_method", "sign_verify_method TEXT"); // 'email'
 ensureColumn("contracts", "sign_verify_dest", "sign_verify_dest TEXT");   // destino mascarado (ex.: jo***@x.com)
 
+// A ASSINATURA DA CASA NO CONTRATO.
+//
+// Até aqui o contrato só guardava a assinatura do CLIENTE: a da agência não
+// existia em lugar nenhum, e não havia como responder "a minha já foi
+// coletada?". A casa já tem uma assinatura guardada (organizations.signature_img,
+// usada nos recibos) — pedido dela: assinar uma vez e o sistema reusar.
+//
+// Estes campos são uma CÓPIA do que foi assinado, não um espelho: trocar a
+// assinatura da casa amanhã não pode reescrever o que já foi firmado ontem.
+ensureColumn("contracts", "agency_signed_at", "agency_signed_at TEXT");
+ensureColumn("contracts", "agency_signer_name", "agency_signer_name TEXT");
+ensureColumn("contracts", "agency_signer_document", "agency_signer_document TEXT");
+ensureColumn("contracts", "agency_signature_img", "agency_signature_img TEXT");
+// Quando ela mandou o contrato para o cliente assinar — é o "já mandamos?".
+ensureColumn("contracts", "sent_at", "sent_at TEXT");
+
 // Código de verificação da assinatura: um por contrato (reenviar substitui).
 db.exec(`
 CREATE TABLE IF NOT EXISTS sign_codes (

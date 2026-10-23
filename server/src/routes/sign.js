@@ -70,6 +70,14 @@ signRouter.get("/:token", (req, res) => {
     agency_name: org?.name || "",
     signed_at: c.signed_at,
     signer_name: c.signer_name,
+    // A ASSINATURA DA CASA VAI JUNTO. Quem abre o link para assinar precisa
+    // ver que a Perspectiva já assinou — um contrato onde só o cliente assina
+    // pede confiança sem dar nenhuma. (Vai só o que aparece no papel: o
+    // desenho e o nome, nada do resto da casa.)
+    agency_signed_at: c.agency_signed_at,
+    agency_signer_name: c.agency_signer_name,
+    agency_signer_document: c.agency_signer_document,
+    agency_signature_img: c.agency_signature_img,
     integridade: conferirAssinatura(c),
     // Verificação por e-mail (código):
     verify_method: "email",

@@ -118,11 +118,17 @@ test("cadastro completo não gera aviso nenhum", () => {
   assert.deepEqual(c.faltando, []);
 });
 
-test("nenhum marcador sobra, em nenhum dos casos", () => {
+// EXCEÇÃO DE PROPÓSITO: os dois marcadores de ASSINATURA ficam no texto.
+// Eles não são dado que faltou — são o LUGAR onde cada assinatura vai entrar,
+// e a assinatura chega depois de o contrato nascer. Quem os troca é a tela, na
+// hora de mostrar ou imprimir (comAssinaturas), e sem assinatura eles viram a
+// linha de sempre. Qualquer OUTRO marcador sobrando continua sendo defeito.
+test("nenhum marcador sobra, em nenhum dos casos (fora os de assinatura)", () => {
   for (const dados of [COMPLETO, { name: "Só o nome" },
     { name: "PF", document: "04009664096", rep_name: "PF", rep_document: "04009664096", payment_day: 1, address: "R. B, 2" }]) {
     const t = contrato(dados).notes;
-    const sobrando = [...new Set(t.match(/\{\{\s*[\wçãáéíóú]+\s*\}\}/gi) || [])];
+    const sobrando = [...new Set(t.match(/\{\{\s*[\wçãáéíóú]+\s*\}\}/gi) || [])]
+      .filter((m) => !/^\{\{\s*assinatura_(cliente|perspecta)\s*\}\}$/i.test(m));
     assert.deepEqual(sobrando, [], `sobrou marcador: ${sobrando.join(", ")}`);
   }
 });

@@ -141,14 +141,14 @@ E, por estarem justos e contratados, firmam o presente instrumento.
 
 CONTRATANTE
 
-_______________________________________________
+{{assinatura_cliente}}
 {{razao_social}}
 {{documento_rotulo}} {{cnpj}}
 
 
 CONTRATADA
 
-_______________________________________________
+{{assinatura_perspecta}}
 {{agencia}}
 CNPJ {{cnpj_agencia}}
 `,

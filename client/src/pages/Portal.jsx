@@ -1238,7 +1238,7 @@ export default function Portal() {
                     </Typography>
                     <Typography variant="body2"><strong>Início:</strong> {formatDate(c.start_date)}</Typography>
                   </Stack>
-                  {c.notes && <TextoDoContrato texto={c.notes} sx={{ mt: 1 }} />}
+                  {c.notes && <TextoDoContrato texto={c.notes} contrato={c} sx={{ mt: 1 }} />}
 
                   <Divider sx={{ my: 2 }} />
                   {c.signed_at ? (

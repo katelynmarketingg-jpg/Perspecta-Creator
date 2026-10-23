@@ -61,9 +61,20 @@ test("o modelo pronto traz as cláusulas que protegem a agência", () => {
   assert.match(c, /elegendo-se o \{\{foro\}\}/, "foro");
 });
 
-test("nenhum marcador fica vazio no contrato gerado", () => {
-  assert.equal(contrato.notes.match(/\{\{\w+\}\}/g), null,
-    `sobrou: ${contrato.notes.match(/\{\{\w+\}\}/g)}`);
+// EXCEÇÃO DE PROPÓSITO: os dois marcadores de ASSINATURA ficam no texto.
+// Eles não são dado que faltou — são o LUGAR onde cada assinatura vai entrar,
+// e a assinatura chega depois de o contrato nascer. Quem os troca é a tela, na
+// hora de mostrar ou imprimir (comAssinaturas), e sem assinatura eles viram a
+// linha de sempre. Qualquer OUTRO marcador sobrando continua sendo defeito.
+test("nenhum marcador fica vazio no contrato gerado (fora os de assinatura)", () => {
+  const sobrando = (contrato.notes.match(/\{\{\w+\}\}/g) || [])
+    .filter((m) => !/^\{\{assinatura_(cliente|perspecta)\}\}$/i.test(m));
+  assert.deepEqual(sobrando, [], `sobrou: ${sobrando.join(", ")}`);
+});
+
+test("e os dois de assinatura estão lá, que é o lugar de cada uma", () => {
+  assert.match(contrato.notes, /\{\{assinatura_cliente\}\}/);
+  assert.match(contrato.notes, /\{\{assinatura_perspecta\}\}/);
 });
 
 test("os dois lados aparecem identificados", () => {
