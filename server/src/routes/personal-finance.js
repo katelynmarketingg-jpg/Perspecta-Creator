@@ -394,7 +394,11 @@ export function sincronizaSalarioKaty(orgId, userId, ym, nome) {
   const total = quantoEhOMeu(linhas, cfg?.salary || 0);
 
   const atual = db.prepare(
-    `SELECT id FROM financial_entries
+    // O `status` vem junto porque é ele que diz se ela marcou a linha como paga
+    // À MÃO no Financeiro — e esse "pago" é dinheiro que saiu do caixa, que um
+    // check em Minhas Finanças não pode desfazer. Sem este campo na consulta, o
+    // status era recalculado por cima do dela, calado.
+    `SELECT id, status FROM financial_entries
       WHERE org_id=? AND type='expense' AND category=? AND strftime('%Y-%m', due_date)=?
       ORDER BY id LIMIT 1`
   ).get(orgId, topico, ym);
@@ -403,18 +407,46 @@ export function sincronizaSalarioKaty(orgId, userId, ym, nome) {
     if (atual) db.prepare("DELETE FROM financial_entries WHERE id=?").run(atual.id);
     return { topico, total: 0 };
   }
+  // QUANTO DISSO ELA JÁ PAGOU — para o Financeiro mostrar o mesmo que aqui.
+  //
+  // Pedido dela: "quando eu pagar qualquer coisa aqui, além de mudar em cima,
+  // mudar lá também, pra aparecer o valor total mais baixinho e o valor ainda
+  // em aberto forte."
+  //
+  // O valor da linha continua sendo o mês inteiro (é o que a empresa paga a
+  // ela). O que passa a andar com os checks é o paid_amount, que o Financeiro
+  // já sabe mostrar como pagamento parcial. O lazer NÃO entra aqui: ele é o
+  // que ela ainda vai pegar, não o que já saiu.
+  const jaPago = +linhas.filter((l) => l.paid && !isPerspectiva(l.category))
+    .reduce((t, l) => t + (Number(l.amount) || 0), 0).toFixed(2);
+
   if (atual) {
-    // Só o valor e o nome. Se ela marcou como pago lá, continua pago.
-    db.prepare("UPDATE financial_entries SET description=?, amount=? WHERE id=?")
-      .run(topico, total, atual.id);
+    // ESTA LINHA É UM ESPELHO, E ESPELHO NÃO TEM OPINIÃO.
+    //
+    // Cheguei a proteger um "pago" marcado à mão no Financeiro — e a regra se
+    // contradizia: depois de a ponte levar a linha a "pago", desmarcar uma
+    // conta aqui não a reabria, e ela pediu justamente que o número andasse
+    // junto. A tela do Financeiro já promete isso, no selinho desta linha:
+    // "automático — soma do que você marcou como pago em Minhas Finanças.
+    // Cada check de lá atualiza este valor." Então o que manda é daqui, nos
+    // dois sentidos. Quem quiser um valor próprio lança uma despesa própria.
+    db.prepare(
+      `UPDATE financial_entries SET description=?, amount=?, paid_amount=?,
+         status = CASE WHEN ? >= ? THEN 'paid' WHEN ? > 0 THEN 'partial' ELSE 'pending' END
+       WHERE id=?`
+    ).run(topico, total, Math.min(jaPago, total), jaPago, total, jaPago, atual.id);
   } else {
     insertExpense.run({
       description: topico, amount: total, category: topico,
-      status: "pending", due_date: ultimoDiaDoMes(ym), paid_at: null,
+      status: jaPago >= total ? "paid" : jaPago > 0 ? "partial" : "pending",
+      due_date: ultimoDiaDoMes(ym), paid_at: null,
       recurring: 0, recurring_day: null, card: null, impagavel: 0, org_id: orgId,
     });
+    db.prepare(
+      `UPDATE financial_entries SET paid_amount=? WHERE org_id=? AND category=? AND strftime('%Y-%m', due_date)=?`
+    ).run(Math.min(jaPago, total), orgId, topico, ym);
   }
-  return { topico, total };
+  return { topico, total, jaPago };
 }
 
 const ymNext = (ym) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };

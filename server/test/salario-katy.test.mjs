@@ -239,13 +239,21 @@ test("mudar o valor de um gasto muda a linha junto", async () => {
   assert.equal(linhaDoSalario().amount, 1700, "800 + 900");
 });
 
-test("se ela marcar o salário como pago lá, continua pago quando a linha muda", async () => {
-  db.prepare("UPDATE financial_entries SET status='paid' WHERE id=?").run(linhaDoSalario().id);
+test("a linha do salário é um ESPELHO: quem manda é Minhas Finanças", async () => {
+  // REGRA TROCADA DE PROPÓSITO. Antes um "pago" marcado à mão no Financeiro
+  // sobrevivia à atualização da linha. Ela pediu o contrário: "quando eu pagar
+  // qualquer coisa aqui, além de mudar em cima, mudar lá também" — e a regra
+  // antiga se contradizia, porque depois de a ponte levar a linha a "pago",
+  // desmarcar uma conta não a reabria. A tela do Financeiro já prometia o novo
+  // comportamento no selinho desta linha: "automático — soma do que você
+  // marcou como pago em Minhas Finanças. Cada check de lá atualiza este valor."
+  // Quem quiser um valor próprio lança uma despesa própria.
+  db.prepare("UPDATE financial_entries SET status='paid', paid_amount=0 WHERE id=?").run(linhaDoSalario().id);
   await chamar("POST", "/", { ym: MES, name: "Farmácia", amount: 100, category: "Casa" });
   const l = linhaDoSalario();
   assert.equal(l.amount, 1800);
-  assert.equal(l.status, "paid", "o que ela marcou é dela e fica");
-  db.prepare("UPDATE financial_entries SET status='pending' WHERE id=?").run(l.id);
+  assert.notEqual(l.status, "paid", "o espelho corrige o que foi marcado à mão");
+  assert.equal(l.paid_amount, 0, "nada das contas dela está marcado neste ponto");
 });
 
 test("gasto da Perspectiva vai pro Financeiro e não entra no salário dela", async () => {

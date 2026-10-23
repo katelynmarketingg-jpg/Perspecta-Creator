@@ -121,8 +121,9 @@ export default function MinhasFinancas() {
     const map = {};
     [...(data?.entries || []), ...(data?.atrasadas || [])].forEach((e) => {
       const k = e.method || "Sem método";
-      (map[k] ||= { method: e.method || "", items: [], total: 0, pagos: 0, atrasado: 0, atrasadas: 0, doMes: 0 });
+      (map[k] ||= { method: e.method || "", items: [], total: 0, pagos: 0, atrasado: 0, atrasadas: 0, doMes: 0, pagoValor: 0 });
       map[k].items.push(e); map[k].total += Number(e.amount) || 0; if (e.paid) map[k].pagos++;
+      if (e.paid) map[k].pagoValor += Number(e.amount) || 0;
       if (e.da_perspectiva) map[k].perspectiva = (map[k].perspectiva || 0) + (Number(e.amount) || 0);
       if (e.atrasado_de) { map[k].atrasado += Number(e.amount) || 0; map[k].atrasadas++; }
       else map[k].doMes++;
@@ -130,6 +131,19 @@ export default function MinhasFinancas() {
     return Object.entries(map).map(([nome, g]) => ({
       nome, ...g,
       atrasado: +g.atrasado.toFixed(2),
+      // O NÚMERO DE CIMA É "QUANTO AINDA FALTA".
+      //
+      // Pedido dela: "quando eu marcar aqui dentro como pago, quero que em cima
+      // apareça o valor ainda em aberto; se paguei tudo, aparece o valor
+      // completo mas mais clarinho."
+      //
+      // O que ficou de meses anteriores conta: ela ainda deve. Por isso um
+      // cartão com a fatura do mês paga e uma conta de setembro em aberto
+      // continua mostrando o que falta — e o check do cabeçalho, que é sobre o
+      // mês, continua marcado. São duas perguntas diferentes, e cada uma
+      // responde a sua.
+      aberto: +Math.max(0, g.total - g.pagoValor).toFixed(2),
+      tudoPago: g.items.length > 0 && g.total - g.pagoValor <= 0.004,
       // "FATURA PAGA" É A FATURA DESTE MÊS.
       //
       // O check do cabeçalho manda em /pay-method, que só mexe no mês aberto —
@@ -296,57 +310,29 @@ export default function MinhasFinancas() {
         </Alert>
       )}
 
-      {/* Salário + resumo */}
-      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, 1fr)" }, mb: 2 }}>
-        <Card>
-          <CardContent>
-            {/* Não é salário: é quanto ela pretende TIRAR do que sobrou, para
-                si — lazer. Por isso entra na conta do "falta pagar do meu":
-                é dinheiro que ainda vai sair do caixa. */}
-            <Typography variant="caption" color="text.secondary">Lazer deste mês</Typography>
-            <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-              <TextField size="small" type="number" value={salaryDraft} onChange={(e) => setSalaryDraft(e.target.value)}
-                onBlur={salvarSalario} InputProps={{ startAdornment: <span style={{ marginRight: 4 }}>R$</span> }} fullWidth />
-            </Stack>
-            <Typography variant="caption" color="text.secondary">
-              quanto você vai pegar do que sobrou
-            </Typography>
-
-            {/* A PONTE COM O FINANCEIRO DA EMPRESA — desligada por padrão.
-                Esta tela é sua. Ligada, ela conversa com o Financeiro nos dois
-                sentidos: o total do seu mês vira uma linha lá (que a equipe vê)
-                e as despesas da empresa no cartão aparecem aqui. Faz sentido
-                para quem é dona da casa e tira o próprio dinheiro aos poucos —
-                e não faz para mais ninguém. */}
-            <Divider sx={{ my: 1.5 }} />
-            <FormControlLabel
-              sx={{ m: 0, alignItems: "flex-start" }}
-              control={<Switch size="small" checked={!!data?.ponte_financeiro} onChange={(e) => alternarPonte(e.target.checked)} sx={{ mr: 1 }} />}
-              label={
-                <Box>
-                  <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>
-                    Ligar com o Financeiro da empresa
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", lineHeight: 1.3 }}>
-                    {data?.ponte_financeiro
-                      ? "O total do seu mês aparece como “Salário” nas despesas da empresa, e a equipe vê esse valor."
-                      : "Desligado: nada daqui aparece no Financeiro da empresa. Esta tela é só sua."}
-                  </Typography>
-                </Box>
-              } />
-          </CardContent>
-        </Card>
+      {/* OS NÚMEROS NUMA FILEIRA SÓ, TODOS DO MESMO TAMANHO.
+          Pedido dela: "consegue reorganizar e deixar tudo lado a lado
+          organizado?". Estavam numa grade de quatro colunas junto com o cartão
+          do Lazer — que não é número, é controle: tem campo e interruptor, fica
+          três vezes mais alto que os outros e esticava a fileira inteira, com
+          o cartão laranja virando um retângulo vazio. O controle saiu da
+          fileira e virou uma faixa própria, embaixo. */}
+      <Box sx={{
+        display: "grid", gap: 2, mb: 2,
+        gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(2, 1fr)", md: "repeat(4, 1fr)" },
+        alignItems: "stretch",
+      }}>
         {/* A PERGUNTA DO MÊS: "o que falta pagar do meu?"
-            Nas palavras dela: o que está em aberto MAIS o salário que ela ainda
-            quer tirar por cima. O cartão é maior porque é o número que importa;
-            os outros são o detalhe de como ele se forma. */}
-        <Card sx={{ gridColumn: { xs: "span 2", md: "span 2" }, bgcolor: "primary.main", color: "primary.contrastText" }}>
+            O que está em aberto MAIS o lazer que ela ainda quer tirar por cima.
+            Continua sendo o número que manda, pela cor — não mais pelo tamanho,
+            que era o que desalinhava a fileira. */}
+        <Card sx={{ bgcolor: "primary.main", color: "primary.contrastText", height: "100%" }}>
           <CardContent>
             <Typography variant="caption" sx={{ opacity: 0.85 }}>Falta pagar do meu</Typography>
-            <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
+            <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.2, fontVariantNumeric: "tabular-nums" }}>
               {s ? currency(s.meu?.total || 0) : "—"}
             </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+            <Typography variant="caption" sx={{ opacity: 0.9, display: "block", mt: 0.5, lineHeight: 1.3 }}>
               {s
                 ? `${currency(s.meu?.emAberto || 0)} de contas em aberto` +
                   (s.meu?.salarioAindaAPegar ? ` + ${currency(s.meu.salarioAindaAPegar)} de lazer a pegar` : "")
@@ -371,6 +357,49 @@ export default function MinhasFinancas() {
             value={currency(s.perspectiva.total)} />
         )}
       </Box>
+
+      {/* A FAIXA DE CONTROLE: o lazer e a ponte, lado a lado. Não são números
+          do mês — são ajustes — e por isso saíram da fileira de cima. */}
+      <Card sx={{ mb: 2 }}>
+        <CardContent sx={{ py: 1.5 }}>
+          <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
+            <Box sx={{ minWidth: 220 }}>
+              {/* Não é salário: é quanto ela pretende TIRAR do que sobrou, para
+                  si — lazer. Por isso entra na conta do "falta pagar do meu":
+                  é dinheiro que ainda vai sair do caixa. */}
+              <Typography variant="caption" color="text.secondary">Lazer deste mês</Typography>
+              <TextField size="small" type="number" value={salaryDraft} fullWidth sx={{ mt: 0.5 }}
+                onChange={(e) => setSalaryDraft(e.target.value)} onBlur={salvarSalario}
+                InputProps={{ startAdornment: <span style={{ marginRight: 4 }}>R$</span> }} />
+              <Typography variant="caption" color="text.secondary">
+                quanto você vai pegar do que sobrou — salva ao sair do campo
+              </Typography>
+            </Box>
+            <Divider flexItem orientation="vertical" sx={{ display: { xs: "none", md: "block" } }} />
+            {/* A PONTE COM O FINANCEIRO DA EMPRESA — desligada por padrão.
+                Esta tela é sua. Ligada, ela conversa com o Financeiro nos dois
+                sentidos: o total do seu mês vira uma linha lá (que a equipe vê)
+                e as despesas da empresa no cartão aparecem aqui. Faz sentido
+                para quem é dona da casa e tira o próprio dinheiro aos poucos —
+                e não faz para mais ninguém. */}
+            <FormControlLabel
+              sx={{ m: 0, alignItems: "flex-start", flex: 1 }}
+              control={<Switch size="small" checked={!!data?.ponte_financeiro} onChange={(e) => alternarPonte(e.target.checked)} sx={{ mr: 1 }} />}
+              label={
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>
+                    Ligar com o Financeiro da empresa
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", lineHeight: 1.3 }}>
+                    {data?.ponte_financeiro
+                      ? "Ligado: o total do seu mês aparece como “Salário” nas despesas da empresa, e a equipe vê esse valor."
+                      : "Desligado: nada daqui aparece no Financeiro da empresa. Esta tela é só sua."}
+                  </Typography>
+                </Box>
+              } />
+          </Stack>
+        </CardContent>
+      </Card>
 
       {/* O QUE FICOU SEM MARCAR, DITO POR INTEIRO.
           As linhas vermelhas respondem "quais"; este aviso responde "quanto".
@@ -398,7 +427,7 @@ export default function MinhasFinancas() {
 
       {/* A ponte com o Financeiro, dita em uma linha — pra ela saber que o
           check aqui já virou lançamento lá, sem precisar conferir. */}
-      {s?.total > 0 && (
+      {s?.total > 0 && data?.ponte_financeiro && (
         <Alert severity="success" icon={false} sx={{ mb: 2 }}>
           O seu mês — <b>{currency(s.total)}</b> de contas
           {s.meu?.salario > 0 && <> mais <b>{currency(s.meu.salario)}</b> de lazer</>} — aparece no{" "}
@@ -480,7 +509,18 @@ export default function MinhasFinancas() {
                 <Tooltip title="Renomear este banco / meio de pagamento">
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); renomearGrupo(g); }}><EditIcon sx={{ fontSize: 16 }} /></IconButton>
                 </Tooltip>
-                <Typography sx={{ fontWeight: 800, fontVariantNumeric: "tabular-nums", mr: 0.5 }}>{currency(g.total)}</Typography>
+                <Tooltip title={g.tudoPago
+                  ? `Tudo pago — ${currency(g.total)} no total`
+                  : `${currency(g.aberto)} ainda em aberto, de ${currency(g.total)}`}>
+                  <Typography sx={{
+                    fontWeight: 800, fontVariantNumeric: "tabular-nums", mr: 0.5,
+                    // Pago fica mais claro: o olho passa direto no que já
+                    // resolveu e para no que ainda falta.
+                    color: g.tudoPago ? "text.disabled" : undefined,
+                  }}>
+                    {currency(g.tudoPago ? g.total : g.aberto)}
+                  </Typography>
+                </Tooltip>
                 {expanded[g.nome] ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               </Box>
               <Collapse in={!!expanded[g.nome]}>

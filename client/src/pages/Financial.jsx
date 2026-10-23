@@ -330,8 +330,44 @@ export default function Financial() {
             ? <Chip size="small" color="info" label={`Parcial · ${currency(f.paid_amount || 0)}/${currency(f.amount)}`} />
             : <Chip size="small" label="Pendente" color="warning" />}
       </TableCell>
-      <TableCell align="right" sx={{ color: f.type === "income" ? "primary.main" : "text.secondary", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-        {f.type === "income" ? "+" : "−"} {currency(f.amount)}
+      {/* O QUE AINDA FALTA, FORTE; O TOTAL, BAIXINHO.
+          Pedido dela, para o Financeiro responder a mesma pergunta que Minhas
+          Finanças: "o valor total mais baixinho e o valor ainda em aberto
+          forte". Pago inteiro fica claro — o olho passa direto no que já
+          resolveu e para no que falta. A linha do Salário anda sozinha: cada
+          check lá vira paid_amount aqui. */}
+      <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
+        {(() => {
+          const total = Number(f.amount) || 0;
+          const pago = f.status === "paid" ? total : Number(f.paid_amount) || 0;
+          const falta = Math.max(0, total - pago);
+          const sinal = f.type === "income" ? "+" : "−";
+          const cor = f.type === "income" ? "primary.main" : "text.secondary";
+          if (falta <= 0.004) {
+            return (
+              <Typography component="span" sx={{ fontWeight: 700, color: "text.disabled" }}>
+                {sinal} {currency(total)}
+              </Typography>
+            );
+          }
+          if (pago <= 0) {
+            return (
+              <Typography component="span" sx={{ fontWeight: 700, color: cor }}>
+                {sinal} {currency(total)}
+              </Typography>
+            );
+          }
+          return (
+            <Box>
+              <Typography component="div" sx={{ fontWeight: 800, color: cor, lineHeight: 1.2 }}>
+                {sinal} {currency(falta)}
+              </Typography>
+              <Typography component="div" variant="caption" sx={{ color: "text.disabled", lineHeight: 1.2 }}>
+                de {currency(total)}
+              </Typography>
+            </Box>
+          );
+        })()}
       </TableCell>
       <TableCell align="right">
         {f.status !== "paid" && (
