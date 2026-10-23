@@ -1242,6 +1242,14 @@ ensureColumn("financial_entries", "impagavel", "impagavel INTEGER NOT NULL DEFAU
 // daquele valor é juro. Assim nada por baixo muda, e na tela dá para dizer
 // "R$ 212,00 (R$ 12,00 de juros)" em vez de um 212 que apareceu do nada.
 ensureColumn("financial_entries", "juros", "juros REAL NOT NULL DEFAULT 0");
+
+// VENCIMENTO DO GASTO PESSOAL — opcional, "caso eu queira colocar".
+//
+// Guarda só o DIA (1 a 31), não a data inteira: a linha já pertence a um mês
+// (ym), então o dia + o mês dela dão a data, e a conta que acompanha os
+// próximos meses leva o dia junto sozinha. Guardar a data cheia obrigaria a
+// reescrever o vencimento a cada mês que o sistema abre.
+ensureColumn("personal_finance", "due_day", "due_day INTEGER");
 ensureColumn("clients", "archived_at", "archived_at TEXT");            // quando foi arquivado
 ensureColumn("clients", "entrega_ate", "entrega_ate TEXT");            // última entrega combinada
 ensureColumn("clients", "pagamento_ate", "pagamento_ate TEXT");        // último pagamento combinado

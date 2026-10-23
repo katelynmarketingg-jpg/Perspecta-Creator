@@ -228,10 +228,27 @@ router.put("/config", (req, res) => {
 
 const insert = db.prepare(
   `INSERT INTO personal_finance (org_id, user_id, ym, name, parcela, amount, method, category, paid, position,
-     recurring, installment_num, installment_total, import_id, avulso)
+     recurring, installment_num, installment_total, import_id, avulso, due_day)
    VALUES (@org_id, @user_id, @ym, @name, @parcela, @amount, @method, @category, @paid, @position,
-     @recurring, @installment_num, @installment_total, @import_id, @avulso)`
+     @recurring, @installment_num, @installment_total, @import_id, @avulso, @due_day)`
 );
+
+/**
+ * O DIA DO VENCIMENTO, se ela quis colocar.
+ *
+ * Aceita "10", "10/11" e "2026-11-10" — ela digita de um jeito hoje e de outro
+ * amanhã, e o que importa é o dia. Fora de 1..31 vira nulo: vencimento errado
+ * é pior do que vencimento nenhum, porque ela confiaria nele.
+ */
+export function diaDoVencimento(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const texto = String(v).trim();
+  const iso = texto.match(/^\d{4}-\d{2}-(\d{2})$/);        // 2026-11-10
+  const br = texto.match(/^(\d{1,2})\/\d{1,2}(\/\d{2,4})?$/); // 10/11 ou 10/11/2026
+  const n = Number(iso ? iso[1] : br ? br[1] : texto);
+  if (!Number.isFinite(n) || n < 1 || n > 31) return null;
+  return Math.trunc(n);
+}
 
 // A partir do texto da "parcela" descobre se a conta se repete e em qual parcela
 // está. 'fixa'/'variáveis' repetem sem fim; 'n/total' repete até acabar.
@@ -425,6 +442,9 @@ function rollForward(row, ym, i) {
     parcela, amount: Number(row.amount) || 0, method: row.method ?? null, category: row.category ?? null,
     paid: 0, position: i, recurring: row.recurring ? 1 : 0,
     installment_num: num ?? null, installment_total: total ?? null, import_id: null, avulso: 0,
+    // O vencimento acompanha: conta que vence todo dia 10 vence dia 10 no mês
+    // que vem. É por isso que guardamos o DIA, e não a data inteira.
+    due_day: row.due_day ?? null,
   };
 }
 
@@ -494,6 +514,7 @@ function propagateForward(org, user, startYm, row) {
           category: row.category ?? null, paid: 0, position: Number(row.position) || 0,
           recurring: 1, installment_num: total != null ? curNum : null,
           installment_total: total, import_id: null, avulso: 0,
+          due_day: row.due_day ?? null,
         });
         created++;
       }
@@ -522,6 +543,7 @@ router.post("/", (req, res) => {
     paid: b.paid ? 1 : 0, position: Number(b.position) || 0,
     recurring, installment_num: b.installment_num ?? pi.num, installment_total: b.installment_total ?? pi.total,
     import_id: null, avulso: b.avulso ? 1 : 0,
+    due_day: diaDoVencimento(b.due_day),
   });
   const created = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(info.lastInsertRowid);
   // Gasto da empresa não fica aqui: vai direto para o Financeiro → Despesas.
@@ -566,6 +588,8 @@ router.post("/import", (req, res) => {
         paid: e.paid ? 1 : 0, position: i,
         recurring: pi.recurring, installment_num: pi.num, installment_total: pi.total,
         import_id: importId, avulso: e.avulso ? 1 : 0,
+        // O CSV do banco não traz vencimento; ela coloca depois, se quiser.
+        due_day: diaDoVencimento(e.due_day),
       });
       n++;
     });
@@ -687,6 +711,9 @@ router.put("/:id", (req, res) => {
     impagavel: b.impagavel !== undefined ? (b.impagavel ? 1 : 0) : cur.impagavel,
     avulso: b.avulso !== undefined ? (b.avulso ? 1 : 0) : cur.avulso,
     amount: b.amount !== undefined ? (Number(b.amount) || 0) : cur.amount,
+    // Só mexe se veio no corpo: salvar o gasto por outra tela não pode apagar
+    // um vencimento que ela colocou.
+    due_day: b.due_day !== undefined ? diaDoVencimento(b.due_day) : cur.due_day,
   };
   // se mexeu na parcela e não mandou recurring/parcelas explícitas, rededuz do texto
   if (b.parcela !== undefined && b.recurring === undefined) {
@@ -700,7 +727,7 @@ router.put("/:id", (req, res) => {
   db.prepare(
     `UPDATE personal_finance SET name=@name, parcela=@parcela, amount=@amount, method=@method,
        category=@category, paid=@paid, impagavel=@impagavel, avulso=@avulso, recurring=@recurring,
-       installment_num=@installment_num, installment_total=@installment_total
+       installment_num=@installment_num, installment_total=@installment_total, due_day=@due_day
      WHERE id=@id AND user_id=@user_id`
   ).run({ ...m, id: req.params.id, user_id: uid(req) });
   const updated = db.prepare("SELECT * FROM personal_finance WHERE id=?").get(req.params.id);
