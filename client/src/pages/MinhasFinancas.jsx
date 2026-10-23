@@ -24,6 +24,20 @@ import { PageHeader, StatCard } from "../components/ui.jsx";
 import DebtsCard from "../components/DebtsCard.jsx";
 import { currency } from "../utils.js";
 
+/**
+ * O vencimento escrito por extenso: o DIA guardado + o mês da própria linha.
+ *   dia 10, linha de 2026-11  →  "vence 10/11"
+ * Dia 31 em mês curto cai no último dia do mês — fevereiro não tem 31, e
+ * mostrar "31/02" seria mostrar uma data que não existe.
+ */
+function vencimentoDaLinha(dia, ym) {
+  const d = Number(dia);
+  if (!Number.isFinite(d) || d < 1 || !/^\d{4}-\d{2}$/.test(String(ym || ""))) return null;
+  const [a, m] = String(ym).split("-").map(Number);
+  const ultimo = new Date(a, m, 0).getDate();
+  return `${String(Math.min(d, ultimo)).padStart(2, "0")}/${String(m).padStart(2, "0")}`;
+}
+
 // "2026-09" → "set." (o selinho é pequeno; o mês por extenso não cabe).
 // De outro ano leva o ano junto, senão "set." engana na virada.
 function mesPorExtenso(ym) {
@@ -41,7 +55,7 @@ function nomeDoMes(ym) {
 
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const CORES = ["#ab480a", "#2563EB", "#16A34A", "#7C3AED", "#D97706", "#DC2626", "#0891B2", "#DB2777", "#65A30D", "#9333EA", "#57534E"];
-const VAZIO = { name: "", parcela: "", amount: "", method: "", category: "", paid: false, avulso: false };
+const VAZIO = { name: "", parcela: "", amount: "", method: "", category: "", paid: false, avulso: false, due_day: "" };
 
 // --- CSV ---
 function splitLine(line) {
@@ -490,6 +504,15 @@ export default function MinhasFinancas() {
                             </Tooltip>
                           )}
                           {e.parcela && <Chip size="small" variant="outlined" label={e.parcela} sx={{ height: 18 }} />}
+                          {/* O vencimento só aparece em quem tem: ela põe onde
+                              faz diferença, e o resto fica limpo. */}
+                          {vencimentoDaLinha(e.due_day, e.ym) && (
+                            <Tooltip title={`Vence dia ${e.due_day}`}>
+                              <Chip size="small" variant="outlined"
+                                color={e.paid ? "default" : "warning"}
+                                label={`vence ${vencimentoDaLinha(e.due_day, e.ym)}`} sx={{ height: 18 }} />
+                            </Tooltip>
+                          )}
                           {/* Esta não volta no mês que vem — bom saber antes de fechar o mês. */}
                           {e.avulso && (
                             <Tooltip title="Não acompanha os próximos meses">
@@ -563,6 +586,12 @@ export default function MinhasFinancas() {
               <TextField label="Nome *" value={draft.name} autoFocus fullWidth onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
               <Stack direction="row" spacing={2}>
                 <TextField label="Parcela" value={draft.parcela} sx={{ width: 130 }} placeholder="3/5, fixa…" onChange={(e) => setDraft((d) => ({ ...d, parcela: e.target.value }))} />
+                {/* VENCIMENTO, se ela quiser pôr. É o DIA, não a data inteira:
+                    a conta já é de um mês, e assim ela acompanha os próximos
+                    meses sozinha, sem precisar reescrever todo mês. */}
+                <TextField label="Vence dia" value={draft.due_day ?? ""} sx={{ width: 120 }} placeholder="10"
+                  inputProps={{ inputMode: "numeric" }}
+                  onChange={(e) => setDraft((d) => ({ ...d, due_day: e.target.value.replace(/\D/g, "").slice(0, 2) }))} />
                 <TextField label="Valor (R$)" type="number" value={draft.amount} fullWidth onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} />
               </Stack>
               <Alert severity="info" icon={<RepeatIcon fontSize="inherit" />} sx={{ py: 0.25 }}>
