@@ -1266,6 +1266,56 @@ ensureColumn("financial_entries", "juros", "juros REAL NOT NULL DEFAULT 0");
 // próximos meses leva o dia junto sozinha. Guardar a data cheia obrigaria a
 // reescrever o vencimento a cada mês que o sistema abre.
 ensureColumn("personal_finance", "due_day", "due_day INTEGER");
+
+// PAGAR UM PEDAÇO, E ACRESCENTAR JUROS.
+//
+// Pedido dela: dois ícones na linha — "um vai dar baixa no valor parcial que eu
+// colocar e o outro acrescenta como juros".
+//
+// `pago_parcial` é quanto já saiu desta conta sem ela estar quitada. O check de
+// pago continua existindo e quer dizer "quitada"; os dois conversam: pagar
+// parcial até cobrir o valor marca a conta como paga sozinha.
+//
+// `juros` entra no valor cobrado (amount) e fica registrado à parte, do mesmo
+// jeito que no Financeiro — é o que deixa a tela dizer "R$ 302,40 (R$ 12,50 de
+// juros)" em vez de um valor que mudou do nada.
+ensureColumn("personal_finance", "pago_parcial", "pago_parcial REAL NOT NULL DEFAULT 0");
+ensureColumn("personal_finance", "juros", "juros REAL NOT NULL DEFAULT 0");
+
+// QUEM ME DEVE, E PELO QUÊ.
+//
+// Pedido dela, embaixo das dívidas: a lista existia só para um lado — "o que eu
+// devo". O outro lado não existia, e é o mesmo problema de sempre: o que não
+// está escrito depende da memória dela.
+//
+// Mesma forma das dívidas, de propósito: um total, abatimentos que vão
+// baixando o saldo, e some da lista quando quitar.
+db.exec(`
+CREATE TABLE IF NOT EXISTS personal_credits (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id      INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  name        TEXT NOT NULL,                 -- quem me deve
+  total       REAL NOT NULL DEFAULT 0,
+  note        TEXT,                          -- pelo que
+  archived    INTEGER NOT NULL DEFAULT 0,    -- some da lista quando quitada
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_personal_credits ON personal_credits(org_id, user_id);
+
+-- Cada pedaço que a pessoa já me pagou.
+CREATE TABLE IF NOT EXISTS personal_credit_payments (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  credit_id   INTEGER NOT NULL REFERENCES personal_credits(id) ON DELETE CASCADE,
+  org_id      INTEGER NOT NULL,
+  user_id     INTEGER NOT NULL,
+  amount      REAL NOT NULL DEFAULT 0,
+  note        TEXT,
+  paid_on     TEXT NOT NULL DEFAULT (date('now')),
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_personal_credit_pag ON personal_credit_payments(credit_id);
+`);
 ensureColumn("clients", "archived_at", "archived_at TEXT");            // quando foi arquivado
 ensureColumn("clients", "entrega_ate", "entrega_ate TEXT");            // última entrega combinada
 ensureColumn("clients", "pagamento_ate", "pagamento_ate TEXT");        // último pagamento combinado

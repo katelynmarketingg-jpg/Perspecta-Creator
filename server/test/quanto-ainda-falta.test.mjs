@@ -21,7 +21,7 @@ function agrupa(itens) {
   const g = { total: 0, pagoValor: 0, itens: 0 };
   for (const e of itens) {
     g.total += Number(e.amount) || 0;
-    if (e.paid) g.pagoValor += Number(e.amount) || 0;
+    g.pagoValor += e.paid ? (Number(e.amount) || 0) : (Number(e.pago_parcial) || 0);
     g.itens++;
   }
   return {
@@ -80,7 +80,8 @@ test("pago fica mais clarinho — foi isso que ela pediu", () => {
 test("a conta da tela é a mesma que este teste mede", () => {
   assert.match(tela, /aberto: \+Math\.max\(0, g\.total - g\.pagoValor\)\.toFixed\(2\)/);
   assert.match(tela, /tudoPago: g\.items\.length > 0 && g\.total - g\.pagoValor <= 0\.004/);
-  assert.match(tela, /if \(e\.paid\) map\[k\]\.pagoValor \+= Number\(e\.amount\) \|\| 0;/);
+  assert.match(tela, /map\[k\]\.pagoValor \+= e\.paid \? \(Number\(e\.amount\) \|\| 0\) : \(Number\(e\.pago_parcial\) \|\| 0\);/,
+    "a baixa parcial é dinheiro que saiu: conta no 'quanto ainda falta'");
 });
 
 test("o total cheio não se perde: fica no aviso ao passar o mouse", () => {
@@ -134,4 +135,11 @@ test("os números ficam numa fileira só, e o controle sai dela", () => {
   assert.doesNotMatch(bloco, /Lazer deste mês/, "o controle não fica na fileira dos números");
   assert.doesNotMatch(bloco, /gridColumn/, "nenhum cartão ocupa duas colunas — era o que desalinhava");
   assert.match(tela, /A FAIXA DE CONTROLE/);
+});
+
+test("pagar um pedaço baixa o número de cima, sem quitar a conta", () => {
+  // Os dois ícones novos da linha: um dá baixa parcial, o outro lança juros.
+  const g = agrupa([{ amount: 200, pago_parcial: 50 }, { amount: 100 }]);
+  assert.equal(g.aberto, 250, "300 menos os 50 que já saíram");
+  assert.equal(g.tudoPago, false);
 });

@@ -490,7 +490,24 @@ function CarrosselLargo({ fileId, streamUrl = null, mesmaAltura = false }) {
 
 // Escolher um arquivo navegando pelas PASTAS do cliente (mesma estrutura da
 // aba Arquivos). Mostra as pastas para entrar e os arquivos para selecionar.
-function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar da galeria de arquivos" }) {
+/**
+ * MARCAR E CONFIRMAR — não só marcar.
+ *
+ * Pedido dela: "tem que ter um botão de continuar ou selecionar, algo pra
+ * confirmar, depois que eu seleciono qual imagem quero vincular ao post".
+ *
+ * A confusão era real e era nossa: CLICAR no cartão já vinculava e fechava,
+ * enquanto os checkboxes serviam só para apagar/mover. Dois mecanismos com a
+ * mesma cara — ela marcava quatro, lia "4 marcados" e não achava nenhum jeito
+ * de dizer "usa essas", porque o rodapé só tinha "Fechar".
+ *
+ * Agora a marca serve para as duas coisas: há um botão de usar o que está
+ * marcado, em cima (junto da contagem) e no rodapé, onde ela foi procurar.
+ *
+ * `umSo` é para quem só aceita um arquivo (a capa do perfil): ali marcar vários
+ * não quer dizer nada, e o botão leva o primeiro.
+ */
+function GalleryPicker({ clientId, open, onClose, onPick, umSo = false, titulo = "Selecionar da galeria de arquivos" }) {
   const [path, setPath] = useState([]); // trilha de pastas: [{id,name}]
   const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
@@ -528,6 +545,14 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
     setMarcados((atual) => (ligado
       ? [...atual.filter((x) => !ids.includes(x)), ...ids]
       : atual.filter((x) => !ids.includes(x))));
+  }
+
+  // Usar o que está marcado. Para quem aceita vários, a lista inteira vai como
+  // as lâminas — é a mesma forma que o clique num post unido já mandava.
+  function usarMarcados() {
+    if (!marcados.length) return;
+    onPick(marcados[0], umSo ? null : marcados);
+    onClose();
   }
 
   async function apagarMarcados() {
@@ -572,6 +597,11 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
               arraste para uma pasta para mover
             </Typography>
             <Box sx={{ flex: 1 }} />
+            <Button size="small" variant="contained" startIcon={<CheckCircleIcon />} onClick={usarMarcados}>
+              {umSo
+                ? "Usar esta"
+                : `Usar ${marcados.length === 1 ? "esta" : `estas ${marcados.length}`}`}
+            </Button>
             {path.length > 0 && (
               <Button size="small" variant="outlined" startIcon={<DriveFileMoveIcon />}
                 onClick={() => moverPara(null)}>Mover para a raiz</Button>
@@ -700,7 +730,21 @@ function GalleryPicker({ clientId, open, onClose, onPick, titulo = "Selecionar d
           </Box>
         )}
       </DialogContent>
-      <DialogActions><Button onClick={onClose}>Fechar</Button></DialogActions>
+      {/* O rodapé é onde ela foi procurar o "confirmar" — e só tinha "Fechar". */}
+      <DialogActions>
+        <Typography variant="caption" color="text.secondary" sx={{ mr: "auto", pl: 1 }}>
+          {marcados.length
+            ? `${marcados.length} ${marcados.length === 1 ? "marcada" : "marcadas"}`
+            : "Marque no quadradinho e confirme, ou clique direto numa arte."}
+        </Typography>
+        <Button onClick={onClose}>Fechar</Button>
+        <Button variant="contained" startIcon={<CheckCircleIcon />}
+          disabled={!marcados.length} onClick={usarMarcados}>
+          {umSo
+            ? "Usar esta"
+            : `Usar ${marcados.length > 1 ? `estas ${marcados.length}` : "esta"}`}
+        </Button>
+      </DialogActions>
     </Dialog>
   );
 }
@@ -1568,7 +1612,7 @@ function PieceCard({ item, onChanged, flash }) {
 
           <GalleryPicker clientId={item.client_id} open={picker} onClose={() => setPicker(false)} onPick={pickFromGallery} />
           <GalleryPicker clientId={item.client_id} open={coverPicker} onClose={() => setCoverPicker(false)}
-            onPick={setCover} titulo="Escolher a capa do perfil (uma foto)" />
+            onPick={setCover} umSo titulo="Escolher a capa do perfil (uma foto)" />
           <GalleryPicker clientId={item.client_id} open={slidePicker} onClose={() => setSlidePicker(false)}
             onPick={addSlide} titulo="Adicionar slide ao carrossel" />
           <VideoCoverDialog fileId={fileId} streamUrl={enderecoDoArquivo(item, fileId)}

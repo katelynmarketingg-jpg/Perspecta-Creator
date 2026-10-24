@@ -2,6 +2,9 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired } from "../auth.js";
 import { topicoDoSalario, quantoJaPeguei, quantoEhOMeu, oQueFaltaDoMeu, ultimoDiaDoMes } from "../salario-katy.js";
+// numeroBR: "12,50" vira 12.5. Com Number puro viraria 0 — e o juro entraria
+// valendo nada, sem ninguém notar.
+import { numeroBR } from "../contract-gen.js";
 
 // ---------------------------------------------------------------------------
 // Finanças pessoais — PRIVADO por usuário. Toda query filtra por req.user.id,
@@ -387,7 +390,7 @@ export function sincronizaSalarioKaty(orgId, userId, ym, nome) {
   }
 
   const linhas = db.prepare(
-    "SELECT amount, paid, category FROM personal_finance WHERE org_id=? AND user_id=? AND ym=?"
+    "SELECT amount, paid, pago_parcial, category FROM personal_finance WHERE org_id=? AND user_id=? AND ym=?"
   ).all(orgId, userId, ym).map((l) => ({ ...l, paid: !!l.paid }));
   const cfg = db.prepare("SELECT salary FROM personal_finance_config WHERE org_id=? AND user_id=?")
     .get(orgId, userId);
@@ -417,8 +420,12 @@ export function sincronizaSalarioKaty(orgId, userId, ym, nome) {
   // ela). O que passa a andar com os checks é o paid_amount, que o Financeiro
   // já sabe mostrar como pagamento parcial. O lazer NÃO entra aqui: ele é o
   // que ela ainda vai pegar, não o que já saiu.
-  const jaPago = +linhas.filter((l) => l.paid && !isPerspectiva(l.category))
-    .reduce((t, l) => t + (Number(l.amount) || 0), 0).toFixed(2);
+  // O que já saiu: a conta quitada inteira, e o pedaço das que ela pagou
+  // parcial. Contar só as quitadas deixaria o Financeiro atrasado em relação
+  // ao que ela vê aqui — e ela pediu justamente que os dois andassem juntos.
+  const jaPago = +linhas.filter((l) => !isPerspectiva(l.category))
+    .reduce((t, l) => t + (l.paid ? (Number(l.amount) || 0) : (Number(l.pago_parcial) || 0)), 0)
+    .toFixed(2);
 
   if (atual) {
     // ESTA LINHA É UM ESPELHO, E ESPELHO NÃO TEM OPINIÃO.
@@ -868,6 +875,158 @@ router.delete("/debts/:id/payments/:pid", (req, res) => {
   if (!debt) return res.status(404).json({ error: "Dívida não encontrada." });
   db.prepare("DELETE FROM personal_debt_payments WHERE id=? AND debt_id=? AND user_id=?").run(req.params.pid, debt.id, uid(req));
   res.json(debtWithPayments(debt, uid(req), req.orgId));
+});
+
+// ---------------------------------------------------------------------------
+// QUEM ME DEVE, E PELO QUÊ.
+//
+// Pedido dela, embaixo das dívidas: a lista existia só para um lado — "o que eu
+// devo". O outro lado não existia, e é o mesmo problema de sempre: o que não
+// está escrito depende da memória dela.
+//
+// Mesma forma das dívidas, de propósito: um total, abatimentos que vão baixando
+// o saldo, e some da lista quando quitar. Privado por usuário, como o resto
+// desta aba.
+// ---------------------------------------------------------------------------
+
+function creditWithPayments(credit, uidv, org) {
+  const payments = db.prepare(
+    "SELECT id, amount, paid_on, note, created_at FROM personal_credit_payments WHERE credit_id=? AND user_id=? AND org_id=? ORDER BY COALESCE(paid_on, created_at), id"
+  ).all(credit.id, uidv, org);
+  const pago = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const total = Number(credit.total) || 0;
+  return {
+    ...credit, payments, pago: +pago.toFixed(2),
+    saldo: +Math.max(0, total - pago).toFixed(2),
+    quitada: pago >= total && total > 0,
+  };
+}
+
+router.get("/credits", (req, res) => {
+  const todas = req.query.all === "1";
+  const rows = db.prepare(
+    `SELECT * FROM personal_credits WHERE org_id=? AND user_id=? ${todas ? "" : "AND archived=0"} ORDER BY archived, created_at DESC, id DESC`
+  ).all(req.orgId, uid(req));
+  res.json(rows.map((c) => creditWithPayments(c, uid(req), req.orgId)));
+});
+
+router.post("/credits", (req, res) => {
+  const b = req.body || {};
+  if (!b.name?.trim()) return res.status(400).json({ error: "Diga quem está te devendo." });
+  const info = db.prepare(
+    "INSERT INTO personal_credits (org_id, user_id, name, total, note) VALUES (?, ?, ?, ?, ?)"
+  ).run(req.orgId, uid(req), b.name.trim(), Number(b.total) || 0, b.note?.trim() || null);
+  const c = db.prepare("SELECT * FROM personal_credits WHERE id=?").get(info.lastInsertRowid);
+  res.status(201).json(creditWithPayments(c, uid(req), req.orgId));
+});
+
+router.put("/credits/:id", (req, res) => {
+  const cur = db.prepare("SELECT * FROM personal_credits WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
+  if (!cur) return res.status(404).json({ error: "Não encontrado." });
+  const b = req.body || {};
+  db.prepare("UPDATE personal_credits SET name=?, total=?, note=?, archived=? WHERE id=? AND user_id=?").run(
+    b.name?.trim() || cur.name,
+    b.total !== undefined ? (Number(b.total) || 0) : cur.total,
+    b.note !== undefined ? (b.note?.trim() || null) : cur.note,
+    b.archived !== undefined ? (b.archived ? 1 : 0) : cur.archived,
+    req.params.id, uid(req)
+  );
+  const c = db.prepare("SELECT * FROM personal_credits WHERE id=?").get(req.params.id);
+  res.json(creditWithPayments(c, uid(req), req.orgId));
+});
+
+router.delete("/credits/:id", (req, res) => {
+  const cur = db.prepare("SELECT id FROM personal_credits WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
+  if (cur) {
+    db.prepare("DELETE FROM personal_credit_payments WHERE credit_id=? AND user_id=?").run(req.params.id, uid(req));
+    db.prepare("DELETE FROM personal_credits WHERE id=? AND user_id=?").run(req.params.id, uid(req));
+  }
+  res.json({ ok: true });
+});
+
+/** Fulano me pagou um pedaço. */
+router.post("/credits/:id/payments", (req, res) => {
+  const c = db.prepare("SELECT * FROM personal_credits WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
+  if (!c) return res.status(404).json({ error: "Não encontrado." });
+  const amount = Number(req.body?.amount) || 0;
+  if (amount <= 0) return res.status(400).json({ error: "Informe quanto ele te pagou." });
+  const paidOn = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.paid_on || "")
+    ? req.body.paid_on : new Date().toISOString().slice(0, 10);
+  db.prepare(
+    "INSERT INTO personal_credit_payments (credit_id, org_id, user_id, amount, paid_on, note) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(c.id, req.orgId, uid(req), amount, paidOn, req.body?.note?.trim() || null);
+  res.status(201).json(creditWithPayments(c, uid(req), req.orgId));
+});
+
+router.delete("/credits/:id/payments/:pid", (req, res) => {
+  const c = db.prepare("SELECT * FROM personal_credits WHERE id=? AND org_id=? AND user_id=?").get(req.params.id, req.orgId, uid(req));
+  if (!c) return res.status(404).json({ error: "Não encontrado." });
+  db.prepare("DELETE FROM personal_credit_payments WHERE id=? AND credit_id=? AND user_id=?").run(req.params.pid, c.id, uid(req));
+  res.json(creditWithPayments(c, uid(req), req.orgId));
+});
+
+// ---------------------------------------------------------------------------
+// OS DOIS ÍCONES DA LINHA: pagar um pedaço, e lançar juros.
+//
+// Pedido dela: "um vai dar baixa no valor parcial que eu colocar e o outro
+// acrescenta como juros".
+// ---------------------------------------------------------------------------
+
+/** PAGAR PARCIAL: dá baixa num pedaço. Cobriu o valor, a conta vira paga. */
+router.post("/:id/parcial", (req, res) => {
+  const row = db.prepare("SELECT * FROM personal_finance WHERE id=? AND org_id=? AND user_id=?")
+    .get(req.params.id, req.orgId, uid(req));
+  if (!row) return res.status(404).json({ error: "Não encontrado." });
+  if (row.paid) return res.status(400).json({ error: "Esta conta já está quitada." });
+  const valor = numeroBR(req.body?.valor);
+  if (!(valor > 0)) return res.status(400).json({ error: "Informe um valor maior que zero." });
+
+  const total = Number(row.amount) || 0;
+  const pago = +Math.min(total, (Number(row.pago_parcial) || 0) + valor).toFixed(2);
+  // Cobriu tudo? Então é a mesma coisa que marcar o check — e deixar a conta
+  // "parcial em 100%" seria mentir para ela na soma do mês.
+  const quitou = pago >= total - 0.004;
+  db.prepare("UPDATE personal_finance SET pago_parcial=?, paid=? WHERE id=? AND user_id=?")
+    .run(quitou ? total : pago, quitou ? 1 : 0, row.id, uid(req));
+  const salario = sincronizaSalarioKaty(req.orgId, uid(req), row.ym, req.user.name);
+  res.json({ ...db.prepare("SELECT * FROM personal_finance WHERE id=?").get(row.id), quitou, salario });
+});
+
+/** Desfaz as baixas parciais desta conta. */
+router.delete("/:id/parcial", (req, res) => {
+  const row = db.prepare("SELECT * FROM personal_finance WHERE id=? AND org_id=? AND user_id=?")
+    .get(req.params.id, req.orgId, uid(req));
+  if (!row) return res.status(404).json({ error: "Não encontrado." });
+  db.prepare("UPDATE personal_finance SET pago_parcial=0 WHERE id=? AND user_id=?").run(row.id, uid(req));
+  sincronizaSalarioKaty(req.orgId, uid(req), row.ym, req.user.name);
+  res.json(db.prepare("SELECT * FROM personal_finance WHERE id=?").get(row.id));
+});
+
+/** ACRÉSCIMO: entra no valor da conta e fica registrado como juros. */
+router.post("/:id/juros", (req, res) => {
+  const row = db.prepare("SELECT * FROM personal_finance WHERE id=? AND org_id=? AND user_id=?")
+    .get(req.params.id, req.orgId, uid(req));
+  if (!row) return res.status(404).json({ error: "Não encontrado." });
+  if (row.paid) return res.status(400).json({ error: "Esta conta já está paga — não dá para lançar juros nela." });
+  const valor = numeroBR(req.body?.valor);
+  if (!(valor > 0)) return res.status(400).json({ error: "Informe um valor de juros maior que zero." });
+  db.prepare("UPDATE personal_finance SET amount=?, juros=? WHERE id=? AND user_id=?").run(
+    +((Number(row.amount) || 0) + valor).toFixed(2),
+    +((Number(row.juros) || 0) + valor).toFixed(2),
+    row.id, uid(req));
+  sincronizaSalarioKaty(req.orgId, uid(req), row.ym, req.user.name);
+  res.json(db.prepare("SELECT * FROM personal_finance WHERE id=?").get(row.id));
+});
+
+/** Tira os juros e devolve a conta ao valor de origem. */
+router.delete("/:id/juros", (req, res) => {
+  const row = db.prepare("SELECT * FROM personal_finance WHERE id=? AND org_id=? AND user_id=?")
+    .get(req.params.id, req.orgId, uid(req));
+  if (!row) return res.status(404).json({ error: "Não encontrado." });
+  db.prepare("UPDATE personal_finance SET amount=?, juros=0 WHERE id=? AND user_id=?")
+    .run(Math.max(0, +((Number(row.amount) || 0) - (Number(row.juros) || 0)).toFixed(2)), row.id, uid(req));
+  sincronizaSalarioKaty(req.orgId, uid(req), row.ym, req.user.name);
+  res.json(db.prepare("SELECT * FROM personal_finance WHERE id=?").get(row.id));
 });
 
 export default router;
