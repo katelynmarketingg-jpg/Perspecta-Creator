@@ -12,36 +12,85 @@ import api from "../api/client.js";
 import { currency } from "../utils.js";
 
 // ---------------------------------------------------------------------------
-// DÍVIDAS pessoais — "estou devendo pra fulano e vou pagando aos poucos".
-// Fica na aba Minhas Finanças (privada por login). Separada das contas do mês:
-// cada dívida tem um total e pagamentos parciais que abatem o saldo.
+// OS DOIS LADOS DA MESMA CONTA.
+//
+// Já existia "o que eu devo". Ela pediu o outro: "acrescenta aqui embaixo quem
+// me deve e pelo quê" — e era a mesma falta de sempre, o que não está escrito
+// depende da memória dela.
+//
+// A forma é idêntica (um total, abatimentos que baixam o saldo, some quando
+// quita), então o componente é UM só, com as palavras de cada lado. Duas
+// cópias de 165 linhas iam divergir no primeiro conserto que eu fizesse num
+// lado e esquecesse no outro.
+//
+// Fica na aba Minhas Finanças, privada por login.
 // ---------------------------------------------------------------------------
-export default function DebtsCard() {
-  const [debts, setDebts] = useState([]);
-  const [open, setOpen] = useState({});         // dívidas expandidas
-  const [novo, setNovo] = useState(null);        // { name, total, note }
-  const [pgto, setPgto] = useState({});          // rascunho de pagamento por dívida
 
-  const load = () => api.get("/personal-finance/debts").then((r) => setDebts(r.data || [])).catch(() => setDebts([]));
-  useEffect(() => { load(); }, []);
+const LADOS = {
+  devo: {
+    rota: "debts",
+    titulo: "Dívidas — o que eu devo",
+    explica: "O que você deve pra alguém (mãe, João do Score…) e vai pagando aos poucos. Só você vê.",
+    botao: "Nova dívida",
+    vazio: <>Nenhuma dívida por aqui. Clique em <b>Nova dívida</b> pra registrar algo que você deve e ir abatendo.</>,
+    chip: (v) => `Devendo: ${v}`,
+    linha: (t, p, s) => <>Devia {t} · pagou {p} · <b>falta {s}</b></>,
+    quemLabel: "Pra quem você deve *",
+    quemDica: "Mãe, João do Score…",
+    totalLabel: "Quanto era a dívida (R$)",
+    noteDica: "Ex.: compras no cartão dela",
+    tituloNovo: "Nova dívida",
+    pagueiLabel: "Paguei (R$)",
+    confirmaApagar: (n) => `Apagar a dívida com "${n}" e todos os pagamentos dela?`,
+    semPagamento: "Nenhum pagamento ainda.",
+  },
+  medevem: {
+    rota: "credits",
+    titulo: "Quem me deve — e pelo quê",
+    explica: "O que emprestaram de você e ainda não voltou. Vá abatendo conforme a pessoa te paga. Só você vê.",
+    botao: "Alguém me deve",
+    vazio: <>Ninguém te devendo por aqui. Clique em <b>Alguém me deve</b> pra registrar e ir abatendo conforme receber.</>,
+    chip: (v) => `A receber: ${v}`,
+    linha: (t, p, s) => <>Devia {t} · já me pagou {p} · <b>falta {s}</b></>,
+    quemLabel: "Quem está te devendo *",
+    quemDica: "Bruno, Rafaela, a vó…",
+    totalLabel: "Quanto ele(a) te deve (R$)",
+    noteDica: "Ex.: emprestei pra consertar o carro",
+    tituloNovo: "Quem me deve",
+    pagueiLabel: "Me pagou (R$)",
+    confirmaApagar: (n) => `Apagar o que "${n}" te deve e todos os abatimentos?`,
+    semPagamento: "Ainda não te pagou nada.",
+  },
+};
+
+export default function DebtsCard({ lado = "devo" }) {
+  const L = LADOS[lado] || LADOS.devo;
+  const [debts, setDebts] = useState([]);
+  const [open, setOpen] = useState({});         // linhas expandidas
+  const [novo, setNovo] = useState(null);        // { name, total, note }
+  const [pgto, setPgto] = useState({});          // rascunho de pagamento por linha
+
+  const load = () => api.get(`/personal-finance/${L.rota}`).then((r) => setDebts(r.data || [])).catch(() => setDebts([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [L.rota]);
 
   async function criar() {
     if (!novo?.name?.trim()) return;
-    await api.post("/personal-finance/debts", { name: novo.name.trim(), total: Number(novo.total) || 0, note: novo.note });
+    await api.post(`/personal-finance/${L.rota}`, { name: novo.name.trim(), total: Number(novo.total) || 0, note: novo.note });
     setNovo(null); load();
   }
   async function excluir(d) {
-    if (!confirm(`Apagar a dívida com "${d.name}" e todos os pagamentos dela?`)) return;
-    await api.delete(`/personal-finance/debts/${d.id}`); load();
+    if (!confirm(L.confirmaApagar(d.name))) return;
+    await api.delete(`/personal-finance/${L.rota}/${d.id}`); load();
   }
   async function pagar(d) {
     const val = Number(pgto[d.id]?.amount) || 0;
     if (val <= 0) return;
-    await api.post(`/personal-finance/debts/${d.id}/payments`, { amount: val, note: pgto[d.id]?.note, paid_on: pgto[d.id]?.paid_on });
+    await api.post(`/personal-finance/${L.rota}/${d.id}/payments`, { amount: val, note: pgto[d.id]?.note, paid_on: pgto[d.id]?.paid_on });
     setPgto((p) => ({ ...p, [d.id]: {} })); load();
   }
   async function apagarPagamento(d, p) {
-    await api.delete(`/personal-finance/debts/${d.id}/payments/${p.id}`); load();
+    await api.delete(`/personal-finance/${L.rota}/${d.id}/payments/${p.id}`); load();
   }
 
   const totalDevendo = debts.reduce((s, d) => s + (d.saldo || 0), 0);
@@ -52,22 +101,22 @@ export default function DebtsCard() {
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
           <PaidIcon color="primary" />
           <Box sx={{ flex: 1 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Dívidas — o que eu devo</Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{L.titulo}</Typography>
             <Typography variant="caption" color="text.secondary">
-              O que você deve pra alguém (mãe, João do Score…) e vai pagando aos poucos. Só você vê.
+              {L.explica}
             </Typography>
           </Box>
           {debts.length > 0 && (
-            <Chip color={totalDevendo > 0 ? "warning" : "success"} label={`Devendo: ${currency(totalDevendo)}`} sx={{ fontWeight: 700 }} />
+            <Chip color={totalDevendo > 0 ? "warning" : "success"} label={L.chip(currency(totalDevendo))} sx={{ fontWeight: 700 }} />
           )}
           <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={() => setNovo({ name: "", total: "", note: "" })}>
-            Nova dívida
+            {L.botao}
           </Button>
         </Stack>
 
         {debts.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-            Nenhuma dívida por aqui. Clique em <b>Nova dívida</b> pra registrar algo que você deve e ir abatendo.
+            {L.vazio}
           </Typography>
         ) : (
           <Stack spacing={1}>
@@ -84,7 +133,7 @@ export default function DebtsCard() {
                         {d.note && <Typography variant="caption" color="text.secondary" noWrap>· {d.note}</Typography>}
                       </Stack>
                       <Typography variant="caption" color="text.secondary">
-                        Devia {currency(d.total)} · pagou {currency(d.pago)} · <b>falta {currency(d.saldo)}</b>
+                        {L.linha(currency(d.total), currency(d.pago), currency(d.saldo))}
                       </Typography>
                       <LinearProgress variant="determinate" value={pct} color={d.quitada ? "success" : "primary"}
                         sx={{ mt: 0.5, height: 7, borderRadius: 3 }} />
@@ -94,7 +143,7 @@ export default function DebtsCard() {
                         {aberto ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Apagar dívida">
+                    <Tooltip title={lado === "devo" ? "Apagar dívida" : "Apagar"}>
                       <IconButton size="small" color="error" onClick={() => excluir(d)}><DeleteIcon sx={{ fontSize: 18 }} /></IconButton>
                     </Tooltip>
                   </Stack>
@@ -103,7 +152,7 @@ export default function DebtsCard() {
                     <Box sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: "divider" }}>
                       {/* Lançar um pagamento */}
                       <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }} sx={{ mb: 1 }}>
-                        <TextField size="small" type="number" label="Paguei (R$)" value={pgto[d.id]?.amount || ""}
+                        <TextField size="small" type="number" label={L.pagueiLabel} value={pgto[d.id]?.amount || ""}
                           onChange={(e) => setPgto((p) => ({ ...p, [d.id]: { ...p[d.id], amount: e.target.value } }))} sx={{ width: 130 }} />
                         <TextField size="small" type="date" label="Quando" InputLabelProps={{ shrink: true }} value={pgto[d.id]?.paid_on || ""}
                           onChange={(e) => setPgto((p) => ({ ...p, [d.id]: { ...p[d.id], paid_on: e.target.value } }))} sx={{ width: 160 }} />
@@ -114,7 +163,7 @@ export default function DebtsCard() {
                       </Stack>
                       {/* Histórico de pagamentos */}
                       {d.payments.length === 0 ? (
-                        <Typography variant="caption" color="text.secondary">Nenhum pagamento ainda.</Typography>
+                        <Typography variant="caption" color="text.secondary">{L.semPagamento}</Typography>
                       ) : (
                         <Stack spacing={0.5}>
                           {d.payments.map((p) => (
@@ -139,19 +188,19 @@ export default function DebtsCard() {
         )}
       </CardContent>
 
-      {/* Nova dívida */}
+      {/* Novo registro */}
       <Dialog open={Boolean(novo)} onClose={() => setNovo(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Nova dívida</DialogTitle>
+        <DialogTitle>{L.tituloNovo}</DialogTitle>
         <DialogContent>
           {novo && (
             <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField label="Pra quem você deve *" autoFocus value={novo.name} placeholder="Mãe, João do Score…"
+              <TextField label={L.quemLabel} autoFocus value={novo.name} placeholder={L.quemDica}
                 onChange={(e) => setNovo((n) => ({ ...n, name: e.target.value }))} fullWidth />
-              <TextField label="Quanto era a dívida (R$)" type="number" value={novo.total}
+              <TextField label={L.totalLabel} type="number" value={novo.total}
                 onChange={(e) => setNovo((n) => ({ ...n, total: e.target.value }))} fullWidth />
               <TextField label="Do que é (opcional)" value={novo.note}
                 onChange={(e) => setNovo((n) => ({ ...n, note: e.target.value }))} fullWidth
-                placeholder="Ex.: compras no cartão dela" />
+                placeholder={L.noteDica} />
             </Stack>
           )}
         </DialogContent>

@@ -5,6 +5,7 @@ import {
   Autocomplete, Switch, FormControlLabel, Divider,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import PaidIcon from "@mui/icons-material/Paid";
 import EditIcon from "@mui/icons-material/Edit";
 import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
@@ -98,6 +99,7 @@ export default function MinhasFinancas() {
   const [expanded, setExpanded] = useState({});
   const [draft, setDraft] = useState(null);
   const [salaryDraft, setSalaryDraft] = useState("");
+  const [caixa, setCaixa] = useState(null); // { id, nome, tipo: "parcial"|"juros", valor, erro }
   const [msg, setMsg] = useState("");
   const [imports, setImports] = useState([]);
   const [importsOpen, setImportsOpen] = useState(false);
@@ -123,7 +125,9 @@ export default function MinhasFinancas() {
       const k = e.method || "Sem método";
       (map[k] ||= { method: e.method || "", items: [], total: 0, pagos: 0, atrasado: 0, atrasadas: 0, doMes: 0, pagoValor: 0 });
       map[k].items.push(e); map[k].total += Number(e.amount) || 0; if (e.paid) map[k].pagos++;
-      if (e.paid) map[k].pagoValor += Number(e.amount) || 0;
+      // O que já saiu conta, quitada ou não: a baixa parcial é dinheiro que
+      // saiu de verdade, e o número de cima diz "quanto ainda falta".
+      map[k].pagoValor += e.paid ? (Number(e.amount) || 0) : (Number(e.pago_parcial) || 0);
       if (e.da_perspectiva) map[k].perspectiva = (map[k].perspectiva || 0) + (Number(e.amount) || 0);
       if (e.atrasado_de) { map[k].atrasado += Number(e.amount) || 0; map[k].atrasadas++; }
       else map[k].doMes++;
@@ -229,6 +233,26 @@ export default function MinhasFinancas() {
   // abrir a ficha do gasto.
   async function toggleImpagavel(e) {
     await api.put(enderecoDe(e), { impagavel: !e.impagavel });
+    load();
+  }
+
+  // OS DOIS ÍCONES DA LINHA. Pedido dela: "um vai dar baixa no valor parcial
+  // que eu colocar e o outro acrescenta como juros".
+  async function salvarCaixinha() {
+    if (!caixa) return;
+    try {
+      await api.post(`/personal-finance/${caixa.id}/${caixa.tipo === "juros" ? "juros" : "parcial"}`,
+        { valor: caixa.valor });
+      setCaixa(null);
+      load();
+    } catch (err) {
+      setCaixa((c) => ({ ...c, erro: err.response?.data?.error || "Não consegui lançar." }));
+    }
+  }
+  async function desfazer(e, tipo) {
+    const q = tipo === "juros" ? "os juros desta conta" : "as baixas parciais desta conta";
+    if (!window.confirm(`Tirar ${q}?`)) return;
+    await api.delete(`/personal-finance/${e.id}/${tipo === "juros" ? "juros" : "parcial"}`);
     load();
   }
   async function pagarFatura(g, paid) {
@@ -544,6 +568,22 @@ export default function MinhasFinancas() {
                             </Tooltip>
                           )}
                           {e.parcela && <Chip size="small" variant="outlined" label={e.parcela} sx={{ height: 18 }} />}
+                          {/* O que já saiu desta conta sem ela estar quitada —
+                              senão a baixa parcial seria invisível. */}
+                          {e.pago_parcial > 0 && !e.paid && (
+                            <Tooltip title="Já pago desta conta — clique no X para desfazer">
+                              <Chip size="small" color="primary" variant="outlined"
+                                onDelete={() => desfazer(e, "parcial")}
+                                label={`pago ${currency(e.pago_parcial)} de ${currency(e.amount)}`} sx={{ height: 18 }} />
+                            </Tooltip>
+                          )}
+                          {e.juros > 0 && (
+                            <Tooltip title="Juros lançados — clique no X para tirar e voltar ao valor de origem">
+                              <Chip size="small" color="error" variant="outlined"
+                                onDelete={() => desfazer(e, "juros")}
+                                label={`${currency(e.juros)} de juros`} sx={{ height: 18 }} />
+                            </Tooltip>
+                          )}
                           {/* O vencimento só aparece em quem tem: ela põe onde
                               faz diferença, e o resto fica limpo. */}
                           {vencimentoDaLinha(e.due_day, e.ym) && (
@@ -589,6 +629,26 @@ export default function MinhasFinancas() {
                             {e.impagavel ? <StarIcon sx={{ fontSize: 16 }} /> : <StarBorderIcon sx={{ fontSize: 16 }} />}
                           </IconButton>
                         </Tooltip>
+                        {/* PAGAR PARCIAL e ACRÉSCIMO. Só em conta que ainda
+                            não está quitada — lançar juros ou baixa numa conta
+                            paga não quer dizer nada. Os da Perspectiva ficam
+                            de fora: aquele dado vive no Financeiro. */}
+                        {!e.paid && !e.da_perspectiva && (
+                          <>
+                            <Tooltip title="Pagar um pedaço: dá baixa no valor que você colocar">
+                              <IconButton size="small" color="primary"
+                                onClick={() => setCaixa({ id: e.id, nome: e.name, tipo: "parcial", valor: "", erro: "" })}>
+                                <PaidIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Acréscimo: entra no valor da conta como juros">
+                              <IconButton size="small" color="error"
+                                onClick={() => setCaixa({ id: e.id, nome: e.name, tipo: "juros", valor: "", erro: "" })}>
+                                <AddIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        )}
                         {/* Editar e apagar mexem no dado: o da Perspectiva é
                             do Financeiro, e mudar por aqui esconderia de onde
                             a mudança veio. O check e a estrelinha valem, que é
@@ -611,6 +671,32 @@ export default function MinhasFinancas() {
 
       {/* Dívidas — o que eu devo e vou pagando aos poucos (separado das contas do mês) */}
       <DebtsCard />
+      {/* A CAIXINHA DOS DOIS ÍCONES. Um campo, dois botões — ela digita com
+          vírgula e o servidor converte. */}
+      <Dialog open={Boolean(caixa)} onClose={() => setCaixa(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{caixa?.tipo === "juros" ? "Lançar juros" : "Pagar um pedaço"}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>{caixa?.nome}</Typography>
+          <TextField autoFocus fullWidth placeholder="50,00"
+            label={caixa?.tipo === "juros" ? "Juros (R$)" : "Quanto você pagou (R$)"}
+            value={caixa?.valor ?? ""} error={Boolean(caixa?.erro)} helperText={caixa?.erro || " "}
+            onChange={(ev) => setCaixa((c) => ({ ...c, valor: ev.target.value, erro: "" }))}
+            onKeyDown={(ev) => { if (ev.key === "Enter") salvarCaixinha(); }} />
+          <Typography variant="caption" color="text.secondary">
+            {caixa?.tipo === "juros"
+              ? "Entra no valor da conta e fica registrado como juros — dá para tirar depois."
+              : "Dá baixa só desse pedaço. Quando os pedaços cobrirem o valor, a conta é marcada como paga sozinha."}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCaixa(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={salvarCaixinha}>Lançar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* O OUTRO LADO. Pedido dela: "acrescenta aqui embaixo quem me deve e
+          pelo quê". Mesmo componente, outras palavras. */}
+      <DebtsCard lado="medevem" />
 
       {/* O QUE TERMINOU. Miudinho e lá embaixo, de propósito: não é conta a
           pagar, é só o registro de que aquela parcela acabou. Sem isso, a conta
