@@ -29,9 +29,15 @@ const soma = (linhas) => +linhas.reduce((s, l) => s + (Number(l.amount) || 0), 0
 /** O que é dela mesma — gasto pessoal, tirando o que é da Perspectiva. */
 export const soMeus = (linhas = []) => linhas.filter((l) => !souDaPerspectiva(l.category));
 
-/** Quanto ela JÁ tirou este mês: a soma do que está com check. */
+/**
+ * Quanto ela JÁ tirou este mês: o que está com check, mais os pedaços pagos
+ * das que ainda não fecharam. Pedaço pago é dinheiro que saiu do caixa — ficar
+ * de fora daqui fazia "já paguei" + "falta pagar" não dar o total do mês.
+ */
 export function quantoJaPeguei(linhas = []) {
-  return soma(soMeus(linhas).filter((l) => l.paid));
+  return +soMeus(linhas)
+    .reduce((t, l) => t + (l.paid ? (Number(l.amount) || 0) : (Number(l.pago_parcial) || 0)), 0)
+    .toFixed(2);
 }
 
 /**
@@ -47,9 +53,17 @@ export function quantoEhOMeu(linhas = [], lazer = 0) {
   return +(soma(soMeus(linhas)) + Math.max(0, Number(lazer) || 0)).toFixed(2);
 }
 
-/** O que ainda está em aberto — o que falta pagar das contas dela. */
+/**
+ * O que ainda está em aberto — o que falta pagar das contas dela.
+ *
+ * DESCONTA O QUE JÁ FOI PAGO EM PEDAÇOS. Com a baixa parcial, uma conta de 200
+ * com 50 já pagos deve 150, não 200. Somar o valor cheio aqui fazia o cartão de
+ * cima discordar da abinha, que já contava o pedaço.
+ */
 export function quantoFaltaPagar(linhas = []) {
-  return soma(soMeus(linhas).filter((l) => !l.paid));
+  return +soMeus(linhas).filter((l) => !l.paid)
+    .reduce((t, l) => t + Math.max(0, (Number(l.amount) || 0) - (Number(l.pago_parcial) || 0)), 0)
+    .toFixed(2);
 }
 
 /**

@@ -100,6 +100,11 @@ export default function MinhasFinancas() {
   const [draft, setDraft] = useState(null);
   const [salaryDraft, setSalaryDraft] = useState("");
   const [caixa, setCaixa] = useState(null); // { id, nome, tipo: "parcial"|"juros", valor, erro }
+  // INCORPORAR O ATRASO — desligado por padrão, como ela pediu: "quero ver
+  // novembro limpo, sem esses em atraso, porque vou pagar em outubro; se eu
+  // quiser vê-los em novembro, eu ativo". Fica lembrado no navegador para ela
+  // não ter de religar a cada visita.
+  const [incorporar, setIncorporar] = useState(() => localStorage.getItem("mf:incorporar") === "1");
   const [msg, setMsg] = useState("");
   const [imports, setImports] = useState([]);
   const [importsOpen, setImportsOpen] = useState(false);
@@ -107,11 +112,11 @@ export default function MinhasFinancas() {
 
   const ym = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
 
-  const load = () => api.get("/personal-finance", { params: { ym } }).then((r) => {
+  const load = () => api.get("/personal-finance", { params: { ym, incorporar: incorporar ? 1 : 0 } }).then((r) => {
     setData(r.data); setSalaryDraft(r.data.salary || "");
   }).catch(() => setData(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [ym]);
+  useEffect(() => { load(); }, [ym, incorporar]);
 
   // AS QUE ELA NÃO MARCOU ENTRAM NA MESMA ABINHA.
   //
@@ -429,12 +434,32 @@ export default function MinhasFinancas() {
           As linhas vermelhas respondem "quais"; este aviso responde "quanto".
           E diz que não entra nos cartões do mês — senão ela soma na cabeça e
           acha que o "Total do mês" está errado. */}
+      {/* O BOTÃO DE INCORPORAR. Pedido dela, com estas palavras: "tenha um botão
+          'incorporar o que ficou em aberto do mês anterior' — esse mesmo botão
+          coloca pra cá os atrasados e tira, se eu desclicar".
+
+          Era também o que fazia a conta não bater: as abinhas somavam o atraso
+          e os cartões de cima não, e a diferença era exatamente o atraso. Agora
+          o mesmo interruptor manda nos dois. */}
       {s?.atrasadas > 0 && (
-        <Alert severity="error" icon={false} sx={{ mb: 2 }}>
+        <Alert severity={incorporar ? "error" : "info"} icon={false} sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" variant={incorporar ? "outlined" : "contained"}
+              onClick={() => {
+                const v = !incorporar;
+                setIncorporar(v);
+                try { localStorage.setItem("mf:incorporar", v ? "1" : "0"); } catch { /* aba privada */ }
+              }}>
+              {incorporar ? "Tirar daqui" : "Incorporar"}
+            </Button>
+          }>
           <b>{currency(s.atrasado)}</b> em {s.atrasadas} conta(s) que você não marcou em meses
-          anteriores. Elas aparecem <b>em vermelho</b> dentro da fatura de cada cartão, somando no total
-          dele. Marque o check da linha e ela sai daqui. Não entram nos cartões de resumo acima, que
-          continuam sendo só deste mês.
+          anteriores.{" "}
+          {incorporar
+            ? <>Estão <b>em vermelho</b> dentro da fatura de cada cartão e somando em tudo — nas abinhas
+              e nos cartões de cima. Marque o check da linha e ela sai daqui.</>
+            : <>Este mês está <b>limpo</b>: elas não aparecem nem somam em nada. Clique em
+              <b> Incorporar</b> para trazê-las.</>}
         </Alert>
       )}
 

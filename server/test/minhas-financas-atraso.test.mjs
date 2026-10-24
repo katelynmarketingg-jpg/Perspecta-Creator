@@ -43,7 +43,14 @@ const B = `http://127.0.0.1:${srv.address().port}/api/personal-finance`;
 const como = (id) => ({ "content-type": "application/json", authorization: `Bearer ${jwt.sign({ id }, JWT_SECRET)}` });
 after(() => { srv.close(); db.close(); });
 
-const mes = (ym, quem = katy) => fetch(`${B}/?ym=${ym}`, { headers: como(quem) }).then((r) => r.json());
+// INCORPORAR O ATRASO VIROU BOTÃO — e desligado por padrão, como ela pediu:
+// "quero ver novembro limpo, sem esses em atraso, porque vou pagar em outubro;
+// se eu quiser vê-los em novembro, eu ativo". Estes casos são sobre o atraso em
+// si, então pedem o arrasto de propósito; o caso do mês limpo está logo abaixo.
+const mes = (ym, quem = katy) =>
+  fetch(`${B}/?ym=${ym}&incorporar=1`, { headers: como(quem) }).then((r) => r.json());
+const mesLimpo = (ym, quem = katy) =>
+  fetch(`${B}/?ym=${ym}`, { headers: como(quem) }).then((r) => r.json());
 
 function gasto({ ym, nome, valor, pago = 0, metodo = "Riachuelo", parcela = null, cat = "Roupas", quem = katy }) {
   return db.prepare(
@@ -73,12 +80,24 @@ test("o total do atraso vem contado, para o aviso de cima", async () => {
   assert.equal(out.summary.atrasadas, 1);
 });
 
-test("os números DO MÊS não mudam — a ponte do salário depende deles", async () => {
-  // Decisão de propósito: o atraso soma na abinha, não no "Total do mês". Se
-  // entrasse no resumo, mudaria o que é empurrado para o Financeiro como
-  // "Salário Katy" — um número que ela já confere.
-  const out = await mes("2026-10");
-  assert.equal(out.summary.total, 151, "só a parcela de outubro");
+test("a LINHA DO SALÁRIO nunca leva o atraso — senão a empresa paga duas vezes", async () => {
+  // Esta é a regra que não pode cair. Com o atraso incorporado, os cartões da
+  // tela passam a contá-lo DE PROPÓSITO (para fecharem com a lista) — mas a
+  // linha que vai para o Financeiro é sempre do MÊS: a conta de setembro já
+  // entrou no salário de setembro, e entrar de novo em outubro seria a empresa
+  // pagar duas vezes a mesma conta.
+  await fetch(`${B}/config`, {
+    method: "PUT", headers: como(katy),
+    body: JSON.stringify({ salary: 0, ym: "2026-10", ponte_financeiro: true }),
+  });
+  await mes("2026-10");   // abre o mês COM o atraso incorporado
+  const linha = db.prepare(
+    "SELECT amount FROM financial_entries WHERE org_id=? AND category LIKE 'Sal%' AND strftime('%Y-%m', due_date)='2026-10'"
+  ).get(org);
+  const doMes = db.prepare(
+    "SELECT COALESCE(SUM(amount),0) v FROM personal_finance WHERE org_id=? AND user_id=? AND ym='2026-10'"
+  ).get(org, katy).v;
+  assert.equal(linha.amount, doMes, "o salário é o mês dela, nem mais nem menos");
 });
 
 test("marcou como paga, some do mês seguinte", async () => {
@@ -146,7 +165,28 @@ test('"fatura paga" continua sendo a fatura DO MÊS', () => {
   assert.match(tela, /\{g\.doMes\} item\(ns\) · \{g\.pagos\}\/\{g\.doMes\} pagos/);
 });
 
-test("o aviso de cima diz que o atraso NÃO entra nos cartões do mês", () => {
+test("o botão de incorporar manda nos DOIS: nas abinhas e nos cartões", () => {
+  // Era aqui que a conta "não batia": as abinhas somavam o atraso e os cartões
+  // de cima não — a diferença era exatamente o atraso (R$ 588,69 na tela dela).
   assert.match(tela, /s\?\.atrasadas > 0 && \(/);
-  assert.match(tela, /continuam sendo só deste mês/);
+  assert.match(tela, /incorporar \? "Tirar daqui" : "Incorporar"/);
+  assert.match(tela, /localStorage\.setItem\("mf:incorporar"/, "lembra a escolha dela");
+  assert.match(tela, /Este mês está <b>limpo<\/b>/, "desligado, o mês aparece limpo");
+});
+
+test("por padrão o mês vem LIMPO — o atraso só entra se ela pedir", async () => {
+  const limpo = await mesLimpo("2026-10");
+  assert.deepEqual(limpo.atrasadas, [], "nada de mês anterior sem ela clicar");
+  assert.ok(limpo.summary.atrasado > 0, "mas o total continua vindo, senão o botão não saberia o que dizer");
+  assert.equal(limpo.summary.incorporado, false);
+});
+
+test("incorporado, a soma das abinhas FECHA com o total de cima", async () => {
+  const com = await mes("2026-10");
+  const naTela = [...com.entries, ...com.atrasadas]
+    .filter((e) => !e.da_perspectiva)
+    .reduce((t, e) => t + Number(e.amount), 0);
+  assert.equal(+com.summary.total.toFixed(2), +naTela.toFixed(2),
+    "conferir um número contra o outro não pode dar duas verdades");
+  assert.equal(com.summary.incorporado, true);
 });
