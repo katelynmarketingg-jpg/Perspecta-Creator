@@ -153,6 +153,22 @@ router.get("/", (req, res) => {
   // Fica FORA do `resumo`: aquelas contas são do mês e alimentam a ponte do
   // salário com o Financeiro. Misturar atraso ali mudaria um número que ela já
   // confere. O total do atraso vai separado, com nome próprio.
+  // INCORPORAR O ATRASO É ESCOLHA DELA, E AGORA É UM BOTÃO.
+  //
+  // Pedido dela: "quando eu entrar no próximo mês, quero que apareça somente as
+  // contas do próximo mês, e tenha um botão 'incorporar o que ficou em aberto do
+  // mês anterior' — esse mesmo botão coloca pra cá os atrasados e tira, se eu
+  // desclicar."
+  //
+  // E era isso que fazia a conta "não bater": as abinhas somavam o atraso e os
+  // cartões de cima não. A diferença era exatamente o atraso (R$ 588,69 na tela
+  // dela). Agora o mesmo interruptor manda nos dois — ou tudo entra, ou nada
+  // entra, e a soma das abinhas sempre fecha com o total de cima.
+  //
+  // A LINHA DO SALÁRIO NÃO MUDA. Ela é sempre do mês: incorporar o atraso lá
+  // faria a empresa pagar duas vezes a mesma conta — uma no mês dela e outra no
+  // mês em que ela foi arrastada.
+  const incorporar = req.query.incorporar === "1";
   const atrasadas = db.prepare(
     `SELECT * FROM personal_finance
       WHERE org_id = ? AND user_id = ? AND ym < ? AND paid = 0
@@ -174,11 +190,33 @@ router.get("/", (req, res) => {
     quantos: daCasa.length,
   };
 
-  resumo.atrasado = +atrasadas.reduce((t, r) => t + (Number(r.amount) || 0), 0).toFixed(2);
+  resumo.atrasado = +atrasadas.reduce(
+    (t, r) => t + Math.max(0, (Number(r.amount) || 0) - (Number(r.pago_parcial) || 0)), 0).toFixed(2);
   resumo.atrasadas = atrasadas.length;
+  resumo.incorporado = incorporar;
+
+  // Com o atraso incorporado, os cartões de cima passam a contar o mesmo que a
+  // lista mostra — senão ela confere um número contra o outro e os dois mentem.
+  if (incorporar && atrasadas.length) {
+    const comAtraso = summary([...rows, ...atrasadas.map((r) => ({ ...r, paid: 0 }))], salary);
+    resumo.total = comAtraso.total;
+    resumo.aPagar = comAtraso.aPagar;
+    resumo.impagavelTotal = comAtraso.impagavelTotal;
+    resumo.impagavelAPagar = comAtraso.impagavelAPagar;
+    resumo.impagavelQuantos = comAtraso.impagavelQuantos;
+    resumo.comprometido = comAtraso.comprometido;
+    resumo.porCategoria = comAtraso.porCategoria;
+    resumo.porMetodo = comAtraso.porMetodo;
+    // O "falta pagar do meu" também: é a pergunta do mês, e o atraso faz parte
+    // do que ainda tem de sair do caixa quando ela escolhe trazê-lo.
+    resumo.meu = { ...comAtraso.meu, topico: resumo.meu.topico };
+  }
 
   res.json({
-    ym, salary, preenchido_de, atrasadas,
+    ym, salary, preenchido_de,
+    // Desincorporado, o mês aparece limpo — mas o total do que ficou para trás
+    // continua vindo, senão o botão não teria como dizer quanto está esperando.
+    atrasadas: incorporar ? atrasadas : [],
     ponte_financeiro: ponte,
     entries: [...minhas, ...daCasa],
     terminadas: terminadasAntesDe(req.orgId, uid(req), ym),

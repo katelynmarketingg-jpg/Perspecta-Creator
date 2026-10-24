@@ -120,7 +120,9 @@ test("a parcelada também leva, e a parcela avança", async () => {
 test("a atrasada que volta no mês seguinte mantém o vencimento DELA", async () => {
   // O chip vai dizer "vence 10/11" mesmo aparecendo em dezembro: é a data real
   // da conta, e é ela que mostra o tamanho do atraso.
-  const dez = await req("GET", "/?ym=2026-12");
+  // `incorporar=1` porque trazer o atraso virou escolha dela (um botão na tela,
+  // desligado por padrão: "quero ver novembro limpo").
+  const dez = await req("GET", "/?ym=2026-12&incorporar=1");
   const atrasada = dez.corpo.atrasadas.find((e) => e.name === "Riachuelo");
   assert.ok(atrasada);
   assert.equal(atrasada.due_day, 10);
