@@ -1463,6 +1463,22 @@ function PieceCard({ item, onChanged, flash }) {
                   </Button>
                 )}
               </Stack>
+              {/* CORTAR A TIRA TAMBÉM AQUI.
+                  Pergunta dela: "por que não aparece o botão de cortar
+                  carrossel, lembra que tinha?". Tinha — mas só no editor de
+                  carrossel. A peça dela é do tipo "Post" com uma tira larga
+                  anexada (seis artes lado a lado), e peça "Post" cai neste
+                  caminho, onde o botão nunca existiu.
+                  A arte que não é tira não fica sem resposta: a própria função
+                  mede e diz que não é larga o bastante. O TIPO da peça não
+                  muda ao cortar — isso mexeria sozinho na contagem de
+                  Entregas, que conta por tipo. */}
+              {(fileId || coverId) && (
+                <Button fullWidth variant="text" size="small" startIcon={<GridOnIcon />}
+                  disabled={slideUploading} onClick={cortarArteExistente} sx={{ mt: 0.5 }}>
+                  {slideUploading ? "Cortando…" : "Cortar arte larga em slides"}
+                </Button>
+              )}
             </>
           )}
 
