@@ -43,6 +43,74 @@ const SELECT = `
  * que diz há quanto tempo está parada. Quem muda de mês de verdade é o botão
  * de adiar, que é escolha dela.
  */
+/**
+ * AS MENSALIDADES APARECEM SOZINHAS — COMO PREVISÃO.
+ *
+ * "esse negócio de gerar mensalidades na aba de financas, nem precisa, já pode
+ *  aparecer tudo ali, eu marco quando a pessoa pagar, mas ja fica a previsão."
+ *
+ * A previsão NÃO é gravada. É calculada na hora, com a MESMA regra do gerador
+ * (porQueNaoEntra), e desaparece no instante em que vira lançamento de
+ * verdade. Gravar de visita seria pior que o botão: uma mensalidade apagada
+ * voltaria sozinha na próxima vez que ela abrisse a tela, e não haveria como
+ * entender por quê.
+ *
+ * A linha vira lançamento quando ela mexe nela — marca recebida, lança um
+ * pedaço, edita (POST /mensalidade). Até lá é número na tela, mais nada.
+ */
+function mensalidadesPrevistasDoMes(orgId, mes) {
+  const jaLancada = db.prepare(`
+    SELECT 1 FROM financial_entries
+     WHERE org_id = ? AND client_id = ? AND category = 'Mensalidade'
+       AND strftime('%Y-%m', due_date) = ? LIMIT 1`);
+  const [ano, m] = mes.split("-").map(Number);
+  const linhas = [];
+  for (const c of clientesDaCasa(orgId)) {
+    if (porQueNaoEntra(c, mes)) continue;
+    if (jaLancada.get(orgId, c.id, mes)) continue;
+    linhas.push({
+      // Chave para a tela, não id de banco: mexer nesta linha passa pelo
+      // POST /mensalidade, que é quem cria o lançamento de verdade.
+      id: `previsto:${c.id}:${mes}`,
+      previsto: true,
+      type: "income", description: `Mensalidade — ${c.name}`,
+      amount: c.valor, client_id: c.id, client_name: c.name,
+      category: "Mensalidade", status: "pending",
+      due_date: dueForMonth(ano, m - 1, Number(c.payment_day) || 5),
+      paid_amount: 0, paid_at: null, juros: 0, impagavel: 0,
+      recurring: 0, recurring_day: null, card: null,
+      receipt_id: null, receipt_number: null, receipt_status: null,
+      atrasado_de: null, dias_parada: null,
+    });
+  }
+  return linhas;
+}
+
+// Os meses que um período cobre. Sem começo não há previsão (em "Tudo" não
+// faria sentido prever o passado inteiro), e 12 meses é o teto — ninguém olha
+// mais que isso de uma vez, e cada mês custa uma volta nos clientes.
+function mesesDoPeriodo(from, to) {
+  if (!from) return [];
+  const [y0, m0] = from.slice(0, 7).split("-").map(Number);
+  const fim = (to || from).slice(0, 7);
+  const meses = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(y0, (m0 - 1) + i, 1);
+    const mes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (mes > fim) break;
+    meses.push(mes);
+  }
+  return meses;
+}
+
+// Quanto a previsão soma num período — o número que faz os balões baterem com
+// a tabela. Se a lista mostrasse a previsão e a soma não, seriam dois números
+// diferentes para a mesma pergunta.
+function previsaoDoPeriodo(orgId, from, to) {
+  const linhas = mesesDoPeriodo(from, to).flatMap((m) => mensalidadesPrevistasDoMes(orgId, m));
+  return { linhas, total: +linhas.reduce((a, l) => a + (Number(l.amount) || 0), 0).toFixed(2) };
+}
+
 router.get("/", (req, res) => {
   const { type, status, from, to } = req.query;
   const where = ["f.org_id = @org_id"];
@@ -69,7 +137,22 @@ router.get("/", (req, res) => {
          CASE WHEN ${EM_ATRASO} THEN CAST(julianday(date(@from)) - julianday(date(f.due_date)) AS INTEGER) END AS dias_parada`)}
     WHERE ${where.join(" AND ")}
     ORDER BY (atrasado_de IS NULL), f.due_date DESC, f.id DESC`;
-  res.json(db.prepare(sql).all(params));
+  const linhas = db.prepare(sql).all(params);
+
+  // ?previstas=1: as mensalidades que ainda não foram lançadas vêm junto, como
+  // previsão. Quem não pede, não recebe — as outras telas continuam vendo só
+  // o que está gravado.
+  if (req.query.previstas === "1" && from) {
+    const { linhas: previstas } = previsaoDoPeriodo(req.orgId, from, to);
+    if (previstas.length) {
+      linhas.push(...previstas);
+      linhas.sort((a, b) =>
+        (a.atrasado_de ? 0 : 1) - (b.atrasado_de ? 0 : 1) ||
+        String(b.due_date || "").localeCompare(String(a.due_date || "")) ||
+        String(b.id).localeCompare(String(a.id)));
+    }
+  }
+  res.json(linhas);
 });
 
 // GET /api/financial/summary?from=&to= — recorte do período (padrão: tudo).
@@ -139,9 +222,18 @@ router.get("/summary", (req, res) => {
       WHERE org_id = ? ${filtroPeriodo} AND impagavel = 1 AND status != 'paid'`
   ).get(...params).v;
 
+  // A PREVISÃO ENTRA NOS BALÕES, senão a tabela mostra uma coisa e a soma
+  // mostra outra — foi exatamente a queixa dela em Minhas Finanças ("tá
+  // calculando errado"). Mensalidade prevista é receita em aberto.
+  const previsao = req.query.previstas === "1" && from
+    ? previsaoDoPeriodo(org, from, to)
+    : { linhas: [], total: 0 };
+  const previsto = previsao.total;
+
   res.json({
-    income, expense, profit: income - expense,
-    paidIncome, paidExpense, pending,
+    income: income + previsto, expense, profit: (income + previsto) - expense,
+    paidIncome, paidExpense, pending: pending + previsto,
+    previsto, previstas: previsao.linhas.length,
     lucroRealizado: paidIncome - paidExpense, // o que de fato entrou menos o que saiu
     impagavelTotal, impagavelAberto,
     atrasadoAnterior: atrasado.v, atrasadasAnteriores: atrasado.n,
@@ -387,6 +479,49 @@ router.post("/generate-monthly", (req, res) => {
   res.json({ created: criadas, skipped: puladas, month: startMonth, months: meses, fora: foraDaLista });
 });
 
+/**
+ * POST /api/financial/mensalidade { client_id, month }
+ *
+ * A previsão vira lançamento de verdade. É chamada no instante em que ela
+ * mexe na linha prevista — marcar recebida, lançar um pedaço, editar — e não
+ * antes: enquanto ninguém mexe, a mensalidade é só uma conta na tela.
+ *
+ * Idempotente de propósito: dois cliques seguidos (ou duas abas abertas) não
+ * podem virar duas mensalidades do mesmo cliente no mesmo mês.
+ */
+router.post("/mensalidade", (req, res) => {
+  const mes = String(req.body?.month || new Date().toISOString().slice(0, 7)).slice(0, 7);
+  const clientId = Number(req.body?.client_id) || 0;
+  if (!clientId || !/^\d{4}-\d{2}$/.test(mes)) {
+    return res.status(400).json({ error: "Diga o cliente e o mês da mensalidade." });
+  }
+  const naoEhDaCasa = confere(req.orgId, { clients: clientId });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
+
+  const existente = db.prepare(`${SELECT}
+     WHERE f.org_id = ? AND f.client_id = ? AND f.category = 'Mensalidade'
+       AND strftime('%Y-%m', f.due_date) = ?
+     ORDER BY f.id LIMIT 1`).get(req.orgId, clientId, mes);
+  if (existente) return res.json(existente);
+
+  const cliente = clientesDaCasa(req.orgId).find((c) => c.id === clientId);
+  if (!cliente) return res.status(404).json({ error: "Cliente não encontrado." });
+  const motivo = porQueNaoEntra(cliente, mes);
+  // O motivo vai junto: "não entra" sem dizer por quê foi a queixa que deu
+  // origem à prévia do gerador.
+  if (motivo) return res.status(400).json({ error: `Esse cliente não tem mensalidade em ${mes}: ${motivo}.` });
+
+  const [ano, m] = mes.split("-").map(Number);
+  const info = insertEntry.run({
+    type: "income", description: `Mensalidade — ${cliente.name}`, amount: cliente.valor,
+    client_id: cliente.id, category: "Mensalidade", status: "pending",
+    due_date: dueForMonth(ano, m - 1, Number(cliente.payment_day) || 5), paid_at: null,
+    payment_link: null, pix_code: null, boleto_url: null, invoice_url: null,
+    recurring: 0, recurring_day: null, card: null, org_id: req.orgId,
+  });
+  res.status(201).json(db.prepare(`${SELECT} WHERE f.id = ?`).get(info.lastInsertRowid));
+});
+
 router.post("/", (req, res) => {
   const b = req.body || {};
   if (!b.description || b.amount == null) {
@@ -590,16 +725,26 @@ router.get("/projecao", (req, res) => {
 
   // A linha do salário dela é o espelho das contas dela; contar as duas seria
   // contar duas vezes. Aqui vale a origem, que tem o detalhe de pago/em aberto.
-  const daCasa = (extra) => db.prepare(
-    `SELECT COALESCE(SUM(amount),0) v FROM financial_entries
+  const daCasa = (campo, extra) => db.prepare(
+    `SELECT COALESCE(SUM(${campo}),0) v FROM financial_entries
       WHERE org_id = ? AND strftime('%Y-%m', COALESCE(due_date, created_at)) = ?
         AND COALESCE(category, '') <> ? ${extra}`
   ).get(req.orgId, mes, topicoSalario).v;
 
-  const entrou = daCasa("AND type='income' AND status='paid'");
-  const aReceber = daCasa("AND type='income' AND status<>'paid'");
-  const saiuCasa = daCasa("AND type='expense' AND status='paid'");
-  const aPagarCasa = daCasa("AND type='expense' AND status<>'paid'");
+  // PAGAMENTO PARCIAL CONTA DOS DOIS LADOS. Antes a conta parcial entrava
+  // inteira em "a receber" e o pedaço já recebido não aparecia em "entrou" —
+  // a mesma pergunta tinha duas respostas, uma no balão e outra aqui embaixo.
+  // Com a mensalidade podendo ser paga aos poucos, isso ia aparecer todo mês.
+  const JA = "CASE WHEN status='paid' THEN amount ELSE COALESCE(paid_amount,0) END";
+  const FALTA = "amount - COALESCE(paid_amount,0)";
+
+  const entrou = daCasa(JA, "AND type='income'");
+  // A mensalidade que ainda não foi lançada é dinheiro que ela espera receber:
+  // fora da conta, o "vai sobrar" mentiria para baixo todo começo de mês.
+  const previsto = previsaoDoPeriodo(req.orgId, `${mes}-01`, `${mes}-31`).total;
+  const aReceber = daCasa(FALTA, "AND type='income' AND status<>'paid'") + previsto;
+  const saiuCasa = daCasa(JA, "AND type='expense'");
+  const aPagarCasa = daCasa(FALTA, "AND type='expense' AND status<>'paid'");
 
   // AS CONTAS DELA, separadas por pago/em aberto. Gasto da Perspectiva não
   // entra: aquele já está nas despesas da casa acima.
@@ -639,7 +784,7 @@ router.get("/projecao", (req, res) => {
     saiu_casa: cent(saiuCasa), meu_pago: cent(meuPago),
     saldo_atual: saldoAtual,
     // o que ainda vai acontecer
-    a_receber: cent(aReceber),
+    a_receber: cent(aReceber), mensalidades_previstas: cent(previsto),
     falta_pagar: faltaPagar,
     a_pagar_casa: cent(aPagarCasa), meu_aberto: cent(meuAberto), lazer: cent(lazer),
     // o fim do mês

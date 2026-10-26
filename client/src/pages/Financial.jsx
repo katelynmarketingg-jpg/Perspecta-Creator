@@ -14,6 +14,7 @@ import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import PaidIcon from "@mui/icons-material/Paid";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import PrintIcon from "@mui/icons-material/Print";
@@ -89,6 +90,8 @@ export default function Financial() {
   const [gerarMeses, setGerarMeses] = useState(12);
   const [parcial, setParcial] = useState(""); // valor do pagamento parcial
   const [juros, setJuros] = useState(null);   // { id, description, valor, erro } — a caixinha do "+"
+  // { row, valor, erro } — a caixinha de "entrou só um pedaço", na própria linha.
+  const [pedaco, setPedaco] = useState(null);
   // Recibo aberto para conferir/editar/baixar.
   const [recibo, setRecibo] = useState(null);
   const [reciboErro, setReciboErro] = useState("");
@@ -164,7 +167,11 @@ export default function Financial() {
     // do que nenhuma — ela ia parar de confiar no vermelho.
     //
     // Em "Tudo" não há começo, e o servidor ignora o pedido: lá já está tudo.
-    const params = { ...rangeAtual(), atrasados: 1 };
+    // PREVISTAS=1: as mensalidades que ainda não foram lançadas vêm junto,
+    // como previsão. Ela não precisa mais clicar em "gerar" para enxergar o
+    // mês — marca a paga quando a pessoa pagar, e é o clique dela que cria o
+    // lançamento. Os balões pedem o mesmo, senão a soma discorda da tabela.
+    const params = { ...rangeAtual(), atrasados: 1, previstas: 1 };
     api.get("/financial", { params }).then((r) => setRows(r.data));
     api.get("/financial/summary", { params }).then((r) => setSummary(r.data));
     // A projeção é sempre de um MÊS: "vai sobrar" só faz sentido num mês.
@@ -305,6 +312,11 @@ export default function Financial() {
               label={`${currency(f.juros)} de juros`} sx={{ ml: 1, height: 20 }} />
           </Tooltip>
         )}
+        {f.previsto ? (
+          <Tooltip title="Mensalidade deste mês, pelo valor e pelo dia cadastrados no cliente. Ainda não é um lançamento: vira um quando você marcar recebida, lançar um pedaço ou editar.">
+            <Chip size="small" color="info" variant="outlined" label="Previsão" sx={{ ml: 1, height: 20 }} />
+          </Tooltip>
+        ) : null}
         {f.recurring ? (
           <Chip size="small" variant="outlined" icon={<RepeatIcon sx={{ fontSize: 14 }} />}
             label="Mensal" sx={{ ml: 1, height: 20 }} />
@@ -345,21 +357,21 @@ export default function Financial() {
           const cor = f.type === "income" ? "primary.main" : "text.secondary";
           if (falta <= 0.004) {
             return (
-              <Typography component="span" sx={{ fontWeight: 700, color: "text.disabled" }}>
+              <Typography component="span" sx={{ fontWeight: 700, color: "text.disabled", whiteSpace: "nowrap" }}>
                 {sinal} {currency(total)}
               </Typography>
             );
           }
           if (pago <= 0) {
             return (
-              <Typography component="span" sx={{ fontWeight: 700, color: cor }}>
+              <Typography component="span" sx={{ fontWeight: 700, color: cor, whiteSpace: "nowrap" }}>
                 {sinal} {currency(total)}
               </Typography>
             );
           }
           return (
             <Box>
-              <Typography component="div" sx={{ fontWeight: 800, color: cor, lineHeight: 1.2 }}>
+              <Typography component="div" sx={{ fontWeight: 800, color: cor, lineHeight: 1.2, whiteSpace: "nowrap" }}>
                 {sinal} {currency(falta)}
               </Typography>
               <Typography component="div" variant="caption" sx={{ color: "text.disabled", lineHeight: 1.2 }}>
@@ -392,14 +404,29 @@ export default function Financial() {
             </span>
           </Tooltip>
         )}
+        {f.status !== "paid" && (
+          <Tooltip title="Entrou só um pedaço: eu digo quanto">
+            <IconButton size="small" color="info" onClick={() => setPedaco({ row: f, valor: "" })}>
+              <PaidIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip title={f.impagavel ? "Impagável: não pode deixar de pagar — clique para tirar" : "Marcar como impagável: esta eu não posso deixar de pagar"}>
           <IconButton size="small" color={f.impagavel ? "warning" : "default"}
             onClick={() => toggleImpagavel(f)}>
             {f.impagavel ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
           </IconButton>
         </Tooltip>
-        <IconButton size="small" onClick={() => { setDraft({ ...f, client_id: f.client_id || "" }); setOpen(true); }}><EditIcon fontSize="small" /></IconButton>
-        <IconButton size="small" color="error" onClick={() => remove(f.id)}><DeleteIcon fontSize="small" /></IconButton>
+        <IconButton size="small" onClick={async () => {
+          const linha = await concretiza(f);
+          setDraft({ ...linha, client_id: linha.client_id || "" }); setOpen(true);
+        }}><EditIcon fontSize="small" /></IconButton>
+        {/* Previsão não se apaga: ela não existe no banco, e apagar "a conta
+            que ainda não foi lançada" não quer dizer nada. Para tirar o
+            cliente da previsão, é o cadastro dele que muda. */}
+        {!f.previsto && (
+          <IconButton size="small" color="error" onClick={() => remove(f.id)}><DeleteIcon fontSize="small" /></IconButton>
+        )}
       </TableCell>
     </TableRow>
     );
@@ -407,7 +434,8 @@ export default function Financial() {
 
 
   async function toggleImpagavel(row) {
-    await api.put(`/financial/${row.id}/impagavel`, { impagavel: !row.impagavel });
+    const linha = await concretiza(row);
+    await api.put(`/financial/${linha.id}/impagavel`, { impagavel: !linha.impagavel });
     load();
   }
 
@@ -439,10 +467,38 @@ export default function Financial() {
     load();
   }
 
+  // A LINHA PREVISTA AINDA NÃO EXISTE NO BANCO. Ela vira lançamento aqui, no
+  // primeiro gesto — marcar recebida, lançar um pedaço, editar. Devolve a
+  // linha de verdade, com id, para o gesto seguir.
+  async function concretiza(row) {
+    if (!row.previsto) return row;
+    const mes = String(row.due_date || "").slice(0, 7);
+    const r = await api.post("/financial/mensalidade", { client_id: row.client_id, month: mes });
+    return r.data;
+  }
+
   // Um clique para marcar como pago.
   async function markPaid(row) {
-    await api.put(`/financial/${row.id}`, { status: "paid" });
+    const linha = await concretiza(row);
+    await api.put(`/financial/${linha.id}`, { status: "paid" });
     load();
+  }
+
+  // PAGOU SÓ UM PEDAÇO. "quero que tenha como marcar pago parcialmente e eu
+  // coloco o valor" — na própria linha, como em Minhas Finanças, e não só lá
+  // dentro da ficha do lançamento.
+  async function salvarPedaco() {
+    if (!pedaco) return;
+    const v = Number(String(pedaco.valor).replace(",", "."));
+    if (!v || v <= 0) return setPedaco((c) => ({ ...c, erro: "Diga quanto entrou." }));
+    try {
+      const linha = await concretiza(pedaco.row);
+      await api.put(`/financial/${linha.id}`, { pay: v });
+      setPedaco(null);
+      load();
+    } catch (err) {
+      setPedaco((c) => ({ ...c, erro: err.response?.data?.error || "Não consegui lançar." }));
+    }
   }
 
   // JUROS DA CONTA QUE VIROU O MÊS. O "+" da linha vermelha abre esta caixa.
@@ -520,8 +576,11 @@ export default function Financial() {
             <TextField select size="small" value={periodo} onChange={(e) => setPeriodo(e.target.value)} sx={{ minWidth: 160 }}>
               {PERIODOS.map(([k, l]) => <MenuItem key={k} value={k}>{l}</MenuItem>)}
             </TextField>
-            <Tooltip title="Puxa a mensalidade de cada cliente (valor + dia de pagamento cadastrados) como receita recorrente">
-              <Button variant="outlined" startIcon={<RepeatIcon />} onClick={() => setGerarOpen(true)}>Gerar mensalidades</Button>
+            {/* As mensalidades do mês já aparecem sozinhas, como previsão.
+                Este botão ficou para duas coisas: lançar vários meses de uma
+                vez e, principalmente, dizer por que um cliente não aparece. */}
+            <Tooltip title="As mensalidades do mês já aparecem sozinhas. Aqui você confere quem entra e quem não entra (e por quê), e pode lançar vários meses de uma vez.">
+              <Button variant="outlined" startIcon={<RepeatIcon />} onClick={() => setGerarOpen(true)}>Conferir mensalidades</Button>
             </Tooltip>
             {/* O caminho mais curto para o lançamento que ela mais faz: já
                 abre como despesa da Perspectiva, sem escolher nada. */}
@@ -1025,6 +1084,31 @@ export default function Financial() {
         <DialogActions>
           <Button onClick={() => setJuros(null)}>Cancelar</Button>
           <Button variant="contained" onClick={salvarJuros}>Lançar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ENTROU SÓ UM PEDAÇO. Pedido dela para as mensalidades: "quero que
+          tenha como marcar pago parcialmente e eu coloco o valor". Um campo,
+          dois botões, na linha — igual ao de Minhas Finanças. Se a linha for
+          uma previsão, ela nasce aqui, já com o pedaço pago. */}
+      <Dialog open={Boolean(pedaco)} onClose={() => setPedaco(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{pedaco?.row?.type === "income" ? "Recebi um pedaço" : "Paguei um pedaço"}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {pedaco?.row?.description}
+          </Typography>
+          <TextField autoFocus fullWidth placeholder="500,00"
+            label={pedaco?.row?.type === "income" ? "Quanto entrou (R$)" : "Quanto você pagou (R$)"}
+            value={pedaco?.valor ?? ""} error={Boolean(pedaco?.erro)} helperText={pedaco?.erro || " "}
+            onChange={(e) => setPedaco((c) => ({ ...c, valor: e.target.value, erro: "" }))}
+            onKeyDown={(e) => { if (e.key === "Enter") salvarPedaco(); }} />
+          <Typography variant="caption" color="text.secondary">
+            Dá baixa só desse pedaço. Quando os pedaços cobrirem o valor, a conta é marcada como paga sozinha.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPedaco(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={salvarPedaco}>Lançar</Button>
         </DialogActions>
       </Dialog>
 

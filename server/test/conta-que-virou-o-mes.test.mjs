@@ -206,7 +206,10 @@ test("a tela pede o arrasto em TODO período, não só no mês", () => {
   // REGRA TROCADA DE PROPÓSITO: antes era só no mês fechado, e dava para chegar
   // em novembro por dois caminhos com respostas diferentes — pela setinha vinham
   // as atrasadas, pelo seletor "Próximo mês" não vinham. Visto no navegador.
-  assert.match(tela, /const params = \{ \.\.\.rangeAtual\(\), atrasados: 1 \}/);
+  // (o pedido ganhou companhia depois — previstas: 1, as mensalidades que
+  // ainda não foram lançadas. O que esta linha guarda é o atrasados: 1 valendo
+  // em qualquer período, não a lista de parâmetros.)
+  assert.match(tela, /const params = \{ \.\.\.rangeAtual\(\), atrasados: 1[,}]/);
   assert.doesNotMatch(tela, /periodo === "mes" \? \{ atrasados: 1 \}/);
   // E o total do topo aparece junto, em qualquer período.
   assert.match(tela, /\{summary\?\.atrasadoAnterior > 0 && \(/);
