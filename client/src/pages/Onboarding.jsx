@@ -21,10 +21,14 @@ import QuizIcon from "@mui/icons-material/Quiz";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import DrawIcon from "@mui/icons-material/Draw";
+import SendIcon from "@mui/icons-material/Send";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { PERSONA_GRUPOS } from "../persona.js";
-import { currency } from "../utils.js";
+import { currency, formatDate } from "../utils.js";
 
 // ---------------------------------------------------------------------------
 // ONBOARDING — a entrada do cliente na casa, do convite ao contrato assinado.
@@ -1505,6 +1509,129 @@ function resumoDaJornada(f) {
 // junto: onde ele está, o link para mandar, o que foi combinado, qual
 // formulário ele responde, e o que dá para fazer com ele.
 // ---------------------------------------------------------------------------
+/**
+ * UM PASSO DO CONTRATO. Feito, ou faltando com o botão que resolve ao lado —
+ * é a diferença entre saber que falta e ter de procurar onde se faz.
+ */
+function Passo({ pronto, titulo, detalhe, acao }) {
+  return (
+    <Stack direction="row" spacing={1.25} alignItems="flex-start">
+      {pronto
+        ? <CheckCircleIcon color="success" fontSize="small" sx={{ mt: 0.25 }} />
+        : <RadioButtonUncheckedIcon fontSize="small" sx={{ mt: 0.25, color: "text.disabled" }} />}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" sx={{ fontWeight: pronto ? 600 : 400 }}>{titulo}</Typography>
+        {detalhe && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>{detalhe}</Typography>
+        )}
+      </Box>
+      {!pronto && acao}
+    </Stack>
+  );
+}
+
+/**
+ * O CONTRATO, DENTRO DO PAINEL DO CLIENTE.
+ *
+ * "posso saber se deu pra gerar o contrato, se a minha assinatura ja foi
+ *  coletada ou falta assinar, e mesma coisa a dela, se ja mandamos."
+ *
+ * Quatro perguntas, quatro linhas, na ordem em que acontecem: nasce, eu
+ * assino, mando, ele assina. Quando não deu para gerar, o motivo aparece — e,
+ * se for só falta de clicar, o botão está ali.
+ */
+function ContratoDoCliente({ briefing, onMudou }) {
+  const [ocupado, setOcupado] = useState("");
+  const [linkAssinatura, setLinkAssinatura] = useState("");
+  // O recado fica AQUI DENTRO. Visto no navegador: clicar em "Assinar" sem ter
+  // desenhado a assinatura da casa mandava o aviso para o topo da página — que
+  // está atrás desta janela. Ela clicava e, para ela, não acontecia nada.
+  const [erro, setErro] = useState("");
+  const c = briefing.contrato;
+  if (!c) return null;
+
+  const faz = async (nome, fn) => {
+    setOcupado(nome); setErro("");
+    try { await fn(); await onMudou(); }
+    catch (e) { setErro(e.response?.data?.error || "Não consegui fazer isso agora."); }
+    finally { setOcupado(""); }
+  };
+
+  if (!c.gerado) {
+    return (
+      <Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+          Contrato
+        </Typography>
+        <Alert severity={c.pode_gerar ? "info" : "warning"} sx={{ py: 0.25 }}>{c.motivo}</Alert>
+        {erro && <Alert severity="warning" sx={{ mt: 1 }} onClose={() => setErro("")}>{erro}</Alert>}
+        {c.pode_gerar && (
+          <Button size="small" startIcon={<DescriptionIcon />} sx={{ mt: 0.75 }}
+            disabled={ocupado === "gerar"}
+            onClick={() => faz("gerar", () => api.post(`/briefings/${briefing.id}/contrato`))}>
+            {ocupado === "gerar" ? "Gerando…" : "Gerar contrato agora"}
+          </Button>
+        )}
+      </Box>
+    );
+  }
+
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
+        Contrato
+      </Typography>
+      <Stack spacing={1.25}>
+        <Passo pronto titulo={c.title || "Contrato gerado"}
+          detalhe={c.criado_em ? `Gerado em ${formatDate(c.criado_em)}` : null} />
+
+        <Passo pronto={Boolean(c.assinatura_casa)} titulo="A minha assinatura"
+          detalhe={c.assinatura_casa
+            ? `Assinado em ${formatDate(c.assinatura_casa)}${c.quem_assinou_casa ? ` por ${c.quem_assinou_casa}` : ""}`
+            : "Usa a assinatura que você já desenhou uma vez."}
+          acao={
+            <Button size="small" startIcon={<DrawIcon />} disabled={ocupado === "casa"}
+              onClick={() => faz("casa", () => api.post(`/contracts/${c.id}/assinar-como-casa`))}>
+              {ocupado === "casa" ? "Assinando…" : "Assinar"}
+            </Button>
+          } />
+
+        <Passo pronto={Boolean(c.enviado_em)} titulo="Mandado para o cliente"
+          detalhe={c.enviado_em ? `Mandado em ${formatDate(c.enviado_em)}` : "Pegue o link de assinatura e mande por WhatsApp."}
+          acao={
+            <Button size="small" startIcon={<SendIcon />} disabled={ocupado === "link"}
+              onClick={() => faz("link", async () => {
+                const { data } = await api.post(`/contracts/${c.id}/sign-link`);
+                setLinkAssinatura(data.url);
+              })}>
+              {ocupado === "link" ? "Gerando…" : "Pegar o link"}
+            </Button>
+          } />
+
+        <Passo pronto={Boolean(c.assinatura_cliente)} titulo="A assinatura dele"
+          detalhe={c.assinatura_cliente
+            ? `Assinado em ${formatDate(c.assinatura_cliente)}${c.quem_assinou_cliente ? ` por ${c.quem_assinou_cliente}` : ""}`
+            : "Só ele pode fazer esta — é a assinatura do link."} />
+      </Stack>
+
+      {erro && <Alert severity="warning" sx={{ mt: 1.5 }} onClose={() => setErro("")}>{erro}</Alert>}
+
+      {/* O link aparece aqui, logo abaixo do passo que o gerou: ela acabou de
+          clicar, é aqui que ela olha. */}
+      {linkAssinatura && (
+        <Box sx={{ mt: 1.5 }}>
+          <TextField value={linkAssinatura} fullWidth size="small" onFocus={(e) => e.target.select()}
+            InputProps={{ readOnly: true, sx: { fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12.5 } }} />
+          <Button size="small" startIcon={<ContentCopyIcon />} sx={{ mt: 0.75 }}
+            onClick={() => navigator.clipboard?.writeText(linkAssinatura)}>
+            Copiar link de assinatura
+          </Button>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 function PainelDoCliente({
   alvo, formularios, onFechar, onLink, onRespostas, onTermos, onPerguntas,
   onEncerrar, onReabrir, onTrocouFormulario, onErro,
@@ -1577,7 +1704,11 @@ function PainelDoCliente({
           </Box>
 
           {/* ---- qual formulário ele responde ---- */}
+          {/* displayEmpty: sem isso o campo fica EM BRANCO quando o cliente
+              responde o padrão da casa — e "padrão da casa" é uma resposta de
+              verdade, não a ausência de uma. Visto no navegador. */}
           <TextField select size="small" fullWidth label="Formulário que ele responde"
+            SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
             value={b.perguntas_proprias ? "__proprio" : (b.form_id || "")}
             onChange={(e) => e.target.value !== "__proprio" && trocarFormulario(e.target.value)}
             helperText={b.perguntas_proprias
@@ -1607,6 +1738,18 @@ function PainelDoCliente({
               {combinado ? "Corrigir o que foi combinado" : "Preencher os termos"}
             </Button>
           </Box>
+
+          {/* ---- e como está o contrato ---- */}
+          <Divider />
+          <ContratoDoCliente briefing={b} onMudou={async () => {
+            // A lista de fora recarrega, e o painel pega a versão nova deste
+            // mesmo onboarding — senão ela clica em "assinar" e o passo
+            // continua dizendo que falta.
+            const { data } = await api.get("/briefings");
+            const novo = (data || []).find((x) => x.id === b.id);
+            if (novo) setB(novo);
+            onTrocouFormulario();
+          }} />
         </Stack>
       </DialogContent>
       <DialogActions sx={{ flexWrap: "wrap", gap: 1, px: 2.5, py: 2 }}>

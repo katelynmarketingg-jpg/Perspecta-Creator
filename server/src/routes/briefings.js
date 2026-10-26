@@ -10,7 +10,9 @@ import {
   secoesDoBriefing, leSecoesProprias, salvaSecoesDoBriefing, usaSecoesPadrao,
   listaDeFormularios, getFormulario, criaFormulario, salvaFormulario,
   apagaFormulario, usaFormulario, origemDasPerguntas, formularioDoServico,
+  ajustesDoBriefing,
 } from "../briefing.js";
+import { geraContratoDoOnboarding } from "../onboarding.js";
 import { guardaNaCentral } from "../central.js";
 import { modelosDisponiveis, mesesDeVigencia, numeroBR } from "../contract-gen.js";
 import { PERSONA_FIELDS } from "../ai.js";
@@ -65,6 +67,45 @@ function chaveDoServico(termos) {
   return "";
 }
 
+/**
+ * A SITUAÇÃO DO CONTRATO, do jeito que ela perguntou:
+ *
+ *  "posso saber se deu pra gerar o contrato, se a minha assinatura ja foi
+ *   coletada ou falta assinar, e mesma coisa a dela, se ja mandamos"
+ *
+ * São quatro perguntas de sim ou não, e o painel do cliente responde as
+ * quatro. Quando não deu para gerar, o MOTIVO vem junto: "não gerou" sem
+ * dizer por quê é o tipo de resposta que obriga a abrir o banco.
+ */
+function contratoDoBriefing(b) {
+  const geraContrato = ajustesDoBriefing(b).gera_contrato !== false;
+  const c = db.prepare(
+    `SELECT id, title, status, created_at, signed_at, signer_name,
+            agency_signed_at, agency_signer_name, sent_at
+       FROM contracts WHERE client_id = ? AND org_id = ? ORDER BY id DESC LIMIT 1`
+  ).get(b.client_id, b.org_id);
+
+  if (c) {
+    return {
+      gerado: true, id: c.id, title: c.title, criado_em: c.created_at,
+      assinatura_casa: c.agency_signed_at || null, quem_assinou_casa: c.agency_signer_name || null,
+      assinatura_cliente: c.signed_at || null, quem_assinou_cliente: c.signer_name || null,
+      enviado_em: c.sent_at || null,
+      gera_contrato: geraContrato,
+    };
+  }
+
+  const termos = leTermos(b);
+  const motivo = !geraContrato
+    ? "Este formulário não manda para assinatura — é um orçamento ou uma sondagem."
+    : !termos || (!termos.service_id && !termos.template_id)
+      ? "Faltam os termos: sem serviço, valor e vigência o contrato não tem como sair."
+      : b.status === "aberto"
+        ? "O cliente ainda não terminou de responder."
+        : "Os termos estão aí: dá para gerar agora.";
+  return { gerado: false, gera_contrato: geraContrato, motivo, pode_gerar: geraContrato && Boolean(termos && (termos.service_id || termos.template_id)) };
+}
+
 function resumo(b, req) {
   const respostas = JSON.parse(b.answers || "{}");
   // As perguntas DESTE cliente (as dele, se tiver; senão as da casa).
@@ -82,6 +123,7 @@ function resumo(b, req) {
     form_id: b.form_id || null,
     origem: origemDasPerguntas(b),   // de onde saem as perguntas deste cliente
     termos: leTermos(b),
+    contrato: contratoDoBriefing(b),
   };
 }
 
@@ -93,6 +135,33 @@ router.get("/", (req, res) => {
       WHERE b.org_id = ? ORDER BY b.created_at DESC`
   ).all(req.orgId);
   res.json(linhas.map((b) => ({ ...resumo(b, req), client_name: b.client_name })));
+});
+
+/**
+ * POST /api/briefings/:id/contrato — gerar o contrato agora.
+ *
+ * O contrato nasce sozinho quando o cliente termina de responder. Só que
+ * "sozinho" falha de jeitos previsíveis: os termos ainda não estavam
+ * preenchidos, o modelo não existia. Antes disso aqui, a saída era refazer o
+ * onboarding inteiro. O painel mostra o motivo e esta rota resolve.
+ */
+router.post("/:id/contrato", (req, res) => {
+  const b = db.prepare("SELECT * FROM briefings WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!b) return res.status(404).json({ error: "Onboarding não encontrado." });
+  try {
+    const contrato = geraContratoDoOnboarding(b);
+    if (!contrato) {
+      const situacao = contratoDoBriefing(b);
+      return res.status(400).json({
+        error: situacao.gerado
+          ? "Este cliente já tem um contrato esperando assinatura."
+          : situacao.motivo,
+      });
+    }
+    res.status(201).json(resumo(b, req));
+  } catch (e) {
+    res.status(400).json({ error: e.message || "Não consegui gerar o contrato." });
+  }
 });
 
 // ---- O MODELO do briefing: texto de boas-vindas + perguntas, editáveis -----
