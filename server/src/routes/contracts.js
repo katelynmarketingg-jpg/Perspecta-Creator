@@ -135,8 +135,11 @@ router.post("/:id/assinar-como-casa", (req, res) => {
   ).get(req.orgId) || {};
   if (!org.signature_img) {
     return res.status(400).json({
-      error: "Você ainda não desenhou a assinatura da casa. Vá em Financeiro → Recibos → "
-        + "Configurações do recibo e desenhe uma vez: ela passa a valer aqui também.",
+      // O CAMINHO TEM DE ESTAR CERTO: a caixa dos recibos mora em
+      // Configurações, não no Financeiro. Visto no navegador — a pessoa
+      // clicava em "assinar", lia isto e ia procurar onde não estava.
+      error: "Você ainda não desenhou a assinatura da casa. Vá em Configurações → Recibos "
+        + "e desenhe uma vez: ela passa a valer aqui também.",
       falta_assinatura: true,
     });
   }
