@@ -123,14 +123,29 @@ export default function ReceiptSettings() {
         </Typography>
         {msg && <Alert severity={msg.tipo} sx={{ mb: 2 }}>{msg.texto}</Alert>}
 
+        {/* Esta caixa é uma tela inteira. Em coluna única ela passava de 2,5
+            mil pixels de altura. Aqui vira assunto por assunto lado a lado:
+            quem emite e assina | o modelo | a prévia. Na tela larga a prévia
+            fica grudada, então dá para mudar a cor ou o texto e ver na hora;
+            no notebook ela passa por baixo, usando a largura toda. */}
+        <Box sx={{
+          display: "grid",
+          gap: 3,
+          gridTemplateColumns: {
+            xs: "1fr",
+            lg: "minmax(0, 1fr) minmax(0, 1fr)",
+            xl: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr)",
+          },
+          alignItems: "start",
+        }}>
         <Stack spacing={2}>
           <Divider>Quem emite (sai no recibo)</Divider>
           <TextField label="Razão social / nome" value={dados.emitter_name || ""} fullWidth disabled
             helperText="É o nome do escritório — mude em Organizações." />
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
             <TextField label="CNPJ / CPF" value={dados.document || ""} onChange={setD("document")} fullWidth />
             <TextField label="Cidade (local e data)" value={dados.city || ""} onChange={setD("city")} fullWidth />
-          </Stack>
+          </Box>
           <TextField label="Endereço" value={dados.address || ""} onChange={setD("address")} fullWidth />
 
           <Divider>Assinatura salva</Divider>
@@ -163,13 +178,15 @@ export default function ReceiptSettings() {
           <Box sx={{ maxWidth: 420 }}>
             <SignaturePad onChange={(img) => setDados((d) => ({ ...d, signature_img: img || null }))} />
           </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
             <TextField label="Quem assina" value={dados.signer_name || ""} onChange={setD("signer_name")} fullWidth />
             <TextField label="CPF do signatário" value={dados.signer_document || ""} onChange={setD("signer_document")} fullWidth />
-          </Stack>
+          </Box>
           <TextField label="Cargo" value={dados.signer_role || ""} onChange={setD("signer_role")} fullWidth
             placeholder="Ex.: Sócia-administradora" />
+        </Stack>
 
+        <Stack spacing={2}>
           <Divider>Modelo do recibo</Divider>
           <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
             <Box sx={{
@@ -192,13 +209,13 @@ export default function ReceiptSettings() {
             )}
           </Box>
 
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
             <TextField label="Título do documento" value={st.header || ""}
               onChange={(e) => setEstilo("header", e.target.value)} fullWidth />
             <TextField label="Cor de destaque" type="color" value={st.accent || "#ab480a"}
-              onChange={(e) => setEstilo("accent", e.target.value)} sx={{ width: 120 }} />
-          </Stack>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              onChange={(e) => setEstilo("accent", e.target.value)} fullWidth />
+          </Box>
+          <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
             <TextField select label="Posição da logo" value={st.logo_align || "left"}
               onChange={(e) => setEstilo("logo_align", e.target.value)} fullWidth>
               <MenuItem value="left">Esquerda</MenuItem>
@@ -207,7 +224,7 @@ export default function ReceiptSettings() {
             </TextField>
             <TextField label="Altura da logo (px)" type="number" value={st.logo_height || 56}
               onChange={(e) => setEstilo("logo_height", Number(e.target.value) || 56)} fullWidth />
-          </Stack>
+          </Box>
           <TextField label="Rodapé (opcional)" value={st.footer || ""}
             onChange={(e) => setEstilo("footer", e.target.value)} fullWidth
             placeholder="Ex.: Dúvidas: financeiro@suaagencia.com.br" />
@@ -226,17 +243,24 @@ export default function ReceiptSettings() {
                 onClick={() => setModelo((mo) => ({ ...mo, body: `${mo.body || ""}{{${m}}}` }))} />
             ))}
           </Box>
-
-          <Divider>Prévia</Divider>
-          <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "#fff" }}>
-            <iframe title="Prévia do recibo" srcDoc={previaAoVivo ? receiptHtml(previaAoVivo) : ""}
-              style={{ width: "100%", height: 560, border: 0 }} />
-          </Box>
-
-          <Button variant="contained" onClick={salvar} disabled={salvando} sx={{ alignSelf: "flex-start" }}>
-            {salvando ? "Salvando…" : "Salvar modelo e assinatura"}
-          </Button>
         </Stack>
+
+        <Box sx={{ gridColumn: { lg: "span 2", xl: "auto" }, alignSelf: "stretch" }}>
+          <Box sx={{ position: { xl: "sticky" }, top: { xl: 88 } }}>
+            <Divider>Prévia</Divider>
+            <Box sx={{
+              mt: 2, border: 1, borderColor: "divider", borderRadius: 1,
+              overflow: "hidden", bgcolor: "#fff",
+            }}>
+              <iframe title="Prévia do recibo" srcDoc={previaAoVivo ? receiptHtml(previaAoVivo) : ""}
+                style={{ width: "100%", height: 560, border: 0 }} />
+            </Box>
+            <Button variant="contained" onClick={salvar} disabled={salvando} sx={{ mt: 2 }}>
+              {salvando ? "Salvando…" : "Salvar modelo e assinatura"}
+            </Button>
+          </Box>
+        </Box>
+        </Box>
       </CardContent>
     </Card>
   );

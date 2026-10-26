@@ -259,8 +259,18 @@ export default function Settings() {
     <>
       <PageHeader title="Configurações" subtitle="Preferências do sistema" />
 
-      <Stack spacing={2.5} sx={{ maxWidth: 620 }}>
-        {isAdmin && <Armazenamento />}
+      {/* A tela toda, não uma coluna estreita: as caixas se encaixam em uma,
+          duas ou três colunas conforme a largura, e cada uma fica com a
+          altura que precisa. Em grade comum as linhas esticam na altura da
+          caixa mais alta e sobra buraco embaixo das curtas — era isso que
+          deixava a página torta. */}
+      <Box
+        sx={{
+          columnCount: { xs: 1, md: 2, xl: 3 },
+          columnGap: 2.5,
+          "& > *": { display: "block", breakInside: "avoid", mb: 2.5 },
+        }}
+      >
         {isAdmin && (
           <Card>
             <CardContent>
@@ -330,7 +340,41 @@ export default function Settings() {
           </Card>
         )}
 
-        {isAdmin && <ReceiptSettings />}
+        {isAdmin && (
+          <Card>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 0.5 }}>Acessos dos clientes (portal)</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                O mesmo acesso do cadastro do cliente, reunido aqui. Defina ou
+                troque o nome de acesso e a senha com que o cliente entra em /portal.
+              </Typography>
+              {loginMsg && <Alert severity={loginMsg.tipo} sx={{ mb: 2 }}>{loginMsg.texto}</Alert>}
+              <List dense>
+                {clientLogins.map((c) => (
+                  <ListItem key={c.id} disableGutters
+                    secondaryAction={
+                      <IconButton size="small" onClick={() =>
+                        setLoginDraft({ id: c.id, name: c.name, portal_username: c.portal_username || "", portal_password: "" })}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    }>
+                    <ListItemText
+                      primary={c.name}
+                      secondary={c.portal_username ? `Nome de acesso: ${c.portal_username}` : "Sem nome de acesso"} />
+                    <Chip size="small" sx={{ mr: 6 }}
+                      color={c.portal_enabled ? "success" : "default"}
+                      label={c.portal_enabled ? "Acesso ativo" : "Sem acesso"} />
+                  </ListItem>
+                ))}
+                {clientLogins.length === 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                    Nenhum cliente cadastrado ainda.
+                  </Typography>
+                )}
+              </List>
+            </CardContent>
+          </Card>
+        )}
 
         {isAdmin && (
           <Card>
@@ -377,42 +421,6 @@ export default function Settings() {
             </Box>
           </CardContent>
         </Card>
-
-        {isAdmin && (
-          <Card>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 0.5 }}>Acessos dos clientes (portal)</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                O mesmo acesso do cadastro do cliente, reunido aqui. Defina ou
-                troque o nome de acesso e a senha com que o cliente entra em /portal.
-              </Typography>
-              {loginMsg && <Alert severity={loginMsg.tipo} sx={{ mb: 2 }}>{loginMsg.texto}</Alert>}
-              <List dense>
-                {clientLogins.map((c) => (
-                  <ListItem key={c.id} disableGutters
-                    secondaryAction={
-                      <IconButton size="small" onClick={() =>
-                        setLoginDraft({ id: c.id, name: c.name, portal_username: c.portal_username || "", portal_password: "" })}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    }>
-                    <ListItemText
-                      primary={c.name}
-                      secondary={c.portal_username ? `Nome de acesso: ${c.portal_username}` : "Sem nome de acesso"} />
-                    <Chip size="small" sx={{ mr: 6 }}
-                      color={c.portal_enabled ? "success" : "default"}
-                      label={c.portal_enabled ? "Acesso ativo" : "Sem acesso"} />
-                  </ListItem>
-                ))}
-                {clientLogins.length === 0 && (
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                    Nenhum cliente cadastrado ainda.
-                  </Typography>
-                )}
-              </List>
-            </CardContent>
-          </Card>
-        )}
 
         {isAdmin && (
           <Card>
@@ -494,7 +502,15 @@ export default function Settings() {
             </Stack>
           </CardContent>
         </Card>
-      </Stack>
+
+        {isAdmin && <Armazenamento />}
+      </Box>
+
+      {/* Recibos é uma tela inteira dentro de uma caixa: numa coluna ela
+          ficava com 2,6 mil pixels de altura e deixava as outras colunas
+          vazias do lado. Aqui ela usa a largura toda e se organiza por
+          dentro — campos de um lado, prévia do outro. */}
+      {isAdmin && <ReceiptSettings />}
 
       <Dialog open={Boolean(loginDraft)} onClose={() => setLoginDraft(null)} fullWidth maxWidth="xs">
         <DialogTitle>Acesso ao portal — {loginDraft?.name}</DialogTitle>
