@@ -380,15 +380,22 @@ router.get("/calendar", (req, res) => {
 // Posts do cliente que estão na etapa "Aprovação".
 router.get("/approvals", (req, res) => {
   const stage = findStageByName("%Aprova%", req.client.org_id);
-  if (!stage) return res.json([]);
+  // A PEÇA EM QUE ELE PEDIU AJUSTE NÃO SOME DA TELA DELE.
+  //
+  // Ela volta para a Distribuição (é a equipe que trabalha nela agora), e com
+  // isso desaparecia do portal no mesmo instante: ele escrevia, mandava, e a
+  // peça sumia sem nenhuma confirmação — nem ele nem ninguém via o que tinha
+  // sido pedido. Agora ela continua na lista, marcada, com o pedido à vista.
   const rows = db
     .prepare(
       `SELECT t.id, t.title, t.description, t.content_type, t.caption, t.scheduled_at,
               t.approval_status, t.client_caption, t.client_note
-       FROM tasks t WHERE t.client_id = ? AND t.stage_id = ?
+       FROM tasks t
+       WHERE t.client_id = ?
+         AND (t.stage_id = ? OR t.approval_status = 'changes_requested')
        ORDER BY t.scheduled_at, t.id`
     )
-    .all(req.client.client_id, stage.id);
+    .all(req.client.client_id, stage ? stage.id : -1);
   res.json(rows);
 });
 
@@ -419,10 +426,36 @@ function getOwnTask(req, res) {
  * para o ar. A equipe ainda recebia um aviso dizendo que o cliente aprovou uma
  * coisa que ela nunca mostrou.
  */
+/**
+ * O QUE O CLIENTE VÊ, O CLIENTE PODE RESPONDER.
+ *
+ * Urgente dela: "na area do cliente ele não ta conseguindo colocar
+ * observacoes, sugestoes... alterar."
+ *
+ * Reproduzido no navegador: a LISTA de aprovações é montada pela ETAPA do
+ * quadro (quem está em "Aprovação"), e esta trava exigia o STATUS 'sent'. Uma
+ * peça ARRASTADA para a etapa de Aprovação — que é o jeito normal de mexer no
+ * quadro — aparecia para o cliente com os dois botões, e cada clique voltava
+ * 409. O portal não mostrava nada: ele escrevia a observação, clicava em
+ * "Enviar para a agência" e a janela ficava lá, parada, para sempre.
+ *
+ * A regra agora é uma só: se a peça está na etapa de Aprovação (ou já foi
+ * enviada), ela está com o cliente e aceita resposta.
+ */
 function getTaskEnviada(req, res) {
   const task = getOwnTask(req, res);
   if (!task) return null;
-  if (!["sent", "changes_requested"].includes(task.approval_status)) {
+  // Já aprovada não volta sozinha: quem reabre é a agência. (A peça aprovada
+  // costuma FICAR na etapa de Aprovação — no modo "avisar a equipe" ela não
+  // anda sozinha — então isto tem de vir antes da regra da etapa.) Na tela do
+  // cliente ela também sai de "Aguardando" e vai para "Aprovados".
+  if (task.approval_status === "approved") {
+    res.status(409).json({ error: "Você já aprovou este conteúdo. Fale com a agência para reabrir." });
+    return null;
+  }
+  const etapa = findStageByName("%Aprova%", task.org_id);
+  const naEtapa = etapa && task.stage_id === etapa.id;
+  if (!naEtapa && !["sent", "changes_requested"].includes(task.approval_status)) {
     res.status(409).json({ error: "Este conteúdo ainda não foi enviado para a sua aprovação." });
     return null;
   }
@@ -478,6 +511,30 @@ router.post("/approvals/:id/request-changes", (req, res) => {
     `UPDATE tasks SET approval_status = 'changes_requested',
      client_caption = ?, client_note = ?, client_ref_file_id = ?, stage_id = COALESCE(?, stage_id) WHERE id = ?`
   ).run(client_caption ?? null, client_note ?? null, refId, back?.id ?? null, task.id);
+
+  // FICA GUARDADO — PARA SEMPRE, E NUM LUGAR SÓ.
+  //
+  // "quero que [...] fique salvo pra mim o que cada cliente mudar."
+  //
+  // client_note e client_caption são UMA casa só: o pedido seguinte escreve
+  // por cima, e quando a equipe corrige a legenda o que ele tinha sugerido
+  // some. Então todo pedido vira também um comentário do post, que é a
+  // conversa — tem data, tem autor, não é sobrescrito por nada, e a equipe lê
+  // no mesmo lugar onde responde.
+  const pedido = [
+    client_note ? client_note.trim() : null,
+    client_caption && client_caption !== task.caption
+      ? `✏️ Legenda sugerida por ele:\n${client_caption.trim()}`
+      : null,
+    refId ? "📎 Apontou uma foto/vídeo da galeria dele." : null,
+  ].filter(Boolean).join("\n\n");
+  if (pedido) {
+    db.prepare(
+      `INSERT INTO task_comments (org_id, task_id, author_type, author_id, author_name, body)
+       VALUES (?, ?, 'client', ?, ?, ?)`
+    ).run(task.org_id, task.id, req.client.client_id, req.client.name, pedido);
+  }
+
   notifyAgency(task.client_id, task.id, `✏️ ${req.client.name} pediu ajustes em "${task.title}".`, task.org_id, task.assignee_id || null);
   avisarAprovacoesPendentes(task.org_id, task.client_id);
   res.json({ ok: true });

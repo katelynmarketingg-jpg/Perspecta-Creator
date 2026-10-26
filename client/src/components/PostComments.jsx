@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Box, Typography, TextField, Button, Stack, Avatar, Divider, CircularProgress,
+  Box, Typography, TextField, Button, Stack, Avatar, Divider, CircularProgress, Alert,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import SendIcon from "@mui/icons-material/Send";
@@ -12,11 +12,15 @@ import { useLiveVersion } from "../live/LiveContext.jsx";
  *
  * Serve aos dois lados: quem usa passa o `api` e o `eu` correspondentes.
  */
-export default function PostComments({ taskId, caption, api, listPath, postPath, eu = "agency", compacto = false }) {
+export default function PostComments({
+  taskId, caption, api, listPath, postPath, eu = "agency", compacto = false,
+  titulo = "Comentários", ajuda = "",
+}) {
   const [comments, setComments] = useState([]);
   const [texto, setTexto] = useState("");
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
   const fimRef = useRef(null);
 
   const load = () => {
@@ -36,11 +40,14 @@ export default function PostComments({ taskId, caption, api, listPath, postPath,
   async function enviar() {
     const body = texto.trim();
     if (!body) return;
-    setEnviando(true);
+    setEnviando(true); setErro("");
     try {
       const { data } = await api.post(postPath, { body });
       setComments((c) => [...c, data]);
       setTexto("");
+    } catch (e) {
+      // Sem isto, a mensagem simplesmente não ia e ninguém ficava sabendo.
+      setErro(e?.response?.data?.error || "Não consegui enviar. Tente de novo.");
     } finally {
       setEnviando(false);
     }
@@ -68,14 +75,19 @@ export default function PostComments({ taskId, caption, api, listPath, postPath,
         </Box>
       )}
 
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>Comentários</Typography>
+      <Typography variant="subtitle2" sx={{ mb: ajuda ? 0.25 : 1 }}>{titulo}</Typography>
+      {ajuda && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+          {ajuda}
+        </Typography>
+      )}
 
       <Box sx={{ maxHeight: compacto ? 220 : 300, overflowY: "auto", pr: 0.5 }}>
         {carregando ? (
           <Stack alignItems="center" sx={{ py: 2 }}><CircularProgress size={20} /></Stack>
         ) : comments.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 1.5 }}>
-            Nenhum comentário ainda. Escreva abaixo o que precisa ser ajustado.
+            Nada escrito ainda. Use o campo abaixo e clique em <strong>Enviar</strong>.
           </Typography>
         ) : (
           <Stack spacing={1.25} divider={<Divider flexItem sx={{ opacity: 0.4 }} />}>
@@ -106,17 +118,22 @@ export default function PostComments({ taskId, caption, api, listPath, postPath,
         <div ref={fimRef} />
       </Box>
 
+      {erro && <Alert severity="warning" sx={{ mt: 1.5 }} onClose={() => setErro("")}>{erro}</Alert>}
+
+      {/* O BOTÃO DIZ O QUE FAZ. Era um quadradinho de 44px com só a setinha,
+          do lado do campo: no celular ninguém via que era ali que se mandava —
+          escrevia e achava que tinha mandado. */}
       <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} alignItems="flex-end">
         <TextField
-          size="small" fullWidth multiline maxRows={4} placeholder="Escreva um comentário…"
+          size="small" fullWidth multiline maxRows={4} placeholder="Escreva aqui…"
           value={texto} onChange={(e) => setTexto(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); enviar(); }
           }}
         />
-        <Button variant="contained" onClick={enviar} disabled={!texto.trim() || enviando}
-          sx={{ minWidth: 44, px: 1.5 }}>
-          <SendIcon fontSize="small" />
+        <Button variant="contained" startIcon={<SendIcon fontSize="small" />}
+          onClick={enviar} disabled={!texto.trim() || enviando} sx={{ whiteSpace: "nowrap" }}>
+          {enviando ? "Enviando…" : "Enviar"}
         </Button>
       </Stack>
     </Box>
