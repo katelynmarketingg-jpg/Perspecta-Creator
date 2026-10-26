@@ -531,19 +531,29 @@ function ApprovalCard({ post, onDone }) {
   const [ajuste, setAjuste] = useState(null); // { caption, note, refFile }
   const [busy, setBusy] = useState(false);
   const [pickRef, setPickRef] = useState(false); // seletor da galeria aberto
+  // CLIQUE NUNCA PODE MORRER CALADO. Era o que acontecia: quando o servidor
+  // recusava, o erro não aparecia em lugar nenhum — ele clicava em "Enviar
+  // para a agência" e a janela ficava parada, sem dizer nada.
+  const [erro, setErro] = useState("");
+  const [feito, setFeito] = useState("");
+  const pediuAjuste = post.approval_status === "changes_requested";
 
   useEffect(() => {
     portalApi.get(`/tasks/${post.id}/attachments`).then((r) => setAttachments(r.data)).catch(() => {});
   }, [post.id]);
 
+  const recado = (e) => setErro(e?.response?.data?.error
+    || "Não consegui enviar agora. Confira a internet e tente de novo.");
+
   async function approve() {
-    setBusy(true);
+    setBusy(true); setErro("");
     try { await portalApi.post(`/approvals/${post.id}/approve`); onDone(); }
+    catch (e) { recado(e); }
     finally { setBusy(false); }
   }
 
   async function sendChanges() {
-    setBusy(true);
+    setBusy(true); setErro("");
     try {
       await portalApi.post(`/approvals/${post.id}/request-changes`, {
         client_caption: ajuste.caption !== post.caption ? ajuste.caption : null,
@@ -551,8 +561,10 @@ function ApprovalCard({ post, onDone }) {
         client_ref_file_id: ajuste.refFile?.id || null,
       });
       setAjuste(null);
+      setFeito("Enviado para a agência ✓ Pode conferir abaixo o que você pediu.");
       onDone();
-    } finally { setBusy(false); }
+    } catch (e) { recado(e); }
+    finally { setBusy(false); }
   }
 
   // Mostra fotos E vídeos (o Reel é vídeo — antes ficava de fora e o cliente
@@ -596,19 +608,43 @@ function ApprovalCard({ post, onDone }) {
           {post.caption || "Sem legenda."}
         </Typography>
 
+        {/* O QUE ELE JÁ PEDIU, À VISTA. Antes a peça sumia da tela no
+            instante em que ele mandava: ele não tinha como conferir o que
+            tinha escrito, nem saber se chegou. */}
+        {pediuAjuste && (
+          <Alert severity="info" icon={<EditNoteIcon />} sx={{ mb: 1.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+              Você pediu ajustes — a agência está cuidando disto.
+            </Typography>
+            {post.client_note && (
+              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mt: 0.5 }}>
+                “{post.client_note}”
+              </Typography>
+            )}
+            {post.client_caption && post.client_caption !== post.caption && (
+              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", mt: 0.5 }}>
+                <strong>Legenda que você sugeriu:</strong> {post.client_caption}
+              </Typography>
+            )}
+          </Alert>
+        )}
+
+        {feito && <Alert severity="success" sx={{ mb: 1.5 }} onClose={() => setFeito("")}>{feito}</Alert>}
+        {erro && <Alert severity="warning" sx={{ mb: 1.5 }} onClose={() => setErro("")}>{erro}</Alert>}
+
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
           <Button
             variant="contained" color="success" size="large" fullWidth
             startIcon={<CheckCircleIcon />} disabled={busy} onClick={approve}
           >
-            Aprovar
+            {pediuAjuste ? "Aprovar assim mesmo" : "Aprovar"}
           </Button>
           <Button
             variant="outlined" size="large" fullWidth
             startIcon={<EditNoteIcon />} disabled={busy}
-            onClick={() => setAjuste({ caption: post.caption || "", note: "" })}
+            onClick={() => { setFeito(""); setErro(""); setAjuste({ caption: post.client_caption || post.caption || "", note: "" }); }}
           >
-            Pedir ajustes
+            {pediuAjuste ? "Pedir mais um ajuste" : "Pedir ajustes"}
           </Button>
         </Stack>
 
@@ -620,6 +656,8 @@ function ApprovalCard({ post, onDone }) {
           postPath={`/tasks/${post.id}/comments`}
           eu="client"
           compacto
+          titulo="Observações e sugestões"
+          ajuda="Escreva aqui o que quiser mudar ou comentar — a agência recebe na hora, e fica registrado."
         />
       </CardContent>
 
@@ -656,11 +694,13 @@ function ApprovalCard({ post, onDone }) {
             </Stack>
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
+          {erro && <Alert severity="warning" sx={{ width: "100%" }}>{erro}</Alert>}
+          <Box sx={{ flex: 1 }} />
           <Button onClick={() => setAjuste(null)}>Cancelar</Button>
           <Button variant="contained" onClick={sendChanges}
             disabled={busy || (!ajuste?.note && !ajuste?.refFile && ajuste?.caption === (post.caption || ""))}>
-            Enviar para a agência
+            {busy ? "Enviando…" : "Enviar para a agência"}
           </Button>
         </DialogActions>
       </Dialog>

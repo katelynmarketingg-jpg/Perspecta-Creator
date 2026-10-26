@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button, Stack,
   Chip, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
-  ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox, Tooltip, Slider,
+  ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox, Tooltip, Slider, Collapse,
 } from "@mui/material";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import ViewCarouselIcon from "@mui/icons-material/ViewCarousel";
@@ -33,6 +33,8 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import api from "../api/client.js";
+import PostComments from "../components/PostComments.jsx";
+import ForumIcon from "@mui/icons-material/Forum";
 import { makeThumbnail } from "../upload/thumbnail.js";
 import { ligarRolagemAoArrastar } from "../upload/rolar-arrastando.js";
 import { agruparPosts } from "../upload/unir-carrossel.js";
@@ -939,6 +941,9 @@ function VideoCoverDialog({ fileId, streamUrl, clientId, open, onClose, onCaptur
 // Um cartão por peça: mídia + legenda + observação + data → enviar p/ aprovação.
 function PieceCard({ item, onChanged, flash }) {
   const [caption, setCaption] = useState(item.caption || "");
+  // A conversa com o cliente: aberta quando ele pediu ajuste (é o que ela
+  // precisa ler agora), fechada no resto.
+  const [verConversa, setVerConversa] = useState(item.approval_status === "changes_requested");
   const [obs, setObs] = useState(item.description || "");
   const [when, setWhen] = useState(toInput(item.scheduled_at));
   const [fileId, setFileId] = useState(item.file_id || null);
@@ -1329,6 +1334,35 @@ function PieceCard({ item, onChanged, flash }) {
               Cliente pediu ajuste{item.client_note ? `: ${item.client_note}` : "."}
             </Alert>
           )}
+
+          {/* O QUE O CLIENTE DISSE, ONDE ELA TRABALHA NA PEÇA.
+              Pedido dela: "fique salvo pra mim o que cada cliente mudar".
+              Estava salvo e só aparecia no Calendário — na prática, ela nunca
+              via. A conversa guarda tudo com data e autor, inclusive os
+              pedidos de ajuste, que antes moravam num campo só e eram
+              sobrescritos pelo pedido seguinte.
+              Abre sozinha quando ele pediu ajuste; nas outras peças fica
+              fechada e só busca a conversa quando ela clica — numa fileira de
+              vinte peças, vinte buscas seria peso por nada. */}
+          <Box>
+            <Button size="small" startIcon={<ForumIcon />} onClick={() => setVerConversa((v) => !v)}>
+              {verConversa ? "Esconder a conversa" : "O que o cliente disse"}
+            </Button>
+            <Collapse in={verConversa} unmountOnExit>
+              <Box sx={{ mt: 1 }}>
+                <PostComments
+                  taskId={item.id}
+                  api={api}
+                  listPath={`/comments/${item.id}`}
+                  postPath={`/comments/${item.id}`}
+                  eu="agency"
+                  compacto
+                  titulo="O que o cliente disse"
+                  ajuda="Tudo que ele escreveu nesta peça, com data — inclusive os pedidos de ajuste. Responda aqui: ele vê na área dele."
+                />
+              </Box>
+            </Collapse>
+          </Box>
 
           {/* Arte da peça. No carrossel vira um visualizador: a 1ª slide fica na
               frente e a pessoa desliza com a setinha. Fora do carrossel, mostra
@@ -3107,8 +3141,10 @@ export default function Distribution() {
         <DialogTitle>Editar peça</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           {selectedFresh && (
-            <PieceCard key={selectedFresh.id} item={selectedFresh} flash={flash}
-              onChanged={() => { load(); setSelected(null); }} />
+            <>
+              <PieceCard key={selectedFresh.id} item={selectedFresh} flash={flash}
+                onChanged={() => { load(); setSelected(null); }} />
+            </>
           )}
         </DialogContent>
         <DialogActions><Button onClick={() => setSelected(null)}>Fechar</Button></DialogActions>
