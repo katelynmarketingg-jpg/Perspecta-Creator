@@ -167,7 +167,16 @@ export default function MinhasFinancas() {
   // Listas de métodos e categorias já usados — pra sugerir no formulário e deixar
   // criar um novo só digitando.
   const metodos = useMemo(() => [...new Set((data?.entries || []).map((e) => e.method).filter(Boolean))].sort(), [data]);
-  const categorias = useMemo(() => [...new Set((data?.entries || []).map((e) => e.category).filter(Boolean))].sort(), [data]);
+  // "Perspectiva" NUNCA aparecia na lista, e ela reparou: a sugestão só mostra
+  // categoria que já existe aqui, e gasto da Perspectiva sai daqui no mesmo
+  // instante (ele vive no Financeiro). Só que é por aqui que ela lança — essas
+  // contas estão no cartão de crédito dela. Então a categoria é oferecida
+  // sempre, exista ou não gasto dela neste mês.
+  const categorias = useMemo(() => {
+    const usadas = new Set((data?.entries || []).map((e) => e.category).filter(Boolean));
+    usadas.add("Perspectiva");
+    return [...usadas].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [data]);
   // Gastos da Perspectiva que ainda estão AQUI, nas finanças pessoais, e
   // deveriam estar no Financeiro. As linhas que vêm de lá (da_perspectiva) já
   // estão no lugar certo — mandar mover essas seria mandar mover o que não é
@@ -753,7 +762,18 @@ export default function MinhasFinancas() {
                 renderInput={(p) => <TextField {...p} label="Meio de pagamento (banco)" placeholder="Nubank PF, Sicoob, Pix… ou digite um novo" helperText="Escolha um que já usa ou digite um novo banco" />} />
               <Autocomplete freeSolo options={categorias} value={draft.category || ""}
                 onInputChange={(_, v) => setDraft((d) => ({ ...d, category: v }))}
-                renderInput={(p) => <TextField {...p} label="Categoria" placeholder="Casa, Roupas… ou digite uma nova" helperText="Escolha uma que já usa ou digite uma nova" />} />
+                renderInput={(p) => <TextField {...p} label="Categoria" placeholder="Casa, Roupas, Perspectiva… ou digite uma nova" helperText="Escolha uma que já usa ou digite uma nova" />} />
+              {/* Ela precisa saber ONDE a conta vai cair antes de salvar — senão
+                  parece que o gasto sumiu. Perspectiva é da empresa: o
+                  lançamento mora no Financeiro, mas continua aparecendo aqui
+                  porque sai do cartão dela. */}
+              {/perspec/i.test(draft.category || "") && (
+                <Alert severity="info" sx={{ py: 0.25 }}>
+                  Conta da <b>Perspectiva</b>: o lançamento vai para o <b>Financeiro → Despesas</b> (é da
+                  empresa), e continua aparecendo aqui na sua fatura, com a plaquinha <b>Perspectiva</b> —
+                  você marca como paga pelos dois lados.
+                </Alert>
+              )}
               <Stack direction="row" alignItems="center">
                 <Checkbox checked={!!draft.paid} onChange={(e) => setDraft((d) => ({ ...d, paid: e.target.checked }))} />
                 <Typography variant="body2">Já pago</Typography>

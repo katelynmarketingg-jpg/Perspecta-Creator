@@ -125,3 +125,30 @@ test("escrito de outro jeito ainda é a empresa", async () => {
   assert.equal(nasPessoais("Impulsionamento"), 0);
   assert.equal(noFinanceiro("Impulsionamento"), 1);
 });
+
+// "NO ACRESCENTAR NOVO GASTO NÃO TÁ APARECENDO A CATEGORIA PERSPECTIVA
+// (apesar de aparecer no financeiro, eu edito por aqui, então acrescento por
+// aqui pois estão nos meus cartões de crédito)."
+//
+// A lista de categorias sugeridas vinha do que JÁ EXISTE nas finanças
+// pessoais — e gasto da Perspectiva sai dali no mesmo instante (vive no
+// Financeiro). Resultado: a única categoria que ela precisava digitar era
+// justamente a que nunca aparecia.
+test("a categoria Perspectiva é oferecida sempre no formulário de gasto", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { dirname } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const raiz = join(dirname(fileURLToPath(import.meta.url)), "../..");
+  const tela = readFileSync(join(raiz, "client/src/pages/MinhasFinancas.jsx"), "utf8");
+
+  const lista = tela.slice(tela.indexOf("const categorias = useMemo("),
+    tela.indexOf("}, [data]);", tela.indexOf("const categorias = useMemo(")));
+  assert.match(lista, /usadas\.add\("Perspectiva"\)/,
+    "a sugestão voltou a depender de já existir um gasto da Perspectiva aqui");
+
+  // E a tela avisa onde a conta vai cair — senão parece que o gasto sumiu.
+  assert.match(tela, /\/perspec\/i\.test\(draft\.category \|\| ""\)/,
+    "sem o aviso, ela salva e não encontra o gasto nesta tela");
+  assert.match(tela, /Financeiro → Despesas<\/b> \(é da\n?\s*empresa\)/,
+    "o aviso precisa dizer para onde vai");
+});
