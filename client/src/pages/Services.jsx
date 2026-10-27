@@ -343,6 +343,17 @@ export default function Services() {
                 <Box sx={{ mt: 0.5, fontFamily: "monospace", fontSize: 13 }}>
                   {"{{cliente}} {{empresa}} {{email}} {{telefone}} {{segmento}} {{endereco}} {{valor}} {{duracao}} {{data}} {{servico}}"}
                 </Box>
+                <Typography variant="caption" sx={{ display: "block", mt: 1, fontWeight: 700 }}>
+                  Onde cada assinatura vai ficar:
+                </Typography>
+                <Box sx={{ mt: 0.25, fontFamily: "monospace", fontSize: 13 }}>
+                  {"{{assinatura_cliente}}   {{assinatura_perspecta}}"}
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                  Ponha esses dois onde você quer as assinaturas. Até alguém assinar eles aparecem como
+                  uma linha para assinar à caneta; depois de assinado, viram a assinatura desenhada com
+                  nome, documento, data e IP.
+                </Typography>
               </Alert>
 
               <PaginaDoContrato
