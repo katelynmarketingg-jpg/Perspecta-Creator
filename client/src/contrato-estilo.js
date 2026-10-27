@@ -67,18 +67,32 @@ export function estiloDoContrato(bruto) {
     : undefined);
 
   return {
-    // Logo só deste contrato. Vazio: vale o da casa.
+    // Logo do TOPO. Vazio: vale o da casa. (O nome é só "logo" por herança —
+    // quem já tinha um logo posicionado não perde nada.)
     logo: typeof v.logo === "string" && v.logo.startsWith("data:") ? v.logo : null,
+    // Logo do RODAPÉ, separado do de cima. Vazio: cai no do topo (e, se não
+    // houver, no da casa) — assim quem já usava o mesmo logo nas duas pontas
+    // continua igual, e quem quer um diferente embaixo agora pode escolher.
+    logoRodape: typeof v.logoRodape === "string" && v.logoRodape.startsWith("data:") ? v.logoRodape : null,
     topo: faixa(topo, true),
     rodape: faixa(v.rodape, false),   // o rodapé nasce desligado
     pagina: paginaDoContrato(v.pagina),
   };
 }
 
+/** O logo que o rodapé usa de fato: o dele, senão o do topo, senão o da casa. */
+export const logoDoRodape = (estilo, logoDaCasa = null) =>
+  estilo.logoRodape || estilo.logo || logoDaCasa || null;
+
+/** O logo do topo: o dele, senão o da casa. */
+export const logoDoTopo = (estilo, logoDaCasa = null) =>
+  estilo.logo || logoDaCasa || null;
+
 /** O que vai para o banco. Só o que a gente conhece, e nada mais. */
 export function estiloParaGuardar(e) {
   return {
     logo: e.logo || null,
+    logoRodape: e.logoRodape || null,
     topo: { ativo: e.topo.ativo, x: e.topo.x, y: e.topo.y, w: e.topo.w },
     rodape: { ativo: e.rodape.ativo, x: e.rodape.x, y: e.rodape.y, w: e.rodape.w },
     pagina: paginaDoContrato(e.pagina),

@@ -25,7 +25,7 @@ import GavelIcon from "@mui/icons-material/Gavel";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client.js";
 import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
-import { estiloDoContrato, ALTURA_RODAPE } from "../contrato-estilo.js";
+import { estiloDoContrato, ALTURA_RODAPE, logoDoTopo, logoDoRodape } from "../contrato-estilo.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState, TableSkeleton } from "../components/ui.jsx";
 import { currency, formatDate, CONTENT_TYPES } from "../utils.js";
@@ -117,11 +117,11 @@ export default function Clients() {
       titulo: c.title,
       pagina: st.pagina,
       corpo: [
-        st.topo.ativo ? faixaDeLogo(st.logo || logoDaCasa, st.topo) : "",
+        st.topo.ativo ? faixaDeLogo(logoDoTopo(st, logoDaCasa), st.topo) : "",
         `<h1>${c.title}</h1>`,
         `<pre>${(c.notes || "").replace(/</g, "&lt;")}</pre>`,
         assinatura,
-        st.rodape.ativo ? faixaDeLogo(st.logo || logoDaCasa, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
+        st.rodape.ativo ? faixaDeLogo(logoDoRodape(st, logoDaCasa), st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
       ].join(""),
     });
   }

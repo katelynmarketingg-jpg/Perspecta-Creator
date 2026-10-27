@@ -18,7 +18,7 @@ import TextoDoContrato, { pareceHtml, limpaContrato } from "../components/TextoD
 import api from "../api/client.js";
 import { comAssinaturas, CSS_ASSINATURAS, temMarcadores } from "../assinaturas-no-contrato.js";
 import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
-import { estiloDoContrato, ALTURA_RODAPE } from "../contrato-estilo.js";
+import { estiloDoContrato, ALTURA_RODAPE, logoDoTopo, logoDoRodape } from "../contrato-estilo.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState } from "../components/ui.jsx";
 import { currency, formatDate } from "../utils.js";
@@ -136,13 +136,14 @@ export default function Contracts() {
     // O estilo veio junto com o contrato quando ele foi gerado: é dele que
     // sai o logo, e se ele fica no topo, no rodapé, ou nos dois.
     const st = estiloDoContrato(c.style);
-    const logo = st.logo || logoDaCasa;
+    const logoTopo = logoDoTopo(st, logoDaCasa);
+    const logoBaixo = logoDoRodape(st, logoDaCasa);
     imprimirDocumento({
       janela: w,
       titulo: c.title,
       pagina: st.pagina,
       corpo: [
-        st.topo.ativo ? faixaDeLogo(logo, st.topo) : "",
+        st.topo.ativo ? faixaDeLogo(logoTopo, st.topo) : "",
         `<h1>${c.title}</h1>`,
         `<style>${CSS_ASSINATURAS}</style>`,
         // Cada assinatura no lugar que o modelo marcou. O bloco solto no fim
@@ -150,7 +151,7 @@ export default function Contracts() {
         // nesses, é ele que mostra a assinatura do cliente.
         `<div class="corpo">${comAssinaturas(corpoImpresso(c.notes), c)}</div>`,
         temMarcadores(c.notes) ? "" : assinatura,
-        st.rodape.ativo ? faixaDeLogo(logo, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
+        st.rodape.ativo ? faixaDeLogo(logoBaixo, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
       ].join(""),
     });
   }
