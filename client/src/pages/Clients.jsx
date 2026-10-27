@@ -115,6 +115,7 @@ export default function Clients() {
     imprimirDocumento({
       janela: w,
       titulo: c.title,
+      pagina: st.pagina,
       corpo: [
         st.topo.ativo ? faixaDeLogo(st.logo || logoDaCasa, st.topo) : "",
         `<h1>${c.title}</h1>`,

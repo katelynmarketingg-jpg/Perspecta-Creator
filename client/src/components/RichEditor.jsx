@@ -64,7 +64,14 @@ export function limpaHtmlColado(html) {
 // logo no rodapé do contrato, para ela ver o documento inteiro de uma vez.
 // `header` é um bloco opcional renderizado ENTRE a barra e o texto (ex.: o logo
 // dentro da folha). A barra fica no topo (sticky).
-export default function RichEditor({ value = "", onChange, docKey, minHeight = 260, placeholder = "Escreva aqui…", header = null, footer = null }) {
+export default function RichEditor({
+  value = "", onChange, docKey, minHeight = 260, placeholder = "Escreva aqui…",
+  header = null, footer = null,
+  // A página do contrato: margem (cm), entrelinha e tamanho do texto (pt).
+  // Vindo, o editor passa a ter a MESMA PROPORÇÃO do papel — a largura da
+  // coluna de texto aqui é a largura que ela vai ter no A4.
+  pagina = null,
+}) {
   const ref = useRef(null);
   // A barra mostra o que está valendo. Antes dizia "Arial" e "Normal" para
   // sempre, mesmo depois de trocar — ela mudava o tamanho e o campo continuava
@@ -160,8 +167,20 @@ export default function RichEditor({ value = "", onChange, docKey, minHeight = 2
         onInput={() => onChange?.(ref.current?.innerHTML || "")}
         onPaste={colar}
         sx={{
-          minHeight, px: 2, py: 1.5, borderRadius: 2, border: 1, borderColor: "divider",
-          outline: "none", fontFamily: "Georgia, serif", lineHeight: 1.6, overflowY: "auto",
+          minHeight, borderRadius: 2, border: 1, borderColor: "divider",
+          outline: "none", fontFamily: "Georgia, serif", overflowY: "auto",
+          // Sem página definida, segue como sempre foi.
+          px: pagina ? undefined : 2,
+          py: pagina ? undefined : 1.5,
+          lineHeight: pagina ? pagina.entrelinha : 1.6,
+          fontSize: pagina ? `${pagina.corpo}pt` : undefined,
+          // A4 tem 21 cm de largura: a margem em cm vira a MESMA fatia aqui.
+          // Assim a coluna de texto na tela tem a proporção da folha.
+          paddingLeft: pagina ? `${((pagina.esquerda / 21) * 100).toFixed(2)}%` : undefined,
+          paddingRight: pagina ? `${((pagina.direita / 21) * 100).toFixed(2)}%` : undefined,
+          paddingTop: pagina ? `${((pagina.topo / 21) * 100).toFixed(2)}%` : undefined,
+          paddingBottom: pagina ? `${((pagina.baixo / 21) * 100).toFixed(2)}%` : undefined,
+          textAlign: pagina ? "justify" : undefined,
           "& ul, & ol": { pl: 3 },
           "&:empty:before": { content: `"${placeholder}"`, color: "text.disabled" },
         }}

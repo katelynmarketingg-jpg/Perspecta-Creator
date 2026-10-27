@@ -140,6 +140,7 @@ export default function Contracts() {
     imprimirDocumento({
       janela: w,
       titulo: c.title,
+      pagina: st.pagina,
       corpo: [
         st.topo.ativo ? faixaDeLogo(logo, st.topo) : "",
         `<h1>${c.title}</h1>`,
