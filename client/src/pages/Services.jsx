@@ -23,7 +23,7 @@ import ReceiptSettings from "../components/ReceiptSettings.jsx";
 import { receiptHtml } from "../receipt.js";
 import LogoBanner from "../components/LogoBanner.jsx";
 import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
-import { estiloDoContrato, estiloParaGuardar, ALTURA_TOPO, ALTURA_RODAPE, PAGINA_PADRAO } from "../contrato-estilo.js";
+import { estiloDoContrato, estiloParaGuardar, ALTURA_TOPO, ALTURA_RODAPE, PAGINA_PADRAO, logoDoTopo, logoDoRodape } from "../contrato-estilo.js";
 
 const VAZIO = { name: "", category: "", default_price: "", contract_template: "", items_schema: [], contract_style: estiloDoContrato(null) };
 // O estilo do contrato (logo e onde ele fica) sempre na forma de hoje —
@@ -127,16 +127,18 @@ export default function Services() {
     const win = window.open("", "_blank");
     if (!win) return;
     api.get("/branding").then((r) => {
-      const logo = st.logo || r.data?.logo || null;
+      const casa = r.data?.logo || null;
+      const logoTopo = logoDoTopo(st, casa);
+      const logoBaixo = logoDoRodape(st, casa);
       imprimirDocumento({
         janela: win,
         titulo: draft.name || "Contrato",
         pagina: st.pagina,
         corpo: [
-          st.topo.ativo ? faixaDeLogo(logo, st.topo) : "",
+          st.topo.ativo ? faixaDeLogo(logoTopo, st.topo) : "",
           draft.name ? `<p class="sobretitulo">${draft.name}</p>` : "",
           draft.contract_template || "",
-          st.rodape.ativo ? faixaDeLogo(logo, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
+          st.rodape.ativo ? faixaDeLogo(logoBaixo, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
         ].join(""),
       });
     }).catch(() => {
@@ -367,7 +369,8 @@ export default function Services() {
                     }
                     footer={
                       <RodapeDoContrato estilo={estiloDoContrato(draft.contract_style)}
-                        onMuda={(e) => setDraft((d) => ({ ...d, contract_style: e }))} />
+                        onMuda={(e) => setDraft((d) => ({ ...d, contract_style: e }))}
+                        onErro={setErro} />
                     }
                   />
                 </Box>
@@ -487,23 +490,55 @@ function MarcaDoContrato({ estilo, onMuda, onErro }) {
   );
 }
 
-/** A mesma faixa, no fim do documento. */
-function RodapeDoContrato({ estilo, onMuda }) {
+/**
+ * A mesma faixa, no fim do documento — mas com logo PRÓPRIO.
+ *
+ * Pedido dela: "quero que eu possa escolher um logo pra cima e um pra baixo".
+ * O rodapé pode ter uma marca diferente da do topo (a do cliente em cima, a da
+ * agência embaixo, por exemplo). Enquanto ela não escolher um, o rodapé usa o
+ * mesmo logo do topo — então quem já tinha o contrato do jeito antigo não vê
+ * diferença nenhuma.
+ */
+function RodapeDoContrato({ estilo, onMuda, onErro }) {
+  const trocarLogo = async (arquivo) => {
+    if (!arquivo) return;
+    try {
+      const logoRodape = await comoDataURI(arquivo);
+      onMuda({ ...estilo, logoRodape });
+    } catch (e) { onErro?.(e.message); }
+  };
+  // O que a faixa de baixo mostra na tela: o logo próprio do rodapé, senão o
+  // do topo (e o LogoBanner cai no da casa se os dois estiverem vazios).
+  const logoMostrado = estilo.logoRodape || estilo.logo || null;
+
   return (
     <Box sx={{ overflow: "hidden", mt: 1 }}>
       <Stack direction="row" spacing={1} alignItems="center"
-        sx={{ px: 1, py: 0.75, bgcolor: "action.hover" }}>
+        sx={{ px: 1, py: 0.75, flexWrap: "wrap", gap: 1, bgcolor: "action.hover" }}>
         <Typography variant="caption" color="text.secondary" sx={{ mr: "auto" }}>
-          Fim do contrato
+          {/* Dizer qual logo está embaixo: próprio, herdado do topo, ou o da casa. */}
+          Logo do rodapé — {estilo.logoRodape
+            ? "próprio do fim do contrato"
+            : (estilo.logo ? "o mesmo do topo" : "o da casa")}
         </Typography>
+        <Button size="small" component="label" startIcon={<ImageIcon fontSize="small" />}>
+          {estilo.logoRodape ? "Trocar logo de baixo" : "Usar outro logo embaixo"}
+          <input hidden type="file" accept="image/*"
+            onChange={(e) => { trocarLogo(e.target.files?.[0]); e.target.value = ""; }} />
+        </Button>
+        {estilo.logoRodape && (
+          <Button size="small" color="error" onClick={() => onMuda({ ...estilo, logoRodape: null })}>
+            Voltar ao do topo
+          </Button>
+        )}
         <FormControlLabel sx={{ ml: 0 }} control={
           <Switch size="small" checked={estilo.rodape.ativo}
             onChange={(e) => onMuda({ ...estilo, rodape: { ...estilo.rodape, ativo: e.target.checked } })} />
         } label={<Typography variant="caption">logo no rodapé</Typography>} />
       </Stack>
       {estilo.rodape.ativo && (
-        <LogoBanner logo={estilo.logo} altura={ALTURA_RODAPE}
-          vazio="(Sem logo — use “Usar outro logo” aqui em cima, ou ponha o da casa em Configurações → Marca)"
+        <LogoBanner logo={logoMostrado} altura={ALTURA_RODAPE}
+          vazio="(Sem logo — use “Usar outro logo embaixo” aqui do lado, ou ponha o da casa em Configurações → Marca)"
           geom={{ logoX: estilo.rodape.x, logoY: estilo.rodape.y, logoW: estilo.rodape.w }}
           onGeom={(g) => onMuda({ ...estilo, rodape: { ...estilo.rodape, x: g.logoX, y: g.logoY, w: g.logoW } })} />
       )}
