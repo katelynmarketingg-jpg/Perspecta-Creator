@@ -115,6 +115,26 @@ export default function RichEditor({
    * INTEIRO, que é o que se quer num contrato. No fim o texto é
    * desmarcado — deixar tudo azul depois de aplicar assusta.
    */
+  // O MESMO estilo que vamos aplicar, mas EMBUTIDO em trechos de dentro, ganha
+  // do novo — por isso "escolhi o tamanho e não padronizou". O contrato veio
+  // colado do Docs/Word com "font-size: 11pt" (e a fonte) grudado em cada
+  // pedaço; antes de aplicar o tamanho novo, tiramos o antigo de dentro do
+  // trecho, aí a mudança pega no texto todo.
+  const PROP_DO_COMANDO = { fontSize: "font-size", fontName: "font-family" };
+  const limparEstiloNaSelecao = (comando) => {
+    const prop = PROP_DO_COMANDO[comando];
+    const sel = window.getSelection();
+    if (!prop || !sel || !sel.rangeCount || !ref.current) return;
+    // removeProperty mexe só no atributo style — não tira nenhum nó, então o
+    // trecho marcado continua válido para o comando logo em seguida.
+    ref.current.querySelectorAll(`[style*="${prop}"]`).forEach((el) => {
+      if (sel.containsNode(el, true)) {
+        el.style.removeProperty(prop);
+        if (!el.getAttribute("style")) el.removeAttribute("style");
+      }
+    });
+  };
+
   const aplicaNoTexto = (comando, valor) => {
     const sel = window.getSelection();
     const marcado = Boolean(
@@ -127,6 +147,7 @@ export default function RichEditor({
       sel?.removeAllRanges();
       sel?.addRange(r);
     }
+    limparEstiloNaSelecao(comando);
     cmd(comando, valor);
     if (!marcado) window.getSelection()?.collapseToEnd();
   };
