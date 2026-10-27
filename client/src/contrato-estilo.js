@@ -13,6 +13,40 @@
 export const ALTURA_TOPO = 150;
 export const ALTURA_RODAPE = 110;
 
+// ---------------------------------------------------------------------------
+// A PÁGINA: margem, entrelinha e tamanho do texto.
+//
+// Pergunta dela: "como eu sei a margem e espaçamento? tem que ter também."
+// Antes esses três números estavam escritos no código e não apareciam em
+// lugar nenhum: o contrato saía com eles e ninguém sabia quais eram.
+//
+// O padrão continua o da ABNT NBR 14724 — 3 cm em cima e à esquerda, 2 cm
+// embaixo e à direita. Num contrato isso não é capricho de norma: é onde cabe
+// a rubrica de cada página, o carimbo e o furo do grampo. Mas agora é um
+// número à vista, que ela muda.
+// ---------------------------------------------------------------------------
+export const PAGINA_PADRAO = {
+  topo: 3, direita: 2, baixo: 2, esquerda: 3,  // cm
+  entrelinha: 1.55,                            // vezes o tamanho da letra
+  corpo: 11.5,                                 // pt
+};
+
+/** Número dentro de limites de gente: fora deles, volta para o padrão. */
+const entre = (v, min, max, padrao) => {
+  const n = Number(String(v).replace(",", "."));
+  return Number.isFinite(n) && n >= min && n <= max ? n : padrao;
+};
+
+export const paginaDoContrato = (p) => ({
+  // Margem: de meio centímetro (quase sem margem) a 6 cm (quase um livro).
+  topo: entre(p?.topo, 0.5, 6, PAGINA_PADRAO.topo),
+  direita: entre(p?.direita, 0.5, 6, PAGINA_PADRAO.direita),
+  baixo: entre(p?.baixo, 0.5, 6, PAGINA_PADRAO.baixo),
+  esquerda: entre(p?.esquerda, 0.5, 6, PAGINA_PADRAO.esquerda),
+  entrelinha: entre(p?.entrelinha, 1, 3, PAGINA_PADRAO.entrelinha),
+  corpo: entre(p?.corpo, 7, 20, PAGINA_PADRAO.corpo),
+});
+
 const faixa = (g, padraoAtivo) => ({
   ativo: g?.ativo === undefined ? padraoAtivo : Boolean(g.ativo),
   x: g?.x === undefined || g?.x === null ? null : Number(g.x),
@@ -37,6 +71,7 @@ export function estiloDoContrato(bruto) {
     logo: typeof v.logo === "string" && v.logo.startsWith("data:") ? v.logo : null,
     topo: faixa(topo, true),
     rodape: faixa(v.rodape, false),   // o rodapé nasce desligado
+    pagina: paginaDoContrato(v.pagina),
   };
 }
 
@@ -46,5 +81,6 @@ export function estiloParaGuardar(e) {
     logo: e.logo || null,
     topo: { ativo: e.topo.ativo, x: e.topo.x, y: e.topo.y, w: e.topo.w },
     rodape: { ativo: e.rodape.ativo, x: e.rodape.x, y: e.rodape.y, w: e.rodape.w },
+    pagina: paginaDoContrato(e.pagina),
   };
 }

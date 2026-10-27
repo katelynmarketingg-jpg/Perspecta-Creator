@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Stack, Button, IconButton, Chip, TextField,
   Dialog, DialogContent, Alert, Divider, Tooltip, AppBar, Toolbar, Tabs, Tab,
-  Switch, FormControlLabel,
+  Switch, FormControlLabel, MenuItem,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -23,7 +23,7 @@ import ReceiptSettings from "../components/ReceiptSettings.jsx";
 import { receiptHtml } from "../receipt.js";
 import LogoBanner from "../components/LogoBanner.jsx";
 import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
-import { estiloDoContrato, estiloParaGuardar, ALTURA_TOPO, ALTURA_RODAPE } from "../contrato-estilo.js";
+import { estiloDoContrato, estiloParaGuardar, ALTURA_TOPO, ALTURA_RODAPE, PAGINA_PADRAO } from "../contrato-estilo.js";
 
 const VAZIO = { name: "", category: "", default_price: "", contract_template: "", items_schema: [], contract_style: estiloDoContrato(null) };
 // O estilo do contrato (logo e onde ele fica) sempre na forma de hoje —
@@ -131,6 +131,7 @@ export default function Services() {
       imprimirDocumento({
         janela: win,
         titulo: draft.name || "Contrato",
+        pagina: st.pagina,
         corpo: [
           st.topo.ativo ? faixaDeLogo(logo, st.topo) : "",
           draft.name ? `<p class="sobretitulo">${draft.name}</p>` : "",
@@ -141,7 +142,7 @@ export default function Services() {
     }).catch(() => {
       // Sem a marca, ainda imprime: o contrato é o que importa.
       imprimirDocumento({ janela: win, titulo: draft.name || "Contrato",
-        corpo: draft.contract_template || "" });
+        pagina: st.pagina, corpo: draft.contract_template || "" });
     });
   }
 
@@ -342,10 +343,18 @@ export default function Services() {
                 </Box>
               </Alert>
 
+              <PaginaDoContrato
+                pagina={estiloDoContrato(draft.contract_style).pagina}
+                onMuda={(pg) => setDraft((d) => ({
+                  ...d,
+                  contract_style: { ...estiloDoContrato(d.contract_style), pagina: pg },
+                }))} />
+
               {/* Barra em cima; o logo (móvel) fica dentro da folha, acima do texto */}
               <Card variant="outlined" sx={{ overflow: "hidden", mb: 2 }}>
                 <Box sx={{ p: 2 }}>
                   <RichEditor
+                    pagina={estiloDoContrato(draft.contract_style).pagina}
                     docKey={draft.id || "novo"}
                     value={draft.contract_template}
                     onChange={(html) => setDraft((d) => ({ ...d, contract_template: html }))}
@@ -368,6 +377,63 @@ export default function Services() {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A PÁGINA DO CONTRATO — margem, entrelinha e tamanho do texto, à vista.
+//
+// "como eu sei a margem e espacamento? tem que ter também."
+//
+// Esses três números sempre existiram: o contrato saía com 3 cm de margem em
+// cima e à esquerda, 2 cm embaixo e à direita (ABNT NBR 14724), entrelinha
+// 1,55 e texto 11,5 pt — só que escritos no código, onde ela não via nem
+// mexia. Agora estão aqui, e o editor ao lado passa a ter a MESMA PROPORÇÃO
+// do papel: a coluna de texto na tela é a coluna que sai no A4.
+//
+// O padrão continua o da norma porque num contrato a margem larga é onde cabe
+// a rubrica de cada página, o carimbo e o furo do grampo.
+// ---------------------------------------------------------------------------
+const ENTRELINHAS = [[1, "Simples"], [1.15, "1,15"], [1.55, "1,5 (padrão)"], [2, "Dupla"]];
+
+function PaginaDoContrato({ pagina, onMuda }) {
+  const muda = (campo) => (e) => {
+    const bruto = String(e.target.value).replace(",", ".");
+    onMuda({ ...pagina, [campo]: bruto === "" ? PAGINA_PADRAO[campo] : Number(bruto) });
+  };
+  const campo = (campo, rotulo) => (
+    <TextField size="small" label={rotulo} value={pagina[campo]} onChange={muda(campo)}
+      sx={{ width: 96 }} inputProps={{ inputMode: "decimal" }} />
+  );
+  const noPadrao = Object.keys(PAGINA_PADRAO).every((k) => pagina[k] === PAGINA_PADRAO[k]);
+
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 1.5 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+          PÁGINA (A4)
+        </Typography>
+        <Typography variant="caption" color="text.secondary">Margens em cm:</Typography>
+        {campo("topo", "Topo")}
+        {campo("direita", "Direita")}
+        {campo("baixo", "Baixo")}
+        {campo("esquerda", "Esquerda")}
+        <TextField select size="small" label="Entrelinha" value={pagina.entrelinha}
+          onChange={muda("entrelinha")} sx={{ width: 140 }}>
+          {ENTRELINHAS.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
+        </TextField>
+        <TextField size="small" label="Texto (pt)" value={pagina.corpo} onChange={muda("corpo")}
+          sx={{ width: 110 }} inputProps={{ inputMode: "decimal" }} />
+        {!noPadrao && (
+          <Button size="small" onClick={() => onMuda({ ...PAGINA_PADRAO })}>Voltar ao padrão</Button>
+        )}
+      </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+        O padrão é o da ABNT (3 · 2 · 2 · 3) — a margem larga é onde cabem a rubrica de cada
+        página, o carimbo e o furo do grampo. O editor abaixo usa a mesma proporção do papel;
+        para ver a folha de verdade, clique em <strong>Imprimir</strong>.
+      </Typography>
+    </Box>
   );
 }
 

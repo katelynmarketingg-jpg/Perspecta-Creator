@@ -14,8 +14,14 @@
 // encostava na borda do papel. Só `@page` vale para todas.
 // ---------------------------------------------------------------------------
 
+import { PAGINA_PADRAO, paginaDoContrato } from "./contrato-estilo.js";
+
 /** As margens da norma, na ordem do CSS: topo · direita · rodapé · esquerda. */
 export const MARGENS_ABNT = "3cm 2cm 2cm 3cm";
+
+/** "3cm 2cm 2cm 3cm" a partir dos números que ela escolheu. */
+export const margensDaPagina = (p = PAGINA_PADRAO) =>
+  `${p.topo}cm ${p.direita}cm ${p.baixo}cm ${p.esquerda}cm`;
 
 /**
  * A folha de estilo do documento.
@@ -25,9 +31,13 @@ export const MARGENS_ABNT = "3cm 2cm 2cm 3cm";
  * ponta do monitor, que não parecia nem de longe com o que ia sair na
  * impressora. No PAPEL, a folha some e quem manda é o `@page`.
  */
-export function folhaDeImpressao() {
+export function folhaDeImpressao(paginaBruta) {
+  // A margem, a entrelinha e o tamanho do texto vêm do estilo do contrato —
+  // com o padrão ABNT quando ninguém mexeu.
+  const pagina = paginaDoContrato(paginaBruta);
+  const MARGENS = margensDaPagina(pagina);
   return `
-  @page { size: A4; margin: ${MARGENS_ABNT}; }
+  @page { size: A4; margin: ${MARGENS}; }
 
   /* ---- na tela: uma folha A4, para a prévia parecer com o papel ---- */
   html { background: #78716c; }
@@ -37,7 +47,7 @@ export function folhaDeImpressao() {
     min-height: 29.7cm;
     box-sizing: border-box;
     margin: 0 auto;
-    padding: ${MARGENS_ABNT};
+    padding: ${MARGENS};
     background: #fff;
     box-shadow: 0 2px 16px rgba(0,0,0,.35);
   }
@@ -45,8 +55,8 @@ export function folhaDeImpressao() {
   /* ---- o texto ---- */
   .folha {
     font-family: Georgia, "Times New Roman", serif;
-    font-size: 11.5pt;
-    line-height: 1.55;
+    font-size: ${pagina.corpo}pt;
+    line-height: ${pagina.entrelinha};
     color: #1a1a1a;
     text-align: justify;
     /* Justificado sem hifenização abre "rios" de espaço no meio do
@@ -54,9 +64,9 @@ export function folhaDeImpressao() {
     hyphens: auto;
     -webkit-hyphens: auto;
   }
-  .folha h1 { font-size: 14pt; text-align: center; margin: 0 0 4px; letter-spacing: .01em; }
-  .folha h2 { font-size: 12pt; }
-  .folha h3 { font-size: 11.5pt; }
+  .folha h1 { font-size: ${(pagina.corpo * 1.22).toFixed(1)}pt; text-align: center; margin: 0 0 4px; letter-spacing: .01em; }
+  .folha h2 { font-size: ${(pagina.corpo * 1.05).toFixed(1)}pt; }
+  .folha h3 { font-size: ${pagina.corpo}pt; }
   .folha p { margin: 0 0 10px; text-indent: 0; }
   .folha ul, .folha ol { padding-left: 22px; }
   .folha img { max-width: 100%; }
@@ -110,13 +120,13 @@ export function faixaDeLogo(logo, geom = {}, { altura = 150, rodape = false } = 
  * Abre a janela e escreve o documento pronto para imprimir.
  * Devolve false quando o navegador bloqueou a janela, para quem chamou avisar.
  */
-export function imprimirDocumento({ titulo, corpo, estiloExtra = "", janela }) {
+export function imprimirDocumento({ titulo, corpo, estiloExtra = "", janela, pagina }) {
   const w = janela || window.open("", "_blank");
   if (!w) return false;
   const nome = String(titulo || "Documento").replace(/[<>]/g, "");
   w.document.write(`<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
 <title>${nome}</title>
-<style>${folhaDeImpressao()}${estiloExtra}</style>
+<style>${folhaDeImpressao(pagina)}${estiloExtra}</style>
 </head><body><div class="folha">${corpo}</div>
 <script>window.onload=function(){window.focus();window.print();}<\/script>
 </body></html>`);
