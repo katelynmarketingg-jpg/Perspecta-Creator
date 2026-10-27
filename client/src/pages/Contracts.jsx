@@ -432,6 +432,7 @@ export default function Contracts() {
                   ["Sua agência", "{{agencia}} {{cnpj_agencia}} {{endereco_agencia}} {{representante_agencia}} {{cargo_representante_agencia}}"],
                   ["Valores e prazos", "{{valor}} {{valor_extenso}} {{dia_pagamento}} {{vencimento}} {{prazo}} {{duracao}} {{inicio}}"],
                   ["Lugar e data", "{{cidade}} {{foro}} {{data}} {{servico}}"],
+                  ["Onde cada assinatura fica", "{{assinatura_cliente}} {{assinatura_perspecta}}"],
                 ].map(([titulo, lista]) => (
                   <Box key={titulo} sx={{ mt: 1 }}>
                     <Typography variant="caption" sx={{ fontWeight: 700 }}>{titulo}</Typography>
