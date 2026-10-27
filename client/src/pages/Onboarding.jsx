@@ -93,6 +93,8 @@ export default function Onboarding() {
   // Um formulário é a jornada inteira: onde começa, o que pergunta e como
   // termina. Estas são as três partes que ela edita.
   const [parte, setParte] = useState("perguntas");
+  // "Gerar perguntas do contrato": { chave } do contrato escolhido, ou null.
+  const [gerarContrato, setGerarContrato] = useState(null);
 
   const carregarFormularios = () =>
     api.get("/briefings/formularios").then((r) => setFormularios(r.data.formularios || []))
@@ -133,6 +135,37 @@ export default function Onboarding() {
     if (editando) setForm((f) => f && ({ ...f, secoes }));
     else setModelo((m) => ({ ...m, secoes }));
   };
+
+  // Abre o diálogo já apontando para o contrato vinculado a este formulário
+  // (se houver) — senão para o primeiro contrato que a casa tem escrito.
+  function abrirGerarContrato() {
+    const vinculado = editando ? (form?.servico || "") : "";
+    const primeiro = modelos.find((m) => m.tem_contrato);
+    setGerarContrato({ chave: vinculado || (primeiro ? chaveDoModelo(primeiro) : "") });
+  }
+
+  // Cria uma pergunta por dado do cliente que o contrato pede, numa etapa
+  // "Dados do contrato", já ligada ao cadastro. A agência só renomeia e salva.
+  function adicionarPerguntasDoContrato(novos) {
+    if (!novos?.length) return;
+    const semente = Date.now();
+    const perguntas = novos.map((c, k) => {
+      const p = { id: `contrato_${c.campo}_${semente}_${k}`, tipo: c.tipo, label: c.rotulo, campo_cliente: c.campo };
+      if (c.tipo === "dia") { p.dia_min = 1; p.dia_max = 31; }
+      return p;
+    });
+    const secoes = (secoesEmEdicao || []).map((s) => ({ ...s }));
+    // Acrescenta na etapa "Dados do contrato" se ela já existir; senão cria.
+    const idx = secoes.findIndex((s) => (s.titulo || "").toLowerCase().includes("dados do contrato"));
+    if (idx >= 0) secoes[idx] = { ...secoes[idx], perguntas: [...(secoes[idx].perguntas || []), ...perguntas] };
+    else secoes.push({ id: `etapa_contrato_${semente}`, titulo: "Dados do contrato",
+      intro: "Dados que o sistema usa para preencher o seu contrato.", perguntas });
+    mudaSecoesEmEdicao(secoes);
+    setGerarContrato(null);
+    setParte("perguntas");
+    setMsg({ t: "success", m: `Adicionei ${novos.length} pergunta(s) na etapa "Dados do contrato". `
+      + "Renomeie o que quiser e clique em Salvar." });
+  }
 
   async function salvarFormulario() {
     setSalvando(true);
@@ -402,8 +435,28 @@ export default function Onboarding() {
               </Tabs>
 
               {editando && !form ? <LinearProgress /> : parte === "perguntas" ? (
-                <EditorDePerguntas secoes={secoesEmEdicao} onChange={mudaSecoesEmEdicao}
-                  camposCliente={camposCliente} destinosCentral={destinosCentral} />
+                <Stack spacing={2}>
+                  {/* PUXAR AS PERGUNTAS DO CONTRATO. Cada {{marcador}} de dado do
+                      cliente vira uma pergunta já ligada ao cadastro — ela só
+                      renomeia. É o "cria lá automático só pra eu renomear". */}
+                  <Card variant="outlined"><CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+                      <DescriptionIcon color="primary" />
+                      <Box sx={{ flex: 1, minWidth: 220 }}>
+                        <Typography variant="subtitle2">Puxar as perguntas do contrato</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Crio uma pergunta para cada dado do cliente que o contrato pede (CNPJ,
+                          razão social, endereço, quem assina…), já ligada ao cadastro. Você só renomeia.
+                        </Typography>
+                      </Box>
+                      <Button variant="outlined" startIcon={<QuizIcon />} onClick={abrirGerarContrato}>
+                        Gerar perguntas do contrato
+                      </Button>
+                    </Stack>
+                  </CardContent></Card>
+                  <EditorDePerguntas secoes={secoesEmEdicao} onChange={mudaSecoesEmEdicao}
+                    camposCliente={camposCliente} destinosCentral={destinosCentral} />
+                </Stack>
               ) : parte === "inicio" ? (
                 <Card><CardContent>
                   {editando ? (
@@ -530,6 +583,10 @@ export default function Onboarding() {
       {/* O questionário só deste cliente */}
       <PerguntasDoCliente alvo={perguntasDe} onFechar={() => setPerguntasDe(null)}
         onSalvo={(texto) => { setPerguntasDe(null); carregar(); setMsg({ t: "success", m: texto }); }} />
+
+      {/* Gerar perguntas a partir dos marcadores do contrato */}
+      <GerarPerguntasDoContrato aberto={gerarContrato} modelos={modelos} secoes={secoesEmEdicao}
+        onFechar={() => setGerarContrato(null)} onAdicionar={adicionarPerguntasDoContrato} />
 
       {/* O que a agência preenche antes de mandar o link */}
       <FormularioOnboarding aberto={abrindo} modelos={modelos} formularios={formularios}
@@ -898,6 +955,76 @@ function AbaContrato({ modelos }) {
 // casa (o padrão, que vale para todo mundo) e o questionário de UM cliente.
 // Ela aprende a mexer uma vez só.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// GERAR PERGUNTAS DO CONTRATO.
+//
+// "cria lá automático só pra eu renomear a pergunta." Escolhe-se o contrato; o
+// servidor diz quais dados do cliente ele pede (lidos dos {{marcadores}}), e os
+// que ainda não têm pergunta entram de uma vez, já ligados ao cadastro.
+// ---------------------------------------------------------------------------
+function GerarPerguntasDoContrato({ aberto, modelos, secoes, onFechar, onAdicionar }) {
+  const [chave, setChave] = useState("");
+  useEffect(() => { if (aberto) setChave(aberto.chave || ""); }, [aberto]);
+  if (!aberto) return null;
+
+  const comContrato = modelos.filter((m) => m.tem_contrato);
+  const m = modelos.find((x) => chaveDoModelo(x) === chave);
+  const campos = m?.campos_contrato || [];
+  const cobertos = new Set();
+  for (const s of (secoes || [])) for (const p of (s.perguntas || [])) if (p.campo_cliente) cobertos.add(p.campo_cliente);
+  const novos = campos.filter((c) => !cobertos.has(c.campo));
+
+  return (
+    <Dialog open onClose={onFechar} fullWidth maxWidth="sm">
+      <DialogTitle>Gerar perguntas do contrato</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Escolha o contrato. Para cada dado do cliente que ele pede, eu crio uma pergunta
+          já ligada ao cadastro — depois é só renomear o que quiser.
+        </Typography>
+        <TextField select fullWidth size="small" label="Contrato" value={chave}
+          onChange={(e) => setChave(e.target.value)} sx={{ mb: 2 }}>
+          <MenuItem value="">Selecione…</MenuItem>
+          {comContrato.map((x) => (
+            <MenuItem key={chaveDoModelo(x)} value={chaveDoModelo(x)}>{x.name}</MenuItem>
+          ))}
+        </TextField>
+        {!chave ? (
+          <Alert severity="info">Escolha um contrato acima.</Alert>
+        ) : campos.length === 0 ? (
+          <Alert severity="info">
+            Esse contrato não usa marcadores de dados do cliente (como {"{{razao_social}}"}, {"{{cnpj}}"},
+            {" "}{"{{endereco}}"}…). Escreva os marcadores no contrato, em Serviços, e volte aqui.
+          </Alert>
+        ) : (
+          <Stack spacing={0.75}>
+            {campos.map((c) => {
+              const jaTem = cobertos.has(c.campo);
+              return (
+                <Stack key={c.campo} direction="row" spacing={1} alignItems="center">
+                  {jaTem
+                    ? <CheckCircleIcon fontSize="small" color="disabled" />
+                    : <AddIcon fontSize="small" color="primary" />}
+                  <Typography variant="body2" sx={{ flex: 1 }}>{c.rotulo}</Typography>
+                  <Chip size="small" variant="outlined"
+                    color={jaTem ? "default" : "primary"}
+                    label={jaTem ? "já tem pergunta" : "nova"} />
+                </Stack>
+              );
+            })}
+          </Stack>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onFechar}>Cancelar</Button>
+        <Button variant="contained" disabled={!novos.length} onClick={() => onAdicionar(novos)}>
+          {novos.length ? `Adicionar ${novos.length} pergunta(s)` : "Nada novo a adicionar"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function EditorDePerguntas({ secoes, onChange, camposCliente, destinosCentral }) {
   const mudaSecao = (i, campo, valor) => {
     const s = [...secoes]; s[i] = { ...s[i], [campo]: valor }; onChange(s);
