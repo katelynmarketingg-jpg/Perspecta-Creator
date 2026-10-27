@@ -136,36 +136,33 @@ export default function RichEditor({
   };
 
   const aplicaNoTexto = (comando, valor) => {
-    const ed = ref.current;
-    if (!ed) return;
-    // O dropdown de tamanho/fonte ROUBA O FOCO do texto. Se a gente mandar o
-    // comando com o foco ainda no dropdown, ele cai no vazio e "não muda nada".
-    // Então o primeiro passo é trazer o foco de volta para o texto — aí o
-    // comando tem onde pegar.
-    ed.focus();
+    if (!ref.current) return;
+    // O dropdown de tamanho/fonte ROUBA O FOCO do texto. Com o foco ainda no
+    // dropdown, o comando caía no vazio e "não mudava nada" — era isso que fazia
+    // "escolhi o tamanho e não pegou". Trazer o foco de volta para o texto ANTES
+    // de aplicar é o que faltava para a mudança pegar no documento inteiro.
+    ref.current.focus();
     const sel = window.getSelection();
     const marcado = Boolean(
       sel && sel.rangeCount > 0 && !sel.isCollapsed &&
-      ed.contains(sel.anchorNode) && ed.contains(sel.focusNode)
+      ref.current.contains(sel.anchorNode) && ref.current.contains(sel.focusNode)
     );
     // Sem trecho marcado, vale para o DOCUMENTO INTEIRO — que é o que se quer
     // num contrato ("quero padronizar tudo").
     if (!marcado) {
       const r = document.createRange();
-      r.selectNodeContents(ed);
-      sel.removeAllRanges();
-      sel.addRange(r);
+      r.selectNodeContents(ref.current);
+      sel?.removeAllRanges();
+      sel?.addRange(r);
     }
     // Tira o tamanho/fonte que veio EMBUTIDO de dentro do trecho (colado do
     // Docs/Word), senão ele ganha do valor novo e a mudança não pega no texto
     // todo.
     limparEstiloNaSelecao(comando);
-    try { document.execCommand("styleWithCSS", false, true); } catch { /* ok */ }
-    document.execCommand(comando, false, valor);
-    onChange?.(ed.innerHTML || "");
-    // DEIXA O TRECHO MARCADO (não desmarca): ela vê na hora que pegou, e pode
-    // trocar de tamanho de novo sem ter de selecionar tudo outra vez. Antes a
-    // seleção sumia e dava a impressão de que nada tinha mudado.
+    cmd(comando, valor);
+    // Desmarca no fim: deixar o contrato inteiro azul assusta — e, pior, uma
+    // tecla a seguir apagaria tudo o que ficou selecionado.
+    if (!marcado) window.getSelection()?.collapseToEnd();
   };
 
   return (

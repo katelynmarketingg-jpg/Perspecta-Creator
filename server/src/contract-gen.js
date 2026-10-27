@@ -1,5 +1,53 @@
 import { db } from "./db.js";
 import { valorPorExtenso, formataDocumento, dataExtenso, dataCurta } from "./receipts.js";
+import { CAMPOS_CLIENTE } from "./briefing.js";
+
+// ---------------------------------------------------------------------------
+// OS DADOS DO CLIENTE QUE UM CONTRATO PEDE — lidos dos {{marcadores}}.
+//
+// Pedido dela: "cada vez que eu crio um {{}} no contrato, cria lá (no briefing)
+// automático, só pra eu renomear a pergunta". Para isso, cada marcador que fala
+// de um dado DO CLIENTE aponta para a coluna do cadastro dele; o briefing então
+// nasce com uma pergunta por dado, já ligada ao cadastro, e ela só renomeia.
+//
+// Marcador de agência ({{agencia}}, {{cnpj_agencia}}…), de valor/prazo
+// ({{valor}}, {{data}}, {{duracao}}…) e de assinatura NÃO entram: esses saem
+// das Configurações e dos termos que a agência preenche, não de uma pergunta.
+// ---------------------------------------------------------------------------
+export const MARCADOR_PARA_CAMPO = {
+  cliente: "name",
+  empresa: "company",
+  razao_social: "legal_name",
+  cnpj: "document", documento: "document", cnpj_formatado: "document", cnpj_numeros: "document",
+  endereco: "address",
+  representante: "rep_name",
+  documento_representante: "rep_document",
+  email: "email",
+  telefone: "phone",
+  dia_pagamento: "payment_day",
+  segmento: "segment",
+};
+
+// O tipo de pergunta que melhor casa com cada campo (o resto é "texto").
+const TIPO_SUGERIDO = { document: "cnpj", payment_day: "dia" };
+
+/**
+ * Os campos do cadastro que um contrato pede, lidos dos {{marcadores}} do texto.
+ * Devolve [{ campo, rotulo, tipo }] SEM repetir, na ordem em que aparecem.
+ */
+export function camposClienteDoContrato(body) {
+  const vistos = new Set();
+  const saida = [];
+  const re = /\{\{\s*([\wçãáéíóú]+)\s*\}\}/gi;
+  let m;
+  while ((m = re.exec(String(body || "")))) {
+    const campo = MARCADOR_PARA_CAMPO[m[1].toLowerCase()];
+    if (!campo || vistos.has(campo) || !CAMPOS_CLIENTE[campo]) continue;
+    vistos.add(campo);
+    saida.push({ campo, rotulo: CAMPOS_CLIENTE[campo].rotulo, tipo: TIPO_SUGERIDO[campo] || "texto" });
+  }
+  return saida;
+}
 
 // ---------------------------------------------------------------------------
 // Gerar o contrato a partir de um modelo.
@@ -188,10 +236,14 @@ export function modelosDisponiveis(orgId) {
       tem_contrato: Boolean(String(s.contract_template || "").trim()),
       valor_padrao: s.default_price || 0,
       itens: s.items_schema ? JSON.parse(s.items_schema) : [],
+      // Os dados do cliente que ESTE contrato pede — é o que deixa o briefing
+      // nascer com uma pergunta para cada marcador.
+      campos_contrato: camposClienteDoContrato(s.contract_template),
     })),
     ...modelos.map((m) => ({
       origem: "modelo", id: m.id, name: m.name,
       tem_contrato: Boolean(String(m.body || "").trim()), valor_padrao: 0, itens: [],
+      campos_contrato: camposClienteDoContrato(m.body),
     })),
   ];
 }
