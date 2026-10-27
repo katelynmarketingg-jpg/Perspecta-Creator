@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Stack, IconButton, Tooltip, Divider, Select, MenuItem } from "@mui/material";
 import FormatBoldIcon from "@mui/icons-material/FormatBold";
 import FormatItalicIcon from "@mui/icons-material/FormatItalic";
@@ -66,6 +66,11 @@ export function limpaHtmlColado(html) {
 // dentro da folha). A barra fica no topo (sticky).
 export default function RichEditor({ value = "", onChange, docKey, minHeight = 260, placeholder = "Escreva aqui…", header = null, footer = null }) {
   const ref = useRef(null);
+  // A barra mostra o que está valendo. Antes dizia "Arial" e "Normal" para
+  // sempre, mesmo depois de trocar — ela mudava o tamanho e o campo continuava
+  // dizendo "Normal", como se nada tivesse acontecido.
+  const [fonte, setFonte] = useState("Arial");
+  const [tamanho, setTamanho] = useState("3");
 
   // (Re)inicia o conteúdo quando o documento muda.
   useEffect(() => {
@@ -92,16 +97,49 @@ export default function RichEditor({ value = "", onChange, docKey, minHeight = 2
     onChange?.(ref.current?.innerHTML || "");
   };
 
+  /**
+   * FONTE E TAMANHO SEM PRECISAR MARCAR O TEXTO ANTES.
+   *
+   * Pedido dela: "quero poder mudar tamanho de fonte". A letra e o tamanho
+   * só valiam para o trecho marcado — quem escolhia "Grande" sem ter marcado
+   * nada não via nada acontecer, porque o comando caía no cursor.
+   *
+   * Agora: tem trecho marcado, vale para ele; não tem, vale para o DOCUMENTO
+   * INTEIRO, que é o que se quer num contrato. No fim o texto é
+   * desmarcado — deixar tudo azul depois de aplicar assusta.
+   */
+  const aplicaNoTexto = (comando, valor) => {
+    const sel = window.getSelection();
+    const marcado = Boolean(
+      sel && sel.rangeCount > 0 && !sel.isCollapsed &&
+      ref.current?.contains(sel.anchorNode) && ref.current?.contains(sel.focusNode)
+    );
+    if (!marcado && ref.current) {
+      const r = document.createRange();
+      r.selectNodeContents(ref.current);
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+    }
+    cmd(comando, valor);
+    if (!marcado) window.getSelection()?.collapseToEnd();
+  };
+
   return (
     <Box>
       <Stack direction="row" spacing={0.5} alignItems="center"
         sx={{ flexWrap: "wrap", gap: 0.5, p: 0.75, border: 1, borderColor: "divider", borderRadius: 2, mb: 1, position: "sticky", top: 8, bgcolor: "background.paper", zIndex: 2 }}>
-        <Select size="small" defaultValue="Arial" onChange={(e) => cmd("fontName", e.target.value)} sx={{ minWidth: 120 }}>
-          {FONTS.map((f) => <MenuItem key={f} value={f} sx={{ fontFamily: f }}>{f}</MenuItem>)}
-        </Select>
-        <Select size="small" defaultValue="3" onChange={(e) => cmd("fontSize", e.target.value)} sx={{ minWidth: 100 }}>
-          {SIZES.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
-        </Select>
+        <Tooltip disableInteractive placement="top" title="Letra. Marque um trecho para mudar só ele — sem nada marcado, muda o texto todo.">
+          <Select size="small" value={fonte} sx={{ minWidth: 120 }}
+            onChange={(e) => { setFonte(e.target.value); aplicaNoTexto("fontName", e.target.value); }}>
+            {FONTS.map((f) => <MenuItem key={f} value={f} sx={{ fontFamily: f }}>{f}</MenuItem>)}
+          </Select>
+        </Tooltip>
+        <Tooltip disableInteractive placement="top" title="Tamanho do texto. Marque um trecho para mudar só ele — sem nada marcado, muda o texto todo.">
+          <Select size="small" value={tamanho} sx={{ minWidth: 110 }}
+            onChange={(e) => { setTamanho(e.target.value); aplicaNoTexto("fontSize", e.target.value); }}>
+            {SIZES.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
+          </Select>
+        </Tooltip>
         <Divider orientation="vertical" flexItem />
         <Tooltip title="Negrito"><IconButton size="small" onClick={() => cmd("bold")}><FormatBoldIcon fontSize="small" /></IconButton></Tooltip>
         <Tooltip title="Itálico"><IconButton size="small" onClick={() => cmd("italic")}><FormatItalicIcon fontSize="small" /></IconButton></Tooltip>

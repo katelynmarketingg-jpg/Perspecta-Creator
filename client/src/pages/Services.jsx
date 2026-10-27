@@ -393,7 +393,9 @@ function MarcaDoContrato({ estilo, onMuda, onErro }) {
       <Stack direction="row" spacing={1} alignItems="center"
         sx={{ px: 1, py: 0.75, flexWrap: "wrap", gap: 1, bgcolor: "action.hover" }}>
         <Typography variant="caption" color="text.secondary" sx={{ mr: "auto" }}>
-          {estilo.logo ? "Logo deste contrato" : "Usando o logo da casa"}
+          {/* Dizer QUE ISTO É O LOGO e de quem ele é: "Usando o logo da casa",
+              sozinho, não explicava que dava para trocar bem ali do lado. */}
+          Logo do contrato — {estilo.logo ? "próprio deste serviço" : "o da casa"}
         </Typography>
         <Button size="small" component="label" startIcon={<ImageIcon fontSize="small" />}>
           {estilo.logo ? "Trocar logo" : "Usar outro logo"}
@@ -435,7 +437,7 @@ function RodapeDoContrato({ estilo, onMuda }) {
       </Stack>
       {estilo.rodape.ativo && (
         <LogoBanner logo={estilo.logo} altura={ALTURA_RODAPE}
-          vazio="(Sem logo — escolha um acima, ou defina o da casa em Configurações)"
+          vazio="(Sem logo — use “Usar outro logo” aqui em cima, ou ponha o da casa em Configurações → Marca)"
           geom={{ logoX: estilo.rodape.x, logoY: estilo.rodape.y, logoW: estilo.rodape.w }}
           onGeom={(g) => onMuda({ ...estilo, rodape: { ...estilo.rodape, x: g.logoX, y: g.logoY, w: g.logoW } })} />
       )}
@@ -458,7 +460,9 @@ function comoDataURI(arquivo) {
     leitor.onerror = () => falha(new Error("Não consegui ler essa imagem."));
     leitor.onload = () => {
       const img = new Image();
-      img.onerror = () => falha(new Error("Não consegui abrir essa imagem."));
+      img.onerror = () => falha(new Error(
+        "Não consegui abrir essa imagem. Funciona com PNG, JPG, WEBP ou SVG — "
+        + "se o arquivo veio do celular ou do Canva, exporte como PNG e tente de novo."));
       img.onload = () => {
         const escala = Math.min(1, 800 / (img.width || 800));
         const c = document.createElement("canvas");

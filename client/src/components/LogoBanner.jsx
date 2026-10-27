@@ -17,7 +17,7 @@ export default function LogoBanner({
   // O logo DESTE contrato. Vazio: cai no logo da casa, como sempre foi.
   logo: logoProprio = null,
   altura = BAND_H,
-  vazio = "(Sem logo — defina em Integrações/Configurações)",
+  vazio = "(Sem logo — ponha o da casa em Configurações → Marca)",
 }) {
   const bandRef = useRef(null);
   const drag = useRef(null);
