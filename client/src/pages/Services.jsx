@@ -400,13 +400,34 @@ export default function Services() {
 const ENTRELINHAS = [[1, "Simples"], [1.15, "1,15"], [1.55, "1,5 (padrão)"], [2, "Dupla"]];
 
 function PaginaDoContrato({ pagina, onMuda }) {
-  const muda = (campo) => (e) => {
-    const bruto = String(e.target.value).replace(",", ".");
-    onMuda({ ...pagina, [campo]: bruto === "" ? PAGINA_PADRAO[campo] : Number(bruto) });
+  // ENQUANTO ELA DIGITA, O CAMPO GUARDA O TEXTO CRU.
+  //
+  // Antes o valor era lido e preso nos limites A CADA TECLA: apagar o campo o
+  // fazia voltar sozinho para o padrão (não dava para limpar e digitar outro),
+  // e digitar "11.5" aos poucos era impossível — ao teclar "1" já virava o
+  // padrão, porque 1 está abaixo do mínimo. Agora o campo que está sendo
+  // editado guarda o texto como ela escreveu (pode ficar vazio, pode estar pela
+  // metade); só quando ela SAI do campo (blur) o número é lido, posto nos
+  // limites e salvo.
+  const [rascunho, setRascunho] = useState(null); // { campo, valor } do campo em edição
+
+  const naTela = (campo) =>
+    (rascunho && rascunho.campo === campo) ? rascunho.valor : String(pagina[campo]);
+
+  const digitar = (campo) => (e) => setRascunho({ campo, valor: e.target.value });
+  const confirmar = (campo) => () => {
+    const bruto = String(rascunho?.valor ?? "").replace(",", ".").trim();
+    // Vazio ou sem número vira o padrão daquele campo; o resto, paginaDoContrato
+    // põe nos limites lá no pai.
+    const n = (bruto === "" || Number.isNaN(Number(bruto))) ? PAGINA_PADRAO[campo] : Number(bruto);
+    onMuda({ ...pagina, [campo]: n });
+    setRascunho(null);
   };
-  const campo = (campo, rotulo) => (
-    <TextField size="small" label={rotulo} value={pagina[campo]} onChange={muda(campo)}
-      sx={{ width: 96 }} inputProps={{ inputMode: "decimal" }} />
+
+  const campo = (campo, rotulo, largura = 96) => (
+    <TextField size="small" label={rotulo} value={naTela(campo)}
+      onChange={digitar(campo)} onBlur={confirmar(campo)}
+      sx={{ width: largura }} inputProps={{ inputMode: "decimal" }} />
   );
   const noPadrao = Object.keys(PAGINA_PADRAO).every((k) => pagina[k] === PAGINA_PADRAO[k]);
 
@@ -422,13 +443,13 @@ function PaginaDoContrato({ pagina, onMuda }) {
         {campo("baixo", "Baixo")}
         {campo("esquerda", "Esquerda")}
         <TextField select size="small" label="Entrelinha" value={pagina.entrelinha}
-          onChange={muda("entrelinha")} sx={{ width: 140 }}>
+          onChange={(e) => onMuda({ ...pagina, entrelinha: Number(String(e.target.value).replace(",", ".")) })}
+          sx={{ width: 140 }}>
           {ENTRELINHAS.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
         </TextField>
-        <TextField size="small" label="Texto (pt)" value={pagina.corpo} onChange={muda("corpo")}
-          sx={{ width: 110 }} inputProps={{ inputMode: "decimal" }} />
+        {campo("corpo", "Texto (pt)", 110)}
         {!noPadrao && (
-          <Button size="small" onClick={() => onMuda({ ...PAGINA_PADRAO })}>Voltar ao padrão</Button>
+          <Button size="small" onClick={() => { setRascunho(null); onMuda({ ...PAGINA_PADRAO }); }}>Voltar ao padrão</Button>
         )}
       </Stack>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
