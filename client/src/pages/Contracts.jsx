@@ -17,6 +17,7 @@ import { Box, Typography, Tooltip, Alert } from "@mui/material";
 import TextoDoContrato, { pareceHtml, limpaContrato } from "../components/TextoDoContrato.jsx";
 import api from "../api/client.js";
 import { comAssinaturas, CSS_ASSINATURAS, temMarcadores } from "../assinaturas-no-contrato.js";
+import { termoDeVeracidade, CSS_TERMO } from "../termo-de-veracidade.js";
 import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
 import { estiloDoContrato, ALTURA_RODAPE, logoDoTopo, logoDoRodape } from "../contrato-estilo.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
@@ -152,6 +153,9 @@ export default function Contracts() {
         `<div class="corpo">${comAssinaturas(corpoImpresso(c.notes), c)}</div>`,
         temMarcadores(c.notes) ? "" : assinatura,
         st.rodape.ativo ? faixaDeLogo(logoBaixo, st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
+        // O termo de veracidade entra numa página só dele, no fim (quando há
+        // assinatura). É o comprovante com hash, trilha e base legal.
+        `<style>${CSS_TERMO}</style>${termoDeVeracidade(c)}`,
       ].join(""),
     });
   }
