@@ -52,6 +52,12 @@ function emailDoContrato(c) {
   return (cli?.email || "").trim() || null;
 }
 
+// Um e-mail que dá para enviar de verdade. "kakakakaka" é truthy, mas o envio
+// falha lá no provedor com um erro genérico — então a conferência é aqui, com
+// um aviso que diz o que fazer (corrigir o cadastro).
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const emailValido = (e) => Boolean(e) && EMAIL_RE.test(String(e).trim());
+
 const hashCodigo = (codigo, contractId) =>
   createHash("sha256").update(`${codigo}|${contractId}|${JWT_SECRET}`).digest("hex");
 
@@ -83,6 +89,7 @@ signRouter.get("/:token", (req, res) => {
     verify_method: "email",
     email_mascarado: email ? mascararEmail(email) : null,
     email_no_cadastro: Boolean(email),
+    email_valido: emailValido(email),
     email_ativo: emailConfigured(),
     verificado: Boolean(c.sign_verified_at),
     // Prova reforçada que a agência pediu para ESTE contrato (a tela mostra a
@@ -101,6 +108,12 @@ signRouter.post("/:token/send-code", async (req, res) => {
   if (!emailConfigured()) return res.status(503).json({ error: "O envio de e-mail ainda não foi configurado pela agência." });
   const email = emailDoContrato(c);
   if (!email) return res.status(400).json({ error: "Não há e-mail cadastrado para este cliente. Avise a agência." });
+  if (!emailValido(email)) {
+    return res.status(400).json({
+      error: `O e-mail do cadastro (${email}) não é um e-mail válido. Peça para a agência corrigir o e-mail no seu cadastro.`,
+      email_invalido: true,
+    });
+  }
 
   // Anti-spam: não reenvia se o último código tem menos de 45s.
   const atual = db.prepare("SELECT created_at FROM sign_codes WHERE contract_id = ?").get(c.id);
