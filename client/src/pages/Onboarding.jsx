@@ -418,14 +418,24 @@ export default function Onboarding() {
                     Novo formulário
                   </Button>
                 </Stack>
+                <Stack direction="row" spacing={1} sx={{ mt: 1.75, flexWrap: "wrap", gap: 1 }}>
+                  {/* COMEÇAR PELO FORMULÁRIO. Mandar ESTE formulário para um
+                      cliente, sem ter de ir até a aba Clientes e lembrar qual
+                      formulário era. Vale também para o padrão da casa — que é
+                      o que a maioria dos clientes recebe; antes este botão só
+                      aparecia em formulário com nome, e quem usava o padrão
+                      tinha de voltar para a outra aba. */}
+                  <Button size="small" variant="contained" startIcon={<SendIcon />}
+                    onClick={() => setAbrindo({
+                      livre: true,
+                      form_id: editando || "",
+                      servico: (editando ? form?.servico : "") || "",
+                    })}>
+                    Abrir para um cliente
+                  </Button>
+                </Stack>
                 {editando && form && (
-                  <Stack direction="row" spacing={1} sx={{ mt: 1.75, flexWrap: "wrap", gap: 1 }}>
-                    {/* Mandar ESTE formulário para um cliente, sem ter de ir até a
-                        aba Clientes e lembrar qual formulário era. */}
-                    <Button size="small" variant="contained" startIcon={<SendIcon />}
-                      onClick={() => setAbrindo({ livre: true, form_id: editando, servico: form.servico || "" })}>
-                      Abrir para um cliente
-                    </Button>
+                  <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap", gap: 1 }}>
                     <Button size="small" startIcon={<EditIcon />}
                       onClick={() => setBatizando({ nome: form.name, renomeia: true })}>
                       Renomear
@@ -700,13 +710,43 @@ const VAZIO = {
 /** "servico:3" / "modelo:7" — o select precisa de um valor só. */
 const chaveDoModelo = (m) => `${m.origem}:${m.id}`;
 
+/**
+ * O TÍTULO DE UM BLOCO DO FORMULÁRIO.
+ *
+ * O diálogo era uma coluna só de campos, do serviço às observações, sem nada
+ * separando o que é de quem é do quanto é — "quero que tu melhore pra que
+ * fique mais organizado". Numerado porque é uma ordem: o que é, para quem, o
+ * combinado, as datas, a assinatura.
+ */
+function Secao({ numero, titulo, opcional = false, primeira = false }) {
+  return (
+    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: primeira ? 0 : 1.5 }}>
+      <Box sx={{
+        width: 22, height: 22, borderRadius: "50%", bgcolor: "primary.main", color: "#fff",
+        display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, flex: "0 0 22px",
+      }}>{numero}</Box>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{titulo}</Typography>
+      {opcional && <Typography variant="caption" color="text.secondary">(opcional)</Typography>}
+      <Box sx={{ flex: 1, borderBottom: 1, borderColor: "divider", ml: 1 }} />
+    </Stack>
+  );
+}
+
 function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocupados, onFechar, onSalvar }) {
   const [f, setF] = useState(VAZIO);
   const cliente = aberto?.cliente;
   const jaExiste = aberto?.briefing;
-  // "Começar pelo formulário": abriu sem um cliente fixo, então o cliente é
-  // escolhido aqui dentro, depois de dizer o que é.
-  const livre = Boolean(aberto?.livre) && !cliente;
+  // O FORMULÁRIO ANTES DO CLIENTE, SEMPRE.
+  //
+  // Pedido dela: "melhora ali pro formulário ser antes de escolher o cliente".
+  // Abrindo pela aba Clientes, o cliente já vinha decidido e escondido no
+  // título — e ela só descobria qual formulário ele ia receber no meio do
+  // caminho. Agora a ordem é a mesma nos dois caminhos: primeiro o que é
+  // (serviço e formulário), depois para quem — com o cliente já escolhido
+  // quando ela veio clicando nele, e ainda assim trocável.
+  //
+  // Num onboarding que JÁ existe o cliente não se troca: aquele link é dele.
+  const escolheCliente = !jaExiste;
 
   useEffect(() => {
     if (!aberto) return;
@@ -763,7 +803,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
   const formDoServico = (formularios || []).find((x) => x.servico && x.servico === f.modelo);
   const semContrato = escolhido && !escolhido.tem_contrato;
 
-  const clienteId = cliente?.id || f.client_id || "";
+  const clienteId = (escolheCliente ? f.client_id : cliente?.id) || cliente?.id || "";
 
   function salvar() {
     if (!clienteId) return;
@@ -783,7 +823,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
   return (
     <Dialog open={Boolean(aberto)} onClose={onFechar} fullWidth maxWidth="sm">
       <DialogTitle>
-        {jaExiste ? "O que foi combinado" : "Abrir onboarding"}{cliente?.name ? ` — ${cliente.name}` : ""}
+        {jaExiste ? `O que foi combinado — ${cliente?.name || ""}` : "Abrir onboarding"}
       </DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
@@ -791,7 +831,10 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
           pagamento — vem do próprio cliente ao responder, e o contrato se monta com as duas metades.
         </Typography>
         <Stack spacing={2}>
+          <Secao numero={1} titulo="O que é" primeira />
+
           <TextField select label="Serviço contratado" size="small" fullWidth value={f.modelo}
+            SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
             onChange={(e) => escolheModelo(e.target.value)}
             helperText={semContrato
               ? "Este serviço ainda não tem o texto do contrato escrito — abra Serviços e escreva."
@@ -811,6 +854,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
           {/* O FORMULÁRIO. Normalmente vem do serviço acima; este campo existe
               para quando ela quiser outro, ou quando o serviço não tem um. */}
           <TextField select label="Formulário que ele vai responder" size="small" fullWidth
+            SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
             value={f.form_id} onChange={(e) => setF((a) => ({ ...a, form_id: e.target.value }))}
             helperText={jaExiste?.origem?.tipo === "proprio"
               ? "Atenção: hoje ele tem perguntas escritas só para ele. Escolher um formulário aqui substitui essas perguntas."
@@ -828,12 +872,14 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
             ))}
           </TextField>
 
-          {/* O CLIENTE — depois de dizer O QUE É. Só aparece quando a agência
-              abriu pelo formulário/serviço (sem ter clicado num cliente antes).
-              Qualquer cliente pode ser escolhido — quem já tem um onboarding só
-              ganha um aviso, mas dá para abrir outro (ex.: um serviço novo). */}
-          {livre && (
+          <Secao numero={2} titulo="Para quem" />
+
+          {/* O CLIENTE — depois de dizer O QUE É. Qualquer cliente pode ser
+              escolhido; quem já tem um onboarding ganha um aviso, mas dá para
+              abrir outro (ex.: um serviço novo). */}
+          {escolheCliente ? (
             <TextField select label="Para qual cliente" size="small" fullWidth required
+              SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
               value={f.client_id} onChange={(e) => setF((a) => ({ ...a, client_id: e.target.value }))}
               helperText={f.client_id ? " " : "Escolha o cliente que vai receber este onboarding."}>
               <MenuItem value="">Selecione…</MenuItem>
@@ -851,7 +897,16 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
                 );
               })}
             </TextField>
+          ) : (
+            <Typography variant="body2">
+              <strong>{cliente?.name || "—"}</strong>
+              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                o link deste onboarding é dele — para outro cliente, abra um novo
+              </Typography>
+            </Typography>
           )}
+
+          <Secao numero={3} titulo="O que foi combinado" />
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField label="Serviço (como aparece no contrato)" size="small" fullWidth value={f.servico}
@@ -861,9 +916,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
               inputProps={{ inputMode: "decimal", min: 0 }} />
           </Stack>
 
-          <Divider textAlign="left">
-            <Typography variant="caption" color="text.secondary">Quanto ele recebe por mês</Typography>
-          </Divider>
+          <Typography variant="caption" color="text.secondary">Quanto ele recebe por mês</Typography>
           {f.itens.map((it, i) => (
             <Stack key={i} direction="row" spacing={1} alignItems="center">
               <TextField size="small" label="Entrega" value={it.label} sx={{ flex: 1 }}
@@ -887,9 +940,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
             Mais uma entrega
           </Button>
 
-          <Divider textAlign="left">
-            <Typography variant="caption" color="text.secondary">Vigência e data</Typography>
-          </Divider>
+          <Secao numero={4} titulo="Vigência e datas" />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField label="Começa em" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}
               value={f.start_date} onChange={(e) => setF((a) => ({ ...a, start_date: e.target.value }))} />
@@ -908,9 +959,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
           <TextField label="Data que deve constar no contrato" type="date" size="small" sx={{ maxWidth: 280 }}
             InputLabelProps={{ shrink: true }} value={f.contract_date}
             onChange={(e) => setF((a) => ({ ...a, contract_date: e.target.value }))} />
-          <Divider textAlign="left">
-            <Typography variant="caption" color="text.secondary">Prova de identidade na assinatura (opcional)</Typography>
-          </Divider>
+          <Secao numero={5} titulo="Na hora de assinar" opcional />
           {/* A SELFIE E A FOTO DO DOCUMENTO reforçam a prova de quem assinou —
               ligadas por caso. Não mudam o "nível" jurídico (continua assinatura
               avançada), mas deixam o "não fui eu" bem mais difícil. */}
@@ -927,6 +976,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
             assinatura, e ela entra no termo de veracidade.
           </Typography>
 
+          <Secao numero={6} titulo="Suas anotações" opcional />
           <TextField label="Observações (só para você)" size="small" fullWidth multiline minRows={2}
             value={f.observacoes} onChange={(e) => setF((a) => ({ ...a, observacoes: e.target.value }))} />
         </Stack>
