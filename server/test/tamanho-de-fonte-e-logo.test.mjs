@@ -35,23 +35,32 @@ test("sem nada marcado, a letra e o tamanho valem para o contrato inteiro", () =
   assert.match(f, /selectNodeContents\(ref\.current\)/,
     "sem marcação, o comando tem de pegar o documento todo — senão não acontece nada");
   assert.match(f, /collapseToEnd\(\)/,
-    "depois de aplicar, desmarca: deixar o contrato inteiro azul assusta");
-
+    "no documento todo, desmarca no fim: tudo azul assusta e uma tecla apagaria tudo");
+  // A fonte continua num dropdown; o tamanho agora é nos botões − e +.
   assert.match(editor, /aplicaNoTexto\("fontName"/);
-  assert.match(editor, /aplicaNoTexto\("fontSize"/);
+  assert.match(f, /const aplicaPt =/, "o tamanho em pt é aplicado por aplicaPt");
 });
 
-test("a barra mostra o que está valendo", () => {
+test("o tamanho muda com os botões − e +", () => {
+  assert.match(editor, /passoDeTamanho\(-1\)/, "faltou o botão de diminuir");
+  assert.match(editor, /passoDeTamanho\(1\)/, "faltou o botão de aumentar");
+  // onMouseDown preventDefault é o que segura a marcação do texto ao clicar no
+  // botão — sem isso o trecho "desmarca" e a mudança não pega.
+  assert.match(editor, /onMouseDown=\{\(e\) => e\.preventDefault\(\)\}/,
+    "os botões de tamanho precisam segurar o foco para não desmarcar o texto");
+});
+
+test("a barra mostra a fonte e o tamanho", () => {
   assert.match(editor, /value=\{fonte\}/, "dizia 'Arial' para sempre, mesmo depois de trocar");
-  assert.match(editor, /value=\{tamanho\}/, "dizia 'Normal' para sempre, mesmo depois de trocar");
+  assert.match(editor, /\{tamPt\}/, "o tamanho atual (pt) tem de aparecer na barra, entre o − e o +");
   assert.ok(!/defaultValue="3"/.test(editor), "defaultValue não acompanha a escolha");
 });
 
 test("a dica não fica por cima do que ela quer clicar", () => {
-  // Visto no navegador: a dica interativa segurava o ponteiro e o próprio
-  // seletor virava alvo difícil de acertar.
-  assert.equal(editor.split("disableInteractive").length - 1, 2,
-    "as duas dicas da barra precisam ser não-interativas");
+  // A fonte (dropdown) e os dois botões de tamanho usam dica não-interativa,
+  // para não segurar o ponteiro por cima do controle.
+  assert.equal(editor.split("disableInteractive").length - 1, 3,
+    "a fonte e os dois botões de tamanho precisam de dica não-interativa");
 });
 
 test("a faixa do logo diz que é o logo, e de quem", () => {

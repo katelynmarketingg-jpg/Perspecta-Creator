@@ -9,9 +9,12 @@ import FormatAlignRightIcon from "@mui/icons-material/FormatAlignRight";
 import FormatAlignJustifyIcon from "@mui/icons-material/FormatAlignJustify";
 import FormatListBulletedIcon from "@mui/icons-material/FormatListBulleted";
 import FormatListNumberedIcon from "@mui/icons-material/FormatListNumbered";
+import RemoveIcon from "@mui/icons-material/Remove";
+import AddIcon from "@mui/icons-material/Add";
 
 const FONTS = ["Arial", "Georgia", "Times New Roman", "Courier New", "Verdana"];
-const SIZES = [["2", "Pequeno"], ["3", "Normal"], ["4", "Médio"], ["5", "Grande"], ["6", "Enorme"]];
+// Os tamanhos que os botões − e + percorrem (em pt, como no Word/Docs).
+const PASSOS_PT = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40];
 
 // ---------------------------------------------------------------------------
 // COLAR DE FORA (Google Docs, Word, site) sem trazer o lixo junto.
@@ -77,7 +80,8 @@ export default function RichEditor({
   // sempre, mesmo depois de trocar — ela mudava o tamanho e o campo continuava
   // dizendo "Normal", como se nada tivesse acontecido.
   const [fonte, setFonte] = useState("Arial");
-  const [tamanho, setTamanho] = useState("3");
+  // O tamanho mostrado na barra, em pt. Acompanha o trecho onde está o cursor.
+  const [tamPt, setTamPt] = useState(12);
 
   // (Re)inicia o conteúdo quando o documento muda.
   useEffect(() => {
@@ -165,6 +169,75 @@ export default function RichEditor({
     if (!marcado) window.getSelection()?.collapseToEnd();
   };
 
+  // ---------------------------------------------------------------------------
+  // TAMANHO DO TEXTO COM OS BOTÕES − E + (sem perder a marcação).
+  //
+  // Pedido dela: "o texto não muda o tamanho, coloca botão de aumentar e
+  // diminuir pequeno, que aí não desmarca tudo que eu marquei." O dropdown
+  // roubava o foco e desmarcava; um botão não desmarca se a gente impedir o
+  // mousedown de tirar o foco do texto (onMouseDown preventDefault na barra).
+  // ---------------------------------------------------------------------------
+
+  /** O tamanho (pt) do texto onde o cursor/seleção está agora. */
+  const tamanhoAtualPt = () => {
+    try {
+      const sel = window.getSelection();
+      let no = sel && sel.anchorNode ? sel.anchorNode : null;
+      if (no && no.nodeType === 3) no = no.parentElement;
+      if (!no || !ref.current || !ref.current.contains(no)) no = ref.current;
+      const px = no ? parseFloat(getComputedStyle(no).fontSize) : 0;
+      return px ? Math.max(6, Math.round(px * 0.75)) : 12;   // px → pt
+    } catch { return 12; }
+  };
+
+  /**
+   * Põe o texto marcado (ou o documento todo, se nada marcado) em `pt`.
+   * Usa um tamanho "âncora" do execCommand e troca pelo pt de verdade — assim dá
+   * para usar qualquer pt, não só os 7 tamanhos que o navegador conhece.
+   */
+  const aplicaPt = (pt) => {
+    const ed = ref.current;
+    if (!ed) return;
+    ed.focus();
+    const sel = window.getSelection();
+    const marcado = Boolean(
+      sel && sel.rangeCount > 0 && !sel.isCollapsed &&
+      ed.contains(sel.anchorNode) && ed.contains(sel.focusNode)
+    );
+    if (!marcado) {
+      const r = document.createRange();
+      r.selectNodeContents(ed);
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+    }
+    limparEstiloNaSelecao("fontSize");
+    try { document.execCommand("styleWithCSS", false, true); } catch { /* ok */ }
+    document.execCommand("fontSize", false, "7");   // âncora que trocamos a seguir
+    const s2 = window.getSelection();
+    ed.querySelectorAll('font[size="7"], [style*="xxx-large"]').forEach((el) => {
+      if (s2 && !s2.containsNode(el, true)) return;
+      if (el.tagName === "FONT") { el.removeAttribute("size"); el.style.fontSize = `${pt}pt`; }
+      else if (/xxx-large/i.test(el.style.fontSize)) el.style.fontSize = `${pt}pt`;
+    });
+    onChange?.(ed.innerHTML || "");
+    setTamPt(pt);
+    // Com trecho marcado, MANTÉM a marcação (ela quer continuar vendo o que
+    // mexeu, e dar outro passo sem reselecionar). Só o "documento todo" desmarca.
+    if (!marcado) window.getSelection()?.collapseToEnd();
+  };
+
+  /** Um passo de tamanho para cima (+1) ou para baixo (−1), a partir do atual. */
+  const passoDeTamanho = (dir) => {
+    const atual = tamanhoAtualPt();
+    const alvo = dir > 0
+      ? (PASSOS_PT.find((v) => v > atual) ?? atual + 1)
+      : ([...PASSOS_PT].reverse().find((v) => v < atual) ?? Math.max(6, atual - 1));
+    aplicaPt(alvo);
+  };
+
+  // Mantém o número da barra igual ao tamanho de onde o cursor está.
+  const sincronizaTamanho = () => setTamPt(tamanhoAtualPt());
+
   return (
     <Box>
       <Stack direction="row" spacing={0.5} alignItems="center"
@@ -175,12 +248,21 @@ export default function RichEditor({
             {FONTS.map((f) => <MenuItem key={f} value={f} sx={{ fontFamily: f }}>{f}</MenuItem>)}
           </Select>
         </Tooltip>
-        <Tooltip disableInteractive placement="top" title="Tamanho do texto. Marque um trecho para mudar só ele — sem nada marcado, muda o texto todo.">
-          <Select size="small" value={tamanho} sx={{ minWidth: 110 }}
-            onChange={(e) => { setTamanho(e.target.value); aplicaNoTexto("fontSize", e.target.value); }}>
-            {SIZES.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
-          </Select>
-        </Tooltip>
+        {/* TAMANHO DO TEXTO: − [12] +. O onMouseDown preventDefault segura o
+            foco no texto, então clicar aqui NÃO desmarca o trecho marcado —
+            era isso que o dropdown fazia. Marca um trecho e vai no + / −; sem
+            nada marcado, muda o texto todo. */}
+        <Box onMouseDown={(e) => e.preventDefault()}
+          sx={{ display: "flex", alignItems: "center", border: 1, borderColor: "divider", borderRadius: 1.5 }}>
+          <Tooltip disableInteractive placement="top" title="Diminuir o tamanho do texto">
+            <IconButton size="small" onClick={() => passoDeTamanho(-1)}><RemoveIcon fontSize="small" /></IconButton>
+          </Tooltip>
+          <Box sx={{ minWidth: 32, textAlign: "center", fontSize: 13, color: "text.secondary",
+            fontVariantNumeric: "tabular-nums" }}>{tamPt}</Box>
+          <Tooltip disableInteractive placement="top" title="Aumentar o tamanho do texto">
+            <IconButton size="small" onClick={() => passoDeTamanho(1)}><AddIcon fontSize="small" /></IconButton>
+          </Tooltip>
+        </Box>
         <Divider orientation="vertical" flexItem />
         <Tooltip title="Negrito"><IconButton size="small" onClick={() => cmd("bold")}><FormatBoldIcon fontSize="small" /></IconButton></Tooltip>
         <Tooltip title="Itálico"><IconButton size="small" onClick={() => cmd("italic")}><FormatItalicIcon fontSize="small" /></IconButton></Tooltip>
@@ -200,6 +282,8 @@ export default function RichEditor({
         suppressContentEditableWarning
         onInput={() => onChange?.(ref.current?.innerHTML || "")}
         onPaste={colar}
+        onMouseUp={sincronizaTamanho}
+        onKeyUp={sincronizaTamanho}
         sx={{
           minHeight, borderRadius: 2, border: 1, borderColor: "divider",
           outline: "none", fontFamily: "Georgia, serif", overflowY: "auto",
