@@ -320,10 +320,17 @@ export default function Onboarding() {
 
       {tab === "clientes" ? (
         <Card><CardContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Clique no cliente para ver a situação dele, pegar o link, corrigir o que foi combinado
-            ou escolher outro formulário. Quem ainda não começou, você abre por aqui mesmo.
-          </Typography>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 220 }}>
+              Clique no cliente para ver a situação dele, pegar o link, corrigir o que foi combinado
+              ou escolher outro formulário. Quem ainda não começou, você abre por aqui mesmo.
+            </Typography>
+            {/* COMEÇAR PELO QUE É, não por quem. Abre o onboarding escolhendo
+                primeiro o serviço e o formulário; o cliente se escolhe lá dentro. */}
+            <Button variant="contained" startIcon={<SendIcon />} onClick={() => setAbrindo({ livre: true })}>
+              Abrir onboarding
+            </Button>
+          </Stack>
           <TableContainer>
             {/* A lista é só a lista: nome e nada mais. O estado de cada um mora
                 dentro do cliente, onde ela vai de qualquer jeito para fazer
@@ -409,6 +416,12 @@ export default function Onboarding() {
                 </Stack>
                 {editando && form && (
                   <Stack direction="row" spacing={1} sx={{ mt: 1.75, flexWrap: "wrap", gap: 1 }}>
+                    {/* Mandar ESTE formulário para um cliente, sem ter de ir até a
+                        aba Clientes e lembrar qual formulário era. */}
+                    <Button size="small" variant="contained" startIcon={<SendIcon />}
+                      onClick={() => setAbrindo({ livre: true, form_id: editando, servico: form.servico || "" })}>
+                      Abrir para um cliente
+                    </Button>
                     <Button size="small" startIcon={<EditIcon />}
                       onClick={() => setBatizando({ nome: form.name, renomeia: true })}>
                       Renomear
@@ -590,6 +603,7 @@ export default function Onboarding() {
 
       {/* O que a agência preenche antes de mandar o link */}
       <FormularioOnboarding aberto={abrindo} modelos={modelos} formularios={formularios}
+        clients={clients} ocupados={new Set(briefings.map((b) => b.client_id))}
         onFechar={() => setAbrindo(null)} onSalvar={criarLink} />
 
       {/* O link, à vista */}
@@ -674,32 +688,49 @@ const VAZIO = {
   modelo: "", servico: "", value: "", itens: [],
   start_date: "", end_date: "", contract_date: "", observacoes: "",
   form_id: "",   // qual formulário ele vai responder ("" = padrão da casa)
+  client_id: "", // só no modo "começar pelo formulário": o cliente escolhido aqui
 };
 
 /** "servico:3" / "modelo:7" — o select precisa de um valor só. */
 const chaveDoModelo = (m) => `${m.origem}:${m.id}`;
 
-function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar }) {
+function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocupados, onFechar, onSalvar }) {
   const [f, setF] = useState(VAZIO);
   const cliente = aberto?.cliente;
   const jaExiste = aberto?.briefing;
+  // "Começar pelo formulário": abriu sem um cliente fixo, então o cliente é
+  // escolhido aqui dentro, depois de dizer o que é.
+  const livre = Boolean(aberto?.livre) && !cliente;
 
   useEffect(() => {
     if (!aberto) return;
     const t = jaExiste?.termos;
     const formAtual = jaExiste?.form_id || "";
+    const hoje = new Date().toISOString().slice(0, 10);
     if (t) {
       setF({
         modelo: t.service_id ? `servico:${t.service_id}` : (t.template_id ? `modelo:${t.template_id}` : ""),
         servico: t.servico || "", value: t.value ?? "", itens: t.itens || [],
         start_date: t.start_date || "", end_date: t.end_date || "",
         contract_date: t.contract_date || "", observacoes: t.observacoes || "",
-        form_id: formAtual,
+        form_id: formAtual, client_id: cliente?.id || "",
+      });
+    } else if (aberto.livre) {
+      // Form-first: já aponta para o serviço/formulário de onde veio (se veio de
+      // um formulário), trazendo nome, valor e entregas junto. O cliente, vazio.
+      const chave = aberto.servico || "";
+      const m = modelos.find((x) => chaveDoModelo(x) === chave);
+      setF({
+        ...VAZIO, contract_date: hoje, client_id: "",
+        form_id: aberto.form_id || "",
+        modelo: chave, servico: m?.name || "",
+        value: m?.valor_padrao || "",
+        itens: (m?.itens || []).map((i) => ({ ...i, quantidade: "" })),
       });
     } else {
-      setF({ ...VAZIO, form_id: formAtual, contract_date: new Date().toISOString().slice(0, 10) });
+      setF({ ...VAZIO, form_id: formAtual, client_id: cliente?.id || "", contract_date: hoje });
     }
-  }, [aberto, jaExiste]);
+  }, [aberto, jaExiste, cliente, modelos]);
 
   // Escolher o serviço já traz o nome, o valor de tabela e as entregas dele —
   // é para ela só conferir os números, não redigitar tudo.
@@ -725,9 +756,12 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
   const formDoServico = (formularios || []).find((x) => x.servico && x.servico === f.modelo);
   const semContrato = escolhido && !escolhido.tem_contrato;
 
+  const clienteId = cliente?.id || f.client_id || "";
+
   function salvar() {
+    if (!clienteId) return;
     const [origem, id] = (f.modelo || ":").split(":");
-    onSalvar(cliente.id, {
+    onSalvar(clienteId, {
       service_id: origem === "servico" ? Number(id) : null,
       template_id: origem === "modelo" ? Number(id) : null,
       servico: f.servico, value: f.value,
@@ -740,7 +774,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
   return (
     <Dialog open={Boolean(aberto)} onClose={onFechar} fullWidth maxWidth="sm">
       <DialogTitle>
-        {jaExiste ? "O que foi combinado" : "Abrir onboarding"} — {cliente?.name}
+        {jaExiste ? "O que foi combinado" : "Abrir onboarding"}{cliente?.name ? ` — ${cliente.name}` : ""}
       </DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
@@ -784,6 +818,31 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
               </MenuItem>
             ))}
           </TextField>
+
+          {/* O CLIENTE — depois de dizer O QUE É. Só aparece quando a agência
+              abriu pelo formulário/serviço (sem ter clicado num cliente antes).
+              Quem já tem onboarding fica desabilitado: para esse, ela edita os
+              termos pela aba Clientes. */}
+          {livre && (
+            <TextField select label="Para qual cliente" size="small" fullWidth required
+              value={f.client_id} onChange={(e) => setF((a) => ({ ...a, client_id: e.target.value }))}
+              helperText={f.client_id ? " " : "Escolha o cliente que vai receber este onboarding."}>
+              <MenuItem value="">Selecione…</MenuItem>
+              {clients.map((c) => {
+                const temOnboarding = ocupados?.has?.(c.id);
+                return (
+                  <MenuItem key={c.id} value={c.id} disabled={temOnboarding}>
+                    {c.name}
+                    {temOnboarding && (
+                      <Typography variant="caption" color="text.disabled" sx={{ ml: 1 }}>
+                        já tem onboarding
+                      </Typography>
+                    )}
+                  </MenuItem>
+                );
+              })}
+            </TextField>
+          )}
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField label="Serviço (como aparece no contrato)" size="small" fullWidth value={f.servico}
@@ -846,7 +905,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, onFechar, onSalvar
       </DialogContent>
       <DialogActions>
         <Button onClick={onFechar}>Cancelar</Button>
-        <Button variant="contained" onClick={salvar}>
+        <Button variant="contained" onClick={salvar} disabled={!clienteId}>
           {jaExiste ? "Salvar" : "Gerar link"}
         </Button>
       </DialogActions>
