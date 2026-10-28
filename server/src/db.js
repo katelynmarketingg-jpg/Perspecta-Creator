@@ -899,6 +899,7 @@ ensureColumn("contracts", "signed_at", "signed_at TEXT");
 ensureColumn("contracts", "signer_name", "signer_name TEXT");
 ensureColumn("contracts", "signer_document", "signer_document TEXT");
 ensureColumn("contracts", "signer_ip", "signer_ip TEXT");
+ensureColumn("contracts", "signer_user_agent", "signer_user_agent TEXT"); // navegador/dispositivo de quem assinou (trilha)
 ensureColumn("contracts", "signed_hash", "signed_hash TEXT"); // detecta edição posterior
 ensureColumn("contracts", "signature_img", "signature_img TEXT"); // desenho da assinatura (data URI)
 // Verificação por código (e-mail) na hora de assinar — prova de identidade.

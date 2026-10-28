@@ -182,12 +182,15 @@ signRouter.post("/:token", (req, res) => {
   }
 
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
+  // O navegador/dispositivo faz parte da trilha de auditoria (vai no termo de
+  // veracidade). Limitado em tamanho por segurança.
+  const userAgent = String(req.headers["user-agent"] || "").slice(0, 400);
   db.prepare(
     `UPDATE contracts SET signed_at = datetime('now'), signer_name = ?, signer_document = ?,
-     signer_ip = ?, signed_hash = ?, signature_img = ?,
+     signer_ip = ?, signer_user_agent = ?, signed_hash = ?, signature_img = ?,
      signer_email = ?, sign_verified_at = datetime('now'), sign_verify_method = 'email', sign_verify_dest = ?
      WHERE id = ?`
-  ).run(signer_name.trim(), signer_document.trim(), ip, contractHash(c), signature_img,
+  ).run(signer_name.trim(), signer_document.trim(), ip, userAgent, contractHash(c), signature_img,
         row.email, mascararEmail(row.email), c.id);
   db.prepare("DELETE FROM sign_codes WHERE contract_id = ?").run(c.id);
 
