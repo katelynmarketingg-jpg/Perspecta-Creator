@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, publicBaseUrl } from "../auth.js";
 import { makeSignToken, conferirAssinatura } from "./sign.js";
+import { garanteCodigoDeVerificacao } from "./verificar.js";
 import { confere, idOuNulo } from "../pertence.js";
 
 const router = Router();
@@ -148,6 +149,8 @@ router.post("/:id/assinar-como-casa", (req, res) => {
        agency_signer_document = ?, agency_signature_img = ?
      WHERE id = ? AND org_id = ?`
   ).run(org.signer_name || org.name || null, org.signer_document || null, org.signature_img, c.id, req.orgId);
+  // Assinado por um lado já é documento para conferir: o código nasce aqui.
+  garanteCodigoDeVerificacao(c.id);
   res.json(comIntegridade(db.prepare(`${SELECT} WHERE ct.id = ?`).get(c.id))[0]);
 });
 

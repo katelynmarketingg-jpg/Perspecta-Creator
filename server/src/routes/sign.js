@@ -4,6 +4,7 @@ import { createHash, randomInt } from "node:crypto";
 import { db } from "../db.js";
 import { JWT_SECRET } from "../auth.js";
 import { enviarEmail, emailConfigured, mascararEmail } from "../email.js";
+import { garanteCodigoDeVerificacao } from "./verificar.js";
 
 // Assinatura por link público: qualquer pessoa com o link (que você manda no
 // WhatsApp) abre e assina, sem precisar de conta. O link é um token assinado.
@@ -225,6 +226,9 @@ signRouter.post("/:token", (req, res) => {
   ).run(signer_name.trim(), signer_document.trim(), ip, userAgent, contractHash(c), signature_img,
         row.email, mascararEmail(row.email), selfieGravar, docGravar, c.id);
   db.prepare("DELETE FROM sign_codes WHERE contract_id = ?").run(c.id);
+  // A partir daqui o documento pode ser conferido por qualquer um, com o
+  // código que vai impresso no termo.
+  garanteCodigoDeVerificacao(c.id);
 
   db.prepare(
     "INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)"
