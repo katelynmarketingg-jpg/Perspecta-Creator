@@ -57,6 +57,10 @@ function saneiaTermos(entrada = {}) {
     contract_date: data(entrada.contract_date),
     duration_months: mesesDeVigencia(data(entrada.start_date), data(entrada.end_date)),
     observacoes: String(entrada.observacoes || "").trim().slice(0, 1000),
+    // Prova reforçada que a agência liga por caso — vai para o contrato e a tela
+    // de assinatura passa a exigir.
+    require_selfie: entrada.require_selfie ? 1 : 0,
+    require_doc_photo: entrada.require_doc_photo ? 1 : 0,
   };
 }
 

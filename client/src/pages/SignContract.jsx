@@ -7,6 +7,7 @@ import {
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SignaturePad from "../components/SignaturePad.jsx";
+import CapturaDeFoto from "../components/CapturaDeFoto.jsx";
 import TextoDoContrato from "../components/TextoDoContrato.jsx";
 
 // Página pública: o cliente abre o link do WhatsApp e assina, sem conta.
@@ -17,6 +18,8 @@ export default function SignContract() {
   const [carregando, setCarregando] = useState(true);
   const [form, setForm] = useState({ nome: "", documento: "", aceito: false });
   const [assinatura, setAssinatura] = useState("");
+  const [selfie, setSelfie] = useState("");
+  const [docPhoto, setDocPhoto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [pronto, setPronto] = useState(false);
   // Verificação por código (e-mail)
@@ -64,6 +67,8 @@ export default function SignContract() {
         signer_document: form.documento.trim(),
         agreed: form.aceito,
         signature_img: assinatura,
+        selfie: contract?.require_selfie ? selfie : undefined,
+        doc_photo: contract?.require_doc_photo ? docPhoto : undefined,
       });
       setPronto(true);
     } catch (e) {
@@ -189,13 +194,21 @@ export default function SignContract() {
                       <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 600 }}>Sua assinatura *</Typography>
                       <SignaturePad onChange={setAssinatura} />
                     </Box>
+                    {/* Prova reforçada pedida pela agência para este contrato. */}
+                    {contract?.require_selfie && (
+                      <CapturaDeFoto facingMode="user" rotulo="Selfie sua" onChange={setSelfie} />
+                    )}
+                    {contract?.require_doc_photo && (
+                      <CapturaDeFoto facingMode="environment" rotulo="Foto do seu documento (RG/CNH)" onChange={setDocPhoto} />
+                    )}
                     <FormControlLabel
                       control={<Checkbox checked={form.aceito}
                         onChange={(e) => setForm((f) => ({ ...f, aceito: e.target.checked }))} />}
                       label={<Typography variant="body2">Li o contrato acima e concordo com os termos.</Typography>}
                     />
                     <Button variant="contained" size="large" onClick={assinar}
-                      disabled={enviando || !form.nome.trim() || !form.documento.trim() || !form.aceito || !assinatura}>
+                      disabled={enviando || !form.nome.trim() || !form.documento.trim() || !form.aceito || !assinatura
+                        || (contract?.require_selfie && !selfie) || (contract?.require_doc_photo && !docPhoto)}>
                       {enviando ? "Assinando…" : "Assinar contrato"}
                     </Button>
                     <Typography variant="caption" color="text.secondary" align="center">

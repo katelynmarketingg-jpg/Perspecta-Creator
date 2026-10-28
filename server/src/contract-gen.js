@@ -431,11 +431,16 @@ export function geraContrato(orgId, termos = {}) {
     + "(IP) e a verificação de integridade do documento assinado.";
   const corpoFinal = corpo + clausulaAssinatura;
 
+  // Prova reforçada que a agência pediu ao abrir o onboarding (selfie / foto do
+  // documento). Guardada no contrato, é lida pela tela de assinatura.
+  const pedeSelfie = termos.require_selfie ? 1 : 0;
+  const pedeDoc = termos.require_doc_photo ? 1 : 0;
+
   const info = db.prepare(
-    `INSERT INTO contracts (client_id, title, value, duration_months, start_date, first_due_date, status, notes, style, org_id)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+    `INSERT INTO contracts (client_id, title, value, duration_months, start_date, first_due_date, status, notes, style, org_id, require_selfie, require_doc_photo)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
   ).run(client.id, titulo, valor, duracao, termos.start_date ?? null, termos.first_due_date ?? null,
-        corpoFinal, tpl.estilo ?? null, orgId);
+        corpoFinal, tpl.estilo ?? null, orgId, pedeSelfie, pedeDoc);
 
   const criado = db.prepare(
     "SELECT ct.*, c.name AS client_name FROM contracts ct LEFT JOIN clients c ON c.id = ct.client_id WHERE ct.id = ?"

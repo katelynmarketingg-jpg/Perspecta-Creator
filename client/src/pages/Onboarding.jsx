@@ -689,6 +689,8 @@ const VAZIO = {
   start_date: "", end_date: "", contract_date: "", observacoes: "",
   form_id: "",   // qual formulário ele vai responder ("" = padrão da casa)
   client_id: "", // só no modo "começar pelo formulário": o cliente escolhido aqui
+  require_selfie: false,     // pedir selfie na hora de assinar?
+  require_doc_photo: false,  // pedir foto do documento?
 };
 
 /** "servico:3" / "modelo:7" — o select precisa de um valor só. */
@@ -714,6 +716,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
         start_date: t.start_date || "", end_date: t.end_date || "",
         contract_date: t.contract_date || "", observacoes: t.observacoes || "",
         form_id: formAtual, client_id: cliente?.id || "",
+        require_selfie: Boolean(t.require_selfie), require_doc_photo: Boolean(t.require_doc_photo),
       });
     } else if (aberto.livre) {
       // Form-first: já aponta para o serviço/formulário de onde veio (se veio de
@@ -768,6 +771,8 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
       itens: f.itens.filter((i) => i.label),
       start_date: f.start_date || null, end_date: f.end_date || null,
       contract_date: f.contract_date || null, observacoes: f.observacoes,
+      require_selfie: f.require_selfie ? 1 : 0,
+      require_doc_photo: f.require_doc_photo ? 1 : 0,
     }, f.form_id || null);
   }
 
@@ -899,6 +904,25 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
           <TextField label="Data que deve constar no contrato" type="date" size="small" sx={{ maxWidth: 280 }}
             InputLabelProps={{ shrink: true }} value={f.contract_date}
             onChange={(e) => setF((a) => ({ ...a, contract_date: e.target.value }))} />
+          <Divider textAlign="left">
+            <Typography variant="caption" color="text.secondary">Prova de identidade na assinatura (opcional)</Typography>
+          </Divider>
+          {/* A SELFIE E A FOTO DO DOCUMENTO reforçam a prova de quem assinou —
+              ligadas por caso. Não mudam o "nível" jurídico (continua assinatura
+              avançada), mas deixam o "não fui eu" bem mais difícil. */}
+          <FormControlLabel sx={{ ml: 0 }} control={
+            <Switch size="small" checked={Boolean(f.require_selfie)}
+              onChange={(e) => setF((a) => ({ ...a, require_selfie: e.target.checked }))} />
+          } label={<Typography variant="body2">Pedir <b>selfie</b> na hora de assinar</Typography>} />
+          <FormControlLabel sx={{ ml: 0, mt: -1 }} control={
+            <Switch size="small" checked={Boolean(f.require_doc_photo)}
+              onChange={(e) => setF((a) => ({ ...a, require_doc_photo: e.target.checked }))} />
+          } label={<Typography variant="body2">Pedir <b>foto do documento</b> (RG/CNH)</Typography>} />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: -0.5 }}>
+            Use em contratos de maior valor. A pessoa tira a foto pela câmera na própria tela de
+            assinatura, e ela entra no termo de veracidade.
+          </Typography>
+
           <TextField label="Observações (só para você)" size="small" fullWidth multiline minRows={2}
             value={f.observacoes} onChange={(e) => setF((a) => ({ ...a, observacoes: e.target.value }))} />
         </Stack>

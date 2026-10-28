@@ -32,6 +32,22 @@ test("mostra o navegador e o sistema em linguagem de gente", () => {
   assert.equal(dispositivoLegivel(""), "—");
 });
 
+test("selfie e foto do documento entram no termo quando coletadas", () => {
+  const html = termoDeVeracidade({
+    id: 3, title: "C", signed_at: "2026-10-27 12:00:00", signer_name: "Fulano",
+    signer_selfie: "data:image/jpeg;base64,SELF", signer_doc_photo: "data:image/jpeg;base64,DOC",
+  });
+  assert.match(html, /base64,SELF/, "a selfie tem de aparecer");
+  assert.match(html, /base64,DOC/, "a foto do documento tem de aparecer");
+  assert.match(html, /Selfie/);
+  assert.match(html, /Documento/);
+});
+
+test("sem selfie pedida, o termo não inventa a seção de provas", () => {
+  const html = termoDeVeracidade({ id: 4, title: "C", signed_at: "2026-10-27 12:00:00", signer_name: "F" });
+  assert.ok(!/tv-provas/.test(html), "não deve ter bloco de provas sem foto");
+});
+
 test("texto alterado depois de assinar aparece no termo", () => {
   const html = termoDeVeracidade({
     id: 1, title: "X", signed_at: "2026-10-27 10:00:00", integridade: "alterado", signed_hash: "h",

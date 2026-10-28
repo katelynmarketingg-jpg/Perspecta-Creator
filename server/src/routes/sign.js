@@ -85,6 +85,10 @@ signRouter.get("/:token", (req, res) => {
     email_no_cadastro: Boolean(email),
     email_ativo: emailConfigured(),
     verificado: Boolean(c.sign_verified_at),
+    // Prova reforçada que a agência pediu para ESTE contrato (a tela mostra a
+    // câmera e exige antes de assinar).
+    require_selfie: Boolean(c.require_selfie),
+    require_doc_photo: Boolean(c.require_doc_photo),
   });
 });
 
@@ -181,6 +185,20 @@ signRouter.post("/:token", (req, res) => {
     return res.status(400).json({ error: "Assinatura muito grande. Tente novamente." });
   }
 
+  // Selfie e foto do documento: exigidas só quando a agência pediu neste
+  // contrato. Cada uma é uma imagem (data URI), limitada em tamanho.
+  const { selfie, doc_photo } = req.body || {};
+  const imagemOk = (v) => typeof v === "string" && /^data:image\//.test(v) && v.length <= 900000;
+  if (c.require_selfie && !imagemOk(selfie)) {
+    return res.status(400).json({ error: "Tire a selfie pedida antes de assinar.", precisa_selfie: true });
+  }
+  if (c.require_doc_photo && !imagemOk(doc_photo)) {
+    return res.status(400).json({ error: "Envie a foto do seu documento antes de assinar.", precisa_doc: true });
+  }
+  // Só guarda o que veio válido (e só se foi pedido).
+  const selfieGravar = c.require_selfie && imagemOk(selfie) ? selfie : null;
+  const docGravar = c.require_doc_photo && imagemOk(doc_photo) ? doc_photo : null;
+
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString().split(",")[0].trim();
   // O navegador/dispositivo faz parte da trilha de auditoria (vai no termo de
   // veracidade). Limitado em tamanho por segurança.
@@ -188,10 +206,11 @@ signRouter.post("/:token", (req, res) => {
   db.prepare(
     `UPDATE contracts SET signed_at = datetime('now'), signer_name = ?, signer_document = ?,
      signer_ip = ?, signer_user_agent = ?, signed_hash = ?, signature_img = ?,
-     signer_email = ?, sign_verified_at = datetime('now'), sign_verify_method = 'email', sign_verify_dest = ?
+     signer_email = ?, sign_verified_at = datetime('now'), sign_verify_method = 'email', sign_verify_dest = ?,
+     signer_selfie = ?, signer_doc_photo = ?
      WHERE id = ?`
   ).run(signer_name.trim(), signer_document.trim(), ip, userAgent, contractHash(c), signature_img,
-        row.email, mascararEmail(row.email), c.id);
+        row.email, mascararEmail(row.email), selfieGravar, docGravar, c.id);
   db.prepare("DELETE FROM sign_codes WHERE contract_id = ?").run(c.id);
 
   db.prepare(

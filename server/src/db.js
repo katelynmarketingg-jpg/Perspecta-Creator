@@ -907,6 +907,11 @@ ensureColumn("contracts", "signer_email", "signer_email TEXT");
 ensureColumn("contracts", "sign_verified_at", "sign_verified_at TEXT");   // quando o código foi conferido
 ensureColumn("contracts", "sign_verify_method", "sign_verify_method TEXT"); // 'email'
 ensureColumn("contracts", "sign_verify_dest", "sign_verify_dest TEXT");   // destino mascarado (ex.: jo***@x.com)
+// Prova de identidade reforçada, ligada por caso ao abrir o onboarding.
+ensureColumn("contracts", "require_selfie", "require_selfie INTEGER DEFAULT 0");       // pedir selfie para assinar?
+ensureColumn("contracts", "require_doc_photo", "require_doc_photo INTEGER DEFAULT 0"); // pedir foto do documento?
+ensureColumn("contracts", "signer_selfie", "signer_selfie TEXT");       // selfie de quem assinou (data URI)
+ensureColumn("contracts", "signer_doc_photo", "signer_doc_photo TEXT"); // foto do documento (data URI)
 
 // A ASSINATURA DA CASA NO CONTRATO.
 //
