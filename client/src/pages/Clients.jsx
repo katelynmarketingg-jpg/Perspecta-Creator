@@ -26,7 +26,8 @@ import { useNavigate } from "react-router-dom";
 import api from "../api/client.js";
 import { imprimirDocumento, faixaDeLogo } from "../impressao.js";
 import { estiloDoContrato, ALTURA_RODAPE, logoDoTopo, logoDoRodape } from "../contrato-estilo.js";
-import { termoDeVeracidade, CSS_TERMO } from "../termo-de-veracidade.js";
+import { termoDeVeracidade, CSS_TERMO, enderecoDeVerificacao } from "../termo-de-veracidade.js";
+import { qrDataUrl } from "../qr-verificacao.js";
 import { useLiveVersion } from "../live/LiveContext.jsx";
 import { PageHeader, EmptyState, TableSkeleton } from "../components/ui.jsx";
 import { currency, formatDate, CONTENT_TYPES } from "../utils.js";
@@ -123,7 +124,7 @@ export default function Clients() {
         `<pre>${(c.notes || "").replace(/</g, "&lt;")}</pre>`,
         assinatura,
         st.rodape.ativo ? faixaDeLogo(logoDoRodape(st, logoDaCasa), st.rodape, { altura: ALTURA_RODAPE, rodape: true }) : "",
-        `<style>${CSS_TERMO}</style>${termoDeVeracidade(c)}`,
+        `<style>${CSS_TERMO}</style>${termoDeVeracidade(c, { qr: qrDataUrl(c.verify_code ? enderecoDeVerificacao(c.verify_code) : "") })}`,
       ].join(""),
     });
   }

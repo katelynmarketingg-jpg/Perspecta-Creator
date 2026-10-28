@@ -54,3 +54,34 @@ test("texto alterado depois de assinar aparece no termo", () => {
   });
   assert.match(html, /alterado após a assinatura/i);
 });
+
+// ONDE SE CONFERE. O hash sozinho é uma afirmação; o termo passou a trazer o
+// endereço público e o código (e o QR, quando quem imprime manda um) — é com
+// eles que qualquer pessoa confirma que a afirmação é verdadeira.
+test("o termo diz onde conferir: endereço, código e QR", () => {
+  const html = termoDeVeracidade({
+    id: 9, title: "Contrato", signed_at: "2026-10-27 18:30:00",
+    signer_name: "Fulano", signed_hash: "abcdef123456",
+    verify_code: "K7MQ3P",
+  }, { qr: "data:image/gif;base64,AAAA" });
+
+  assert.match(html, /K7M-Q3P/, "o código sai com traço, do jeito que se dita");
+  assert.match(html, /\/verificar\/K7MQ3P/, "o endereço tem de estar escrito, não só no QR");
+  assert.match(html, /data:image\/gif;base64,AAAA/, "o QR entra como imagem embutida");
+  assert.match(html, /Confira a autenticidade/);
+});
+
+test("sem código (contrato antigo), o termo continua inteiro — só sem o bloco", () => {
+  const html = termoDeVeracidade({
+    id: 9, title: "Contrato", signed_at: "2026-10-27 18:30:00",
+    signer_name: "Fulano", signed_hash: "abcdef123456",
+  });
+  assert.doesNotMatch(html, /Confira a autenticidade/);
+  assert.match(html, /Termo de Veracidade/, "o resto do termo não pode depender disso");
+});
+
+test("o endereço de conferência é o do próprio sistema", async () => {
+  const { enderecoDeVerificacao } = await import("../../client/src/termo-de-veracidade.js");
+  // Sem navegador (como aqui), sai relativo — e no navegador leva o domínio.
+  assert.equal(enderecoDeVerificacao("k7mq3p"), "/verificar/K7MQ3P");
+});

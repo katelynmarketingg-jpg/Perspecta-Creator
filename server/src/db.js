@@ -929,6 +929,13 @@ ensureColumn("contracts", "agency_signature_img", "agency_signature_img TEXT");
 // Quando ela mandou o contrato para o cliente assinar — é o "já mandamos?".
 ensureColumn("contracts", "sent_at", "sent_at TEXT");
 
+// O CÓDIGO DA VERIFICAÇÃO PÚBLICA. Vai impresso no Termo de Veracidade, junto
+// do QR: é com ele que qualquer pessoa — o cliente, um advogado, um juiz —
+// confere num endereço público se aquele papel é mesmo o documento assinado.
+// Nasce na primeira assinatura e não muda mais (papel entregue não se corrige).
+ensureColumn("contracts", "verify_code", "verify_code TEXT");
+db.exec("CREATE INDEX IF NOT EXISTS idx_contracts_verify ON contracts(verify_code)");
+
 // Código de verificação da assinatura: um por contrato (reenviar substitui).
 db.exec(`
 CREATE TABLE IF NOT EXISTS sign_codes (

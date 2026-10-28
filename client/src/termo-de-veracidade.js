@@ -17,6 +17,18 @@
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (ch) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 
+/** O endereço público onde este documento é conferido. */
+export function enderecoDeVerificacao(codigo) {
+  const base = typeof window !== "undefined" && window.location
+    ? window.location.origin
+    : "";
+  return `${base}/verificar/${String(codigo || "").toUpperCase()}`;
+}
+
+/** O código como ele é lido em voz alta e digitado: ABC-K7M. */
+export const codigoLegivel = (c) =>
+  String(c || "").length === 6 ? `${c.slice(0, 3)}-${c.slice(3)}` : String(c || "");
+
 /** Data/hora no horário de Brasília, com o fuso à vista. */
 function dataBrasilia(quando) {
   if (!quando) return "—";
@@ -77,7 +89,7 @@ function cartao({ titulo, nome, documento, img, quando, email, ip, ua, metodo, s
 }
 
 /** O termo inteiro, pronto para ir ao fim do contrato. "" se nada foi assinado. */
-export function termoDeVeracidade(c = {}) {
+export function termoDeVeracidade(c = {}, { qr = "" } = {}) {
   const temCliente = Boolean(c.signed_at);
   const temCasa = Boolean(c.agency_signed_at);
   if (!temCliente && !temCasa) return "";
@@ -104,6 +116,20 @@ export function termoDeVeracidade(c = {}) {
 
   const alterado = c.integridade === "alterado";
 
+  // ONDE SE CONFERE. O hash acima é uma afirmação; isto é o endereço onde
+  // qualquer pessoa checa se ela é verdadeira — digitando o código ou
+  // apontando a câmera para o QR.
+  const codigo = c.verify_code ? codigoLegivel(c.verify_code) : "";
+  const url = c.verify_code ? enderecoDeVerificacao(c.verify_code) : "";
+  const bloco = codigo ? `<div class="tv-conferir">
+    ${qr ? `<img class="tv-qr" src="${esc(qr)}" alt="QR code para conferir este documento" />` : ""}
+    <div>
+      <div class="tv-conferir-t">Confira a autenticidade deste documento</div>
+      <div class="tv-conferir-p">Acesse <strong>${esc(url)}</strong> ou aponte a câmera para o QR ao lado.</div>
+      <div class="tv-codigo">Código: <strong>${esc(codigo)}</strong></div>
+    </div>
+  </div>` : "";
+
   return `<section class="termo">
     <h2 class="tv-titulo">Termo de Veracidade — Relatório de Assinaturas</h2>
     <div class="tv-doc-bloco">
@@ -115,12 +141,14 @@ export function termoDeVeracidade(c = {}) {
       ${linha("Assinaturas", `${quantos} de ${quantos}`)}
       ${linha("Hash do documento (SHA-256)", c.signed_hash ? `<span class="tv-hash">${esc(c.signed_hash)}</span>` : "—")}
     </div>
+    ${bloco}
     <div class="tv-cards">${cards}</div>
     <p class="tv-legal">
       As assinaturas eletrônicas deste documento têm validade jurídica entre as partes, nos termos do
       art. 10, §2º, da MP 2.200-2/2001 e da Lei 14.063/2020. A identidade de cada signatário foi
       confirmada por código enviado ao seu contato, e a integridade do documento pode ser conferida
-      pelo hash (SHA-256) acima: qualquer alteração no texto muda o hash.
+      pelo hash (SHA-256) acima: qualquer alteração no texto muda o hash.${codigo ? `
+      A conferência pode ser feita por qualquer pessoa em ${esc(url)}, com o código ${esc(codigo)}.` : ""}
     </p>
   </section>`;
 }
@@ -148,4 +176,10 @@ export const CSS_TERMO = `
 .tv-prova figcaption { font-size: 8pt; color: #666; margin-top: 2px; }
 .tv-alerta { color: #b3261e; font-weight: 700; }
 .tv-legal { margin-top: 14px; font-size: 8.5pt; color: #444; text-align: justify; line-height: 1.5; }
+.tv-conferir { display: flex; gap: 12px; align-items: center; border: 1px solid #ccc; border-radius: 6px;
+               padding: 10px 12px; margin: 0 0 14px; break-inside: avoid; page-break-inside: avoid; }
+.tv-qr { width: 96px; height: 96px; image-rendering: pixelated; flex: 0 0 96px; }
+.tv-conferir-t { font-weight: 700; font-size: 10pt; }
+.tv-conferir-p { font-size: 9pt; color: #444; margin: 2px 0; }
+.tv-codigo { font-family: "Courier New", monospace; font-size: 12pt; letter-spacing: .08em; margin-top: 2px; }
 `;

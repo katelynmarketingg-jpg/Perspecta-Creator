@@ -130,6 +130,7 @@ const MinhasFinancas = telaAdiada(() => import("./pages/MinhasFinancas.jsx"));
 const ClientArea = telaAdiada(() => import("./pages/ClientArea.jsx"));
 const AI = telaAdiada(() => import("./pages/AI.jsx"));
 const SignContract = telaAdiada(() => import("./pages/SignContract.jsx"));
+const Verificar = telaAdiada(() => import("./pages/Verificar.jsx"));
 const Intelligence = telaAdiada(() => import("./pages/Intelligence.jsx"));
 const Briefing = telaAdiada(() => import("./pages/Briefing.jsx"));
 const Onboarding = telaAdiada(() => import("./pages/Onboarding.jsx"));
@@ -173,6 +174,10 @@ export default function App() {
       <Route path="/portal/login" element={<PortalLogin />} />
       <Route path="/portal" element={<Portal />} />
       <Route path="/assinar/:token" element={<SignContract />} />
+      {/* Conferir um documento assinado: público, sem login. O código e o QR
+          saem impressos no Termo de Veracidade, no fim do contrato. */}
+      <Route path="/verificar" element={<Verificar />} />
+      <Route path="/verificar/:codigo" element={<Verificar />} />
       {/* Briefing do cliente: link público, sem login (como a assinatura) */}
       <Route path="/briefing/:token" element={<Briefing />} />
       <Route
