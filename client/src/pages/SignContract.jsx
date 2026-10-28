@@ -110,8 +110,8 @@ export default function SignContract() {
 
   return (
     <Box sx={{ ...fundo, alignItems: "start", py: 5 }}>
-      <Card sx={{ width: "100%", maxWidth: 640 }}>
-        <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+      <Card sx={{ width: "100%", maxWidth: 780 }}>
+        <CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
           <Stack alignItems="center" spacing={0.5} sx={{ mb: 3 }}>
             <Box sx={{ width: 46, height: 46, borderRadius: 2.5, bgcolor: "primary.main", color: "#fff",
               display: "grid", placeItems: "center", fontWeight: 800, fontFamily: '"Outfit", sans-serif' }}>
@@ -130,8 +130,18 @@ export default function SignContract() {
             </Alert>
           ) : (
             <>
-              <Box sx={{ p: 2, borderRadius: 2, bgcolor: "action.hover", maxHeight: 340, overflowY: "auto", mb: 3 }}>
-                <TextoDoContrato texto={contract?.notes} contrato={contract} />
+              {/* O contrato com cara de FOLHA: branco, margens largas, letra
+                  serifada e justificada — parecido com o que sai no PDF. */}
+              <Box sx={{ mb: 3, display: "flex", justifyContent: "center",
+                bgcolor: "#f1efe9", borderRadius: 1.5, p: { xs: 1, sm: 2 },
+                maxHeight: "60vh", overflowY: "auto" }}>
+                <Box sx={{ width: "100%", maxWidth: 620, bgcolor: "#fff",
+                  boxShadow: "0 1px 10px rgba(0,0,0,.14)", borderRadius: 0.5,
+                  px: { xs: 3, sm: 7 }, py: { xs: 3.5, sm: 6 } }}>
+                  <TextoDoContrato texto={contract?.notes} contrato={contract}
+                    sx={{ color: "#1a1a1a", fontFamily: 'Georgia, "Times New Roman", serif',
+                      textAlign: "justify", lineHeight: 1.7, fontSize: 14.5 }} />
+                </Box>
               </Box>
 
               {erro && <Alert severity="error" sx={{ mb: 2 }}>{erro}</Alert>}
@@ -145,6 +155,11 @@ export default function SignContract() {
               ) : !contract?.email_no_cadastro ? (
                 <Alert severity="warning" sx={{ mb: 3 }}>
                   Não há e-mail cadastrado para enviar o código de verificação. Avise a sua agência.
+                </Alert>
+              ) : !contract?.email_valido ? (
+                <Alert severity="warning" sx={{ mb: 3 }}>
+                  O e-mail do cadastro{emailMascarado ? ` (${emailMascarado})` : ""} não é um e-mail válido,
+                  então não dá para enviar o código. Peça para a sua agência corrigir o seu e-mail no cadastro.
                 </Alert>
               ) : verificado ? (
                 <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 3 }}>

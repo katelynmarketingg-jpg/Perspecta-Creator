@@ -826,8 +826,8 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
 
           {/* O CLIENTE — depois de dizer O QUE É. Só aparece quando a agência
               abriu pelo formulário/serviço (sem ter clicado num cliente antes).
-              Quem já tem onboarding fica desabilitado: para esse, ela edita os
-              termos pela aba Clientes. */}
+              Qualquer cliente pode ser escolhido — quem já tem um onboarding só
+              ganha um aviso, mas dá para abrir outro (ex.: um serviço novo). */}
           {livre && (
             <TextField select label="Para qual cliente" size="small" fullWidth required
               value={f.client_id} onChange={(e) => setF((a) => ({ ...a, client_id: e.target.value }))}
@@ -836,11 +836,11 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
               {clients.map((c) => {
                 const temOnboarding = ocupados?.has?.(c.id);
                 return (
-                  <MenuItem key={c.id} value={c.id} disabled={temOnboarding}>
+                  <MenuItem key={c.id} value={c.id}>
                     {c.name}
                     {temOnboarding && (
-                      <Typography variant="caption" color="text.disabled" sx={{ ml: 1 }}>
-                        já tem onboarding
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                        (já tem um onboarding)
                       </Typography>
                     )}
                   </MenuItem>
