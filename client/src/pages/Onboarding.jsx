@@ -184,9 +184,11 @@ export default function Onboarding() {
     finally { setSalvando(false); setTimeout(() => setMsg(null), 6000); }
   }
 
-  async function criarFormulario({ nome, copiar_de }) {
+  async function criarFormulario({ nome, copiar_de, modelo }) {
     try {
-      const { data } = await api.post("/briefings/formularios", { nome, copiar_de: copiar_de || undefined });
+      const { data } = await api.post("/briefings/formularios", {
+        nome, copiar_de: copiar_de || undefined, modelo: modelo || undefined,
+      });
       await carregarFormularios();
       setEditando(data.id);
       setParte("inicio");   // a jornada começa no começo
@@ -579,9 +581,9 @@ export default function Onboarding() {
 
       {/* Dar nome a um formulário — criar, duplicar ou renomear */}
       <NomeDoFormulario alvo={batizando} onFechar={() => setBatizando(null)}
-        onConfirmar={(nome) => (batizando?.renomeia
+        onConfirmar={(nome, modelo) => (batizando?.renomeia
           ? renomearFormulario(nome)
-          : criarFormulario({ nome, copiar_de: batizando?.copiar_de }))} />
+          : criarFormulario({ nome, copiar_de: batizando?.copiar_de, modelo }))} />
 
       {/* O painel do cliente: a situação, o link e tudo o que dá para fazer */}
       <PainelDoCliente alvo={vendoCliente} formularios={formularios}
@@ -1572,10 +1574,21 @@ function EscolhaVisual({ p, respostas }) {
 // ---------------------------------------------------------------------------
 function NomeDoFormulario({ alvo, onFechar, onConfirmar }) {
   const [nome, setNome] = useState("");
-  useEffect(() => { if (alvo) setNome(alvo.nome || ""); }, [alvo]);
+  // OS PRONTOS DE FÁBRICA. A estante nascia vazia: todo formulário novo saía
+  // igual ao padrão da casa, e montar o de um ramo era escrever pergunta por
+  // pergunta. Estes vêm inteiros, com os dados do contrato na frente.
+  const [modelos, setModelos] = useState([]);
+  const [modelo, setModelo] = useState("");
+  useEffect(() => { if (alvo) { setNome(alvo.nome || ""); setModelo(""); } }, [alvo]);
+  useEffect(() => {
+    api.get("/briefings/modelos-prontos")
+      .then((r) => setModelos(r.data?.modelos || []))
+      .catch(() => setModelos([]));
+  }, []);
 
   const renomeia = Boolean(alvo?.renomeia);
   const copia = Boolean(alvo?.copiar_de) && !renomeia;
+  const novoEmBranco = !renomeia && !copia;
 
   return (
     <Dialog open={Boolean(alvo)} onClose={onFechar} fullWidth maxWidth="xs">
@@ -1593,11 +1606,46 @@ function NomeDoFormulario({ alvo, onFechar, onConfirmar }) {
         <TextField autoFocus fullWidth size="small" label="Nome do formulário"
           placeholder="Ex.: Advocacia, Alimentação, Clínica"
           value={nome} onChange={(e) => setNome(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && nome.trim()) onConfirmar(nome.trim()); }} />
+          onKeyDown={(e) => { if (e.key === "Enter" && nome.trim()) onConfirmar(nome.trim(), modelo); }} />
+
+        {novoEmBranco && modelos.length > 0 && (
+          <Box sx={{ mt: 2.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+              OU COMECE DE UM PRONTO
+            </Typography>
+            <Stack spacing={1} sx={{ mt: 1 }}>
+              {modelos.map((m) => {
+                const escolhido = modelo === m.id;
+                return (
+                  <Card key={m.id} variant="outlined"
+                    onClick={() => { setModelo(escolhido ? "" : m.id); if (!escolhido && !nome.trim()) setNome(m.nome); }}
+                    sx={{
+                      cursor: "pointer", borderColor: escolhido ? "primary.main" : "divider",
+                      borderWidth: escolhido ? 2 : 1,
+                    }}>
+                    <CardContent sx={{ py: 1.25, "&:last-child": { pb: 1.25 } }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>{m.nome}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                        {m.descricao}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {m.secoes} seções · {m.perguntas} perguntas
+                        {m.servico ? ` · serviço: ${m.servico}` : ""}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+              O pronto vira uma cópia sua: dá para tirar, acrescentar e mudar o que quiser depois.
+            </Typography>
+          </Box>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onFechar}>Cancelar</Button>
-        <Button variant="contained" disabled={!nome.trim()} onClick={() => onConfirmar(nome.trim())}>
+        <Button variant="contained" disabled={!nome.trim()} onClick={() => onConfirmar(nome.trim(), modelo)}>
           {renomeia ? "Renomear" : "Criar"}
         </Button>
       </DialogActions>

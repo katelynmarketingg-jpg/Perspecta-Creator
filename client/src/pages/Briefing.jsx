@@ -681,7 +681,11 @@ function PerguntaDia({ p, valor, onChange, faltando }) {
           <Chip key={d} label={d} clickable onClick={() => onChange(String(d) === String(valor) ? "" : String(d))}
             color={String(d) === String(valor) ? "primary" : "default"}
             variant={String(d) === String(valor) ? "filled" : "outlined"}
-            sx={{ width: 44, height: 40, borderRadius: 2, fontSize: 14.5 }} />
+            // O rótulo do Chip vem com 12px de recuo de cada lado: em 44px de
+            // largura sobravam 20, e todo dia de dois dígitos saía "1…" na
+            // tela do cliente. Visto no navegador, no celular.
+            sx={{ width: 44, height: 40, borderRadius: 2, fontSize: 14.5,
+                  "& .MuiChip-label": { px: 0 } }} />
         ))}
       </Box>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>

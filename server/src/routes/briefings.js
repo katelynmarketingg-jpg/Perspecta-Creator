@@ -13,6 +13,7 @@ import {
   ajustesDoBriefing,
 } from "../briefing.js";
 import { geraContratoDoOnboarding } from "../onboarding.js";
+import { listaDeModelos, modeloPronto } from "../modelos-de-formulario.js";
 import { guardaNaCentral } from "../central.js";
 import { modelosDisponiveis, mesesDeVigencia, numeroBR } from "../contract-gen.js";
 import { PERSONA_FIELDS } from "../ai.js";
@@ -267,6 +268,17 @@ router.get("/formularios", (req, res) => {
   });
 });
 
+/**
+ * GET /api/briefings/modelos-prontos — os questionários prontos de fábrica.
+ *
+ * A estante nascia vazia: todo formulário novo começava igual ao padrão da
+ * casa, e montar o de um ramo específico era escrever pergunta por pergunta.
+ * Estes vêm inteiros, com os dados do contrato na frente.
+ */
+router.get("/modelos-prontos", (req, res) => {
+  res.json({ modelos: listaDeModelos() });
+});
+
 // POST /api/briefings/formularios — cria. Sem perguntas, nasce igual ao padrão.
 router.post("/formularios", (req, res) => {
   try {
@@ -276,11 +288,19 @@ router.post("/formularios", (req, res) => {
     if (!secoes && req.body?.copiar_de) {
       secoes = getFormulario(req.orgId, Number(req.body.copiar_de))?.secoes;
     }
+    // `modelo` é o pronto de fábrica: nasce com as perguntas dele e com o
+    // texto de boas-vindas dele. A partir daí é um formulário dela, que ela
+    // muda à vontade — mexer no modelo depois não mexe neste.
+    const pronto = req.body?.modelo ? modeloPronto(req.body.modelo) : null;
+    if (req.body?.modelo && !pronto) {
+      return res.status(400).json({ error: "Esse modelo pronto não existe." });
+    }
+    if (!secoes && pronto) secoes = pronto.secoes;
     // Duplicar leva a jornada junto: o texto de boas-vindas e os passos do fim.
     const fonte = req.body?.copiar_de ? getFormulario(req.orgId, Number(req.body.copiar_de)) : null;
     res.status(201).json(criaFormulario(req.orgId, {
-      nome: req.body?.nome, secoes,
-      welcome: req.body?.welcome ?? fonte?.welcome ?? undefined,
+      nome: req.body?.nome || pronto?.nome, secoes,
+      welcome: req.body?.welcome ?? fonte?.welcome ?? pronto?.welcome ?? undefined,
       gera_contrato: req.body?.gera_contrato ?? fonte?.gera_contrato,
       cria_acesso: req.body?.cria_acesso ?? fonte?.cria_acesso,
       // O serviço NÃO é duplicado: dois formulários para o mesmo serviço
