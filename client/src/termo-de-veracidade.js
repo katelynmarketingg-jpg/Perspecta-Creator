@@ -50,10 +50,15 @@ const linha = (rotulo, valor) => valor
   : "";
 
 /** O cartão de um signatário. `tipo` muda só o selo e o que a trilha mostra. */
-function cartao({ titulo, nome, documento, img, quando, email, ip, ua, metodo }) {
+function cartao({ titulo, nome, documento, img, quando, email, ip, ua, metodo, selfie, docFoto }) {
   const miniatura = img
     ? `<img class="tv-assinatura" src="${esc(img)}" alt="assinatura" />`
     : "";
+  // Selfie e foto do documento, quando foram pedidas e coletadas.
+  const provas = [
+    selfie ? `<figure class="tv-prova"><img src="${esc(selfie)}" alt="selfie" /><figcaption>Selfie</figcaption></figure>` : "",
+    docFoto ? `<figure class="tv-prova"><img src="${esc(docFoto)}" alt="documento" /><figcaption>Documento</figcaption></figure>` : "",
+  ].join("");
   return `<div class="tv-card">
     <div class="tv-card-top">
       <span class="tv-papel">${esc(titulo)}</span>
@@ -67,6 +72,7 @@ function cartao({ titulo, nome, documento, img, quando, email, ip, ua, metodo })
     ${linha("IP", ip ? esc(ip) : "")}
     ${linha("Dispositivo", ua ? esc(dispositivoLegivel(ua)) : "")}
     ${linha("Nível de segurança", metodo ? esc(metodo) : "")}
+    ${provas ? `<div class="tv-provas">${provas}</div>` : ""}
   </div>`;
 }
 
@@ -86,6 +92,7 @@ export function termoDeVeracidade(c = {}) {
       ip: c.signer_ip, ua: c.signer_user_agent,
       metodo: c.sign_verify_method === "email"
         ? "Validado por código único enviado por e-mail" : "",
+      selfie: c.signer_selfie, docFoto: c.signer_doc_photo,
     }),
     temCasa && cartao({
       titulo: "CONTRATADA (agência)",
@@ -135,6 +142,10 @@ export const CSS_TERMO = `
 .tv-selo { font-size: 8.5pt; color: #1b7a3d; border: 1px solid #1b7a3d; border-radius: 10px; padding: 1px 8px; }
 .tv-nome { font-weight: 700; font-size: 11pt; }
 .tv-assinatura { max-height: 54px; display: block; margin: 6px 0; }
+.tv-provas { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.tv-prova { margin: 0; text-align: center; }
+.tv-prova img { height: 68px; width: auto; border: 1px solid #ccc; border-radius: 4px; display: block; }
+.tv-prova figcaption { font-size: 8pt; color: #666; margin-top: 2px; }
 .tv-alerta { color: #b3261e; font-weight: 700; }
 .tv-legal { margin-top: 14px; font-size: 8.5pt; color: #444; text-align: justify; line-height: 1.5; }
 `;
