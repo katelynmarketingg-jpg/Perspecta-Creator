@@ -67,7 +67,7 @@ const ESTADO = {
 };
 
 export default function Onboarding() {
-  const [tab, setTab] = useState("clientes");
+  const [tab, setTab] = useState("formularios");
   const [clients, setClients] = useState([]);
   const [briefings, setBriefings] = useState([]);
   const [modelo, setModelo] = useState(null);
@@ -313,9 +313,11 @@ export default function Onboarding() {
 
       {msg && <Alert severity={msg.t} sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg.m}</Alert>}
 
+      {/* Formulários PRIMEIRO: o fluxo é "primeiro o que é / qual formulário,
+          depois o cliente" — então a estante de formulários abre na frente. */}
       <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2.5 }}>
-        <Tab value="clientes" label={`Clientes${respondidos ? ` (${respondidos})` : ""}`} />
         <Tab value="formularios" label={`Formulários${formularios.length ? ` (${formularios.length + 1})` : ""}`} />
+        <Tab value="clientes" label={`Clientes${respondidos ? ` (${respondidos})` : ""}`} />
       </Tabs>
 
       {tab === "clientes" ? (
