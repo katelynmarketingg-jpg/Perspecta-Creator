@@ -236,8 +236,11 @@ export default function Onboarding() {
     carregar();
   }, []);
 
+  // TODOS os onboardings de cada cliente, do mais novo para o mais velho.
+  // Guardar só um escondia o segundo: ela criava outro formulário para o mesmo
+  // cliente e não tinha por onde pegar o link dele.
   const porCliente = {};
-  for (const b of briefings) if (!porCliente[b.client_id]) porCliente[b.client_id] = b;
+  for (const b of briefings) (porCliente[b.client_id] ||= []).push(b);
 
   async function criarLink(clienteId, termos, formId) {
     const c = clients.find((x) => x.id === clienteId);
@@ -358,11 +361,13 @@ export default function Onboarding() {
               </TableRow></TableHead>
               <TableBody>
                 {clients.map((c) => {
-                  const b = porCliente[c.id];
-                  const esperando = b?.status === "respondido";
+                  const todos = porCliente[c.id] || [];
+                  const b = todos[0];
+                  const esperando = todos.some((x) => x.status === "respondido");
+                  const ver = () => setVendoCliente({ cliente: c, briefing: b, todos });
                   return (
                     <TableRow key={c.id} hover
-                      onClick={() => (b ? setVendoCliente({ cliente: c, briefing: b }) : setAbrindo({ cliente: c }))}
+                      onClick={() => (b ? ver() : setAbrindo({ cliente: c }))}
                       sx={{ cursor: "pointer" }}>
                       <TableCell sx={{ fontWeight: 600 }}>
                         <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
@@ -371,12 +376,19 @@ export default function Onboarding() {
                             <Chip size="small" color="warning" label="Respondido — aplicar"
                               sx={{ height: 20, fontSize: 11 }} />
                           )}
+                          {/* Mais de um: o cliente tem dois trabalhos em curso
+                              (uma LP e o social, por exemplo). Sem este aviso,
+                              o segundo link não aparecia em lugar nenhum. */}
+                          {todos.length > 1 && (
+                            <Chip size="small" variant="outlined" label={`${todos.length} onboardings`}
+                              sx={{ height: 20, fontSize: 11 }} />
+                          )}
                         </Stack>
                       </TableCell>
                       <TableCell align="right">
                         {b ? (
                           <Button size="small" endIcon={<ChevronRightIcon />}
-                            onClick={(e) => { e.stopPropagation(); setVendoCliente({ cliente: c, briefing: b }); }}>
+                            onClick={(e) => { e.stopPropagation(); ver(); }}>
                             Abrir
                           </Button>
                         ) : (
@@ -614,6 +626,7 @@ export default function Onboarding() {
         onPerguntas={(briefing, nome) => { setVendoCliente(null); setPerguntasDe({ briefing, client_name: nome }); }}
         onEncerrar={(b, nome) => { setVendoCliente(null); encerrar(b, nome); }}
         onReabrir={(b) => { setVendoCliente(null); reabrir(b); }}
+        onOutro={(cliente) => { setVendoCliente(null); setAbrindo({ cliente }); }}
         onTrocouFormulario={async () => { await carregar(); }}
         onErro={(m) => setMsg({ t: "error", m })} />
 
@@ -932,7 +945,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
                     {c.name}
                     {temOnboarding && (
                       <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                        (já tem um onboarding)
+                        (já tem um — este será outro)
                       </Typography>
                     )}
                   </MenuItem>
@@ -2059,7 +2072,7 @@ function ContratoDoCliente({ briefing, onMudou }) {
 
 function PainelDoCliente({
   alvo, formularios, onFechar, onLink, onRespostas, onTermos, onPerguntas,
-  onEncerrar, onReabrir, onTrocouFormulario, onErro,
+  onEncerrar, onReabrir, onTrocouFormulario, onErro, onOutro,
 }) {
   const [b, setB] = useState(null);
   const [copiado, setCopiado] = useState(false);
@@ -2070,6 +2083,7 @@ function PainelDoCliente({
 
   const est = ESTADO[b.status] || ESTADO.aberto;
   const encerrado = b.status === "encerrado";
+  const todos = alvo.todos?.length ? alvo.todos : [b];
 
   async function trocarFormulario(novo) {
     try {
@@ -2101,6 +2115,26 @@ function PainelDoCliente({
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2.5}>
+          {/* ---- qual dos onboardings dele ---- */}
+          {/* Um cliente pode ter mais de um trabalho em curso (a LP e o
+              social, por exemplo). Cada um tem o SEU link e as SUAS respostas:
+              aqui ela escolhe de qual está falando. */}
+          {todos.length > 1 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
+                Este cliente tem {todos.length} onboardings. Você está vendo:
+              </Typography>
+              <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
+                {todos.map((x) => (
+                  <Chip key={x.id} clickable size="small" onClick={() => setB(x)}
+                    color={x.id === b.id ? "primary" : "default"}
+                    variant={x.id === b.id ? "filled" : "outlined"}
+                    label={`${x.termos?.servico || "Sem serviço"} · ${(ESTADO[x.status] || ESTADO.aberto).label}`} />
+                ))}
+              </Stack>
+            </Box>
+          )}
+
           {/* ---- onde ele está ---- */}
           <Box>
             <LinearProgress variant="determinate" value={b.progresso}
@@ -2185,6 +2219,12 @@ function PainelDoCliente({
           color={b.perguntas_proprias ? "primary" : "inherit"}
           onClick={() => onPerguntas(b, cliente.name)}>
           Perguntas deste cliente
+        </Button>
+        {/* O MESMO CLIENTE, OUTRO TRABALHO. Fechar o onboarding anterior não é
+            pré-requisito: o link novo nasce em branco e o antigo continua
+            valendo, com as respostas que ele já deu. */}
+        <Button size="small" startIcon={<SendIcon />} onClick={() => onOutro(cliente)}>
+          Abrir outro onboarding
         </Button>
         <Box sx={{ flex: 1 }} />
         {encerrado ? (

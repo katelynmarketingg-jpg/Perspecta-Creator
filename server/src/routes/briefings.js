@@ -162,7 +162,7 @@ router.get("/", (req, res) => {
   const linhas = db.prepare(
     `SELECT b.*, c.name AS client_name FROM briefings b
        JOIN clients c ON c.id = b.client_id
-      WHERE b.org_id = ? ORDER BY b.created_at DESC`
+      WHERE b.org_id = ? ORDER BY b.created_at DESC, b.id DESC`
   ).all(req.orgId);
   res.json(linhas.map((b) => ({ ...resumo(b, req), client_name: b.client_name })));
 });
@@ -267,33 +267,6 @@ router.post("/", (req, res) => {
   const c = db.prepare("SELECT id FROM clients WHERE id = ? AND org_id = ?").get(clientId, req.orgId);
   if (!c) return res.status(404).json({ error: "Cliente não encontrado." });
 
-  // Um briefing ABERTO por cliente: clicar de novo devolve o mesmo link, em vez
-  // de espalhar links diferentes para a mesma pessoa.
-  // Encerrado também não conta: se ela fechou aquele onboarding e está abrindo
-  // de novo, é porque quer um novo — não reaproveitar o link fechado.
-  const existente = db.prepare(
-    `SELECT * FROM briefings WHERE org_id = ? AND client_id = ?
-       AND status NOT IN ('aplicado', 'encerrado') ORDER BY created_at DESC LIMIT 1`
-  ).get(req.orgId, clientId);
-  if (existente) {
-    if (req.body?.termos) {
-      db.prepare("UPDATE briefings SET terms = ? WHERE id = ?")
-        .run(JSON.stringify(saneiaTermos(req.body.termos)), existente.id);
-    }
-    // Trocar o formulário de quem já tem link aberto: o link continua o mesmo,
-    // só as perguntas mudam. `form_id` ausente no corpo não mexe em nada.
-    if ("form_id" in (req.body || {})) {
-      try { usaFormulario(existente.id, req.orgId, Number(req.body.form_id) || null); }
-      catch (e) { return res.status(400).json({ error: e.message }); }
-    }
-    return res.json(resumo(db.prepare("SELECT * FROM briefings WHERE id = ?").get(existente.id), req));
-  }
-
-  const token = randomBytes(24).toString("base64url");
-  // Os termos que só a agência sabe (serviço, quantidades, valor, vigência e a
-  // data do contrato) viajam junto: é com eles que o contrato nasce pronto
-  // assim que o cliente termina de responder.
-  const termos = req.body?.termos ? JSON.stringify(saneiaTermos(req.body.termos)) : null;
   // Qual formulário este cliente vai responder. Ela pode dizer na mão; se não
   // disser, o serviço que ela escolheu decide — é o formulário feito para ele.
   // Sem os dois, vale o padrão da casa.
@@ -304,6 +277,48 @@ router.post("/", (req, res) => {
   if (!formId && req.body?.termos) {
     formId = formularioDoServico(req.orgId, chaveDoServico(req.body.termos))?.id || null;
   }
+
+  // MAIS DE UM ONBOARDING POR CLIENTE — pedido dela: "quero que eu possa criar
+  // mais de um formulário por cliente… se eu fiz outro link tem que abrir e tem
+  // que dar pra responder".
+  //
+  // Antes, qualquer briefing que não estivesse aplicado ou encerrado era
+  // reaproveitado — inclusive o JÁ RESPONDIDO. Ela criava o segundo link, para
+  // um serviço novo, recebia de volta o link velho, e o cliente abria numa tela
+  // escrita "Recebemos. Obrigado!", sem um campo sequer para responder: o
+  // segundo trabalho não tinha como começar.
+  //
+  // Agora só se reaproveita o link que ainda está DE PÉ, EM BRANCO E COM AS
+  // MESMAS PERGUNTAS: aberto, sem resposta nenhuma e no mesmo formulário que
+  // ela está pedindo agora. É o que mantém o clique repetido inofensivo (clicar
+  // duas vezes não espalha dois links para a mesma pessoa) sem prender o
+  // cliente ao primeiro formulário que ele respondeu na vida — e sem
+  // reprogramar, por baixo, um link que ela já mandou para alguém.
+  const existente = db.prepare(
+    `SELECT * FROM briefings WHERE org_id = ? AND client_id = ?
+       AND status = 'aberto' AND answered_at IS NULL
+       AND form_id IS ?
+      ORDER BY created_at DESC, id DESC LIMIT 1`
+  ).get(req.orgId, clientId, formId);
+  if (existente) {
+    if (req.body?.termos) {
+      db.prepare("UPDATE briefings SET terms = ? WHERE id = ?")
+        .run(JSON.stringify(saneiaTermos(req.body.termos)), existente.id);
+    }
+    // Trocar o formulário de quem já tem link aberto: o link continua o mesmo,
+    // só as perguntas mudam. `form_id` ausente no corpo não mexe em nada.
+    if ("form_id" in (req.body || {})) {
+      try { usaFormulario(existente.id, req.orgId, formId); }
+      catch (e) { return res.status(400).json({ error: e.message }); }
+    }
+    return res.json(resumo(db.prepare("SELECT * FROM briefings WHERE id = ?").get(existente.id), req));
+  }
+
+  const token = randomBytes(24).toString("base64url");
+  // Os termos que só a agência sabe (serviço, quantidades, valor, vigência e a
+  // data do contrato) viajam junto: é com eles que o contrato nasce pronto
+  // assim que o cliente termina de responder.
+  const termos = req.body?.termos ? JSON.stringify(saneiaTermos(req.body.termos)) : null;
   const id = db.prepare(
     "INSERT INTO briefings (org_id, client_id, token, terms, form_id) VALUES (?, ?, ?, ?, ?)"
   ).run(req.orgId, clientId, token, termos, formId).lastInsertRowid;
