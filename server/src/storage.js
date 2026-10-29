@@ -1,5 +1,7 @@
 import { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand,
-         DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+         DeleteObjectCommand, ListObjectsV2Command,
+         CreateMultipartUploadCommand, UploadPartCommand,
+         CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
 import { createReadStream } from "node:fs";
@@ -175,6 +177,65 @@ export async function enderecoParaEnviar(key, { tipo, segundos = 6 * 3600 } = {}
   } catch {
     return null;   // não deu para assinar: quem chamou volta pelo caminho antigo
   }
+}
+
+// ---------------------------------------------------------------------------
+// ENVIO EM PEDAÇOS (MULTIPART) — para arquivo grande no celular.
+//
+// O iPhone não aguenta mandar um vídeo de 500 MB de uma vez: ele teria de
+// segurar o arquivo inteiro na memória e o navegador morre sem avisar. No
+// multipart o navegador corta o arquivo em fatias (~10 MB) e manda uma de cada
+// vez — a memória nunca enche, e vídeo de qualquer tamanho sobe.
+//
+//   1. INICIAR: a nuvem abre um "envio em pedaços" e devolve um UploadId.
+//   2. CADA PARTE: o navegador entrega a fatia num endereço assinado e guarda o
+//      ETag que a nuvem devolve (a prova de que aquela fatia chegou).
+//   3. COMPLETAR: com a lista de (número da parte + ETag), a nuvem junta tudo
+//      num arquivo só. Se algo falhar no meio, ABORTAR limpa as fatias soltas.
+// ---------------------------------------------------------------------------
+
+/** Abre um envio em pedaços. Devolve o UploadId, ou null se não der. */
+export async function iniciarMultipart(key, { tipo } = {}) {
+  if (!configured) return null;
+  try {
+    const out = await client.send(new CreateMultipartUploadCommand({
+      Bucket: R2_BUCKET, Key: key, ...(tipo ? { ContentType: tipo } : {}),
+    }));
+    return out.UploadId || null;
+  } catch { return null; }
+}
+
+/** Endereço assinado para o navegador entregar UMA parte (1, 2, 3…). */
+export async function assinarParte(key, uploadId, partNumber, { segundos = 6 * 3600 } = {}) {
+  if (!configured) return null;
+  const comando = new UploadPartCommand({
+    Bucket: R2_BUCKET, Key: key, UploadId: uploadId, PartNumber: Number(partNumber),
+  });
+  try { return await getSignedUrl(client, comando, { expiresIn: segundos }); }
+  catch { return null; }
+}
+
+/** Junta as partes num arquivo só. `partes` = [{ PartNumber, ETag }]. */
+export async function completarMultipart(key, uploadId, partes) {
+  if (!configured) return null;
+  const Parts = (Array.isArray(partes) ? partes : [])
+    .map((p) => ({ PartNumber: Number(p.PartNumber), ETag: String(p.ETag || "") }))
+    .filter((p) => p.PartNumber > 0 && p.ETag)
+    .sort((a, b) => a.PartNumber - b.PartNumber);
+  if (!Parts.length) throw new Error("sem partes para completar");
+  return client.send(new CompleteMultipartUploadCommand({
+    Bucket: R2_BUCKET, Key: key, UploadId: uploadId, MultipartUpload: { Parts },
+  }));
+}
+
+/** Desiste de um envio em pedaços e limpa as fatias já enviadas. */
+export async function abortarMultipart(key, uploadId) {
+  if (!configured) return;
+  try {
+    await client.send(new AbortMultipartUploadCommand({
+      Bucket: R2_BUCKET, Key: key, UploadId: uploadId,
+    }));
+  } catch { /* ok — nada a fazer se nem isso deu */ }
 }
 
 /**
