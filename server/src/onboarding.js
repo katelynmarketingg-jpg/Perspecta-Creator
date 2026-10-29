@@ -2,6 +2,7 @@ import { db } from "./db.js";
 import { CAMPOS_CLIENTE, respostasParaCliente, respostasParaCentral, secoesDoBriefing, ajustesDoBriefing } from "./briefing.js";
 import { guardaNaCentral } from "./central.js";
 import { geraContrato } from "./contract-gen.js";
+import { assinaComoCasa } from "./assinatura-da-casa.js";
 
 // ---------------------------------------------------------------------------
 // O que acontece SOZINHO quando o cliente termina de responder o onboarding.
@@ -87,7 +88,18 @@ export function geraContratoDoOnboarding(briefing) {
   ).get(briefing.client_id, briefing.org_id);
   if (jaTem) return null;
 
-  return geraContrato(briefing.org_id, { ...termos, client_id: briefing.client_id });
+  const contrato = geraContrato(briefing.org_id, { ...termos, client_id: briefing.client_id });
+
+  // "PRA QUE EU MESMA JÁ POSSA ASSINAR": quando ela marcou isso ao abrir o
+  // onboarding, a assinatura da casa já entra no contrato que acaba de
+  // nascer. O cliente abre o link e vê um documento que a agência firmou — e
+  // ela não precisa lembrar de voltar aqui depois. Se a assinatura da casa
+  // ainda não foi desenhada, segue sem ela: o contrato é mais importante que
+  // o carimbo, e o painel do cliente mostra que falta assinar.
+  if (termos.assinar_casa) {
+    try { assinaComoCasa(briefing.org_id, contrato.id); } catch { /* não derruba o onboarding */ }
+  }
+  return contrato;
 }
 
 /** Tudo de uma vez, quando o cliente aperta "enviar". */

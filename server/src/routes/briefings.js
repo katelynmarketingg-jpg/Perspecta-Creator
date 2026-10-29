@@ -13,9 +13,11 @@ import {
   ajustesDoBriefing,
 } from "../briefing.js";
 import { geraContratoDoOnboarding } from "../onboarding.js";
+import { assinaturaDaCasa } from "../assinatura-da-casa.js";
 import { listaDeModelos, modeloPronto } from "../modelos-de-formulario.js";
 import { guardaNaCentral } from "../central.js";
-import { modelosDisponiveis, mesesDeVigencia, numeroBR } from "../contract-gen.js";
+import { confere } from "../pertence.js";
+import { modelosDisponiveis, mesesDeVigencia, numeroBR, montaContrato } from "../contract-gen.js";
 import { PERSONA_FIELDS } from "../ai.js";
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,11 @@ function saneiaTermos(entrada = {}) {
     // de assinatura passa a exigir.
     require_selfie: entrada.require_selfie ? 1 : 0,
     require_doc_photo: entrada.require_doc_photo ? 1 : 0,
+    // "pra que eu mesma já possa assinar": quando o contrato nascer (o cliente
+    // termina de responder), a assinatura da casa já entra nele. Assim o
+    // cliente abre o link e vê um documento que a agência já firmou — e ela
+    // não precisa lembrar de voltar aqui depois.
+    assinar_casa: entrada.assinar_casa ? 1 : 0,
   };
 }
 
@@ -140,6 +147,46 @@ router.get("/", (req, res) => {
       WHERE b.org_id = ? ORDER BY b.created_at DESC`
   ).all(req.orgId);
   res.json(linhas.map((b) => ({ ...resumo(b, req), client_name: b.client_name })));
+});
+
+/**
+ * POST /api/briefings/previa-contrato — o contrato com os dados, sem gravar.
+ *
+ * "quero que tenha um botão de ver contrato com os dados". Antes, a única
+ * forma de ver o contrato preenchido era GERAR um — criando um documento no
+ * sistema só para conferir. Aqui o texto é montado na hora, com o cadastro do
+ * cliente e os termos que ela acabou de digitar, e some quando ela fecha.
+ *
+ * Vem junto a lista do que ainda falta: é o que responde "por que saiu uma
+ * linha em branco no lugar do endereço?" antes de o cliente receber.
+ */
+router.post("/previa-contrato", (req, res) => {
+  const clientId = Number(req.body?.client_id) || 0;
+  if (!clientId) return res.status(400).json({ error: "Escolha o cliente para ver o contrato." });
+  const naoEhDaCasa = confere(req.orgId, { clients: clientId });
+  if (naoEhDaCasa) return res.status(400).json({ error: naoEhDaCasa });
+
+  const termos = { ...saneiaTermos(req.body?.termos || {}), client_id: clientId };
+  if (!termos.service_id && !termos.template_id) {
+    return res.status(400).json({ error: "Escolha o serviço — é dele que sai o texto do contrato." });
+  }
+  try {
+    const m = montaContrato(req.orgId, termos);
+    res.json({
+      titulo: m.titulo,
+      corpo: m.corpo,
+      faltando: m.faltando,
+      pagina: (() => { try { return JSON.parse(m.estilo || "{}")?.pagina || null; } catch { return null; } })(),
+      // A assinatura da casa, para a prévia mostrar como vai ficar assinada.
+      assinatura_casa: req.body?.assinar_casa ? assinaturaDaCasa(req.orgId) : null,
+      // Ligou "já assinado por mim" mas nunca desenhou a assinatura: o
+      // contrato vai nascer sem ela. Melhor saber agora do que quando o
+      // cliente abrir o link.
+      falta_assinatura_casa: Boolean(req.body?.assinar_casa) && !assinaturaDaCasa(req.orgId),
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message || "Não consegui montar o contrato." });
+  }
 });
 
 /**

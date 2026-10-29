@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { authRequired, moduleAllowed, publicBaseUrl } from "../auth.js";
 import { makeSignToken, conferirAssinatura } from "./sign.js";
 import { garanteCodigoDeVerificacao } from "./verificar.js";
+import { assinaComoCasa, assinaturaDaCasa } from "../assinatura-da-casa.js";
 import { confere, idOuNulo } from "../pertence.js";
 
 const router = Router();
@@ -129,26 +130,20 @@ router.post("/:id/sign-link", (req, res) => {
 router.post("/:id/assinar-como-casa", (req, res) => {
   const c = db.prepare("SELECT * FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
-  if (c.agency_signed_at) return res.status(400).json({ error: "Este contrato já tem a sua assinatura." });
 
-  const org = db.prepare(
-    "SELECT name, signature_img, signer_name, signer_document FROM organizations WHERE id = ?"
-  ).get(req.orgId) || {};
-  if (!org.signature_img) {
+  const resultado = assinaComoCasa(req.orgId, c.id);
+  if (resultado === "ja-assinado") {
+    return res.status(400).json({ error: "Este contrato já tem a sua assinatura." });
+  }
+  if (resultado === "sem-assinatura") {
     return res.status(400).json({
       // O CAMINHO TEM DE ESTAR CERTO: a caixa dos recibos mora em
-      // Configurações, não no Financeiro. Visto no navegador — a pessoa
-      // clicava em "assinar", lia isto e ia procurar onde não estava.
+      // Configurações, não no Financeiro.
       error: "Você ainda não desenhou a assinatura da casa. Vá em Configurações → Recibos "
         + "e desenhe uma vez: ela passa a valer aqui também.",
       falta_assinatura: true,
     });
   }
-  db.prepare(
-    `UPDATE contracts SET agency_signed_at = datetime('now'), agency_signer_name = ?,
-       agency_signer_document = ?, agency_signature_img = ?
-     WHERE id = ? AND org_id = ?`
-  ).run(org.signer_name || org.name || null, org.signer_document || null, org.signature_img, c.id, req.orgId);
   // Assinado por um lado já é documento para conferir: o código nasce aqui.
   garanteCodigoDeVerificacao(c.id);
   res.json(comIntegridade(db.prepare(`${SELECT} WHERE ct.id = ?`).get(c.id))[0]);

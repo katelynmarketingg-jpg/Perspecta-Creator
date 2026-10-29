@@ -317,7 +317,15 @@ function rotuloDoDocumento(doc) {
   return "CNPJ/CPF";
 }
 
-export function geraContrato(orgId, termos = {}) {
+/**
+ * MONTA o contrato — o texto pronto, com os dados trocados — sem gravar nada.
+ *
+ * Nasceu da prévia: "quero que tenha um botão de ver contrato com os dados".
+ * Antes, a única forma de ver o contrato preenchido era gerá-lo de verdade, o
+ * que criava um documento no sistema só para conferir. Agora quem grava é o
+ * geraContrato, que chama esta função e guarda o resultado.
+ */
+export function montaContrato(orgId, termos = {}) {
   const tpl = achaModelo(orgId, termos);
 
   const client = db.prepare("SELECT * FROM clients WHERE id = ? AND org_id = ?").get(termos.client_id, orgId);
@@ -436,16 +444,32 @@ export function geraContrato(orgId, termos = {}) {
   const pedeSelfie = termos.require_selfie ? 1 : 0;
   const pedeDoc = termos.require_doc_photo ? 1 : 0;
 
+  return {
+    client, org, tpl,
+    titulo, corpo: corpoFinal, valor, duracao,
+    estilo: tpl.estilo ?? null,
+    pedeSelfie, pedeDoc,
+    // A lista do que ainda falta: é ela que faz a tela avisar "este contrato
+    // sai sem endereço e sem quem assina" antes de o cliente receber.
+    faltando: [...confereEssenciais(client, org), ...confereTermos(termos)],
+  };
+}
+
+/** Monta e GRAVA. */
+export function geraContrato(orgId, termos = {}) {
+  const m = montaContrato(orgId, termos);
+  const { client, titulo, corpo: corpoFinal, valor, duracao, estilo, pedeSelfie, pedeDoc } = m;
+
   const info = db.prepare(
     `INSERT INTO contracts (client_id, title, value, duration_months, start_date, first_due_date, status, notes, style, org_id, require_selfie, require_doc_photo)
      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`
   ).run(client.id, titulo, valor, duracao, termos.start_date ?? null, termos.first_due_date ?? null,
-        corpoFinal, tpl.estilo ?? null, orgId, pedeSelfie, pedeDoc);
+        corpoFinal, estilo, orgId, pedeSelfie, pedeDoc);
 
   const criado = db.prepare(
     "SELECT ct.*, c.name AS client_name FROM contracts ct LEFT JOIN clients c ON c.id = ct.client_id WHERE ct.id = ?"
   ).get(info.lastInsertRowid);
   // A lista sobe junto: é ela que faz a tela avisar "este contrato saiu sem
   // endereço e sem quem assina" em vez de deixar a agência descobrir depois.
-  return { ...criado, faltando: [...confereEssenciais(client, org), ...confereTermos(termos)] };
+  return { ...criado, faltando: m.faltando };
 }
