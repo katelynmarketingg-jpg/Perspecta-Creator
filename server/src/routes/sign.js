@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { createHash, randomInt } from "node:crypto";
 import { db } from "../db.js";
 import { JWT_SECRET } from "../auth.js";
-import { enviarEmail, emailConfigured, mascararEmail } from "../email.js";
+import { enviarEmail, emailConfigured, mascararEmail, motivoDoErro } from "../email.js";
 import { garanteCodigoDeVerificacao } from "./verificar.js";
 
 // Assinatura por link público: qualquer pessoa com o link (que você manda no
@@ -69,9 +69,17 @@ signRouter.get("/:token", (req, res) => {
   const org = db.prepare("SELECT name FROM organizations WHERE id = ?").get(c.org_id);
   const email = emailDoContrato(c);
 
+  // A PÁGINA DO CONTRATO (margem, entrelinha, tamanho do texto). A tela de
+  // assinatura desenha folhas A4 de verdade com ela — o que a pessoa lê na
+  // tela fica igual ao que vai sair impresso. Vai só esta parte do estilo: o
+  // resto guarda o logo inteiro em data URI, megabytes que ninguém vê aqui.
+  let pagina = null;
+  try { pagina = JSON.parse(c.style || "{}")?.pagina || null; } catch { pagina = null; }
+
   res.json({
     title: c.title,
     notes: c.notes,
+    pagina,
     value: c.value,
     client_name: c.client_name || null,
     agency_name: org?.name || "",
@@ -142,8 +150,25 @@ signRouter.post("/:token/send-code", async (req, res) => {
           + `<p style="font-size:28px;font-weight:700;letter-spacing:4px">${codigo}</p>`
           + `<p>Ele vale por 10 minutos. Se você não pediu, ignore este e-mail.</p>`,
     });
-  } catch {
-    return res.status(502).json({ error: "Não foi possível enviar o e-mail agora. Tente de novo em instantes." });
+  } catch (e) {
+    // O MOTIVO NÃO PODE MORRER AQUI.
+    //
+    // "e-mail de verificação não vai": a tela do cliente dizia "não foi
+    // possível enviar" e pronto — o erro do provedor era engolido, sem log e
+    // sem aviso. Ninguém tinha como descobrir que era o remetente, a senha ou
+    // o host. Agora fica no log E vira um aviso para a agência, com o motivo;
+    // para o cliente, que não pode ver detalhe de servidor, segue o recado
+    // curto e a indicação de falar com a agência.
+    const motivo = motivoDoErro(e);
+    console.error("[email] o código de assinatura não saiu:", motivo);
+    try {
+      db.prepare(
+        "INSERT INTO notifications (audience, client_id, message, org_id) VALUES ('agency', ?, ?, ?)"
+      ).run(c.client_id, `⚠️ O código para assinar "${c.title}" não foi enviado: ${motivo}`, c.org_id);
+    } catch { /* o aviso é um extra: não pode derrubar a resposta */ }
+    return res.status(502).json({
+      error: "Não consegui enviar o e-mail agora. A sua agência já foi avisada — fale com ela.",
+    });
   }
   res.json({ ok: true, email_mascarado: mascararEmail(email) });
 });

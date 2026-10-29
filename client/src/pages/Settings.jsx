@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Card, CardContent, Typography, Stack, TextField, Button, IconButton, Chip,
   List, ListItem, ListItemText, FormControlLabel, Switch, Box, Divider,
-  Dialog, DialogTitle, DialogContent, DialogActions, Alert, MenuItem,
+  Dialog, DialogTitle, DialogContent, DialogActions, Alert, MenuItem, LinearProgress,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
@@ -21,6 +21,98 @@ function fileToDataUrl(file) {
     r.onerror = reject;
     r.readAsDataURL(file);
   });
+}
+
+// ---------------------------------------------------------------------------
+// E-MAIL DOS CÓDIGOS DE ASSINATURA — está saindo? e, se não, por quê?
+//
+// "e-mail de verificação não vai." Quando o envio falha, a tela do cliente só
+// pode dizer "não consegui agora" — detalhe de servidor não se mostra a
+// estranho. Mas ELA precisa do motivo, senão o contrato trava sem explicação.
+// Aqui ela vê como está configurado (sem a senha) e manda um teste para si
+// mesma: o que o provedor responder aparece na tela, com todas as letras.
+// ---------------------------------------------------------------------------
+function EmailDeAssinatura() {
+  const { user } = useAuth();
+  const [cfg, setCfg] = useState(null);
+  const [para, setPara] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [resultado, setResultado] = useState(null);
+
+  useEffect(() => {
+    api.get("/integrations/email").then((r) => setCfg(r.data)).catch(() => setCfg({ ligado: false }));
+  }, []);
+  useEffect(() => { setPara(user?.email || ""); }, [user]);
+
+  async function testar() {
+    setEnviando(true); setResultado(null);
+    try {
+      const { data } = await api.post("/integrations/email/teste", { para });
+      setResultado({ tipo: "success", texto: `Saiu. Confira a caixa de ${data.para} (veja também o spam).` });
+    } catch (e) {
+      setResultado({ tipo: "error", texto: e.response?.data?.error || "Não consegui mandar o teste." });
+      if (e.response?.data?.remetente !== undefined) setCfg(e.response.data);
+    } finally { setEnviando(false); }
+  }
+
+  return (
+    <Card>
+      <CardContent>
+        <Typography variant="h6" sx={{ mb: 0.5 }}>E-mail dos códigos de assinatura</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          É por aqui que sai o código de 6 dígitos que o cliente digita para assinar o contrato.
+          Se ele não sair, o cliente não consegue assinar.
+        </Typography>
+
+        {!cfg ? <LinearProgress /> : !cfg.ligado ? (
+          <Alert severity="warning">
+            Não está configurado neste servidor.
+            {cfg.faltando?.length ? ` Faltam: ${cfg.faltando.join(", ")}.` : ""}
+            {" "}Peça para configurar as variáveis do SMTP no Render.
+          </Alert>
+        ) : (
+          <Stack spacing={1} sx={{ mb: 2 }}>
+            <Linha rotulo="Servidor" valor={`${cfg.host}:${cfg.porta}`} />
+            <Linha rotulo="Usuário" valor={cfg.usuario} />
+            <Linha rotulo="Remetente" valor={cfg.remetente} />
+            <Typography variant="caption" color="text.secondary">
+              O remetente precisa ser de um domínio que o provedor reconheça como seu — é a causa
+              mais comum de o e-mail não sair.
+            </Typography>
+          </Stack>
+        )}
+
+        {cfg?.ligado && (
+          <>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems="flex-start">
+              <TextField size="small" label="Mandar um teste para" value={para} fullWidth
+                onChange={(e) => setPara(e.target.value)} />
+              <Button variant="outlined" onClick={testar} disabled={enviando || !para.trim()}
+                sx={{ whiteSpace: "nowrap", py: 1 }}>
+                {enviando ? "Enviando…" : "Enviar teste"}
+              </Button>
+            </Stack>
+            {resultado && (
+              <Alert severity={resultado.tipo} sx={{ mt: 1.5 }} onClose={() => setResultado(null)}>
+                {resultado.texto}
+              </Alert>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Rótulo e valor, numa linha só. */
+function Linha({ rotulo, valor }) {
+  if (!valor) return null;
+  return (
+    <Stack direction="row" spacing={1.5}>
+      <Typography variant="body2" color="text.secondary" sx={{ minWidth: 92 }}>{rotulo}</Typography>
+      <Typography variant="body2" sx={{ wordBreak: "break-all" }}>{valor}</Typography>
+    </Stack>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +595,7 @@ export default function Settings() {
           </CardContent>
         </Card>
 
+        {isAdmin && <EmailDeAssinatura />}
         {isAdmin && <Armazenamento />}
       </Box>
 

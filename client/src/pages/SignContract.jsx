@@ -8,7 +8,7 @@ import {
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import SignaturePad from "../components/SignaturePad.jsx";
 import CapturaDeFoto from "../components/CapturaDeFoto.jsx";
-import TextoDoContrato from "../components/TextoDoContrato.jsx";
+import FolhasDoContrato from "../components/FolhasDoContrato.jsx";
 
 // Página pública: o cliente abre o link do WhatsApp e assina, sem conta.
 export default function SignContract() {
@@ -130,18 +130,14 @@ export default function SignContract() {
             </Alert>
           ) : (
             <>
-              {/* O contrato com cara de FOLHA: branco, margens largas, letra
-                  serifada e justificada — parecido com o que sai no PDF. */}
-              <Box sx={{ mb: 3, display: "flex", justifyContent: "center",
-                bgcolor: "#f1efe9", borderRadius: 1.5, p: { xs: 1, sm: 2 },
-                maxHeight: "60vh", overflowY: "auto" }}>
-                <Box sx={{ width: "100%", maxWidth: 620, bgcolor: "#fff",
-                  boxShadow: "0 1px 10px rgba(0,0,0,.14)", borderRadius: 0.5,
-                  px: { xs: 3, sm: 7 }, py: { xs: 3.5, sm: 6 } }}>
-                  <TextoDoContrato texto={contract?.notes} contrato={contract}
-                    sx={{ color: "#1a1a1a", fontFamily: 'Georgia, "Times New Roman", serif',
-                      textAlign: "justify", lineHeight: 1.7, fontSize: 14.5 }} />
-                </Box>
+              {/* O CONTRATO EM FOLHAS A4, numeradas.
+                  Antes era uma folha só dentro de uma caixa de rolagem — e,
+                  por ser item de um flex com altura fixa, a folha branca
+                  parava no meio e o texto continuava por fora dela: o
+                  documento aparecia quebrado bem na hora de assinar. */}
+              <Box sx={{ mb: 3 }}>
+                <FolhasDoContrato texto={contract?.notes} contrato={contract}
+                  pagina={contract?.pagina} />
               </Box>
 
               {erro && <Alert severity="error" sx={{ mb: 2 }}>{erro}</Alert>}

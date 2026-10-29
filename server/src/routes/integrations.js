@@ -11,6 +11,7 @@ import {
 import { comecarPublicacao, terminarPublicacao, temVideo, diasAteVencer } from "../publicacao-demorada.js";
 import { filaDoAutomatico } from "../publisher.js";
 import { agoraNaAgencia } from "../fuso.js";
+import { configuracaoDoEmail, enviarEmail, motivoDoErro, emailConfigured } from "../email.js";
 
 const router = Router();
 
@@ -74,6 +75,43 @@ router.get("/meta/callback", async (req, res) => {
 router.use(authRequired, moduleAllowed("clientes"));
 
 // GET /api/integrations/meta/status — o que está conectado neste escritório.
+// ---------------------------------------------------------------------------
+// E-MAIL: COMO ESTÁ E POR QUE NÃO SAIU.
+//
+// "e-mail de verificação não vai". O envio falhava e a única coisa que
+// aparecia era "não foi possível enviar" — o motivo do provedor morria num
+// catch. Aqui ela vê a configuração (sem a senha) e manda um e-mail de teste
+// para si mesma: se falhar, a tela mostra a frase do provedor, que é onde
+// está a resposta (quase sempre o remetente num domínio não verificado).
+// ---------------------------------------------------------------------------
+router.get("/email", (req, res) => {
+  res.json(configuracaoDoEmail());
+});
+
+router.post("/email/teste", async (req, res) => {
+  const destino = String(req.body?.para || req.user?.email || "").trim();
+  if (!emailConfigured()) {
+    return res.status(400).json({
+      error: "O envio de e-mail não está configurado no servidor.",
+      ...configuracaoDoEmail(),
+    });
+  }
+  if (!destino) return res.status(400).json({ error: "Diga para qual e-mail devo mandar o teste." });
+  try {
+    await enviarEmail({
+      to: destino,
+      subject: "Teste de envio — Perspecta Creator",
+      text: "Deu certo: o envio de e-mail do seu Creator está funcionando.\n\n"
+        + "É por este caminho que sai o código de 6 dígitos que o cliente usa para assinar o contrato.",
+    });
+    res.json({ ok: true, para: destino });
+  } catch (e) {
+    const motivo = motivoDoErro(e);
+    console.error("[email] teste falhou:", motivo);
+    res.status(502).json({ error: motivo, ...configuracaoDoEmail() });
+  }
+});
+
 router.get("/meta/status", (req, res) => {
   const rows = db
     .prepare(
