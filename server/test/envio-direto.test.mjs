@@ -141,11 +141,33 @@ test("o caminho antigo continua inteiro", () => {
 // --- a tela ----------------------------------------------------------------
 
 test("a tela tenta o caminho curto primeiro e cai no antigo se não der", () => {
-  assert.match(contexto, /const direto = await enviarDireto\(/);
-  assert.match(contexto, /if \(direto\) return direto;/);
-  const trecho = contexto.slice(contexto.indexOf("PRIMEIRO, O CAMINHO CURTO"), contexto.indexOf("const thumb = await miniaturaBarata"));
+  // O "caminho curto" agora tem dois: arquivo grande vai em PEDAÇOS (multipart,
+  // robusto no celular) e pequeno no PUT único. Os dois caem no caminho de
+  // sempre se tropeçarem — menos a recusa por tamanho.
+  assert.match(contexto, /enviarMultipart\(file,/);
+  assert.match(contexto, /enviarDireto\(file,/);
+  assert.match(contexto, /if \(resultado\) return resultado;/);
+  const trecho = contexto.slice(contexto.indexOf("ARQUIVO GRANDE VAI EM PEDAÇOS"), contexto.indexOf("const thumb = await miniaturaBarata"));
   assert.match(trecho, /catch/, "qualquer tropeço volta para o caminho de sempre");
   assert.match(trecho, /grande demais/, "menos a recusa por tamanho, que o outro caminho também faria");
+});
+
+const multipart = readFileSync(join(aqui, "../../client/src/upload/envio-multipart.js"), "utf8");
+
+test("o envio em pedaços corta o arquivo e confirma cada parte pelo ETag", () => {
+  // file.slice não copia o arquivo todo para a memória — é isso que deixa o
+  // iPhone mandar vídeo grande sem morrer.
+  assert.match(multipart, /file\.slice\(/, "tem de fatiar, não mandar o arquivo inteiro");
+  assert.match(multipart, /getResponseHeader\("ETag"\)/, "cada parte confirma pelo ETag");
+  assert.match(multipart, /multipart\/iniciar/);
+  assert.match(multipart, /multipart\/completar/);
+  // A parte é assinada SEM Content-Type; mandar um faria a nuvem recusar.
+  assert.ok(!/setRequestHeader\("Content-Type"/.test(multipart), "a parte não leva Content-Type");
+});
+
+test("acima de 15 MB, o arquivo vai em pedaços", () => {
+  assert.match(contexto, /const GRANDE = 15 \* 1024 \* 1024/);
+  assert.match(contexto, /\(file\?\.size \|\| 0\) > GRANDE/);
 });
 
 test("a entrega manda o mesmo tipo que foi assinado", () => {

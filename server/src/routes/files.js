@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 import { authRequired, moduleAllowed, JWT_SECRET } from "../auth.js";
-import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2, enderecoAssinado, nomeParaBaixar, enderecoParaEnviar, conferirObjeto, chaveEhDoEscritorio } from "../storage.js";
+import { storageConfigured, isR2Path, r2Key, uploadFileToR2, getR2Object, deleteR2Object, tipoQueONavegadorToca, testarR2, enderecoAssinado, nomeParaBaixar, enderecoParaEnviar, conferirObjeto, chaveEhDoEscritorio, iniciarMultipart, assinarParte, completarMultipart, abortarMultipart } from "../storage.js";
 import { confere } from "../pertence.js";
 import { bilheteDeMidia, bilheteParaBaixar, enderecoDeMidia, enderecoDePrevia, previasDe } from "../midia-url.js";
 import { emParalelo } from "../em-paralelo.js";
@@ -477,6 +477,95 @@ router.post("/upload-direto/registrar", async (req, res) => {
     created.push(novo);
   }
   res.status(201).json(created);
+});
+
+// ---------------------------------------------------------------------------
+// ENVIO EM PEDAÇOS (MULTIPART) — arquivo grande, principalmente no celular.
+//
+// Mesma ideia do envio direto, mas o arquivo vai em FATIAS. O iPhone não
+// segura um vídeo de 500 MB inteiro na memória — por isso o envio "nem
+// começava". Em pedaços de 10 MB a memória nunca enche e sobe de qualquer
+// tamanho. Três tempos: iniciar → (cada parte vai direto para a nuvem) →
+// completar. Se algo falhar, "abortar" limpa as fatias soltas.
+// ---------------------------------------------------------------------------
+const PARTE = 10 * 1024 * 1024;   // 10 MB (acima do mínimo de 5 MB que o S3 exige)
+const MAX_PARTES = 10000;
+
+router.post("/upload-direto/multipart/iniciar", async (req, res) => {
+  if (!storageConfigured()) return res.json({ direto: false, motivo: "sem nuvem configurada" });
+  const nome = String(req.body?.nome || "arquivo");
+  const mime = req.body?.mime || undefined;
+  const tamanho = Number(req.body?.tamanho) || 0;
+  if (tamanho <= 0) return res.status(400).json({ error: "Tamanho inválido." });
+  if (tamanho > MAX_ARQUIVO) return res.status(413).json({ error: `“${nome}” passa de 2 GB.` });
+
+  const key = `uploads/${req.orgId}/${Date.now()}-${randomUUID()}`;
+  const uploadId = await iniciarMultipart(key, { tipo: mime });
+  if (!uploadId) return res.json({ direto: false, motivo: "não consegui abrir o envio em pedaços" });
+
+  const totalPartes = Math.min(MAX_PARTES, Math.max(1, Math.ceil(tamanho / PARTE)));
+  const urls = [];
+  for (let n = 1; n <= totalPartes; n++) {
+    const url = await assinarParte(key, uploadId, n);
+    if (!url) {
+      await abortarMultipart(key, uploadId);
+      return res.json({ direto: false, motivo: "não consegui assinar as partes" });
+    }
+    urls.push({ partNumber: n, url });
+  }
+  res.locals.semAviso = true;   // ainda não mudou nada
+  res.json({ direto: true, key, uploadId, parteTamanho: PARTE, urls });
+});
+
+router.post("/upload-direto/multipart/completar", async (req, res) => {
+  if (!storageConfigured()) return res.status(400).json({ error: "Sem nuvem configurada." });
+  const { key, uploadId, partes, client_id, folder_id } = req.body || {};
+  const stage = STAGES.includes(req.body?.stage) ? req.body.stage : "originais";
+  if (!chaveEhDoEscritorio(String(key || ""), req.orgId)) return res.status(400).json({ error: "Entrega inválida." });
+  if (!uploadId || !Array.isArray(partes) || !partes.length) {
+    return res.status(400).json({ error: "Faltam as partes para juntar." });
+  }
+
+  try {
+    await completarMultipart(key, uploadId, partes);
+  } catch {
+    await abortarMultipart(key, uploadId);
+    return res.status(502).json({ error: "Não consegui juntar as partes na nuvem. Tente de novo." });
+  }
+
+  const naNuvem = await conferirObjeto(key);
+  if (!naNuvem) return res.status(400).json({ error: "O arquivo não chegou na nuvem. Tente de novo." });
+
+  const nome = String(req.body?.nome || "arquivo").slice(0, 255);
+  const mime = String(req.body?.mime || naNuvem.tipo || "application/octet-stream").slice(0, 120);
+  const tamanho = naNuvem.tamanho;
+  const t = req.body?.thumb;
+  const thumb = typeof t === "string" && t.startsWith("data:image/") && t.length <= 400 * 1024 ? t : null;
+  const repetida = Boolean(db.prepare(
+    `SELECT id FROM files WHERE org_id = ? AND original_name = ? AND size = ? AND client_id IS ? AND folder_id IS ? LIMIT 1`
+  ).get(req.orgId, nome, tamanho, client_id || null, folder_id || null));
+
+  const storedPath = `r2:${key}`;
+  const info = db.prepare(
+    `INSERT INTO files (folder_id, client_id, original_name, mime, size, stored_path, stage, thumb, org_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(folder_id || null, client_id || null, nome, mime, tamanho, storedPath, stage, thumb, req.orgId);
+  const novo = db.prepare("SELECT id, original_name, mime, size, created_at, thumb FROM files WHERE id = ?").get(info.lastInsertRowid);
+  novo.media_url = await enderecoDeMidia(
+    { id: novo.id, mime: novo.mime, original_name: novo.original_name, stored_path: storedPath }, req.orgId,
+  );
+  novo.download_url = bilheteParaBaixar(novo.id, req.orgId);
+  novo.repetida = repetida;
+  res.status(201).json([novo]);   // array, para a tela tratar igual ao registrar
+});
+
+router.post("/upload-direto/multipart/abortar", async (req, res) => {
+  const { key, uploadId } = req.body || {};
+  if (uploadId && chaveEhDoEscritorio(String(key || ""), req.orgId)) {
+    await abortarMultipart(key, uploadId);
+  }
+  res.locals.semAviso = true;
+  res.json({ ok: true });
 });
 
 // SLIDE QUE SOBE PELA DISTRIBUIÇÃO TAMBÉM APARECE NA GALERIA, ARRUMADO.
