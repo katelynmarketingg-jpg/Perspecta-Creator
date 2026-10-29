@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pipeline } from "node:stream/promises";
 import multer from "multer";
+import { statfsSync } from "node:fs";
 import AdmZip from "adm-zip";
 import { mkdirSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve, join, dirname, basename, extname } from "node:path";
@@ -104,6 +105,37 @@ async function removeStored(stored_path) {
 const DATA_DIR = dirname(process.env.DB_PATH || "./data/agency.db");
 const UPLOADS_DIR = resolve(process.env.UPLOADS_DIR || join(DATA_DIR, "uploads"));
 mkdirSync(UPLOADS_DIR, { recursive: true });
+
+/**
+ * QUANTO AINDA CABE NO DISCO DO SERVIDOR.
+ *
+ * Sem a nuvem ligada, todo arquivo fica no disco do Render — que é pequeno e
+ * compartilhado com o banco. Um vídeo de 1 GB chegando num disco com 300 MB
+ * livres sobe inteiro, pela internet dela, e morre no fim sem explicação
+ * nenhuma. Saber o espaço antes é o que transforma isso num "não cabe" dito
+ * na hora certa.
+ */
+export function espacoLivreNoDisco() {
+  try {
+    const s = statfsSync(UPLOADS_DIR);
+    return Number(s.bavail) * Number(s.bsize);
+  } catch { return null; }
+}
+
+// O banco também vive neste disco: encher até a última gota derruba o sistema
+// inteiro, não só o envio.
+export const FOLGA_DO_DISCO = 200 * 1024 * 1024;
+
+/**
+ * ESTE ARQUIVO CABE NO DISCO? (só vale quando a nuvem está desligada)
+ *
+ * Sem saber o espaço livre (`livre === null`), não barra nada: palpite errado
+ * recusando envio é pior que tentar e falhar.
+ */
+export function cabeNoDisco(tamanho, livre) {
+  if (livre === null || livre === undefined) return true;
+  return Number(tamanho) <= Math.max(0, Number(livre) - FOLGA_DO_DISCO);
+}
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -365,7 +397,22 @@ router.post("/upload-direto/autorizar", async (req, res) => {
     return res.status(413).json({ error: `“${grande.nome || "arquivo"}” passa de 2 GB.` });
   }
 
-  if (!storageConfigured()) return res.json({ direto: false, motivo: "sem nuvem configurada" });
+  if (!storageConfigured()) {
+    // SEM NUVEM, O CAMINHO É O DISCO DO SERVIDOR — e ele tem fundo.
+    // Dizer isso aqui evita o pior dos mundos: subir 1 GB pela internet dela
+    // para o arquivo morrer no fim, sem motivo na tela.
+    const livre = espacoLivreNoDisco();
+    const maior = pedidos.reduce((n, a) => Math.max(n, Number(a?.tamanho) || 0), 0);
+    if (!cabeNoDisco(maior, livre)) {
+      return res.status(413).json({
+        error: `Não cabe: o disco do servidor tem ${(livre / 1073741824).toFixed(1)} GB livres `
+          + "e a nuvem (R2) está desligada. Ligue a nuvem em Configurações → Armazenamento "
+          + "para mandar arquivos grandes.",
+        sem_nuvem: true, livre,
+      });
+    }
+    return res.json({ direto: false, motivo: "sem nuvem configurada", livre });
+  }
 
   const autorizacoes = [];
   for (const a of pedidos) {
@@ -641,6 +688,9 @@ router.get("/armazenamento", (req, res) => {
     ...conta,
     videos_total: videos.total || 0,
     videos_no_r2: videos.no_r2 || 0,
+    // Com a nuvem desligada é ESTE número que decide se um vídeo grande entra.
+    livre_no_disco: espacoLivreNoDisco(),
+    limite_por_arquivo: MAX_ARQUIVO,
   });
 });
 

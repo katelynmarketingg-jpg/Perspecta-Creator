@@ -12,6 +12,7 @@ import { PageHeader } from "../components/ui.jsx";
 import ReceiptSettings from "../components/ReceiptSettings.jsx";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { currency, fileSize } from "../utils.js";
+import { testarEnvio } from "../upload/teste-de-envio.js";
 
 // Lê um arquivo de imagem como data URI (para guardar a marca no banco).
 function fileToDataUrl(file) {
@@ -127,6 +128,13 @@ function Armazenamento() {
   // até a Cloudflare e volta, então demora um pouco mais que o resto.
   const [diag, setDiag] = useState(null);
   const [conferindo, setConferindo] = useState(false);
+  // O TESTE DE ENVIO. "A galeria só aceita arquivo pequeno" não se resolve
+  // olhando número nenhum: o caminho do arquivo grande tem três portas (a
+  // nuvem autoriza? o navegador consegue entregar? o disco aguenta?) e só
+  // tentando de verdade se descobre qual delas está fechada.
+  const [testando, setTestando] = useState(false);
+  const [pct, setPct] = useState(0);
+  const [teste, setTeste] = useState(null);
   useEffect(() => {
     api.get("/files/armazenamento").then((r) => setD(r.data))
       .catch((e) => setErro(e?.response?.status === 404
@@ -142,6 +150,15 @@ function Armazenamento() {
       setD(a.data); setDiag(b.data);
     } catch (e) { setErro(e?.response?.data?.error || "Não consegui conferir o armazenamento agora."); }
     setConferindo(false);
+  }
+  async function testar(mb) {
+    setTestando(true); setPct(0); setTeste(null);
+    try {
+      setTeste(await testarEnvio(mb, setPct));
+    } catch (e) {
+      setTeste({ caminho: "nenhum", mb, erro: e?.message || "o teste não conseguiu nem começar" });
+    }
+    setTestando(false);
   }
   // NÃO esconde o bloco quando dá erro. Ele existe para responder "por que as
   // fotos sumiram" — sumir justamente quando há problema é o pior que ele podia
@@ -177,8 +194,8 @@ function Armazenamento() {
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", gap: 1 }}>
               <Chip size="small" color={d.r2_ligado ? "success" : "warning"}
                 label={d.r2_ligado ? "Nuvem (R2) ligada ✓" : "Nuvem (R2) desligada"} />
-              <Chip size="small" variant="outlined" label={`${d.no_r2} na nuvem`} />
-              <Chip size="small" variant="outlined" label={`${d.no_disco} no disco do servidor`} />
+              <Chip size="small" variant="outlined" label={`${d.no_r2 || 0} na nuvem`} />
+              <Chip size="small" variant="outlined" label={`${d.no_disco || 0} no disco do servidor`} />
             </Stack>
             <Typography variant="body2" color="text.secondary">
               {d.r2_ligado
@@ -191,8 +208,82 @@ function Armazenamento() {
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
               Nuvem: {fileSize(d.bytes_r2)} · Disco: {fileSize(d.bytes_disco)}
+              {d.livre_no_disco != null && ` · Livre no disco: ${fileSize(d.livre_no_disco)}`}
+              {d.limite_por_arquivo != null && ` · Teto por arquivo: ${fileSize(d.limite_por_arquivo)}`}
             </Typography>
+            {/* SEM NUVEM, O DISCO É O TETO DE VERDADE. Um vídeo de 2 minutos
+                passa de 1 GB fácil: se o disco não tem essa folga, o envio
+                sobe inteiro pela internet dela e morre no fim. */}
+            {!d.r2_ligado && d.livre_no_disco != null && (
+              <Alert severity={d.livre_no_disco < 2 * 1024 * 1024 * 1024 ? "error" : "info"} sx={{ mt: 1.5 }}>
+                Com a nuvem desligada, cada arquivo cabe no que sobrou do disco:
+                hoje são <b>{fileSize(d.livre_no_disco)}</b>. Vídeo de 2 minutos
+                costuma passar de 1 GB — por isso só o pequeno entra. Ligando a
+                nuvem (R2), o arquivo vai do navegador direto para a Cloudflare e
+                o disco deixa de ser o limite.
+              </Alert>
+            )}
           </>
+        )}
+
+        {/* ---------------------------------------------------------------
+            O TESTE. Pedido dela: "a galeria só importa arquivo pequeno."
+            Nenhum número acima responde isso sozinho — o caminho do arquivo
+            grande tem três portas, e o teste bate em todas com um arquivo de
+            mentira, diz por onde passou e apaga o que criou. ------------- */}
+        <Divider sx={{ my: 2 }} />
+        <Typography variant="subtitle2">O envio de arquivo grande está funcionando?</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          Manda um arquivo de teste pelo mesmo caminho das fotos e dos vídeos e
+          diz onde parou. Nada vai para a galeria: o que ele cria, ele apaga.
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: "wrap", gap: 1 }}>
+          <Button size="small" variant="contained" disabled={testando} onClick={() => testar(12)}>
+            {testando ? "Testando…" : "Testar com 12 MB"}
+          </Button>
+          <Button size="small" variant="outlined" disabled={testando} onClick={() => testar(150)}>
+            Testar com 150 MB
+          </Button>
+        </Stack>
+        {testando && <LinearProgress variant="determinate" value={pct} sx={{ mt: 1.5, borderRadius: 2, height: 6 }} />}
+        {teste && (
+          <Alert severity={teste.erro ? "error" : (teste.caminho === "nuvem" ? "success" : "warning")} sx={{ mt: 1.5 }}>
+            {teste.erro ? (
+              <>
+                <b>Parou aqui:</b> {teste.erro}
+                {teste.caminho === "nuvem" && (
+                  <>
+                    <br />
+                    A autorização saiu, então as chaves do R2 estão certas — o
+                    que falta é o bucket deixar o navegador entregar: nas
+                    configurações de CORS do bucket, permitir <b>PUT</b> a partir
+                    do endereço do sistema.
+                  </>
+                )}
+                {teste.caminho === "servidor" && teste.livre != null && (
+                  <>
+                    <br />
+                    Este envio foi pelo disco do servidor, que tem {fileSize(teste.livre)} livres.
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {teste.caminho === "nuvem"
+                  ? <>Passou pela <b>nuvem (Cloudflare)</b></>
+                  : <>Passou pelo <b>disco do servidor</b></>}:
+                {" "}{teste.mb} MB em {teste.segundos}s ({teste.mbps} MB/s).
+                {teste.caminho === "servidor" && (
+                  <>
+                    <br />
+                    Funcionou, mas pelo caminho longo: o arquivo atravessa o
+                    servidor e fica no disco dele. É este caminho que corta
+                    vídeo grande — com a nuvem ligada ele deixa de ser usado.
+                  </>
+                )}
+              </>
+            )}
+          </Alert>
         )}
       </CardContent>
     </Card>
