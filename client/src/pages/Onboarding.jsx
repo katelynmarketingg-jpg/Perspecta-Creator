@@ -194,7 +194,16 @@ export default function Onboarding() {
       setEditando(data.id);
       setParte("inicio");   // a jornada começa no começo
       setBatizando(null);
-      setMsg({ t: "success", m: `Formulário "${data.name}" criado. Percorra Início, Perguntas e Contrato e acesso, e salve.` });
+      // Dizer SE ficou amarrado a um serviço: é essa amarração que faz, ao
+      // abrir um onboarding, escolher o serviço trazer estas perguntas
+      // sozinho. Quando o serviço não existe com aquele nome, ela precisa
+      // saber — senão vai esperar uma mágica que não vai acontecer.
+      const amarrado = data.servico_nome
+        ? ` Ele já está ligado ao serviço "${data.servico_nome}": escolher esse serviço num onboarding traz estas perguntas sozinho.`
+        : data.servico_sugerido
+          ? ` Ainda não está ligado a nenhum serviço — crie um serviço chamado "${data.servico_sugerido}" (ou escolha o formulário na mão ao abrir o onboarding).`
+          : "";
+      setMsg({ t: "success", m: `Formulário "${data.name}" criado.${amarrado} Percorra Início, Perguntas e Contrato e acesso, e salve.` });
     } catch (e) { setMsg({ t: "error", m: e.response?.data?.error || "Não consegui criar." }); }
   }
 

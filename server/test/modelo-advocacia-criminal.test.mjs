@@ -170,3 +170,50 @@ test("os dias do pagamento cabem dentro da bolinha", async () => {
   assert.match(tela, /"& \.MuiChip-label": \{ px: 0 \}/,
     "sem tirar o recuo do rótulo, o dia 28 some atrás das reticências");
 });
+
+// "CRIA ELE COMO MODELO, LP."
+//
+// O pronto já dizia de que serviço é ("Landing Page"), mas essa informação
+// morria na criação: o formulário nascia solto. Amarrar ao serviço é o que
+// faz, na hora de abrir um onboarding, escolher "Landing Page" trazer estas
+// perguntas sozinho — sem ela, ela tem de lembrar qual formulário era.
+test("criado do pronto, o formulário já nasce ligado ao serviço dele", async () => {
+  const servico = db.prepare(
+    "INSERT INTO services (org_id,name,contract_template) VALUES (?,?,?)"
+  ).run(org, "Landing Page", "<p>Contrato de {{servico}}</p>").lastInsertRowid;
+
+  const r = await fetch(`${B}/formularios`, {
+    method: "POST", headers: H, body: JSON.stringify({ nome: "LP criminal", modelo: "advocacia-criminal" }),
+  });
+  assert.equal(r.status, 201);
+  const f = await r.json();
+  assert.equal(f.servico, `servico:${servico}`, "é a chave que a tela usa nos seletores");
+  assert.equal(f.servico_nome, "Landing Page", "a tela conta para ela o que aconteceu");
+});
+
+test("o nome do serviço é comparado sem acento e sem maiúscula", async () => {
+  const org2 = db.prepare("INSERT INTO organizations (name,is_master) VALUES ('Casa do Acento',0)").run().lastInsertRowid;
+  const u2 = db.prepare(
+    "INSERT INTO users (name,username,email,password_hash,role,active,org_id) VALUES ('K','K2','k2@mod.com',?,'admin',1,?)"
+  ).run(hashPassword("x"), org2).lastInsertRowid;
+  const H2 = { authorization: `Bearer ${jwt.sign({ id: u2 }, JWT_SECRET)}`, "content-type": "application/json" };
+  const s2 = db.prepare("INSERT INTO services (org_id,name) VALUES (?, 'LANDING PAGE')").run(org2).lastInsertRowid;
+
+  const f = await (await fetch(`${B}/formularios`, {
+    method: "POST", headers: H2, body: JSON.stringify({ modelo: "advocacia-criminal" }),
+  })).json();
+  assert.equal(f.servico, `servico:${s2}`);
+});
+
+test("serviço já tomado por outro formulário: nasce solto, e ela fica sabendo", async () => {
+  // Dois formulários no mesmo serviço deixariam a escolha automática sem
+  // saber qual dos dois usar.
+  const r = await fetch(`${B}/formularios`, {
+    method: "POST", headers: H, body: JSON.stringify({ nome: "LP criminal 2", modelo: "advocacia-criminal" }),
+  });
+  const f = await r.json();
+  assert.ok(!f.servico, "o segundo não pode roubar o serviço do primeiro");
+  assert.equal(f.servico_nome, null);
+  assert.equal(f.servico_sugerido, "Landing Page",
+    "a tela precisa dizer de qual serviço ele era, senão ela espera uma mágica que não vem");
+});

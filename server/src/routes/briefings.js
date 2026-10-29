@@ -72,6 +72,24 @@ function saneiaTermos(entrada = {}) {
   };
 }
 
+/**
+ * O SERVIÇO DO MODELO PRONTO, resolvido pelo NOME.
+ *
+ * O pronto diz de que serviço ele é ("Landing Page"). O id desse serviço é de
+ * cada casa, então a amarração se faz pelo nome, sem acento e sem maiúscula.
+ * Amarrar é o que faz, lá na hora de abrir o onboarding, escolher o serviço
+ * trazer estas perguntas sozinho — sem ela, o formulário fica solto e ela tem
+ * de lembrar qual era.
+ */
+const semAcento = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
+function chaveDoServicoPeloNome(orgId, nome) {
+  const alvo = semAcento(nome);
+  if (!alvo) return null;
+  const m = modelosDisponiveis(orgId).find((x) => semAcento(x.name) === alvo);
+  return m ? `${m.origem}:${m.id}` : null;
+}
+
 /** "servico:3" / "modelo:7" — a mesma chave que a tela usa nos seletores. */
 function chaveDoServico(termos) {
   if (termos?.service_id) return `servico:${Number(termos.service_id)}`;
@@ -345,15 +363,33 @@ router.post("/formularios", (req, res) => {
     if (!secoes && pronto) secoes = pronto.secoes;
     // Duplicar leva a jornada junto: o texto de boas-vindas e os passos do fim.
     const fonte = req.body?.copiar_de ? getFormulario(req.orgId, Number(req.body.copiar_de)) : null;
-    res.status(201).json(criaFormulario(req.orgId, {
+    // O serviço NÃO é duplicado ao copiar: dois formulários para o mesmo
+    // serviço deixariam a escolha automática sem saber qual dos dois usar.
+    // Vindo de um PRONTO é diferente: ele já diz de qual serviço é, e amarrar
+    // é o que faz as perguntas virem sozinhas quando ela escolhe o serviço.
+    let servico = req.body?.servico;
+    if (!servico && pronto?.servico) {
+      const chave = chaveDoServicoPeloNome(req.orgId, pronto.servico);
+      // Só amarra se ninguém mais estiver nesse serviço.
+      if (chave && !formularioDoServico(req.orgId, chave)) servico = chave;
+    }
+    const criado = criaFormulario(req.orgId, {
       nome: req.body?.nome || pronto?.nome, secoes,
       welcome: req.body?.welcome ?? fonte?.welcome ?? pronto?.welcome ?? undefined,
       gera_contrato: req.body?.gera_contrato ?? fonte?.gera_contrato,
       cria_acesso: req.body?.cria_acesso ?? fonte?.cria_acesso,
-      // O serviço NÃO é duplicado: dois formulários para o mesmo serviço
-      // deixariam a escolha automática sem saber qual dos dois usar.
-      servico: req.body?.servico,
-    }));
+      servico,
+    });
+    // A tela conta para ela o que aconteceu: ligado a um serviço, ou solto
+    // porque o serviço não existe com esse nome nesta casa.
+    const nomeDoServico = servico
+      ? modelosDisponiveis(req.orgId).find((x) => `${x.origem}:${x.id}` === servico)?.name || null
+      : null;
+    res.status(201).json({
+      ...criado,
+      servico_nome: nomeDoServico,
+      servico_sugerido: pronto?.servico || null,
+    });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
