@@ -28,6 +28,7 @@ import SendIcon from "@mui/icons-material/Send";
 import api from "../api/client.js";
 import { PageHeader } from "../components/ui.jsx";
 import { PERSONA_GRUPOS } from "../persona.js";
+import FolhasDoContrato from "../components/FolhasDoContrato.jsx";
 import { currency, formatDate } from "../utils.js";
 
 // ---------------------------------------------------------------------------
@@ -617,6 +618,7 @@ export default function Onboarding() {
 
       {/* O que a agência preenche antes de mandar o link */}
       <FormularioOnboarding aberto={abrindo} modelos={modelos} formularios={formularios}
+        onErroPrevia={(m) => setMsg({ t: "error", m })}
         clients={clients} ocupados={new Set(briefings.map((b) => b.client_id))}
         onFechar={() => setAbrindo(null)} onSalvar={criarLink} />
 
@@ -705,6 +707,7 @@ const VAZIO = {
   client_id: "", // só no modo "começar pelo formulário": o cliente escolhido aqui
   require_selfie: false,     // pedir selfie na hora de assinar?
   require_doc_photo: false,  // pedir foto do documento?
+  assinar_casa: true,        // o contrato já nasce assinado por ela
 };
 
 /** "servico:3" / "modelo:7" — o select precisa de um valor só. */
@@ -732,7 +735,7 @@ function Secao({ numero, titulo, opcional = false, primeira = false }) {
   );
 }
 
-function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocupados, onFechar, onSalvar }) {
+function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocupados, onFechar, onSalvar, onErroPrevia }) {
   const [f, setF] = useState(VAZIO);
   const cliente = aberto?.cliente;
   const jaExiste = aberto?.briefing;
@@ -761,6 +764,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
         contract_date: t.contract_date || "", observacoes: t.observacoes || "",
         form_id: formAtual, client_id: cliente?.id || "",
         require_selfie: Boolean(t.require_selfie), require_doc_photo: Boolean(t.require_doc_photo),
+        assinar_casa: t.assinar_casa === undefined ? true : Boolean(t.assinar_casa),
       });
     } else if (aberto.livre) {
       // Form-first: já aponta para o serviço/formulário de onde veio (se veio de
@@ -768,14 +772,14 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
       const chave = aberto.servico || "";
       const m = modelos.find((x) => chaveDoModelo(x) === chave);
       setF({
-        ...VAZIO, contract_date: hoje, client_id: "",
+        ...VAZIO, contract_date: hoje, client_id: "", assinar_casa: true,
         form_id: aberto.form_id || "",
         modelo: chave, servico: m?.name || "",
         value: m?.valor_padrao || "",
         itens: (m?.itens || []).map((i) => ({ ...i, quantidade: "" })),
       });
     } else {
-      setF({ ...VAZIO, form_id: formAtual, client_id: cliente?.id || "", contract_date: hoje });
+      setF({ ...VAZIO, form_id: formAtual, client_id: cliente?.id || "", contract_date: hoje, assinar_casa: true });
     }
   }, [aberto, jaExiste, cliente, modelos]);
 
@@ -795,6 +799,34 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
       itens: a.itens.length ? a.itens : (m?.itens || []).map((i) => ({ ...i, quantidade: "" })),
       form_id: a.form_id || (doServico ? doServico.id : a.form_id),
     }));
+  }
+
+  // null = fechada · "carregando" · { titulo, corpo, faltando, pagina }
+  const [previa, setPrevia] = useState(null);
+
+  async function verContrato() {
+    setPrevia("carregando");
+    try {
+      const [origem, id] = (f.modelo || ":").split(":");
+      const { data } = await api.post("/briefings/previa-contrato", {
+        client_id: clienteId,
+        assinar_casa: f.assinar_casa ? 1 : 0,
+        termos: {
+          service_id: origem === "servico" ? Number(id) : null,
+          template_id: origem === "modelo" ? Number(id) : null,
+          servico: f.servico, value: f.value,
+          itens: f.itens.filter((i) => i.label),
+          start_date: f.start_date || null, end_date: f.end_date || null,
+          contract_date: f.contract_date || null,
+          require_selfie: f.require_selfie ? 1 : 0,
+          require_doc_photo: f.require_doc_photo ? 1 : 0,
+        },
+      });
+      setPrevia(data);
+    } catch (e) {
+      setPrevia(null);
+      onErroPrevia?.(e.response?.data?.error || "Não consegui montar o contrato para ver.");
+    }
   }
 
   const vig = partesVig(f.start_date, f.end_date);
@@ -817,6 +849,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
       contract_date: f.contract_date || null, observacoes: f.observacoes,
       require_selfie: f.require_selfie ? 1 : 0,
       require_doc_photo: f.require_doc_photo ? 1 : 0,
+      assinar_casa: f.assinar_casa ? 1 : 0,
     }, f.form_id || null);
   }
 
@@ -959,7 +992,22 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
           <TextField label="Data que deve constar no contrato" type="date" size="small" sx={{ maxWidth: 280 }}
             InputLabelProps={{ shrink: true }} value={f.contract_date}
             onChange={(e) => setF((a) => ({ ...a, contract_date: e.target.value }))} />
-          <Secao numero={5} titulo="Na hora de assinar" opcional />
+          <Secao numero={5} titulo="Na hora de assinar" />
+
+          {/* EU MESMA JÁ ASSINO. Pedido dela: "bem como pra que eu mesma já
+              possa assinar". O contrato só nasce quando o cliente termina de
+              responder — então o que ela liga aqui é que ele JÁ NASÇA com a
+              assinatura da casa. O cliente abre o link e vê um documento que a
+              agência firmou, em vez de um papel em branco dos dois lados. */}
+          <FormControlLabel sx={{ ml: 0 }} control={
+            <Switch size="small" checked={Boolean(f.assinar_casa)}
+              onChange={(e) => setF((a) => ({ ...a, assinar_casa: e.target.checked }))} />
+          } label={<Typography variant="body2">
+            Já deixar <b>assinado por mim</b> quando o contrato for gerado
+          </Typography>} />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: -0.5 }}>
+            Usa a assinatura que você desenhou uma vez em Configurações → Recibos.
+          </Typography>
           {/* A SELFIE E A FOTO DO DOCUMENTO reforçam a prova de quem assinou —
               ligadas por caso. Não mudam o "nível" jurídico (continua assinatura
               avançada), mas deixam o "não fui eu" bem mais difícil. */}
@@ -981,12 +1029,70 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
             value={f.observacoes} onChange={(e) => setF((a) => ({ ...a, observacoes: e.target.value }))} />
         </Stack>
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
+        {/* VER O CONTRATO COM OS DADOS, antes de mandar.
+            Pedido dela: "quero que tenha um botão de ver contrato com os
+            dados". Até aqui, a única forma de ver o contrato preenchido era
+            gerar um de verdade — criando um documento no sistema só para
+            conferir. Esta prévia é montada na hora e some ao fechar. */}
+        <Button startIcon={<DescriptionIcon />} onClick={verContrato}
+          disabled={!clienteId || !f.modelo || previa === "carregando"}>
+          {previa === "carregando" ? "Montando…" : "Ver contrato com os dados"}
+        </Button>
+        <Box sx={{ flex: 1 }} />
         <Button onClick={onFechar}>Cancelar</Button>
         <Button variant="contained" onClick={salvar} disabled={!clienteId}>
           {jaExiste ? "Salvar" : "Gerar link"}
         </Button>
       </DialogActions>
+
+      <PreviaDoContrato previa={previa} onFechar={() => setPrevia(null)} />
+    </Dialog>
+  );
+}
+
+/**
+ * O CONTRATO COMO VAI FICAR — nas mesmas folhas A4 da tela de assinatura.
+ *
+ * Mostra também o que ainda falta: um contrato com linha em branco no lugar do
+ * endereço é melhor descoberto aqui do que pelo cliente.
+ */
+function PreviaDoContrato({ previa, onFechar }) {
+  const pronta = previa && previa !== "carregando" && previa !== "erro" ? previa : null;
+  return (
+    <Dialog open={Boolean(pronta)} onClose={onFechar} fullWidth maxWidth="md">
+      <DialogTitle>{pronta?.titulo || "Contrato"}</DialogTitle>
+      <DialogContent dividers>
+        {pronta?.faltando?.length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Ainda falta: {pronta.faltando.join(" · ")}. O que o cliente responder preenche o
+            resto — o que sobrar sai como linha em branco.
+          </Alert>
+        )}
+        {pronta?.falta_assinatura_casa && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Você ligou “já assinado por mim”, mas ainda não desenhou a sua assinatura —
+            desenhe uma vez em <b>Configurações → Recibos</b> e ela passa a valer aqui.
+            Sem isso, o contrato nasce sem a sua assinatura.
+          </Alert>
+        )}
+        {pronta?.assinatura_casa && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Este contrato vai nascer <b>já assinado por você</b>
+            {pronta.assinatura_casa.nome ? ` (${pronta.assinatura_casa.nome})` : ""}.
+          </Alert>
+        )}
+        {pronta && (
+          <FolhasDoContrato texto={pronta.corpo} pagina={pronta.pagina}
+            contrato={pronta.assinatura_casa ? {
+              agency_signature_img: pronta.assinatura_casa.img,
+              agency_signer_name: pronta.assinatura_casa.nome,
+              agency_signer_document: pronta.assinatura_casa.documento,
+              agency_signed_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+            } : {}} />
+        )}
+      </DialogContent>
+      <DialogActions><Button onClick={onFechar}>Fechar</Button></DialogActions>
     </Dialog>
   );
 }
