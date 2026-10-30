@@ -63,10 +63,16 @@ export async function enviarMultipart(file, { clientId, folderId, stage, thumb }
   const { key, uploadId, parteTamanho, urls } = inicio;
   const total = file.size || 1;
   const enviadoPorParte = new Array(urls.length).fill(0);
-  const partes = [];
+  const partes = new Array(urls.length);   // por índice: o paralelo não chega em ordem
 
-  try {
-    for (let i = 0; i < urls.length; i++) {
+  // MANDA ATÉ 3 FATIAS AO MESMO TEMPO. Uma de cada vez deixava a internet
+  // ociosa entre as partes (cada requisição tem seu "esquenta"); com 3 em
+  // paralelo o envio de vídeo grande fica bem mais rápido. 3 × 10 MB = 30 MB de
+  // memória no pico — tranquilo até no celular.
+  const CONCORRENCIA = 3;
+  let proxima = 0;
+  const trabalhador = async () => {
+    for (let i = proxima++; i < urls.length; i = proxima++) {
       const comeco = i * parteTamanho;
       const fim = Math.min(file.size, comeco + parteTamanho);
       const fatia = file.slice(comeco, fim);   // não copia o arquivo todo
@@ -77,8 +83,14 @@ export async function enviarMultipart(file, { clientId, folderId, stage, thumb }
         aoProgresso?.(Math.min(99, Math.round((somado / total) * 100)));
       });
       enviadoPorParte[i] = fim - comeco;
-      partes.push({ PartNumber: urls[i].partNumber, ETag: etag });
+      partes[i] = { PartNumber: urls[i].partNumber, ETag: etag };
     }
+  };
+
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(CONCORRENCIA, urls.length) }, trabalhador),
+    );
   } catch (e) {
     // Limpa as fatias soltas na nuvem; não trava quem chamou se a limpeza falhar.
     api.post("/files/upload-direto/multipart/abortar", { key, uploadId }).catch(() => {});
