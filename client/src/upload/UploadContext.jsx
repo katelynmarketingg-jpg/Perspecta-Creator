@@ -10,6 +10,7 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import { makeThumbnail, fazerPrevia } from "./thumbnail.js";
 import { enviarDireto } from "./envio-direto.js";
+import { enviarMultipart } from "./envio-multipart.js";
 
 // ---------------------------------------------------------------------------
 // Envio em SEGUNDO PLANO. Fica montado no topo do app (fora das páginas), então
@@ -117,9 +118,16 @@ async function uploadOne(file, { clientId, folderId, stage }, onProgress) {
   // seguir para a Cloudflare. Se ele não servir (sem nuvem configurada, entrega
   // recusada, rede que bloqueia), devolve null e o caminho de sempre, logo
   // abaixo, continua valendo inteiro.
+  // ARQUIVO GRANDE VAI EM PEDAÇOS (multipart). Mandar um vídeo de 500 MB de uma
+  // vez só faz o celular (iPhone) morrer sem avisar — nem a barra aparecia.
+  // Acima de 15 MB, corta em fatias de 10 MB; abaixo, o PUT único basta.
+  const GRANDE = 15 * 1024 * 1024;
   try {
-    const direto = await enviarDireto(file, { clientId, folderId, stage, thumb: await miniaturaBarata(file) }, onProgress);
-    if (direto) return direto;
+    const miniatura = await miniaturaBarata(file);
+    const resultado = (file?.size || 0) > GRANDE
+      ? await enviarMultipart(file, { clientId, folderId, stage, thumb: miniatura }, onProgress)
+      : await enviarDireto(file, { clientId, folderId, stage, thumb: miniatura }, onProgress);
+    if (resultado) return resultado;
   } catch (e) {
     // Recusa de verdade (arquivo grande demais) não melhora pelo outro caminho.
     if (/grande demais/i.test(e?.message || "")) throw e;

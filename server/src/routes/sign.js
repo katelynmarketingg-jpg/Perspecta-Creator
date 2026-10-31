@@ -47,10 +47,16 @@ function contratoPorToken(token) {
 }
 
 // E-mail para onde vai o código: o cadastrado no cliente do contrato.
+//
+// Cai no e-mail do PORTAL quando o principal está vazio. O cadastro tem dois
+// campos (o "E-mail" e o e-mail de acesso ao portal) e muita gente preenche só
+// um — e aí o código "não ia", porque só olhava o principal. Agora vale
+// qualquer um dos dois: o que importa é ter um e-mail do cliente para onde
+// mandar.
 function emailDoContrato(c) {
   if (!c.client_id) return null;
-  const cli = db.prepare("SELECT email FROM clients WHERE id = ?").get(c.client_id);
-  return (cli?.email || "").trim() || null;
+  const cli = db.prepare("SELECT email, portal_email FROM clients WHERE id = ?").get(c.client_id);
+  return (cli?.email || "").trim() || (cli?.portal_email || "").trim() || null;
 }
 
 // Um e-mail que dá para enviar de verdade. "kakakakaka" é truthy, mas o envio

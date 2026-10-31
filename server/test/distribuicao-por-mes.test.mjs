@@ -131,3 +131,28 @@ test("programar para outro mês avisa para onde a peça foi", () => {
   assert.match(f, /outroMes/);
   assert.match(f, /está em \$\{nomeDoMes/);
 });
+
+// --- a aba "Ajustar" e o renomear (pedidos: aba própria para "pediu ajuste" e
+//     poder renomear o post) ---------------------------------------------------
+
+test("peça em que o cliente pediu ajuste vai para 'adjust', fora de Preparar e de Para aprovação", async () => {
+  peca({ titulo: "Pediu ajuste nov", quando: "2026-11-10 09:00", aprov: "changes_requested" });
+  const d = await pedir("?month=2026-11");
+  const nomes = (lista) => (d[lista] || []).map((t) => t.title);
+  assert.ok(nomes("adjust").includes("Pediu ajuste nov"), "aparece na aba Ajustar");
+  assert.ok(!nomes("items").includes("Pediu ajuste nov"), "não fica misturada em Preparar");
+  assert.ok(!nomes("waiting").includes("Pediu ajuste nov"), "nem em Para aprovação");
+});
+
+test("renomear a peça pela Distribuição salva o novo título", async () => {
+  const id = peca({ titulo: "Nome velho", quando: "2026-11-12 09:00" });
+  const put = (corpo) => fetch(`${B}/${id}`, {
+    method: "PUT", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify(corpo),
+  });
+  const r = await put({ title: "Nome novo" });
+  assert.equal(r.status, 200);
+  assert.equal(db.prepare("SELECT title FROM tasks WHERE id = ?").get(id).title, "Nome novo");
+  await put({ title: "   " });   // vazio/espaços não apagam o nome
+  assert.equal(db.prepare("SELECT title FROM tasks WHERE id = ?").get(id).title, "Nome novo",
+    "espaços não apagam o título");
+});

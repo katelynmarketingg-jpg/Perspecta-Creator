@@ -129,7 +129,9 @@ router.get("/", async (req, res) => {
   const where = [
     "t.org_id = @org_id",
     "t.stage_id = @stage_id",
-    "(t.approval_status IS NULL OR t.approval_status IN ('pending','changes_requested'))",
+    // "Ajustar" tem aba própria agora: o que o cliente mandou refazer sai daqui
+    // (Preparar) e vai para a lista de ajuste, abaixo.
+    "(t.approval_status IS NULL OR t.approval_status = 'pending')",
   ];
   const params = { org_id: req.orgId, stage_id: stage.id };
   if (mes) { where.push(DO_MES); params.mes = mes; }
@@ -208,7 +210,9 @@ router.get("/", async (req, res) => {
   // Filtrar por empresa dava a impressão de que faltava conteúdo.
   const wwhere = [
     "t.org_id = @org_id",
-    "t.approval_status IN ('sent', 'changes_requested')",
+    // Só o que está mesmo esperando o cliente responder. O "pediu ajuste" tem
+    // aba própria (Ajustar), para não se misturar com o que ainda está com ele.
+    "t.approval_status = 'sent'",
     "(s.is_done IS NULL OR s.is_done = 0)",
   ];
   if (mes) wwhere.push(DO_MES);
@@ -231,6 +235,38 @@ router.get("/", async (req, res) => {
     )
     .all(params);
   const waitingComp = await comMidia(waiting, req.orgId);
+
+  // Conteúdos em que o CLIENTE PEDIU AJUSTE — a aba "Ajustar".
+  //
+  // Pedido dela: "quando a pessoa pedir ajustes, quero que vá para uma aba aqui
+  // que seja ajustar". Antes, a peça voltava para a Distribuição e aparecia
+  // misturada em "Preparar" (e também em "Para aprovação"). Agora tem lugar só
+  // dela, com o recado do cliente à vista, para a equipe corrigir e reenviar.
+  const adwhere = [
+    "t.org_id = @org_id",
+    "t.approval_status = 'changes_requested'",
+    "(s.is_done IS NULL OR s.is_done = 0)",
+  ];
+  if (mes) adwhere.push(DO_MES);
+  if (req.query.client_id) adwhere.push("t.client_id = @client_id");
+  const adjust = db
+    .prepare(
+      `SELECT t.id, t.title, t.content_type, t.caption, t.description, t.scheduled_at,
+              t.approval_status, t.client_note, t.approval_sent_at, t.published_at, t.external_post_id, t.publish_error, t.saiu_da_grade_em, t.fora_da_grade,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta') AS meta_conectada,
+              (SELECT 1 FROM integrations i WHERE i.client_id = t.client_id AND i.org_id = t.org_id AND i.provider = 'meta'
+                 AND i.ig_user_id IS NOT NULL AND i.ig_user_id <> '') AS meta_instagram,
+              t.client_id, t.cover_file_id, t.position, t.media_ids,
+              c.name AS client_name, c.phone AS client_phone,
+              (SELECT ta.file_id FROM task_attachments ta WHERE ta.task_id = t.id LIMIT 1) AS file_id
+       FROM tasks t
+       LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN kanban_stages s ON s.id = t.stage_id
+       WHERE ${adwhere.join(" AND ")}
+       ORDER BY t.scheduled_at, t.id`
+    )
+    .all(params);
+  const adjustComp = await comMidia(adjust, req.orgId);
 
   // Conteúdos já PROGRAMADOS (na etapa de conclusão / "Programados").
   const pwhere = ["t.org_id = @org_id", "s.is_done = 1"];
@@ -257,7 +293,7 @@ router.get("/", async (req, res) => {
   res.json({
     stage: { id: stage.id, name: stage.name },
     items: itemsComp, scheduled: scheduledComp, waiting: waitingComp,
-    approved: approvedComp, programmed: programmedComp,
+    adjust: adjustComp, approved: approvedComp, programmed: programmedComp,
   });
 });
 
@@ -439,7 +475,10 @@ router.put("/:id", (req, res) => {
   const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
   if (!task) return res.status(404).json({ error: "Peça não encontrada." });
 
-  const { caption, description, scheduled_at, file_id, cover_file_id, media_ids } = req.body || {};
+  const { title, caption, description, scheduled_at, file_id, cover_file_id, media_ids } = req.body || {};
+  // Renomear a peça: só troca quando vem um nome de verdade (texto não vazio).
+  // "" ou espaços não apagam o título — a peça nunca fica sem nome.
+  const tituloNovo = typeof title === "string" && title.trim() ? title.trim() : null;
 
 
   // Arquivo pendurado na peça tem que ser DESTA casa. Não era conferido: dava
@@ -456,13 +495,14 @@ router.put("/:id", (req, res) => {
   }
   db.prepare(
     `UPDATE tasks SET
+       title        = COALESCE(?, title),
        caption      = COALESCE(?, caption),
        description  = COALESCE(?, description),
        scheduled_at = COALESCE(?, scheduled_at),
        -- Data nova apaga o aviso de atraso: a peça volta a poder ser cobrada.
        aviso_atraso_em = CASE WHEN ? IS NULL THEN aviso_atraso_em ELSE NULL END
      WHERE id = ? AND org_id = ?`
-  ).run(caption ?? null, description ?? null, scheduled_at ?? null, scheduled_at ?? null, req.params.id, req.orgId);
+  ).run(tituloNovo, caption ?? null, description ?? null, scheduled_at ?? null, scheduled_at ?? null, req.params.id, req.orgId);
 
   // Capa do perfil: cover_file_id === null limpa; undefined não mexe.
   if (cover_file_id !== undefined) {

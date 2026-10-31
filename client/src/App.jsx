@@ -1,5 +1,5 @@
-import { Component, lazy, Suspense, useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Component, lazy, Suspense, useEffect, useRef } from "react";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Box, Button, CircularProgress, Typography } from "@mui/material";
 import { useAuth } from "./auth/AuthContext.jsx";
 import Layout from "./components/Layout.jsx";
@@ -165,6 +165,41 @@ export default function App() {
   // estava. Aqui a janela inteira recusa o arquivo solto fora de uma área de
   // envio; as áreas de envio tratam o evento antes e seguem funcionando.
   useEffect(() => impedirAberturaPeloNavegador(), []);
+
+  // FICAR NA MESMA TELA AO RECARREGAR.
+  //
+  // "quando eu dou command r pra recarregar, sai da onde eu tava." A URL já é
+  // guardada pelo react-router, mas o app instalado (standalone) reabre na raiz
+  // ("start_url": "/"), e aí ela perdia a tela. Guardamos a última tela e, se o
+  // app abrir na raiz tendo outra salva, voltamos para ela. Clicar no início
+  // salva "/" — então quem quer o painel continua no painel.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const rotaRestaurada = useRef(false);
+  const ehPublica = (p) =>
+    ["/login", "/portal", "/briefing", "/assinar", "/verificar"]
+      .some((base) => p === base || p.startsWith(base + "/"));
+
+  useEffect(() => {
+    if (rotaRestaurada.current) return;
+    rotaRestaurada.current = true;
+    try {
+      const salva = localStorage.getItem("perspecta:ultima-rota");
+      if (location.pathname === "/" && salva && salva !== "/" && !ehPublica(salva)) {
+        navigate(salva, { replace: true });
+      }
+    } catch { /* localStorage bloqueado: segue sem restaurar */ }
+    // só na 1ª montagem — depois disso, navegar é decisão dela
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (!ehPublica(location.pathname)) {
+        localStorage.setItem("perspecta:ultima-rota", location.pathname + location.search);
+      }
+    } catch { /* ignore */ }
+  }, [location]);
 
   return (
     <TelaQueFalhou>

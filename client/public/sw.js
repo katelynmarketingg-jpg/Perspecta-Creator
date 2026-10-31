@@ -10,7 +10,12 @@
 // virar a versão, o celular e o computador de quem já instalou o app
 // continuariam mostrando o ícone velho para sempre. Ao ativar, o cache antigo
 // é apagado inteiro.
-const CACHE = "perspecta-v8";
+// v9: o handler de estáticos agora trata a REDE QUE FALHA. Durante um upload
+// grande a internet fica saturada e uma requisição de fundo (um chunk, um
+// /files) pode falhar — antes isso virava um "Failed to fetch" não tratado, o
+// FetchEvent rejeitava e o recurso quebrava feio no meio do envio. Agora, se a
+// rede cair, cai no cache; sem cache, devolve um erro limpo, sem rejeitar.
+const CACHE = "perspecta-v9";
 // Não pré-cacheamos o index.html: ele muda a cada publicação e precisa vir
 // sempre da rede, senão o app abre uma versão velha.
 const SHELL = ["/manifest.webmanifest"];
@@ -47,14 +52,20 @@ self.addEventListener("fetch", (e) => {
 
   // Estáticos (JS/CSS/imagens do build): cache primeiro, atualiza depois.
   e.respondWith(
-    caches.match(request).then((hit) =>
-      hit || fetch(request).then((res) => {
+    caches.match(request).then((hit) => {
+      if (hit) return hit;
+      return fetch(request).then((res) => {
         if (res.ok) {
           const copia = res.clone();
-          caches.open(CACHE).then((c) => c.put(request, copia));
+          caches.open(CACHE).then((c) => c.put(request, copia)).catch(() => {});
         }
         return res;
-      })
-    )
+      }).catch(() =>
+        // A REDE FALHOU (ex.: saturada por um upload grande). Tenta o cache de
+        // novo; sem cache, devolve um erro limpo em vez de deixar o FetchEvent
+        // rejeitar — que quebraria o recurso e encheria o console de vermelho.
+        caches.match(request).then((h) => h || Response.error())
+      );
+    })
   );
 });

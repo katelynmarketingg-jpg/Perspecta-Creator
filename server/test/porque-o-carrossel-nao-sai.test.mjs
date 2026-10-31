@@ -181,7 +181,7 @@ const ler = (p) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), p)
 
 test("a Distribuição pede E mostra o motivo da última falha", () => {
   const rota = ler("../src/routes/distribution.js");
-  assert.equal(rota.split("t.publish_error").length - 1, 5, "as cinco listas, senão uma delas esconde");
+  assert.equal(rota.split("t.publish_error").length - 1, 6, "as seis listas (inclui 'Ajustar'), senão uma delas esconde");
   const tela = ler("../../client/src/pages/Distribution.jsx");
   assert.match(tela, /item\.publish_error && \(/);
   assert.match(tela, /A última tentativa falhou/);
