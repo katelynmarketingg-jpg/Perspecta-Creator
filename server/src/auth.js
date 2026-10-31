@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import "dotenv/config";
 import { db } from "./db.js";
+import { acessoEncerrado } from "./acesso-do-cliente.js";
 
 // Segurança: em produção o JWT_SECRET é obrigatório. Sem ele, auth e
 // criptografia cairiam num segredo conhecido — então o servidor RECUSA subir.
@@ -125,8 +126,8 @@ export function portalAuthRequired(req, res, next) {
     // Sem esta checagem, quem estava logado na hora do arquivamento seguiria
     // dentro por até 12 horas, que é o prazo do token. Arquivar tem que valer
     // na hora, que foi o combinado.
-    const dono = db.prepare("SELECT archived_at, status FROM clients WHERE id = ?").get(payload.client_id);
-    if (!dono || dono.archived_at || dono.status !== "active") {
+    const dono = db.prepare("SELECT archived_at, archive_note FROM clients WHERE id = ?").get(payload.client_id);
+    if (acessoEncerrado(dono)) {
       return res.status(403).json({ error: "Este acesso foi encerrado. Fale com a agência." });
     }
     req.client = payload;

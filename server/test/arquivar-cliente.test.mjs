@@ -21,6 +21,7 @@ process.env.JWT_SECRET = "test-secret";
 const { db } = await import("../src/db.js");
 const { hashPassword, JWT_SECRET } = await import("../src/auth.js");
 const { fimDoMes, apareceNoFinanceiro } = await import("../src/arquivar-cliente.js");
+const { MARCA_AUTOMATICA } = await import("../src/acesso-do-cliente.js");
 const jwt = (await import("jsonwebtoken")).default;
 const express = (await import("express")).default;
 const clientsRoutes = (await import("../src/routes/clients.js")).default;
@@ -129,6 +130,25 @@ test("o acesso do cliente para NA HORA de arquivar", async () => {
   // e o token que ele já tinha não vale mais
   const comTokenAntigo = await fetch(`${B}/portal/me`, { headers: { authorization: `Bearer ${token}` } });
   assert.equal(comTokenAntigo.status, 403, "quem estava logado sai na hora, sem esperar o token expirar");
+});
+
+test("contrato vencido movido para Inativos SOZINHO não corta o acesso", async () => {
+  // O que quebrou tudo: a rotina horária move para "Inativos" o cliente cujo
+  // contrato venceu — e cliente mensal que renova tem o work_end no passado o
+  // tempo todo. Antes, isso marcava status='inactive'+archived_at e o portal
+  // respondia "encerrado" para TODOS. Agora, só a agência arquivando à mão
+  // (sem a marca da rotina) fecha o acesso.
+  const { id } = novoCliente("Mensal Renova", true);
+  db.prepare(
+    "UPDATE clients SET archived_at = ?, status = 'inactive', archive_note = ? WHERE id = ?"
+  ).run(new Date().toISOString(), `${MARCA_AUTOMATICA} o contrato terminou em 2025-12-31.`, id);
+
+  const login = await fetch(`${B}/portal/login`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "mensal renova", password: "segredo123" }) });
+  assert.equal(login.status, 200, "quem a rotina moveu sozinha continua entrando no portal");
+  const { token } = await login.json();
+  const me = await fetch(`${B}/portal/me`, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(me.status, 200, "e segue dentro com o token");
 });
 
 test("reativar traz o cliente de volta inteiro", async () => {
