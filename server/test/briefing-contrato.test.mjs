@@ -86,10 +86,15 @@ test("as respostas viram os campos do cadastro, com o dia como número", () => {
   const c = respostasParaCliente(BRIEFING, {
     cnpj: "19.131.243/0001-97", razao_social: "KN LTDA", dia_pagamento: "10",
     rep_tipo_doc: "OAB", rep_nome: "Karen",
+    endereco: "Rua X, 100", email_nota: "cliente@exemplo.com", celular: "(51) 99999-0000",
   });
   assert.equal(c.legal_name, "KN LTDA");
   assert.equal(c.payment_day, 10, "o dia tem que virar número");
   assert.equal(c.rep_doc_type, "oab");
+  // O que a pessoa preenche no onboarding cai no cadastro: endereço, e-mail e celular.
+  assert.equal(c.address, "Rua X, 100");
+  assert.equal(c.email, "cliente@exemplo.com");
+  assert.equal(c.phone, "(51) 99999-0000", "o celular do onboarding vai para o cadastro");
   // Um dia impossível não entra no cadastro.
   assert.equal(respostasParaCliente(BRIEFING, { dia_pagamento: "45" }).payment_day, undefined);
 });
