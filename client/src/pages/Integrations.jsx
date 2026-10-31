@@ -56,6 +56,10 @@ export default function Integrations() {
   const [novoDoc, setNovoDoc] = useState({ title: "", url: "", client_id: "" });
   const [abrindo, setAbrindo] = useState(null); // doc aberto embutido
   const [escolha, setEscolha] = useState(null); // { client, pages } — qual página é a do cliente
+  // O teste do app da Meta: "já tenho app" não é o mesmo que "as chaves que
+  // estão no servidor são as dele, e a Meta as aceita". Só ela responde isso.
+  const [testando, setTestando] = useState(false);
+  const [teste, setTeste] = useState(null);
 
   const load = () => {
     api.get("/integrations/meta/status").then((r) => setStatus(r.data)).catch(() => {});
@@ -65,6 +69,17 @@ export default function Integrations() {
     api.get("/branding").then((r) => setPayCfg(r.data?.pay_config || null)).catch(() => {});
   };
   useEffect(() => { load(); }, []);
+
+  async function testarMeta() {
+    setTestando(true); setTeste(null);
+    try {
+      const { data } = await api.post("/integrations/meta/teste");
+      setTeste(data);
+    } catch (e) {
+      setTeste({ ok: false, erro: e.response?.data?.error || "Não consegui falar com o servidor agora." });
+    }
+    setTestando(false);
+  }
 
   async function salvarPayCfg() {
     try {
@@ -276,6 +291,65 @@ export default function Integrations() {
               Acerte os dois — no Render e no app da Meta — com o segundo endereço.
             </Alert>
           )}
+
+          {/* ---------------------------------------------------------------
+              "ISSO JÁ TENHO APP E TUDO MAIS."
+              O app existir não é o que o sistema usa — ele usa o que está nas
+              variáveis do servidor. Entre as duas coisas cabem erros que
+              nenhuma tela mostra: chave de outro app, espaço colado no fim,
+              App Secret regenerado na Meta depois de copiado. Só a Meta
+              responde isso, e é o que este botão pergunta a ela. ---------- */}
+          <Card sx={{ mb: 2.5 }}>
+            <CardContent>
+              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 1 }}>
+                <Box sx={{ flex: 1, minWidth: 220 }}>
+                  <Typography sx={{ fontWeight: 700 }}>As chaves da Meta estão funcionando?</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Pergunta à Meta, agora, se ela reconhece o app que está guardado no servidor — e
+                    confere o endereço de retorno e o endereço público do sistema.
+                  </Typography>
+                </Box>
+                <Button variant="outlined" onClick={testarMeta} disabled={testando}>
+                  {testando ? "Conferindo…" : "Conferir agora"}
+                </Button>
+              </Stack>
+              {teste && (
+                <Alert severity={teste.ok && teste.retorno_confere && teste.endereco_publico ? "success" : (teste.ok ? "warning" : "error")}
+                  sx={{ mt: 2 }}>
+                  <Box component="ul" sx={{ m: 0, pl: 2.5, "& li": { mb: 0.5 } }}>
+                    <li>
+                      {teste.ok
+                        ? <>A Meta reconheceu o app: <b>{teste.app?.nome || "sem nome"}</b>. As chaves estão certas.</>
+                        : <><b>As chaves não passaram:</b> {teste.erro}</>}
+                    </li>
+                    <li>
+                      {teste.retorno_confere
+                        ? <>Endereço de retorno confere: <code>{teste.retorno_certo}</code></>
+                        : (
+                          <>
+                            <b>Endereço de retorno não confere.</b> O servidor está com{" "}
+                            <code>{teste.retorno_configurado || "nada"}</code> e atende em{" "}
+                            <code>{teste.retorno_certo}</code>. Acerte os dois — no Render
+                            (<code>META_REDIRECT_URI</code>) e no app da Meta — com o segundo.
+                          </>
+                        )}
+                    </li>
+                    <li>
+                      {teste.endereco_publico
+                        ? <>Endereço público do sistema: <code>{teste.endereco_publico}</code></>
+                        : (
+                          <>
+                            <b>Falta o endereço público (<code>PUBLIC_URL</code>) no servidor.</b> A Meta
+                            baixa a arte por um link; sem isso o robô não tem como montar esse link e só
+                            o botão "Publicar agora" funciona.
+                          </>
+                        )}
+                    </li>
+                  </Box>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
 
           <Stack spacing={2}>
             {clients.map((c) => {

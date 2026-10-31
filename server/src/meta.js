@@ -437,3 +437,57 @@ export async function publishToFacebook({ conn, mediaUrl, caption, isVideo }) {
   }, { method: "POST" });
   return result.post_id || result.id;
 }
+
+/**
+ * AS CHAVES QUE ESTÃO NO SERVIDOR SÃO MESMO AS DO APP DELA?
+ *
+ * "isso já tenho app e tudo mais." O app existir não é o que o sistema usa —
+ * ele usa o que está guardado nas variáveis do servidor. E entre as duas
+ * coisas cabem erros que nenhuma tela mostra: a chave de outro app, o segredo
+ * com um espaço colado no fim, o App Secret que foi regenerado na Meta depois
+ * de copiado. Em todos esses casos o botão "Conectar" aparece, ela clica, e a
+ * Meta é que diz não — num inglês que não ajuda.
+ *
+ * Aqui a gente pergunta à Meta, com as chaves que estão no servidor agora,
+ * quem é esse app. Se ela responder o nome, as chaves são boas. Se não, o
+ * motivo vem traduzido.
+ *
+ * Usa o token de aplicativo (APP_ID|APP_SECRET), que só vale se os dois
+ * estiverem certos — é exatamente a conferência que se quer.
+ */
+export async function conferirApp() {
+  if (!META_APP_ID || !META_APP_SECRET) {
+    throw new Error("Faltam META_APP_ID e/ou META_APP_SECRET no servidor.");
+  }
+  try {
+    const app = await graph(`/${META_APP_ID}`, {
+      fields: "name,link,app_type",
+      access_token: `${META_APP_ID}|${META_APP_SECRET}`,
+    });
+    return { nome: app.name || null, link: app.link || null };
+  } catch (e) {
+    const m = String(e.message || "");
+    if (/Invalid OAuth access token|Invalid appsecret|client secret|\(#?1?0?1\)/i.test(m)) {
+      throw new Error(
+        "A Meta não reconheceu o par App ID + App Secret. Confira os dois no painel do app "
+        + "(Configurações → Básico) e cole de novo no Render, sem espaço sobrando. "
+        + "Se o App Secret foi gerado de novo lá, o antigo deixou de valer."
+      );
+    }
+    // "fetch failed" é o que o Node diz quando nem chegou lá. Sozinho, não
+    // diz nada a ninguém — e faria parecer que a chave está errada.
+    if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network/i.test(m)) {
+      throw new Error(
+        "Não consegui falar com a Meta agora: o servidor não alcançou graph.facebook.com. "
+        + "Isso é rede, não chave — tente de novo em um minuto."
+      );
+    }
+    if (/does not exist|Unsupported get request|cannot be loaded/i.test(m)) {
+      throw new Error(
+        `A Meta diz que o app ${META_APP_ID} não existe ou não está visível. `
+        + "Quase sempre é App ID de outro app, ou um dígito trocado."
+      );
+    }
+    throw new Error(m);
+  }
+}

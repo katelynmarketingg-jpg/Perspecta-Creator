@@ -6,7 +6,7 @@ import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
   publicConnection, publishToInstagram, publishCarouselToInstagram, publishToFacebook, META_APP_ID,
   fetchIgProfile, updateIgProfile, conferirPagina, vincularInstagram, recadoDaMeta,
-  savePendingPages, getPendingPages, clearPendingPages, publicPage,
+  savePendingPages, getPendingPages, clearPendingPages, publicPage, conferirApp,
 } from "../meta.js";
 import { comecarPublicacao, terminarPublicacao, temVideo, diasAteVencer } from "../publicacao-demorada.js";
 import { filaDoAutomatico } from "../publisher.js";
@@ -155,6 +155,40 @@ router.get("/meta/status", (req, res) => {
     })),
     pending: pendentes,
   });
+});
+
+/**
+ * POST /api/integrations/meta/teste — as chaves do servidor servem?
+ *
+ * Três perguntas numa só, porque são as três que fazem a publicação direta
+ * não sair mesmo com o app criado:
+ *
+ *   1. a Meta reconhece o par App ID + App Secret que está no servidor?
+ *   2. o endereço de retorno guardado é o mesmo que o sistema atende?
+ *   3. o sistema sabe o próprio endereço público (PUBLIC_URL)? Sem isso o
+ *      robô até tenta, mas a Meta não tem de onde baixar a arte.
+ *
+ * Nenhuma delas se responde olhando a tela: todas moram do lado de lá.
+ */
+router.post("/meta/teste", async (req, res) => {
+  const retornoCerto = `${publicBaseUrl(req)}/api/integrations/meta/callback`;
+  const configurado = process.env.META_REDIRECT_URI || null;
+  const semBarra = (u) => String(u || "").replace(/\/+$/, "");
+  const resposta = {
+    retorno_certo: retornoCerto,
+    retorno_configurado: configurado,
+    retorno_confere: Boolean(configurado) && semBarra(configurado) === semBarra(retornoCerto),
+    // O robô roda sem pedido nenhum: o PUBLIC_URL é a única forma de ele
+    // montar o link que a Meta vai baixar.
+    endereco_publico: (process.env.PUBLIC_URL && hostServeParaLink(process.env.PUBLIC_URL))
+      ? process.env.PUBLIC_URL : null,
+  };
+  try {
+    const app = await conferirApp();
+    res.json({ ok: true, app, ...resposta });
+  } catch (e) {
+    res.json({ ok: false, erro: e.message, ...resposta });
+  }
 });
 
 // POST /api/integrations/meta/connect — devolve o link do login da Meta.
