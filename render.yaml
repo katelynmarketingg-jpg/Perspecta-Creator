@@ -35,6 +35,18 @@ services:
         sync: false
       - key: R2_BUCKET
         sync: false
+      # Meta (Instagram/Facebook) — publicação direta dos posts. Crie o app em
+      # developers.facebook.com, adicione "Login do Facebook" + "Instagram
+      # Graph API" e preencha os três aqui, na aba Environment. Enquanto
+      # estiverem vazios, o sistema não publica sozinho e diz isso na tela.
+      # META_REDIRECT_URI é o endereço do sistema + /api/integrations/meta/callback
+      # e precisa ser IGUAL ao cadastrado no app da Meta.
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_REDIRECT_URI
+        sync: false
       # Endereço público — usado nos links de assinatura e pela Meta/Asaas.
       # O Render preenche sozinho com a URL do serviço.
       - key: PUBLIC_URL
