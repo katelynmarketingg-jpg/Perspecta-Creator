@@ -41,6 +41,31 @@ Adicione dois produtos:
 - **Login do Facebook**
 - **Instagram Graph API**
 
+### 1b. Se o app é "Login do Facebook **para empresas**"
+
+É o tipo que a Meta cria hoje. Nele as permissões **não** vão na chamada do
+login: elas ficam numa **configuração** feita no painel, e o login é chamado
+com o número dela.
+
+No app: **Login do Facebook para empresas → Configurações → Criar
+configuração**. Escolha:
+
+- **Ativos**: Páginas do Facebook e contas do Instagram;
+- **Permissões**: `pages_show_list`, `pages_manage_posts`,
+  `pages_read_engagement`, `instagram_basic`, `instagram_content_publish`,
+  `business_management`.
+
+Salve e copie o **ID da configuração** → vai na variável `META_CONFIG_ID` do
+Render.
+
+**Por que isso importa:** sem o `META_CONFIG_ID`, num app desse tipo, o login
+até funciona — mas o acesso volta **sem permissão de publicar**, e o erro só
+aparece lá na frente, na hora de postar, dizendo "o app não tem permissão".
+Longe de onde o problema realmente está.
+
+Se o seu app tem o **Login do Facebook clássico** (sem "para empresas"), deixe
+`META_CONFIG_ID` vazio: as permissões vão na chamada, como sempre.
+
 ### 2. Cadastrar o endereço de retorno
 
 Em *Login do Facebook → Configurações → URIs de redirecionamento do OAuth
@@ -60,6 +85,7 @@ No painel do Render, aba **Environment**:
 | `META_APP_ID` | painel do app, em Configurações → Básico |
 | `META_APP_SECRET` | mesma tela, botão "Mostrar" |
 | `META_REDIRECT_URI` | o mesmo endereço do passo 2 |
+| `META_CONFIG_ID` | só no app "para empresas": o ID da configuração do passo 1b |
 
 Salvar reinicia o serviço sozinho. Depois disso, o botão de conectar o
 Instagram aparece em cada cliente.

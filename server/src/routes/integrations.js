@@ -6,7 +6,7 @@ import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
   publicConnection, publishToInstagram, publishCarouselToInstagram, publishToFacebook, META_APP_ID,
   fetchIgProfile, updateIgProfile, conferirPagina, vincularInstagram, recadoDaMeta,
-  savePendingPages, getPendingPages, clearPendingPages, publicPage, conferirApp,
+  savePendingPages, getPendingPages, clearPendingPages, publicPage, conferirApp, META_CONFIG_ID,
 } from "../meta.js";
 import { comecarPublicacao, terminarPublicacao, temVideo, diasAteVencer } from "../publicacao-demorada.js";
 import { filaDoAutomatico } from "../publisher.js";
@@ -138,6 +138,10 @@ router.get("/meta/status", (req, res) => {
     configured: metaConfigured(),
     app_id: META_APP_ID ? `${META_APP_ID.slice(0, 6)}…` : null,
     faltando,
+    // App "para empresas": as permissões moram numa configuração do painel, e
+    // é o número dela que o login pede. Sem ele, num app desses, o token vem
+    // sem permissão de publicar — e o erro só aparece lá na frente.
+    config_id: META_CONFIG_ID ? `${META_CONFIG_ID.slice(0, 6)}…` : null,
     retorno_certo: retornoCerto,
     // Configurado, mas com o endereço errado, é pior que não configurado: o
     // login da Meta abre e morre no meio, e nada na tela explica por quê.
@@ -182,6 +186,7 @@ router.post("/meta/teste", async (req, res) => {
     // montar o link que a Meta vai baixar.
     endereco_publico: (process.env.PUBLIC_URL && hostServeParaLink(process.env.PUBLIC_URL))
       ? process.env.PUBLIC_URL : null,
+    config_id: META_CONFIG_ID || null,
   };
   try {
     const app = await conferirApp();

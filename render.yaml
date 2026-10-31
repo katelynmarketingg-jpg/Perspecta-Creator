@@ -47,6 +47,11 @@ services:
         sync: false
       - key: META_REDIRECT_URI
         sync: false
+      # Só para app do tipo "Login do Facebook PARA EMPRESAS" (o que a Meta
+      # cria hoje): o número da configuração onde ficam as permissões. Sem
+      # ele, nesses apps, o token vem sem permissão de publicar.
+      - key: META_CONFIG_ID
+        sync: false
       # Endereço público — usado nos links de assinatura e pela Meta/Asaas.
       # O Render preenche sozinho com a URL do serviço.
       - key: PUBLIC_URL
