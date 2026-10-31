@@ -7,6 +7,7 @@ import {
 } from "@mui/material";
 import ExpandLess from "@mui/icons-material/ExpandLess";
 import ExpandMore from "@mui/icons-material/ExpandMore";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -84,6 +85,7 @@ const GRUPOS = [
     { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
     { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },
     { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },
+    { to: "/trafego", label: "Tráfego", icon: <TrendingUpIcon /> },
   ] },
   { id: "financeiro", titulo: "Financeiro", icon: <PaidIcon />, itens: [
     { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
