@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate, Outlet } from "react-router-dom";
+import { NavLink, useNavigate, useLocation, Outlet } from "react-router-dom";
 import {
   AppBar, Box, Drawer, IconButton, List, ListItemButton, ListItemIcon,
   ListItemText, Toolbar, Typography, Avatar, Menu, MenuItem, Divider, Tooltip,
-  Badge, Button, Snackbar, Alert,
+  Badge, Button, Snackbar, Alert, Collapse,
 } from "@mui/material";
+import ExpandLess from "@mui/icons-material/ExpandLess";
+import ExpandMore from "@mui/icons-material/ExpandMore";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -52,39 +54,69 @@ import logoCreatorBranco from "../assets/logo-perspecta-creator-branco.png";
 
 const DRAWER_WIDTH = 248;
 
-const NAV = [
-  { to: "/organizations", label: "Escritórios", icon: <ApartmentIcon />, masterOnly: true },
-  { to: "/", label: "Dashboard", icon: <DashboardIcon />, end: true },
-  { to: "/clients", label: "Clientes", icon: <PeopleIcon /> },
-  { to: "/services", label: "Serviços", icon: <DesignServicesIcon /> },
-  { to: "/prospects", label: "Prospecção", icon: <PersonSearchIcon /> },
-  { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
-  { to: "/priorities", label: "Prioridades", icon: <FlagIcon /> },
-  { to: "/projects", label: "Projetos", icon: <FolderIcon /> },
-  { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },
-  { to: "/distribution", label: "Distribuição", icon: <ScheduleSendIcon /> },
-  { to: "/planning", label: "Planejamento", icon: <CalendarMonthIcon /> },
-  { to: "/client-area", label: "Área do Cliente", icon: <PreviewIcon /> },
-  { to: "/deliveries", label: "Entregas", icon: <ChecklistRtlIcon /> },
-  { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
-  { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },
-  { to: "/files", label: "Galeria", icon: <FolderCopyIcon /> },
-  { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
-  { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },
-  { to: "/intelligence", label: "Inteligência", icon: <PsychologyIcon /> },
-  { to: "/landing-pages", label: "Landing Pages", icon: <LanguageIcon /> },
-  { to: "/onboarding", label: "Onboarding", icon: <AssignmentIcon /> },
-  { to: "/ai", label: "IA", icon: <AutoAwesomeIcon /> },
-  { to: "/integrations", label: "Integrações", icon: <HubIcon /> },
-  { to: "/users", label: "Usuários", icon: <GroupIcon />, adminOnly: true },
-  { to: "/minhas-financas", label: "Minhas Finanças", icon: <SavingsIcon /> },
-  { to: "/settings", label: "Configurações", icon: <SettingsIcon /> },
+// O Dashboard fica solto no topo; o resto é agrupado em títulos que abrem e
+// fecham. Os agrupamentos seguem como ela usa: tudo do cliente junto, conteúdo
+// junto, gestão junto, dinheiro junto, e os ajustes no fim.
+const NAV_SOLO = { to: "/", label: "Dashboard", icon: <DashboardIcon />, end: true };
+const GRUPOS = [
+  { id: "clientes", titulo: "Clientes", icon: <PeopleIcon />, itens: [
+    { to: "/clients", label: "Clientes", icon: <PeopleIcon /> },
+    { to: "/projects", label: "Projetos", icon: <FolderIcon /> },
+    { to: "/onboarding", label: "Onboarding", icon: <AssignmentIcon /> },
+    { to: "/intelligence", label: "Inteligência", icon: <PsychologyIcon /> },
+    { to: "/services", label: "Serviços", icon: <DesignServicesIcon /> },
+    { to: "/contracts", label: "Contratos", icon: <DescriptionIcon /> },
+    { to: "/prospects", label: "Prospecção", icon: <PersonSearchIcon /> },
+    { to: "/client-area", label: "Área do Cliente", icon: <PreviewIcon /> },
+  ] },
+  { id: "conteudo", titulo: "Conteúdo", icon: <ViewKanbanIcon />, itens: [
+    { to: "/tasks", label: "Tarefas", icon: <ViewKanbanIcon /> },
+    { to: "/planning", label: "Planejamento", icon: <CalendarMonthIcon /> },
+    { to: "/distribution", label: "Distribuição", icon: <ScheduleSendIcon /> },
+    { to: "/deliveries", label: "Entregas", icon: <ChecklistRtlIcon /> },
+    { to: "/files", label: "Galeria", icon: <FolderCopyIcon /> },
+    { to: "/landing-pages", label: "Landing Pages", icon: <LanguageIcon /> },
+    { to: "/ai", label: "IA", icon: <AutoAwesomeIcon /> },
+  ] },
+  { id: "gestao", titulo: "Gestão & Relatórios", icon: <BarChartIcon />, itens: [
+    { to: "/priorities", label: "Prioridades", icon: <FlagIcon /> },
+    { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
+    { to: "/agenda", label: "Agenda", icon: <EventIcon /> },
+    { to: "/goals", label: "Metas", icon: <EmojiEventsIcon /> },
+    { to: "/reports", label: "Relatórios", icon: <BarChartIcon /> },
+  ] },
+  { id: "financeiro", titulo: "Financeiro", icon: <PaidIcon />, itens: [
+    { to: "/financial", label: "Financeiro", icon: <PaidIcon /> },
+    { to: "/minhas-financas", label: "Minhas Finanças", icon: <SavingsIcon /> },
+  ] },
+  { id: "config", titulo: "Configurações", icon: <SettingsIcon />, itens: [
+    { to: "/settings", label: "Configurações", icon: <SettingsIcon /> },
+    { to: "/users", label: "Usuários", icon: <GroupIcon />, adminOnly: true },
+    { to: "/integrations", label: "Integrações", icon: <HubIcon /> },
+    { to: "/organizations", label: "Escritórios", icon: <ApartmentIcon />, masterOnly: true },
+  ] },
 ];
+
+// Para onde cada aviso leva ao ser clicado — pelo que ele diz e pelo que carrega.
+// Antes TODO aviso caía em "/tarefas"; agora abre a tela que é mesmo.
+function destinoDaNotif(n) {
+  const m = (n?.message || "").toLowerCase();
+  if (/pediu ajuste|ajustes em|aprovou|aprovad|aprova[çc]/.test(m)) return "/distribution";
+  if (/onboarding|respondeu/.test(m)) return "/onboarding";
+  if (/assin|c[oó]digo para assinar|contrato/.test(m)) return "/contracts";
+  if (/inativos|arquivad|reativ/.test(m)) return "/clients";
+  if (/pagamento|cobran|parcela|recibo|financ/.test(m)) return "/financial";
+  if (n?.task_id) return "/distribution";
+  if (n?.client_id) return "/clients";
+  return "/tasks";
+}
 
 export default function Layout() {
   const { user, logout, isAdmin, isMaster, viewingOrg, leaveOrg } = useAuth();
   const { mode, toggle } = useColorMode();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [gruposAbertos, setGruposAbertos] = useState({});
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchor, setAnchor] = useState(null);
   const [notifAnchor, setNotifAnchor] = useState(null);
@@ -189,12 +221,22 @@ export default function Layout() {
   const activeColor = terracota ? "#FFFFFF" : (t) => t.palette.primary.main;
 
   // O master só vê as telas de dados quando entra num escritório.
-  const items = NAV.filter((n) => {
+  const visivel = (n) => {
     if (n.masterOnly) return isMaster;
     if (n.adminOnly && !isAdmin) return false;
     if (isMaster && !viewingOrg) return false;
     return true;
-  });
+  };
+  // O grupo da tela atual já abre sozinho; os outros ficam fechados até clicar.
+  const grupoAtivo = GRUPOS.find((g) => g.itens.some((i) => i.to === location.pathname))?.id;
+
+  const estiloItem = {
+    borderRadius: 2.5, mb: 0.3, color: sbText,
+    transition: "background-color .2s ease, color .2s ease",
+    "& .MuiListItemIcon-root": { color: sbIcon, transition: "color .2s ease" },
+    "&:hover": { bgcolor: "rgba(255,255,255,0.08)", color: "#fff" },
+    "&.active": { bgcolor: activeBg, color: activeColor, "& .MuiListItemIcon-root": { color: activeColor } },
+  };
 
   const drawer = (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: sb.bg }}>
@@ -214,29 +256,42 @@ export default function Layout() {
           sx={{ display: "block", width: 124, height: "auto" }} />
       </Box>
       <List sx={{ px: 1.5, py: 1.5, flex: 1, overflowY: "auto" }}>
-        {items.map((n) => (
-          <ListItemButton
-            key={n.to}
-            component={NavLink}
-            to={n.to}
-            end={n.end}
-            onClick={() => setMobileOpen(false)}
-            sx={{
-              borderRadius: 2.5, mb: 0.3, color: sbText,
-              transition: "background-color .2s ease, color .2s ease",
-              "& .MuiListItemIcon-root": { color: sbIcon, transition: "color .2s ease" },
-              "&:hover": { bgcolor: "rgba(255,255,255,0.08)", color: "#fff" },
-              "&.active": {
-                bgcolor: activeBg,
-                color: activeColor,
-                "& .MuiListItemIcon-root": { color: activeColor },
-              },
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 40 }}>{n.icon}</ListItemIcon>
-            <ListItemText primary={n.label} primaryTypographyProps={{ fontSize: 14.5, fontWeight: 600 }} />
+        {visivel(NAV_SOLO) && (
+          <ListItemButton component={NavLink} to={NAV_SOLO.to} end={NAV_SOLO.end}
+            onClick={() => setMobileOpen(false)} sx={estiloItem}>
+            <ListItemIcon sx={{ minWidth: 40 }}>{NAV_SOLO.icon}</ListItemIcon>
+            <ListItemText primary={NAV_SOLO.label} primaryTypographyProps={{ fontSize: 14.5, fontWeight: 600 }} />
           </ListItemButton>
-        ))}
+        )}
+        {GRUPOS.map((g) => {
+          const subs = g.itens.filter(visivel);
+          if (!subs.length) return null;
+          const aberto = gruposAbertos[g.id] ?? (g.id === grupoAtivo);
+          return (
+            <Box key={g.id} sx={{ mt: 0.5 }}>
+              <ListItemButton onClick={() => setGruposAbertos((a) => ({ ...a, [g.id]: !aberto }))}
+                sx={{ borderRadius: 2.5, mb: 0.3, color: sbTextDim,
+                  "& .MuiListItemIcon-root": { color: sbIcon },
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.06)", color: sbText } }}>
+                <ListItemIcon sx={{ minWidth: 40 }}>{g.icon}</ListItemIcon>
+                <ListItemText primary={g.titulo}
+                  primaryTypographyProps={{ fontSize: 12.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }} />
+                {aberto ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+              </ListItemButton>
+              <Collapse in={aberto} unmountOnExit>
+                <List disablePadding>
+                  {subs.map((n) => (
+                    <ListItemButton key={n.to} component={NavLink} to={n.to} end={n.end}
+                      onClick={() => setMobileOpen(false)} sx={{ ...estiloItem, pl: 2.5 }}>
+                      <ListItemIcon sx={{ minWidth: 34 }}>{n.icon}</ListItemIcon>
+                      <ListItemText primary={n.label} primaryTypographyProps={{ fontSize: 14, fontWeight: 600 }} />
+                    </ListItemButton>
+                  ))}
+                </List>
+              </Collapse>
+            </Box>
+          );
+        })}
       </List>
       <Divider sx={{ borderColor: sb.border }} />
       <Box sx={{ p: 2, color: sbTextDim, fontSize: 12 }}>© {new Date().getFullYear()} Perspecta Media</Box>
@@ -329,8 +384,8 @@ export default function Layout() {
             <Divider />
             {notifs.length === 0 && <MenuItem disabled>Nenhuma notificação.</MenuItem>}
             {notifs.map((n) => (
-              <MenuItem key={n.id} onClick={() => { setNotifAnchor(null); navigate("/tasks"); }}
-                sx={{ whiteSpace: "normal", alignItems: "flex-start", opacity: n.is_read ? 0.55 : 1 }}>
+              <MenuItem key={n.id} onClick={() => { setNotifAnchor(null); navigate(destinoDaNotif(n)); }}
+                sx={{ whiteSpace: "normal", alignItems: "flex-start", opacity: n.is_read ? 0.55 : 1, cursor: "pointer" }}>
                 <Box>
                   <Typography variant="body2">{n.message}</Typography>
                   <Typography variant="caption" color="text.secondary">
