@@ -120,4 +120,13 @@ test("serviço sem estilo nenhum continua gerando contrato, sem quebrar", () => 
   assert.equal(linha.style, null);
 });
 
+test("serviço único (avulso) sai sem vigência; mensal mantém os meses", () => {
+  const umaVez = geraContrato(org, { client_id: cli, service_id: svc, servico: "LP", value: 1000, billing: "avulso", duration_months: 12 });
+  assert.equal(db.prepare("SELECT duration_months FROM contracts WHERE id = ?").get(umaVez.id).duration_months, null,
+    "avulso não tem vigência em meses");
+  const mensal = geraContrato(org, { client_id: cli, service_id: svc, servico: "Gestão", value: 1000, billing: "mensal", duration_months: 12 });
+  assert.equal(db.prepare("SELECT duration_months FROM contracts WHERE id = ?").get(mensal.id).duration_months, 12,
+    "mensal mantém a vigência");
+});
+
 after(() => { srv.close(); db.close(); rmSync(dir, { recursive: true, force: true }); });

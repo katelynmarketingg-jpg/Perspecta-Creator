@@ -64,6 +64,8 @@ function saneiaTermos(entrada = {}) {
     // de assinatura passa a exigir.
     require_selfie: entrada.require_selfie ? 1 : 0,
     require_doc_photo: entrada.require_doc_photo ? 1 : 0,
+    // Serviço único (avulso): pagamento único, sem vigência nem renovação.
+    billing: entrada.avulso ? "avulso" : "mensal",
     // "pra que eu mesma já possa assinar": quando o contrato nascer (o cliente
     // termina de responder), a assinatura da casa já entra nele. Assim o
     // cliente abre o link e vê um documento que a agência já firmou — e ela
