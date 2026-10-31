@@ -13,6 +13,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   Box, Card, CardContent, Typography, Tabs, Tab, TextField, Stack, MenuItem,
   Button, Chip, Divider, CircularProgress, Alert, FormControlLabel, Switch,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
@@ -47,6 +48,9 @@ export default function ClientHub() {
   const [contratos, setContratos] = useState(null);
   const [financeiro, setFinanceiro] = useState(null);
   const [onboardings, setOnboardings] = useState(null);
+  const [projetos, setProjetos] = useState(null);
+  const [persona, setPersona] = useState(null);
+  const [arquivar, setArquivar] = useState(null); // { observacao, pagamento_ate }
 
   useEffect(() => {
     setCarregando(true);
@@ -88,6 +92,31 @@ export default function ClientHub() {
       api.get("/briefings").then((r) => setOnboardings((r.data || []).filter((b) => String(b.client_id) === String(id))))
         .catch(() => setOnboardings([]));
     }
+    if (indice === 5 && !projetos) {
+      api.get("/projects").then((r) => setProjetos((r.data || []).filter((p) => String(p.client_id) === String(id))))
+        .catch(() => setProjetos([]));
+    }
+    if (indice === 6 && !persona) {
+      api.get(`/ai/persona/${id}`).then((r) => setPersona(r.data || {})).catch(() => setPersona({}));
+    }
+  }
+
+  // Arquivar / reativar o cliente — o arquivar guarda o combinado e não perde nada.
+  async function confirmarArquivar() {
+    try {
+      await api.post(`/clients/${id}/arquivar`, {
+        observacao: arquivar?.observacao || null,
+        pagamento_ate: arquivar?.pagamento_ate || null,
+      });
+      navigate("/clients");
+    } catch (e) { setErro(e.response?.data?.error || "Não foi possível arquivar."); }
+  }
+  async function reativar() {
+    try {
+      await api.post(`/clients/${id}/reativar`);
+      const { data } = await api.get(`/clients/${id}`);
+      setCli(data);
+    } catch (e) { setErro(e.response?.data?.error || "Não foi possível reativar."); }
   }
 
   if (carregando) {
@@ -114,6 +143,10 @@ export default function ClientHub() {
         <Typography variant="caption" color="text.secondary">
           {salvando ? "Salvando…" : salvoEm ? "Alterações salvas" : "As alterações salvam sozinhas"}
         </Typography>
+        {cli.archived_at
+          ? <Button size="small" variant="outlined" onClick={reativar}>Reativar</Button>
+          : <Button size="small" variant="outlined" color="error" startIcon={<Inventory2Icon />}
+              onClick={() => setArquivar({ observacao: "", pagamento_ate: "" })}>Arquivar</Button>}
       </Stack>
 
       <Tabs value={aba} onChange={(_, v) => abrir(v)} variant="scrollable" scrollButtons="auto"
@@ -123,6 +156,8 @@ export default function ClientHub() {
         <Tab label="Serviços" />
         <Tab label="Financeiro" />
         <Tab label="Onboarding" />
+        <Tab label="Projetos" />
+        <Tab label="Inteligência" />
       </Tabs>
 
       {erro && cli && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErro("")}>{erro}</Alert>}
@@ -268,6 +303,69 @@ export default function ClientHub() {
           <Button sx={{ mt: 2 }} onClick={() => navigate("/onboarding")}>Abrir em Onboarding</Button>
         </CardContent></Card>
       )}
+
+      {/* ---- PROJETOS ---- */}
+      {aba === 5 && (
+        <Card variant="outlined"><CardContent>
+          {!projetos ? <CircularProgress size={22} />
+            : projetos.length === 0 ? <Typography color="text.secondary">Nenhum projeto deste cliente.</Typography>
+            : (
+              <Stack divider={<Divider />} spacing={1}>
+                {projetos.map((p) => (
+                  <Stack key={p.id} direction="row" alignItems="center" spacing={1} sx={{ py: 0.5, flexWrap: "wrap" }}>
+                    <Typography sx={{ fontWeight: 600, flex: 1, minWidth: 160 }}>{p.name}</Typography>
+                    {p.status && <Chip size="small" label={p.status} />}
+                  </Stack>
+                ))}
+              </Stack>
+            )}
+          <Button sx={{ mt: 2 }} onClick={() => navigate("/projects")}>Abrir em Projetos</Button>
+        </CardContent></Card>
+      )}
+
+      {/* ---- INTELIGÊNCIA ---- */}
+      {aba === 6 && (
+        <Card variant="outlined"><CardContent>
+          {!persona ? <CircularProgress size={22} />
+            : (() => {
+                const campos = Object.entries(persona).filter(([, v]) => String(v || "").trim());
+                return campos.length === 0
+                  ? <Typography color="text.secondary">A IA ainda não sabe nada deste cliente. Aplique um onboarding ou preencha em Inteligência.</Typography>
+                  : (
+                    <Stack spacing={1.25}>
+                      <Typography variant="body2" color="text.secondary">{campos.length} campo(s) preenchido(s).</Typography>
+                      {campos.map(([k, v]) => (
+                        <Box key={k}>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{k}</Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{String(v)}</Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+                  );
+              })()}
+          <Button sx={{ mt: 2 }} onClick={() => navigate("/intelligence")}>Editar em Inteligência</Button>
+        </CardContent></Card>
+      )}
+
+      {/* ---- Arquivar ---- */}
+      <Dialog open={Boolean(arquivar)} onClose={() => setArquivar(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Arquivar cliente</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Nada é apagado — ele sai do dia a dia e vai para "Inativos". Dá para reativar depois.
+          </Typography>
+          <Stack spacing={2}>
+            <TextField label="Até quando ele ainda paga (opcional)" type="month" InputLabelProps={{ shrink: true }}
+              value={arquivar?.pagamento_ate || ""} onChange={(e) => setArquivar((a) => ({ ...a, pagamento_ate: e.target.value }))} fullWidth size="small" />
+            <TextField label="Observação (opcional)" value={arquivar?.observacao || ""}
+              onChange={(e) => setArquivar((a) => ({ ...a, observacao: e.target.value }))} fullWidth size="small" multiline minRows={2} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setArquivar(null)}>Cancelar</Button>
+          <Button color="error" variant="contained" onClick={confirmarArquivar}>Arquivar</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
