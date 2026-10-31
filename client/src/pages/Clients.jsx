@@ -345,7 +345,9 @@ export default function Clients() {
                 {filtrados.map((c) => (
                   <TableRow key={c.id} hover>
                     <TableCell>
-                      <strong>{c.name}</strong>
+                      {/* Abrir o cliente-hub: tudo dele (cadastro, contratos,
+                          serviços, financeiro, onboarding) num lugar só. */}
+                      <strong style={{ cursor: "pointer" }} onClick={() => navigate(`/clients/${c.id}`)}>{c.name}</strong>
                       {c.company && <div style={{ fontSize: 12, color: "#888" }}>{c.company}</div>}
                     </TableCell>
                     <TableCell>{c.segment || "—"}</TableCell>
