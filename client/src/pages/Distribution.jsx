@@ -178,11 +178,13 @@ const STATUS = {
   programado: { color: "#2563EB", label: "Programado" },
   aprovado:   { color: "#16A34A", label: "Aprovado" },
   aguardando: { color: "#EAB308", label: "Aguardando aprovação" },
+  ajustar:    { color: "#DC2626", label: "Ajustar" },
   nao_enviado:{ color: "#ab480a", label: "Não enviado" },
 };
 function statusOf(p) {
   if (p.stage_done) return "programado";
   if (p.approval_status === "approved") return "aprovado";
+  if (p.approval_status === "changes_requested") return "ajustar";
   if (p.approval_status === "sent") return "aguardando";
   return "nao_enviado";
 }
@@ -939,8 +941,11 @@ function VideoCoverDialog({ fileId, streamUrl, clientId, open, onClose, onCaptur
 }
 
 // Um cartão por peça: mídia + legenda + observação + data → enviar p/ aprovação.
-function PieceCard({ item, onChanged, flash }) {
+function PieceCard({ item, onChanged, flash, wide = false }) {
   const [caption, setCaption] = useState(item.caption || "");
+  // Renomear o post: o nome vira um campo quando ela clica nele.
+  const [titulo, setTitulo] = useState(item.title || "");
+  const [renomeando, setRenomeando] = useState(false);
   // A conversa com o cliente: aberta quando ele pediu ajuste (é o que ela
   // precisa ler agora), fechada no resto.
   const [verConversa, setVerConversa] = useState(item.approval_status === "changes_requested");
@@ -1296,6 +1301,20 @@ function PieceCard({ item, onChanged, flash }) {
     setSaving(false);
   }
 
+  async function renomear() {
+    setRenomeando(false);
+    const novo = titulo.trim();
+    if (!novo || novo === (item.title || "")) { setTitulo(item.title || ""); return; }
+    try {
+      await api.put(`/distribution/${item.id}`, { title: novo });
+      item.title = novo;   // reflete já na tela sem recarregar tudo
+      flash("Nome do post salvo.", "success");
+    } catch (err) {
+      setTitulo(item.title || "");
+      flash(err.response?.data?.error || "Não foi possível renomear.", "error");
+    }
+  }
+
   async function send() {
     setSending(true);
     try {
@@ -1312,7 +1331,14 @@ function PieceCard({ item, onChanged, flash }) {
   return (
     <Card sx={{ height: "100%" }}>
       <CardContent>
-        <Stack spacing={1.5}>
+        <Box sx={wide ? {
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", md: "minmax(300px, 420px) 1fr" },
+          columnGap: 3, rowGap: 1.5, alignItems: "start",
+        } : { display: "flex", flexDirection: "column", gap: 1.5 }}>
+          {/* CIMA: cabeçalho, cliente, aviso e a conversa (coluna direita no modo largo) */}
+          <Box sx={wide ? { gridColumn: { md: "2" }, gridRow: { md: "1" }, minWidth: 0 } : { minWidth: 0 }}>
+            <Stack spacing={1.5}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
             {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
             {item.content_type === "reel" && item.stage_done && (
@@ -1320,7 +1346,35 @@ function PieceCard({ item, onChanged, flash }) {
                 <Chip size="small" color="warning" variant="outlined" label="📌 postar à mão" />
               </Tooltip>
             )}
-            <Typography sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}>{item.title}</Typography>
+            {renomeando ? (
+              <TextField
+                variant="standard" size="small" autoFocus
+                value={titulo}
+                onChange={(e) => setTitulo(e.target.value)}
+                onBlur={renomear}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+                  else if (e.key === "Escape") { setTitulo(item.title || ""); setRenomeando(false); }
+                }}
+                sx={{ flex: 1, minWidth: 100 }}
+                inputProps={{ style: { fontWeight: 600 } }}
+              />
+            ) : (
+              <Tooltip title="Clique para renomear o post">
+                <Typography onClick={() => setRenomeando(true)}
+                  sx={{ fontWeight: 600, flex: 1, minWidth: 0, cursor: "pointer",
+                        "&:hover": { textDecoration: "underline dotted" } }}>
+                  {titulo || item.title}
+                </Typography>
+              </Tooltip>
+            )}
+            {!renomeando && (
+              <Tooltip title="Renomear o post">
+                <IconButton size="small" onClick={() => setRenomeando(true)}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             <Tooltip title="Excluir este balão">
               <IconButton size="small" color="error" onClick={() => setConfirmarExcluir(true)}>
                 <DeleteIcon fontSize="small" />
@@ -1363,7 +1417,11 @@ function PieceCard({ item, onChanged, flash }) {
               </Box>
             </Collapse>
           </Box>
-
+            </Stack>
+          </Box>
+          {/* MÍDIA: a arte da peça — coluna da esquerda no modo largo */}
+          <Box sx={wide ? { gridColumn: { md: "1" }, gridRow: { md: "1 / span 2" }, position: { md: "sticky" }, top: { md: 0 }, alignSelf: "start", minWidth: 0 } : { minWidth: 0 }}>
+            <Stack spacing={1.5}>
           {/* Arte da peça. No carrossel vira um visualizador: a 1ª slide fica na
               frente e a pessoa desliza com a setinha. Fora do carrossel, mostra
               a capa/arte escolhida. */}
@@ -1515,7 +1573,11 @@ function PieceCard({ item, onChanged, flash }) {
               )}
             </>
           )}
-
+            </Stack>
+          </Box>
+          {/* BAIXO: legenda, data, ações e publicação — coluna direita no modo largo */}
+          <Box sx={wide ? { gridColumn: { md: "2" }, gridRow: { md: "2" }, minWidth: 0 } : { minWidth: 0 }}>
+            <Stack spacing={1.5}>
           <Box>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
               <Typography variant="caption" color="text.secondary">Legenda</Typography>
@@ -1659,6 +1721,9 @@ function PieceCard({ item, onChanged, flash }) {
               )}
             </>
           )}
+            </Stack>
+          </Box>
+        </Box>
 
           <GalleryPicker clientId={item.client_id} open={picker} onClose={() => setPicker(false)} onPick={pickFromGallery} />
           <GalleryPicker clientId={item.client_id} open={coverPicker} onClose={() => setCoverPicker(false)}
@@ -1784,7 +1849,6 @@ function PieceCard({ item, onChanged, flash }) {
               </Button>
             </DialogActions>
           </Dialog>
-        </Stack>
       </CardContent>
     </Card>
   );
@@ -2555,7 +2619,8 @@ export default function Distribution() {
   const [approved, setApproved] = useState([]); // aprovados aguardando programação
   const [programmed, setProgrammed] = useState([]); // já programados
   const [waiting, setWaiting] = useState([]);   // enviados, esperando o cliente aprovar
-  const [postFilter, setPostFilter] = useState("para_aprovar"); // para_aprovar | aprovados | programados
+  const [adjust, setAdjust] = useState([]);     // o cliente pediu ajuste (aba "Ajustar")
+  const [postFilter, setPostFilter] = useState("para_aprovar"); // para_aprovar | ajustar | aguardando | aprovados | programados
 
   const flash = (texto, tipo = "success") => { setMsg({ texto, tipo }); setTimeout(() => setMsg(null), 4000); };
   const fetchFile = useCallback((id) => api.get(`/files/${id}/download`, { responseType: "blob" }).then((r) => r.data), []);
@@ -2570,8 +2635,8 @@ export default function Distribution() {
     if (!loadedOnce.current && !opts.silent) setLoading(true);
     const params = { month: mes, ...(clientFilter ? { client_id: clientFilter } : {}) };
     api.get("/distribution", { params })
-      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setProgrammed(r.data.programmed || []); setWaiting(r.data.waiting || []); setStage(r.data.stage); })
-      .catch(() => { setItems([]); setScheduled([]); setApproved([]); setProgrammed([]); setWaiting([]); })
+      .then((r) => { setItems(r.data.items || []); setScheduled(r.data.scheduled || []); setApproved(r.data.approved || []); setProgrammed(r.data.programmed || []); setWaiting(r.data.waiting || []); setAdjust(r.data.adjust || []); setStage(r.data.stage); })
+      .catch(() => { setItems([]); setScheduled([]); setApproved([]); setProgrammed([]); setWaiting([]); setAdjust([]); })
       .finally(() => { setLoading(false); loadedOnce.current = true; });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2775,7 +2840,9 @@ export default function Distribution() {
   }
 
   // Quando algo muda ao vivo, reflete na peça aberta no editor.
-  const selectedFresh = selected ? items.find((i) => i.id === selected.id) || selected : null;
+  const selectedFresh = selected
+    ? [...items, ...adjust, ...waiting, ...approved].find((i) => i.id === selected.id) || selected
+    : null;
 
   // Prévia do perfil: junta tudo (com ou SEM data) — programados, aprovados e as
   // peças em preparação — para organizar o feed arrastando. Ordena pela POSIÇÃO
@@ -2927,6 +2994,7 @@ export default function Distribution() {
             <ToggleButtonGroup size="small" exclusive value={postFilter} onChange={(_, v) => v && setPostFilter(v)}
               sx={{ flexWrap: "wrap" }}>
               <ToggleButton value="para_aprovar">Preparar{items.length ? ` (${items.length})` : ""}</ToggleButton>
+              <ToggleButton value="ajustar">Ajustar{adjust.length ? ` (${adjust.length})` : ""}</ToggleButton>
               <ToggleButton value="aguardando">Para aprovação{waiting.length ? ` (${waiting.length})` : ""}</ToggleButton>
               <ToggleButton value="aprovados">Aprovados{approved.length ? ` (${approved.length})` : ""}</ToggleButton>
               <ToggleButton value="programados">Programados{programmed.length ? ` (${programmed.length})` : ""}</ToggleButton>
@@ -2966,6 +3034,46 @@ export default function Distribution() {
                           <Stack direction="row" spacing={1}>
                             <Button size="small" variant="outlined" onClick={() => setSelected(p)}>Abrir</Button>
                           </Stack>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  );
+                }}
+              </PorMes>
+            )
+          ) : postFilter === "ajustar" ? (
+            adjust.length === 0 ? (
+              <EmptyState message="Nada para ajustar agora. Quando um cliente pedir mudança numa peça, ela cai aqui com o recado dele — é só abrir, corrigir e reenviar." />
+            ) : (
+              <PorMes itens={adjust} grade={GRADE_IGUAL}>
+                {(w) => {
+                  const ct = CONTENT_TYPES[w.content_type];
+                  return (
+                    <Card key={w.id} sx={CARD_IGUAL}>
+                      <CardContent sx={{ flexGrow: 1, display: "flex" }}>
+                        <Stack spacing={1} sx={{ flex: 1, width: "100%" }}>
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+                            {ct && <Chip size="small" color="primary" label={`${ct.emoji} ${ct.label}`} />}
+                            <Chip size="small" color="warning" label="Pediu ajuste ✏️" />
+                          </Stack>
+                          {w.client_name && <Typography variant="caption" color="text.secondary">{w.client_name}</Typography>}
+                          {w.content_type === "carrossel"
+                            ? <CarrosselLargo fileId={w.cover_file_id || w.file_id} streamUrl={enderecoDaPeca(w)} mesmaAltura />
+                            : <Media fileId={w.file_id || w.cover_file_id} capaId={w.cover_file_id} natural mesmaAltura
+                                streamUrl={enderecoDaPeca(w)} ehVideoDica={pecaEhVideo(w)} />}
+                          <Typography sx={{ fontWeight: 600 }} noWrap>{w.title}</Typography>
+                          <Typography variant="caption" color={w.scheduled_at ? "text.secondary" : "error.main"}>
+                            {w.scheduled_at
+                              ? dataLocal(w.scheduled_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                              : "Sem data"}
+                          </Typography>
+                          {w.client_note && (
+                            <Alert severity="warning" sx={{ py: 0.25 }}>
+                              <Typography variant="caption">{w.client_note}</Typography>
+                            </Alert>
+                          )}
+                          <Box sx={{ flexGrow: 1 }} />
+                          <Button size="small" variant="contained" onClick={() => setSelected(w)}>Abrir e ajustar</Button>
                         </Stack>
                       </CardContent>
                     </Card>
@@ -3137,17 +3245,22 @@ export default function Distribution() {
       )}
 
       {/* Editor aberto a partir da lista / perfil / calendário */}
-      <Dialog open={Boolean(selected)} onClose={() => setSelected(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Editar peça</DialogTitle>
+      {/* Editor em tela cheia: o post à esquerda e o resto (legenda, data,
+          conversa, publicação) à direita. "quando clicar no post ... quero que
+          ocupe a tela toda". */}
+      <Dialog open={Boolean(selected)} onClose={() => setSelected(null)} fullScreen>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          Editar peça
+          <Button onClick={() => setSelected(null)}>Fechar</Button>
+        </DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           {selectedFresh && (
-            <>
-              <PieceCard key={selectedFresh.id} item={selectedFresh} flash={flash}
+            <Box sx={{ maxWidth: 1200, mx: "auto" }}>
+              <PieceCard key={selectedFresh.id} item={selectedFresh} flash={flash} wide
                 onChanged={() => { load(); setSelected(null); }} />
-            </>
+            </Box>
           )}
         </DialogContent>
-        <DialogActions><Button onClick={() => setSelected(null)}>Fechar</Button></DialogActions>
       </Dialog>
     </>
   );
