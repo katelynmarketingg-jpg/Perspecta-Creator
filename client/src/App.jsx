@@ -105,6 +105,7 @@ function telaAdiada(carregar) {
 // nunca vê um gráfico, não baixa essa parte para entrar na área dele.
 const Dashboard = telaAdiada(() => import("./pages/Dashboard.jsx"));
 const Clients = telaAdiada(() => import("./pages/Clients.jsx"));
+const ClientHub = telaAdiada(() => import("./pages/ClientHub.jsx"));
 const Projects = telaAdiada(() => import("./pages/Projects.jsx"));
 const Tasks = telaAdiada(() => import("./pages/Tasks.jsx"));
 const Financial = telaAdiada(() => import("./pages/Financial.jsx"));
@@ -224,6 +225,7 @@ export default function App() {
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/clients" element={<Clients />} />
+        <Route path="/clients/:id" element={<ClientHub />} />
         <Route path="/landing-pages" element={<LandingPages />} />
         <Route path="/services" element={<Services />} />
         <Route path="/prospects" element={<Prospects />} />
