@@ -60,3 +60,48 @@ test("o passo a passo escrito cobre o que só se descobre apanhando", () => {
   assert.match(doc, /letra por letra/, "o endereço de retorno é onde isto mais trava");
   assert.match(doc, /reel/i, "reel sai à mão de propósito — para não perder qualidade");
 });
+
+// ---------------------------------------------------------------------------
+// "ISSO JÁ TENHO APP E TUDO MAIS."
+//
+// O app existir não é o que o sistema usa: ele usa o que está nas variáveis do
+// servidor. Entre as duas coisas cabem erros que nenhuma tela mostra — chave
+// de outro app, espaço colado no fim, App Secret regenerado na Meta depois de
+// copiado. Em todos eles o botão "Conectar" aparece, ela clica, e quem diz não
+// é a Meta, num inglês que não ajuda.
+// ---------------------------------------------------------------------------
+const meta = ler("server/src/meta.js");
+
+test("dá para perguntar à META se as chaves do servidor são de um app de verdade", () => {
+  assert.match(meta, /export async function conferirApp\(\)/);
+  assert.match(meta, /access_token: `\$\{META_APP_ID\}\|\$\{META_APP_SECRET\}`/,
+    "o token de aplicativo só vale com os DOIS certos — é a conferência que se quer");
+  assert.match(rotas, /router\.post\("\/meta\/teste"/);
+});
+
+test("o teste responde as três coisas que travam a publicação direta", () => {
+  const rota = rotas.slice(rotas.indexOf('router.post("/meta/teste"'), rotas.indexOf('router.post("/meta/connect"'));
+  assert.match(rota, /retorno_confere:/, "endereço de retorno igual ao que o sistema atende");
+  assert.match(rota, /endereco_publico:/, "sem PUBLIC_URL o robô não monta o link que a Meta baixa");
+  assert.match(rota, /conferirApp\(\)/, "as chaves são de um app que a Meta reconhece");
+});
+
+test("chave errada vira frase com o que fazer, não o inglês da Meta", () => {
+  assert.match(meta, /A Meta não reconheceu o par App ID \+ App Secret/);
+  assert.match(meta, /Se o App Secret foi gerado de novo lá, o antigo deixou de valer/);
+});
+
+test("rede caída não é confundida com chave errada", () => {
+  // "fetch failed" cru faria parecer que a chave está errada — e ela iria
+  // mexer no que estava certo.
+  assert.match(meta, /fetch failed\|ENOTFOUND\|ECONNREFUSED/);
+  assert.match(meta, /Isso é rede, não chave/);
+});
+
+test("o botão está na tela, e o resultado diz cada uma das três", () => {
+  assert.match(tela, /As chaves da Meta estão funcionando\?/);
+  assert.match(tela, /onClick=\{testarMeta\}/);
+  assert.match(tela, /A Meta reconheceu o app/);
+  assert.match(tela, /Endereço de retorno não confere/);
+  assert.match(tela, /Falta o endereço público/);
+});
