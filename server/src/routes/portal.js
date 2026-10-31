@@ -12,6 +12,7 @@ import { syncTaskMediaToStage } from "../gallery-sync.js";
 import { isR2Path, r2Key, getR2Object, tipoQueONavegadorToca, storageConfigured, uploadFileToR2, enderecoAssinado } from "../storage.js";
 import { receiptView, ensureReceiptForEntry } from "../receipts.js";
 import { chaveDaPorta, trancada, registraErro, registraAcerto } from "../tranca.js";
+import { acessoEncerrado } from "../acesso-do-cliente.js";
 import { bilheteDeMidia, enderecosDeMidia, previasDe } from "../midia-url.js";
 import { avisarAprovacoesPendentes } from "../aviso-aprovacao.js";
 import { emParalelo } from "../em-paralelo.js";
@@ -67,7 +68,10 @@ router.post("/login", (req, res) => {
     registraErro(porta);
     return res.status(401).json({ error: "Nome de acesso ou senha inválidos." });
   }
-  if (client.archived_at || client.status !== "active") {
+  // Encerrado só quando a agência arquivou de propósito. O contrato vencido que
+  // a arrumação automática move para "Inativos" NÃO fecha o acesso — senão todo
+  // cliente mensal perderia o portal (ver acesso-do-cliente.js).
+  if (acessoEncerrado(client)) {
     registraAcerto(porta);   // a senha estava certa: não conta como tentativa
     return res.status(403).json({
       error: "Este acesso foi encerrado. Se precisar do material, fale com a agência.",

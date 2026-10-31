@@ -1,5 +1,6 @@
 import { db } from "./db.js";
 import { situacaoDaRenovacao } from "./landing.js";
+import { MARCA_AUTOMATICA } from "./acesso-do-cliente.js";
 
 // ---------------------------------------------------------------------------
 // QUANDO UM CLIENTE VAI SOZINHO PARA A ABA "INATIVOS".
@@ -115,8 +116,13 @@ export function inativaQuemAcabou(hoje = new Date()) {
 // então não voltam a sair sozinhos. Se algum realmente tiver de ficar em
 // Inativos, arquivar à mão agora resolve, e desta vez fica.
 // ---------------------------------------------------------------------------
-export const MARCA_AUTOMATICA = "Movido para Inativos sozinho:";
-const CHAVE_CONSERTO = "desfaz-inativacao-automatica-2026-09";
+export { MARCA_AUTOMATICA };
+// Bump da chave: a rotina seguiu arquivando clientes mensais DEPOIS do conserto
+// de setembro (contrato vencido é o normal de quem renova), e cada um desses
+// perdeu o acesso ao portal. Esta passada traz de volta para "Ativos" quem a
+// rotina moveu — já protegido contra o laço (reativado_em) — e, junto com o
+// acesso-do-cliente.js, o vencimento do contrato não corta mais o portal.
+const CHAVE_CONSERTO = "desfaz-inativacao-automatica-2026-10";
 
 export function desfazInativacoesAutomaticas() {
   db.exec(`CREATE TABLE IF NOT EXISTS migracoes (
