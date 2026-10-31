@@ -180,3 +180,17 @@ test("desenho gigante é recusado, para não entupir o banco", async () => {
   const enorme = "data:image/png;base64," + "A".repeat(400001);
   assert.equal((await assinar(id, { signature_img: enorme })).st, 400);
 });
+
+// --- o código precisa de ALGUM e-mail do cliente (principal OU portal) --------
+test("o e-mail do código cai no e-mail do portal quando o principal está vazio", async () => {
+  const cliPortal = db.prepare(
+    "INSERT INTO clients (name,status,portal_email,org_id) VALUES ('Só Portal','active','portal@exemplo.com',?)"
+  ).run(org).lastInsertRowid;
+  const idc = db.prepare(
+    "INSERT INTO contracts (client_id,title,value,status,notes,org_id) VALUES (?,'C',1,'active','x',?)"
+  ).run(cliPortal, org).lastInsertRowid;
+  const r = await req("GET", `/sign/${makeSignToken(idc)}`);
+  assert.equal(r.st, 200);
+  assert.equal(r.email_no_cadastro, true, "achou um e-mail (o do portal)");
+  assert.match(r.email_mascarado || "", /@exemplo\.com$/, "e é o do portal");
+});
