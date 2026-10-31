@@ -219,14 +219,61 @@ export default function Integrations() {
       {/* ===================== REDES SOCIAIS (Meta) ===================== */}
       {tab === "redes" && (
         <>
+          {/* O QUE FALTA PARA O POST SAIR SOZINHO — em ordem, com o endereço
+              pronto para colar. Tudo o que vem depois (conectar o cliente,
+              ligar o automático, a fila) já está feito e esperando por isto. */}
           {status && !status.configured && (
             <Alert severity="info" sx={{ mb: 2.5 }}>
-              <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Falta criar o app na Meta</Typography>
-              A publicação direta precisa de um app seu em{" "}
-              <Link href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com</Link>.
-              Com o App ID e o App Secret em mãos, coloque-os nas variáveis
-              <code> META_APP_ID</code>, <code>META_APP_SECRET</code> e <code>META_REDIRECT_URI</code> do servidor.
-              Enquanto isso, o resto do sistema funciona normalmente.
+              <Typography sx={{ fontWeight: 600, mb: 0.5 }}>
+                Falta ligar o app da Meta — é o único passo que falta
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                O resto da publicação direta já está pronto: assim que estas três chaves entrarem,
+                aparece o botão de conectar o Instagram de cada cliente.
+              </Typography>
+              <Box component="ol" sx={{ m: 0, pl: 2.5, "& li": { mb: 0.75 } }}>
+                <li>
+                  Crie um app do tipo <b>Empresa</b> em{" "}
+                  <Link href="https://developers.facebook.com/apps" target="_blank" rel="noopener">
+                    developers.facebook.com
+                  </Link>{" "}
+                  e adicione os produtos <b>Login do Facebook</b> e <b>Instagram Graph API</b>.
+                </li>
+                <li>
+                  No Login do Facebook, cole este endereço em <b>URIs de redirecionamento do OAuth válidos</b>
+                  {" "}— igual, letra por letra:
+                  <Box component="code" sx={{
+                    display: "block", mt: 0.5, p: 1, borderRadius: 1, bgcolor: "action.hover",
+                    fontSize: 12.5, wordBreak: "break-all",
+                  }}>{status.retorno_certo}</Box>
+                </li>
+                <li>
+                  No Render, em <b>Environment</b>, preencha <code>META_APP_ID</code>,{" "}
+                  <code>META_APP_SECRET</code> e <code>META_REDIRECT_URI</code> (esta última com o endereço acima).
+                  {status.faltando?.length > 0 && (
+                    <> Hoje faltam: <b>{status.faltando.join(", ")}</b>.</>
+                  )}
+                </li>
+                <li>
+                  O Instagram do cliente precisa ser <b>conta profissional</b> vinculada a uma{" "}
+                  <b>Página do Facebook</b> que você administre — sem isso a Meta não deixa publicar por API.
+                </li>
+              </Box>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                Enquanto isso, o resto do sistema funciona normalmente e os posts saem pelo app, na mão.
+              </Typography>
+            </Alert>
+          )}
+
+          {/* CONFIGURADO, MAS COM O ENDEREÇO ERRADO. É pior que desligado: o
+              login da Meta abre, pede as permissões e morre no meio. */}
+          {status?.configured && status.retorno_confere === false && (
+            <Alert severity="warning" sx={{ mb: 2.5 }}>
+              <Typography sx={{ fontWeight: 600, mb: 0.5 }}>O endereço de retorno não bate</Typography>
+              O <code>META_REDIRECT_URI</code> do servidor está como{" "}
+              <b>{status.retorno_configurado}</b>, mas o sistema atende em{" "}
+              <b>{status.retorno_certo}</b>. O login da Meta vai abrir e morrer no meio.
+              Acerte os dois — no Render e no app da Meta — com o segundo endereço.
             </Alert>
           )}
 

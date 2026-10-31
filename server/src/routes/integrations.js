@@ -1,7 +1,7 @@
 import { Router } from "express";
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
-import { authRequired, moduleAllowed, JWT_SECRET, hostServeParaLink } from "../auth.js";
+import { authRequired, moduleAllowed, JWT_SECRET, hostServeParaLink, publicBaseUrl } from "../auth.js";
 import {
   metaConfigured, authUrl, exchangeCode, saveConnection, getConnection,
   publicConnection, publishToInstagram, publishCarouselToInstagram, publishToFacebook, META_APP_ID,
@@ -124,9 +124,26 @@ router.get("/meta/status", (req, res) => {
   // a escolha — é o que acende o aviso na tela.
   const pendentes = db.prepare("SELECT client_id FROM meta_pending WHERE org_id = ?")
     .all(req.orgId).map((r) => r.client_id);
+  // O ENDEREÇO DE RETORNO, PRONTO PARA COLAR NA META.
+  //
+  // É aqui que a configuração mais trava, e sempre pelo mesmo motivo: o
+  // endereço cadastrado no app da Meta tem de ser IGUAL, letra por letra, ao
+  // que o sistema usa. Um "/" a mais e a Meta devolve "URL bloqueada", sem
+  // dizer qual é a certa. Então o sistema diz: esta, exatamente esta.
+  const retornoCerto = `${publicBaseUrl(req)}/api/integrations/meta/callback`;
+  const faltando = ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"]
+    .filter((k) => !process.env[k]);
+
   res.json({
     configured: metaConfigured(),
     app_id: META_APP_ID ? `${META_APP_ID.slice(0, 6)}…` : null,
+    faltando,
+    retorno_certo: retornoCerto,
+    // Configurado, mas com o endereço errado, é pior que não configurado: o
+    // login da Meta abre e morre no meio, e nada na tela explica por quê.
+    retorno_confere: !process.env.META_REDIRECT_URI
+      || process.env.META_REDIRECT_URI.replace(/\/+$/, "") === retornoCerto.replace(/\/+$/, ""),
+    retorno_configurado: process.env.META_REDIRECT_URI || null,
     // dias_para_vencer acompanha a conexão: é o que acende o aviso na tela
     // antes de o token morrer e as publicações começarem a falhar.
     // A fila vai junto: é o que deixa ela conferir sozinha o que sai e o que
