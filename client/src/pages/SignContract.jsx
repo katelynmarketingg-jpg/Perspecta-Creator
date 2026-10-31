@@ -195,12 +195,17 @@ export default function SignContract() {
               {verificado && (
                 <>
                   <Divider sx={{ mb: 2 }}>Assinatura</Divider>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    Preencha os dados de <b>quem está assinando</b> — a pessoa responsável pela empresa.
+                    É esse nome e documento que ficam registrados no contrato.
+                  </Alert>
                   <Stack spacing={2}>
-                    <TextField label="Nome completo *" value={form.nome}
-                      onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} fullWidth />
-                    <TextField label="CPF ou CNPJ *" value={form.documento}
+                    <TextField label="Nome completo de quem assina *" value={form.nome}
+                      onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} fullWidth
+                      helperText="Quem está assinando pela empresa." />
+                    <TextField label="CPF ou CNPJ de quem assina *" value={form.documento}
                       onChange={(e) => setForm((f) => ({ ...f, documento: e.target.value }))} fullWidth
-                      placeholder="Só números" />
+                      placeholder="Só números" helperText="O documento da pessoa que assina (ou o CNPJ da empresa)." />
                     <Box>
                       <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 600 }}>Sua assinatura *</Typography>
                       <SignaturePad onChange={setAssinatura} />

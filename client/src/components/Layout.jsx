@@ -82,6 +82,20 @@ const NAV = [
   { to: "/settings", label: "Configurações", icon: <SettingsIcon /> },
 ];
 
+// Para onde cada aviso leva ao ser clicado — pelo que ele diz e pelo que carrega.
+// Antes TODO aviso caía em "/tarefas"; agora abre a tela que é mesmo.
+function destinoDaNotif(n) {
+  const m = (n?.message || "").toLowerCase();
+  if (/pediu ajuste|ajustes em|aprovou|aprovad|aprova[çc]/.test(m)) return "/distribution";
+  if (/onboarding|respondeu/.test(m)) return "/onboarding";
+  if (/assin|c[oó]digo para assinar|contrato/.test(m)) return "/contracts";
+  if (/inativos|arquivad|reativ/.test(m)) return "/clients";
+  if (/pagamento|cobran|parcela|recibo|financ/.test(m)) return "/financial";
+  if (n?.task_id) return "/distribution";
+  if (n?.client_id) return "/clients";
+  return "/tasks";
+}
+
 export default function Layout() {
   const { user, logout, isAdmin, isMaster, viewingOrg, leaveOrg } = useAuth();
   const { mode, toggle } = useColorMode();
@@ -330,8 +344,8 @@ export default function Layout() {
             <Divider />
             {notifs.length === 0 && <MenuItem disabled>Nenhuma notificação.</MenuItem>}
             {notifs.map((n) => (
-              <MenuItem key={n.id} onClick={() => { setNotifAnchor(null); navigate("/tasks"); }}
-                sx={{ whiteSpace: "normal", alignItems: "flex-start", opacity: n.is_read ? 0.55 : 1 }}>
+              <MenuItem key={n.id} onClick={() => { setNotifAnchor(null); navigate(destinoDaNotif(n)); }}
+                sx={{ whiteSpace: "normal", alignItems: "flex-start", opacity: n.is_read ? 0.55 : 1, cursor: "pointer" }}>
                 <Box>
                   <Typography variant="body2">{n.message}</Typography>
                   <Typography variant="caption" color="text.secondary">
