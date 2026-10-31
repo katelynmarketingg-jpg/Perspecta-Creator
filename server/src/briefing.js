@@ -546,7 +546,10 @@ export function ajustesDoBriefing(briefing) {
     return { welcome: padrao.welcome, gera_contrato: padrao.gera_contrato, cria_acesso: padrao.cria_acesso };
   }
   return {
-    welcome: form.welcome || padrao.welcome,
+    // Mescla sobre o padrão da casa: um formulário com boas-vindas pela metade
+    // (ex.: sem os parágrafos) herda o que falta, em vez de chegar quebrado na
+    // página do cliente. O que o formulário definiu continua ganhando.
+    welcome: { ...padrao.welcome, ...(form.welcome || {}) },
     gera_contrato: form.gera_contrato,
     cria_acesso: form.cria_acesso,
   };

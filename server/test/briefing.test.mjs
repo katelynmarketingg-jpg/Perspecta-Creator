@@ -132,6 +132,29 @@ test("duas perguntas no mesmo campo se somam, não se apagam", () => {
   assert.match(p.services, /vendemos B/);
 });
 
+test("formulário com boas-vindas pela metade não quebra a página do cliente", async () => {
+  // O que derrubou o link: um formulário com welcome só com título (sem os
+  // parágrafos) chegava assim na página, e o cliente via "Não deu para abrir
+  // esta tela". Agora o welcome do formulário é mesclado sobre o padrão da casa:
+  // o que o formulário definiu ganha, e o que falta vem do padrão.
+  const form = db.prepare(
+    "INSERT INTO briefing_forms (org_id, name, sections, welcome) VALUES (?,?,?,?)"
+  ).run(
+    org, "Advocacia",
+    JSON.stringify([{ id: "s1", titulo: "Seção", perguntas: [{ id: "p1", titulo: "Sua pergunta?", tipo: "texto" }] }]),
+    JSON.stringify({ titulo: "Bem-vindo da {agencia}" }),   // SEM paragrafos de propósito
+  ).lastInsertRowid;
+  const token = "tok-welcome-meio";
+  db.prepare("INSERT INTO briefings (org_id, client_id, token, form_id) VALUES (?,?,?,?)")
+    .run(org, cliente, token, form);
+
+  const r = await req("GET", `/briefing/${token}`);
+  assert.equal(r.st, 200);
+  assert.equal(r.welcome.titulo, "Bem-vindo da {agencia}", "o que o formulário definiu ganha");
+  assert.ok(Array.isArray(r.welcome.paragrafos) && r.welcome.paragrafos.length > 0,
+    "os parágrafos que faltavam vêm do padrão da casa — nada de página quebrada");
+});
+
 test("briefing de outro escritório não é acessível", async () => {
   const outraOrg = db.prepare("INSERT INTO organizations (name, is_master) VALUES ('Outra', 0)").run().lastInsertRowid;
   const outroUid = db.prepare(

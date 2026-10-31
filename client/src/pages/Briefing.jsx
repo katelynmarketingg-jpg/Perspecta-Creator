@@ -151,7 +151,9 @@ export default function Briefing() {
             </Typography>
 
             <Stack spacing={2} sx={{ fontSize: 17, lineHeight: 1.75, color: "text.secondary", mb: 4 }}>
-              {bv.paragrafos.map((t, i) => (
+              {/* Formulário com boas-vindas pela metade (sem parágrafos) não pode
+                  derrubar a página do cliente: sem parágrafo, não mostra nenhum. */}
+              {(bv.paragrafos || []).map((t, i) => (
                 <Typography key={i} sx={{ fontSize: "inherit", lineHeight: "inherit" }}>
                   {troca(t, dados)}
                 </Typography>
@@ -170,7 +172,7 @@ export default function Briefing() {
             <Button variant="contained" size="large" onClick={() => irPara(0)}
               endIcon={<ArrowForwardRoundedIcon />}
               sx={{ px: 4, py: 1.5, fontSize: 16.5, fontWeight: 700, borderRadius: 2.5 }}>
-              {jaComecou ? "Continuar de onde parei" : bv.botao}
+              {jaComecou ? "Continuar de onde parei" : (bv.botao || "Começar")}
             </Button>
             {jaComecou && (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
