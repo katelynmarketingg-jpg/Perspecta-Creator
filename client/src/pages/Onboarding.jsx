@@ -730,6 +730,7 @@ const VAZIO = {
   require_selfie: false,     // pedir selfie na hora de assinar?
   require_doc_photo: false,  // pedir foto do documento?
   assinar_casa: true,        // o contrato já nasce assinado por ela
+  avulso: false,             // serviço único (pagamento único, sem vigência)
 };
 
 /** "servico:3" / "modelo:7" — o select precisa de um valor só. */
@@ -872,6 +873,7 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
       require_selfie: f.require_selfie ? 1 : 0,
       require_doc_photo: f.require_doc_photo ? 1 : 0,
       assinar_casa: f.assinar_casa ? 1 : 0,
+      avulso: f.avulso ? 1 : 0,
     }, f.form_id || null);
   }
 
@@ -996,6 +998,15 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
           </Button>
 
           <Secao numero={4} titulo="Vigência e datas" />
+          <FormControlLabel
+            control={<Switch checked={f.avulso}
+              onChange={(e) => setF((a) => ({ ...a, avulso: e.target.checked }))} />}
+            label="Serviço único (pagamento único, sem vigência)" />
+          {f.avulso ? (
+            <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
+              No contrato: <b>serviço único</b> — sem período de vigência nem renovação.
+            </Alert>
+          ) : (
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField label="Começa em" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}
               value={f.start_date} onChange={(e) => setF((a) => ({ ...a, start_date: e.target.value }))} />
@@ -1004,7 +1015,8 @@ function FormularioOnboarding({ aberto, modelos, formularios, clients = [], ocup
               error={Boolean(f.start_date && f.end_date && !vig.meses && !vig.dias)}
               helperText={f.start_date && f.end_date && !vig.meses && !vig.dias ? "O fim tem que vir depois do começo." : " "} />
           </Stack>
-          {(vig.meses > 0 || vig.dias > 0) && (
+          )}
+          {!f.avulso && (vig.meses > 0 || vig.dias > 0) && (
             <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
               No contrato: <b>vigência de {vigTexto}</b>
               {" "}— de {f.start_date ? new Date(`${f.start_date}T12:00:00`).toLocaleDateString("pt-BR") : ""}

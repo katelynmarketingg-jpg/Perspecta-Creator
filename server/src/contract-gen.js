@@ -336,10 +336,12 @@ export function montaContrato(orgId, termos = {}) {
   // Vigência em meses + dias. Com data de início E fim, conta dia a dia (mostra
   // os dias que sobram do mês cheio). Se a agência informou duration_months
   // direto (sem datas), usa esse número redondo.
+  // Serviço único (avulso): pagamento único, sem vigência nem renovação.
+  const avulso = termos.billing === "avulso";
   const vig = (termos.start_date && termos.end_date)
     ? partesVigencia(termos.start_date, termos.end_date)
     : { meses: termos.duration_months ? Number(termos.duration_months) : null, dias: 0 };
-  const duracao = vig.meses;                       // inteiro p/ a coluna duration_months
+  const duracao = avulso ? null : vig.meses;       // inteiro p/ a coluna duration_months
   const vigTexto = textoVigencia(vig.meses, vig.dias);              // "1 mês e 5 dias"
   const vigExtenso = textoVigencia(vig.meses, vig.dias, { extenso: true }); // "um mês e cinco dias"
   const diaPgto = client.payment_day ? Number(client.payment_day) : null;
@@ -359,7 +361,7 @@ export function montaContrato(orgId, termos = {}) {
     endereco: client.address || LINHA,
     valor: brl(valor),
     valor_extenso: valorPorExtenso(valor),
-    duracao: (vig.meses || vig.dias) ? vigTexto : "prazo indeterminado",
+    duracao: avulso ? "serviço único (pagamento único)" : ((vig.meses || vig.dias) ? vigTexto : "prazo indeterminado"),
     // A data que a agência quer que conste (senão, a de hoje).
     data: termos.contract_date ? dataExtenso(termos.contract_date) : hoje(),
     servico: termos.servico || tpl.name || "",
