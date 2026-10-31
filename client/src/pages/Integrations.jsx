@@ -335,6 +335,19 @@ export default function Integrations() {
                         )}
                     </li>
                     <li>
+                      {teste.config_id
+                        ? <>Configuração do Login para empresas: <code>{teste.config_id}</code></>
+                        : (
+                          <>
+                            Sem <code>META_CONFIG_ID</code>. Se o seu app é do tipo{" "}
+                            <b>Login do Facebook para empresas</b> (o que a Meta cria hoje), ele precisa
+                            do número da <b>configuração</b> onde ficam as permissões — sem ele o login
+                            funciona, mas o acesso vem <b>sem permissão de publicar</b>, e o erro só
+                            aparece na hora de postar.
+                          </>
+                        )}
+                    </li>
+                    <li>
                       {teste.endereco_publico
                         ? <>Endereço público do sistema: <code>{teste.endereco_publico}</code></>
                         : (

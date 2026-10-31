@@ -7,6 +7,11 @@ import "dotenv/config";
 export const META_APP_ID = process.env.META_APP_ID || "";
 export const META_APP_SECRET = process.env.META_APP_SECRET || "";
 export const META_REDIRECT_URI = process.env.META_REDIRECT_URI || "";
+// App do tipo "Login do Facebook PARA EMPRESAS": ali as permissões não vão na
+// chamada, vão numa CONFIGURAÇÃO criada no painel, e o login é chamado com o
+// número dela. Vazio = app com o Login do Facebook clássico, que continua
+// funcionando igual.
+export const META_CONFIG_ID = process.env.META_CONFIG_ID || "";
 const GRAPH = "https://graph.facebook.com/v21.0";
 
 /** Teto do Instagram para carrossel. Passar disso, a Meta recusa a peça toda. */
@@ -26,14 +31,27 @@ export const META_SCOPES = [
   "business_management",
 ].join(",");
 
+/**
+ * O LINK DO LOGIN DA META — nos dois sabores de app que existem hoje.
+ *
+ * App antigo ("Login do Facebook"): as permissões vão na chamada, em `scope`.
+ *
+ * App novo ("Login do Facebook para empresas", que é o que a Meta cria hoje):
+ * as permissões ficam numa CONFIGURAÇÃO feita no painel, e a chamada manda só
+ * o número dela em `config_id` — a Meta diz que ele substitui o `scope`.
+ * Mandar scope num app desses dá token sem `instagram_content_publish`, e a
+ * publicação morre depois, na hora de publicar, dizendo "sem permissão" —
+ * longe de onde o erro realmente está.
+ */
 export function authUrl(state) {
   const params = new URLSearchParams({
     client_id: META_APP_ID,
     redirect_uri: META_REDIRECT_URI,
     state,
-    scope: META_SCOPES,
     response_type: "code",
   });
+  if (META_CONFIG_ID) params.set("config_id", META_CONFIG_ID);
+  else params.set("scope", META_SCOPES);
   return `https://www.facebook.com/v21.0/dialog/oauth?${params}`;
 }
 

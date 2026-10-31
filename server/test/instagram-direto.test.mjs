@@ -105,3 +105,30 @@ test("o botão está na tela, e o resultado diz cada uma das três", () => {
   assert.match(tela, /Endereço de retorno não confere/);
   assert.match(tela, /Falta o endereço público/);
 });
+
+// ---------------------------------------------------------------------------
+// APP "LOGIN DO FACEBOOK PARA EMPRESAS" — o tipo que a Meta cria hoje.
+//
+// Nele as permissões não vão na chamada do login: ficam numa CONFIGURAÇÃO
+// feita no painel, e a chamada manda só o número dela. Mandar `scope` num app
+// desses devolve um acesso SEM instagram_content_publish — e o erro só aparece
+// lá na frente, na hora de postar, longe de onde o problema está.
+// ---------------------------------------------------------------------------
+test("com configuração, o login vai por config_id; sem ela, por scope", () => {
+  assert.match(meta, /export const META_CONFIG_ID = process\.env\.META_CONFIG_ID \|\| ""/);
+  assert.match(meta, /if \(META_CONFIG_ID\) params\.set\("config_id", META_CONFIG_ID\);\s*\n\s*else params\.set\("scope", META_SCOPES\);/,
+    "um ou outro: a Meta diz que o config_id substitui o scope");
+});
+
+test("o app clássico continua funcionando igual", () => {
+  assert.match(meta, /Vazio = app com o Login do Facebook clássico/,
+    "quem já está ligado não pode quebrar por causa de uma variável nova");
+  assert.match(render, /- key: META_CONFIG_ID\n\s+sync: false/);
+});
+
+test("a tela avisa quando falta a configuração — antes de o erro aparecer longe", () => {
+  assert.match(tela, /Sem <code>META_CONFIG_ID<\/code>/);
+  assert.match(tela, /sem permissão de publicar/);
+  assert.match(doc, /META_CONFIG_ID/);
+  assert.match(doc, /instagram_content_publish/);
+});
