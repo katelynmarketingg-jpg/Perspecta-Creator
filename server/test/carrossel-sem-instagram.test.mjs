@@ -213,7 +213,7 @@ test("Integrações avisa que a conexão é só Página, onde se conecta", () =>
 test("o servidor manda para a tela se a conexão tem Instagram", () => {
   const rota = ler("../src/routes/distribution.js");
   const vezes = rota.split("AS meta_instagram").length - 1;
-  assert.equal(vezes, 5, "as cinco listas da Distribuição, senão uma delas mente");
+  assert.equal(vezes, 6, "as seis listas da Distribuição (inclui 'Ajustar'), senão uma delas mente");
 });
 
 test("'nenhuma página' não manda mais criar uma página que já existe", () => {

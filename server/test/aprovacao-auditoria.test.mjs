@@ -118,8 +118,10 @@ test("pedir ajuste guarda o RECADO e devolve a peça para a agência", async () 
   assert.equal(t.approval_status, "changes_requested");
   assert.match(t.client_note, /Trocar a foto do meio/);
   const d = await fetch(`${B}/distribution`, { headers: H }).then((x) => x.json());
-  const achada = (d.waiting || []).concat(d.items || []).find((x) => x.id === id);
-  assert.ok(achada, "a agência precisa ver que ele pediu ajuste");
+  // "pediu ajuste" agora tem aba própria (adjust); não fica misturado em Preparar.
+  const achada = (d.adjust || []).find((x) => x.id === id);
+  assert.ok(achada, "a agência vê na aba Ajustar que ele pediu mudança");
+  assert.match(achada.client_note, /Trocar a foto do meio/, "com o recado do cliente à vista");
 });
 
 test("aprovar duas vezes não duplica aviso nem muda de novo", async () => {
