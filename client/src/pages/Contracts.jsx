@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Button, Card, Table, TableContainer, TableBody, TableCell, TableHead, TableRow, IconButton, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, MenuItem,
+  FormControlLabel, Switch,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -93,6 +94,18 @@ export default function Contracts() {
   }
 
   const load = () => api.get("/contracts").then((r) => setRows(r.data));
+
+  // Liga/desliga a exigência de selfie / foto do documento neste contrato.
+  async function exigirProva(c, campo, valor) {
+    const corpo = {
+      require_selfie: campo === "require_selfie" ? valor : Boolean(c.require_selfie),
+      require_doc_photo: campo === "require_doc_photo" ? valor : Boolean(c.require_doc_photo),
+    };
+    try {
+      const { data } = await api.post(`/contracts/${c.id}/prova`, corpo);
+      setVer(data); load();
+    } catch { /* a tela continua refletindo o estado atual */ }
+  }
   useEffect(() => {
     load(); loadTemplates();
     api.get("/clients").then((r) => setClients(r.data));
@@ -329,7 +342,42 @@ export default function Contracts() {
                 <Box component="img" src={ver.signature_img} alt="assinatura"
                   sx={{ display: "block", mt: 1, maxHeight: 70, bgcolor: "#fff", borderRadius: 1, p: 0.5 }} />
               )}
+              {(ver.signer_selfie || ver.signer_doc_photo) && (
+                <Stack direction="row" spacing={1.5} sx={{ mt: 1, flexWrap: "wrap" }}>
+                  {ver.signer_selfie && (
+                    <Box>
+                      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>Selfie</Typography>
+                      <Box component="img" src={ver.signer_selfie} alt="selfie de quem assinou"
+                        sx={{ maxHeight: 130, borderRadius: 1, border: "1px solid", borderColor: "divider" }} />
+                    </Box>
+                  )}
+                  {ver.signer_doc_photo && (
+                    <Box>
+                      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>Foto do documento</Typography>
+                      <Box component="img" src={ver.signer_doc_photo} alt="foto do documento"
+                        sx={{ maxHeight: 130, borderRadius: 1, border: "1px solid", borderColor: "divider" }} />
+                    </Box>
+                  )}
+                </Stack>
+              )}
             </Alert>
+          )}
+          {!ver?.signed_at && (
+            <Box sx={{ mb: 2, p: 1.5, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                Prova reforçada — o que pedir na tela de assinatura (dá para ligar até a pessoa assinar):
+              </Typography>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <FormControlLabel
+                  control={<Switch checked={Boolean(ver?.require_selfie)}
+                    onChange={(e) => exigirProva(ver, "require_selfie", e.target.checked)} />}
+                  label="Exigir selfie" />
+                <FormControlLabel
+                  control={<Switch checked={Boolean(ver?.require_doc_photo)}
+                    onChange={(e) => exigirProva(ver, "require_doc_photo", e.target.checked)} />}
+                  label="Exigir foto do documento" />
+              </Stack>
+            </Box>
           )}
           <Box sx={{ p: 2, borderRadius: 2, bgcolor: "action.hover" }}>
             <TextoDoContrato texto={ver?.notes} contrato={ver} />

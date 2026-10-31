@@ -57,6 +57,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: <DashboardIcon />, end: true },
   { to: "/clients", label: "Clientes", icon: <PeopleIcon /> },
   { to: "/services", label: "Serviços", icon: <DesignServicesIcon /> },
+  { to: "/contracts", label: "Contratos", icon: <DescriptionIcon /> },
   { to: "/prospects", label: "Prospecção", icon: <PersonSearchIcon /> },
   { to: "/workspace", label: "Central", icon: <SpaceDashboardIcon /> },
   { to: "/priorities", label: "Prioridades", icon: <FlagIcon /> },

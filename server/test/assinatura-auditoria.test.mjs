@@ -194,3 +194,20 @@ test("o e-mail do código cai no e-mail do portal quando o principal está vazio
   assert.equal(r.email_no_cadastro, true, "achou um e-mail (o do portal)");
   assert.match(r.email_mascarado || "", /@exemplo\.com$/, "e é o do portal");
 });
+
+// --- exigir selfie / foto do documento por contrato (ligável até assinar) -----
+test("exigir selfie/doc por contrato, e a exigência trava depois de assinado", async () => {
+  const id = novoContrato();
+  let r = await req("POST", `/contracts/${id}/prova`, { require_selfie: true, require_doc_photo: false }, H);
+  assert.equal(r.st, 200);
+  const dep = db.prepare("SELECT require_selfie, require_doc_photo FROM contracts WHERE id=?").get(id);
+  assert.equal(dep.require_selfie, 1, "ligou a selfie");
+  assert.equal(dep.require_doc_photo, 0);
+
+  // Depois de assinado, a exigência não muda mais (fica o que foi exigido).
+  db.prepare("UPDATE contracts SET signed_at = datetime('now') WHERE id = ?").run(id);
+  r = await req("POST", `/contracts/${id}/prova`, { require_selfie: false }, H);
+  assert.equal(r.st, 409);
+  assert.equal(db.prepare("SELECT require_selfie FROM contracts WHERE id=?").get(id).require_selfie, 1,
+    "assinado: continua gravado o que foi exigido");
+});

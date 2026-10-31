@@ -99,6 +99,23 @@ router.put("/:id", (req, res) => {
   res.json(comIntegridade(db.prepare(`${SELECT} WHERE ct.id = ?`).get(req.params.id))[0]);
 });
 
+// POST /:id/prova — exigir (ou não) selfie / foto do documento NESTE contrato.
+//
+// Antes, a prova reforçada só dava para ligar na hora de abrir o onboarding; se
+// ela esquecesse, não tinha como exigir depois. Aqui ela liga/desliga por
+// contrato, a qualquer momento ANTES de assinar — depois de assinado o que foi
+// exigido já está gravado e não muda mais.
+router.post("/:id/prova", (req, res) => {
+  const c = db.prepare("SELECT id, signed_at FROM contracts WHERE id = ? AND org_id = ?").get(req.params.id, req.orgId);
+  if (!c) return res.status(404).json({ error: "Contrato não encontrado." });
+  if (c.signed_at) return res.status(409).json({ error: "Contrato já assinado — a exigência não muda mais." });
+  const selfie = req.body?.require_selfie ? 1 : 0;
+  const doc = req.body?.require_doc_photo ? 1 : 0;
+  db.prepare("UPDATE contracts SET require_selfie = ?, require_doc_photo = ? WHERE id = ? AND org_id = ?")
+    .run(selfie, doc, c.id, req.orgId);
+  res.json(comIntegridade(db.prepare(`${SELECT} WHERE ct.id = ?`).get(c.id))[0]);
+});
+
 router.delete("/:id", (req, res) => {
   db.prepare("DELETE FROM contracts WHERE id = ? AND org_id = ?").run(req.params.id, req.orgId);
   res.json({ ok: true });
