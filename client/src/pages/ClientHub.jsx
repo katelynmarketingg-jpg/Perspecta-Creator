@@ -13,12 +13,29 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   Box, Card, CardContent, Typography, Tabs, Tab, TextField, Stack, MenuItem,
   Button, Chip, Divider, CircularProgress, Alert, FormControlLabel, Switch,
-  Dialog, DialogTitle, DialogContent, DialogActions,
+  Dialog, DialogTitle, DialogContent, DialogActions, IconButton,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import Inventory2Icon from "@mui/icons-material/Inventory2";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import DeleteIcon from "@mui/icons-material/Delete";
+import AddIcon from "@mui/icons-material/Add";
 import api from "../api/client.js";
 import { currency, formatDate } from "../utils.js";
+
+// Tipos de acesso do cofre.
+const TIPOS_ACESSO = [
+  { id: "registro_br", label: "Registro.br (domínio)" },
+  { id: "hospedagem", label: "Hospedagem" },
+  { id: "email", label: "E-mail" },
+  { id: "google_meu_negocio", label: "Google Meu Negócio" },
+  { id: "instagram", label: "Instagram" },
+  { id: "outro", label: "Outro" },
+];
+const rotuloTipo = (k) => TIPOS_ACESSO.find((t) => t.id === k)?.label || "Outro";
 
 // Um bloco de seção (título em cima, campos dentro) — a cara do cadastro.
 function Secao({ titulo, children }) {
@@ -51,6 +68,9 @@ export default function ClientHub() {
   const [projetos, setProjetos] = useState(null);
   const [persona, setPersona] = useState(null);
   const [arquivar, setArquivar] = useState(null); // { observacao, pagamento_ate }
+  const [acessos, setAcessos] = useState(null);    // cofre de acessos
+  const [credForm, setCredForm] = useState(null);  // acesso em edição/criação
+  const [verSenha, setVerSenha] = useState({});    // quais senhas estão à mostra
 
   useEffect(() => {
     setCarregando(true);
@@ -99,7 +119,26 @@ export default function ClientHub() {
     if (indice === 6 && !persona) {
       api.get(`/ai/persona/${id}`).then((r) => setPersona(r.data || {})).catch(() => setPersona({}));
     }
+    if (indice === 7 && !acessos) carregarAcessos();
   }
+
+  function carregarAcessos() {
+    api.get(`/credentials/${id}`).then((r) => setAcessos(r.data || [])).catch(() => setAcessos([]));
+  }
+  async function salvarCred() {
+    const c = credForm;
+    try {
+      if (c.id) await api.put(`/credentials/${id}/${c.id}`, c);
+      else await api.post(`/credentials/${id}`, c);
+      setCredForm(null);
+      carregarAcessos();
+    } catch (e) { setErro(e.response?.data?.error || "Não foi possível salvar o acesso."); }
+  }
+  async function apagarCred(credId) {
+    try { await api.delete(`/credentials/${id}/${credId}`); carregarAcessos(); }
+    catch (e) { setErro(e.response?.data?.error || "Não foi possível apagar."); }
+  }
+  const copiar = (txt) => { try { navigator.clipboard.writeText(txt || ""); } catch { /* sem permissão */ } };
 
   // Arquivar / reativar o cliente — o arquivar guarda o combinado e não perde nada.
   async function confirmarArquivar() {
@@ -158,6 +197,7 @@ export default function ClientHub() {
         <Tab label="Onboarding" />
         <Tab label="Projetos" />
         <Tab label="Inteligência" />
+        <Tab label="Acessos" />
       </Tabs>
 
       {erro && cli && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErro("")}>{erro}</Alert>}
@@ -346,6 +386,88 @@ export default function ClientHub() {
           <Button sx={{ mt: 2 }} onClick={() => navigate("/intelligence")}>Editar em Inteligência</Button>
         </CardContent></Card>
       )}
+
+      {/* ---- ACESSOS (cofre) ---- */}
+      {aba === 7 && (
+        <Card variant="outlined"><CardContent>
+          <Stack direction="row" alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", gap: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 200 }}>
+              Acessos que a agência administra. As senhas ficam criptografadas e entram no PDF de entrega pro cliente.
+            </Typography>
+            <Button size="small" startIcon={<AddIcon />}
+              onClick={() => setCredForm({ kind: "registro_br", label: "", login: "", secret: "", url: "", notes: "" })}>
+              Novo acesso
+            </Button>
+          </Stack>
+          {!acessos ? <CircularProgress size={22} />
+            : acessos.length === 0 ? <Typography color="text.secondary">Nenhum acesso guardado ainda.</Typography>
+            : (
+              <Stack divider={<Divider />} spacing={1}>
+                {acessos.map((a) => (
+                  <Box key={a.id} sx={{ py: 0.5 }}>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap" }}>
+                      <Chip size="small" label={rotuloTipo(a.kind)} />
+                      <Typography sx={{ fontWeight: 600, flex: 1, minWidth: 120 }}>{a.label || rotuloTipo(a.kind)}</Typography>
+                      <Button size="small" onClick={() => setCredForm({ ...a, secret: "" })}>Editar</Button>
+                      <IconButton size="small" color="error" onClick={() => apagarCred(a.id)}><DeleteIcon fontSize="small" /></IconButton>
+                    </Stack>
+                    <Stack direction="row" alignItems="center" spacing={2} sx={{ mt: 0.5, flexWrap: "wrap" }}>
+                      {a.login && (
+                        <Typography variant="body2" color="text.secondary">
+                          Login: <b>{a.login}</b>
+                          <IconButton size="small" onClick={() => copiar(a.login)}><ContentCopyIcon sx={{ fontSize: 14 }} /></IconButton>
+                        </Typography>
+                      )}
+                      {a.secret && (
+                        <Typography variant="body2" color="text.secondary">
+                          Senha: <b>{verSenha[a.id] ? a.secret : "••••••••"}</b>
+                          <IconButton size="small" onClick={() => setVerSenha((v) => ({ ...v, [a.id]: !v[a.id] }))}>
+                            {verSenha[a.id] ? <VisibilityOffIcon sx={{ fontSize: 14 }} /> : <VisibilityIcon sx={{ fontSize: 14 }} />}
+                          </IconButton>
+                          <IconButton size="small" onClick={() => copiar(a.secret)}><ContentCopyIcon sx={{ fontSize: 14 }} /></IconButton>
+                        </Typography>
+                      )}
+                      {a.url && (
+                        <Button size="small" startIcon={<OpenInNewIcon />}
+                          onClick={() => { copiar(a.login || ""); window.open(a.url, "_blank", "noopener"); }}>
+                          Entrar
+                        </Button>
+                      )}
+                    </Stack>
+                    {a.notes && <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>{a.notes}</Typography>}
+                  </Box>
+                ))}
+              </Stack>
+            )}
+        </CardContent></Card>
+      )}
+
+      {/* ---- Novo/editar acesso ---- */}
+      <Dialog open={Boolean(credForm)} onClose={() => setCredForm(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{credForm?.id ? "Editar acesso" : "Novo acesso"}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField select label="Tipo" value={credForm?.kind || "outro"} size="small"
+              onChange={(e) => setCredForm((c) => ({ ...c, kind: e.target.value }))}>
+              {TIPOS_ACESSO.map((t) => <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>)}
+            </TextField>
+            <TextField label="Nome (ex.: Domínio principal)" value={credForm?.label || ""} size="small"
+              onChange={(e) => setCredForm((c) => ({ ...c, label: e.target.value }))} />
+            <TextField label="Login / usuário / domínio" value={credForm?.login || ""} size="small"
+              onChange={(e) => setCredForm((c) => ({ ...c, login: e.target.value }))} />
+            <TextField label={credForm?.id ? "Senha (vazio = manter)" : "Senha"} value={credForm?.secret || ""} size="small"
+              onChange={(e) => setCredForm((c) => ({ ...c, secret: e.target.value }))} />
+            <TextField label="Endereço para entrar (URL)" value={credForm?.url || ""} size="small"
+              onChange={(e) => setCredForm((c) => ({ ...c, url: e.target.value }))} />
+            <TextField label="Observação" value={credForm?.notes || ""} size="small" multiline minRows={2}
+              onChange={(e) => setCredForm((c) => ({ ...c, notes: e.target.value }))} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCredForm(null)}>Cancelar</Button>
+          <Button variant="contained" onClick={salvarCred}>Salvar</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ---- Arquivar ---- */}
       <Dialog open={Boolean(arquivar)} onClose={() => setArquivar(null)} fullWidth maxWidth="xs">
