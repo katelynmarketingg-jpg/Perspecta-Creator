@@ -3,6 +3,7 @@ import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button, Stack,
   Chip, Alert, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions,
   ToggleButtonGroup, ToggleButton, IconButton, Divider, Checkbox, Tooltip, Slider, Collapse,
+  LinearProgress,
 } from "@mui/material";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import ViewCarouselIcon from "@mui/icons-material/ViewCarousel";
@@ -2609,6 +2610,9 @@ export default function Distribution() {
   // meses" — e isso é também o conserto da demora: a tela trazia todas as
   // peças de todos os meses (medido: 994 KB de resposta; com o mês, 142 KB).
   const [mes, setMes] = useState(() => new Date().toISOString().slice(0, 7));
+  // Progresso do mês (prontos/programados vs. a meta) — o mesmo medidor da aba
+  // Entregas, aqui pra ela saber o que falta programar sem trocar de tela.
+  const [metasMes, setMetasMes] = useState([]);
   const [selected, setSelected] = useState(null); // peça no editor (lista/perfil/calendário)
   const [selectMode, setSelectMode] = useState(false); // seleção múltipla na visão "Por post"
   const [checked, setChecked] = useState(() => new Set()); // ids marcados
@@ -2641,6 +2645,10 @@ export default function Distribution() {
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [clientFilter, mes, vTasks, vDist]);
+  useEffect(() => {
+    api.get("/reports/deliveries", { params: { month: mes } })
+      .then((r) => setMetasMes(r.data || [])).catch(() => setMetasMes([]));
+  }, [mes, vTasks, vDist]);
 
   // Volta o perfil à ordem POR DATA: apaga as posições salvas.
   async function voltarPorData(ids) {
@@ -2918,6 +2926,37 @@ export default function Distribution() {
             </ToggleButtonGroup>
           </Stack>
         } />
+
+      {/* Progresso do mês: o que já está programado contra a meta de cada
+          cliente — o mesmo medidor da aba Entregas, pra saber o que falta. */}
+      {metasMes.length > 0 && (() => {
+        const lista = clientFilter ? metasMes.filter((d) => String(d.id) === String(clientFilter)) : metasMes;
+        if (!lista.length) return null;
+        return (
+          <Card variant="outlined" sx={{ mb: 2 }}>
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                Progresso do mês — {nomeDoMes(mes)} (programados vs. meta)
+              </Typography>
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                {lista.map((d) => (
+                  <Box key={d.id}>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.25 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, flex: 1, minWidth: 0 }} noWrap>{d.client_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {d.entregues}/{d.planejado || d.entregues} programadas
+                      </Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, minWidth: 40, textAlign: "right" }}>{d.percentual}%</Typography>
+                    </Stack>
+                    <LinearProgress variant="determinate" value={Math.min(d.percentual || 0, 100)}
+                      color={(d.percentual || 0) >= 100 ? "success" : "primary"} sx={{ height: 6, borderRadius: 3 }} />
+                  </Box>
+                ))}
+              </Stack>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {msg && <Alert severity={msg.tipo} sx={{ mb: 2 }}>{msg.texto}</Alert>}
 
