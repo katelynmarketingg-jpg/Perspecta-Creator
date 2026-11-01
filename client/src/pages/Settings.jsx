@@ -3,6 +3,7 @@ import {
   Card, CardContent, Typography, Stack, TextField, Button, IconButton, Chip,
   List, ListItem, ListItemText, FormControlLabel, Switch, Box, Divider,
   Dialog, DialogTitle, DialogContent, DialogActions, Alert, MenuItem, LinearProgress,
+  Tabs, Tab,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
@@ -292,6 +293,8 @@ function Armazenamento() {
 
 export default function Settings() {
   const { user, isAdmin } = useAuth();
+  // Em vez de tudo empilhado, Configurações vira abas — cada uma usa a tela toda.
+  const [aba, setAba] = useState(isAdmin ? "marca" : "cliente");
   const [stages, setStages] = useState([]);
   const [branding, setBranding] = useState({ logo: null, favicon: null });
   const [brandMsg, setBrandMsg] = useState(null);
@@ -442,6 +445,17 @@ export default function Settings() {
     <>
       <PageHeader title="Configurações" subtitle="Preferências do sistema" />
 
+      <Tabs value={aba} onChange={(_, v) => setAba(v)} variant="scrollable" scrollButtons="auto"
+        sx={{ borderBottom: 1, borderColor: "divider", mb: 2.5 }}>
+        {isAdmin && <Tab value="marca" label="Marca" />}
+        <Tab value="cliente" label="Área do cliente" />
+        <Tab value="kanban" label="Kanban" />
+        {isAdmin && <Tab value="email" label="E-mail" />}
+        {isAdmin && <Tab value="arquivos" label="Armazenamento" />}
+        {isAdmin && <Tab value="recibos" label="Contrato & Recibos" />}
+        <Tab value="conta" label="Conta" />
+      </Tabs>
+
       {/* A tela toda, não uma coluna estreita: as caixas se encaixam em uma,
           duas ou três colunas conforme a largura, e cada uma fica com a
           altura que precisa. Em grade comum as linhas esticam na altura da
@@ -454,7 +468,7 @@ export default function Settings() {
           "& > *": { display: "block", breakInside: "avoid", mb: 2.5 },
         }}
       >
-        {isAdmin && (
+        {aba === "marca" && isAdmin && (
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 0.5 }}>Marca (logo e favicon)</Typography>
@@ -523,7 +537,7 @@ export default function Settings() {
           </Card>
         )}
 
-        {isAdmin && (
+        {aba === "cliente" && isAdmin && (
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 0.5 }}>Acessos dos clientes (portal)</Typography>
@@ -559,7 +573,7 @@ export default function Settings() {
           </Card>
         )}
 
-        {isAdmin && (
+        {aba === "cliente" && isAdmin && (
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 0.5 }}>Aprovação de conteúdo</Typography>
@@ -581,6 +595,7 @@ export default function Settings() {
           </Card>
         )}
 
+        {aba === "kanban" && (
         <Card>
           <CardContent>
             <Typography variant="h6" sx={{ mb: 0.5 }}>Etapas do Kanban</Typography>
@@ -603,9 +618,9 @@ export default function Settings() {
               <Button variant="contained" startIcon={<AddIcon />} onClick={addStage}>Adicionar</Button>
             </Box>
           </CardContent>
-        </Card>
+        </Card>)}
 
-        {isAdmin && (
+        {aba === "kanban" && isAdmin && (
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 0.5 }}>Tipos de tarefa e quem faz cada um</Typography>
@@ -659,6 +674,7 @@ export default function Settings() {
           </Card>
         )}
 
+        {aba === "conta" && (
         <Card>
           <CardContent>
             <Typography variant="h6" sx={{ mb: 1 }}>Conta</Typography>
@@ -684,17 +700,17 @@ export default function Settings() {
               </Box>
             </Stack>
           </CardContent>
-        </Card>
+        </Card>)}
 
-        {isAdmin && <EmailDeAssinatura />}
-        {isAdmin && <Armazenamento />}
+        {aba === "email" && isAdmin && <EmailDeAssinatura />}
+        {aba === "arquivos" && isAdmin && <Armazenamento />}
       </Box>
 
       {/* Recibos é uma tela inteira dentro de uma caixa: numa coluna ela
           ficava com 2,6 mil pixels de altura e deixava as outras colunas
           vazias do lado. Aqui ela usa a largura toda e se organiza por
           dentro — campos de um lado, prévia do outro. */}
-      {isAdmin && <ReceiptSettings />}
+      {aba === "recibos" && isAdmin && <ReceiptSettings />}
 
       <Dialog open={Boolean(loginDraft)} onClose={() => setLoginDraft(null)} fullWidth maxWidth="xs">
         <DialogTitle>Acesso ao portal — {loginDraft?.name}</DialogTitle>
